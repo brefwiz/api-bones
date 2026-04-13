@@ -1,0 +1,2 @@
+[registries.gitea]
+index = "sparse+https://brefwiz.mentalmorph.com/api/packages/Brefwiz/cargo/"

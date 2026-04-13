@@ -1,0 +1,845 @@
+//! Standard API error types for all Brefwiz services.
+//!
+//! All services serialize errors into [`ApiError`] before sending an HTTP
+//! response. The wire format conforms to
+//! [RFC 9457 — Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457):
+//!
+//! ```json
+//! {
+//!   "type": "urn:brefwiz:error:resource-not-found",
+//!   "title": "Resource Not Found",
+//!   "status": 404,
+//!   "detail": "Booking 123 not found",
+//!   "instance": "urn:uuid:01234567-89ab-cdef-0123-456789abcdef"
+//! }
+//! ```
+//!
+//! Content-Type: `application/problem+json`
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Error code
+// ---------------------------------------------------------------------------
+
+/// Machine-readable error code included in every API error response.
+///
+/// Serializes as a URN per [RFC 9457 §3.1.1](https://www.rfc-editor.org/rfc/rfc9457#section-3.1.1),
+/// which requires the `type` member to be a URI reference.
+/// Format: `urn:brefwiz:error:<slug>` (e.g. `urn:brefwiz:error:resource-not-found`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub enum ErrorCode {
+    // 400
+    BadRequest,
+    ValidationFailed,
+    // 401
+    Unauthorized,
+    InvalidCredentials,
+    TokenExpired,
+    TokenInvalid,
+    // 403
+    Forbidden,
+    InsufficientPermissions,
+    // 404
+    ResourceNotFound,
+    // 409
+    Conflict,
+    ResourceAlreadyExists,
+    // 422
+    UnprocessableEntity,
+    // 429
+    RateLimited,
+    // 500
+    InternalServerError,
+    // 503
+    ServiceUnavailable,
+}
+
+/// How the RFC 9457 `type` field is rendered for [`ErrorCode`].
+///
+/// RFC 9457 §3.1.1 requires `type` to be a URI reference and encourages using
+/// resolvable URLs so consumers can look up documentation. This enum lets you
+/// choose the format that fits your deployment.
+///
+/// # Configuration
+///
+/// Set the mode once at startup via [`set_error_type_mode`], or let it
+/// auto-resolve from environment variables (see [`error_type_mode`]).
+///
+/// ## URL mode (recommended)
+///
+/// Produces `{base_url}/{slug}`, e.g.:
+/// `https://docs.myapp.com/errors/resource-not-found`
+///
+/// Set via env: `SHARED_TYPES_ERROR_TYPE_BASE_URL=https://docs.myapp.com/errors`
+///
+/// ## URN mode (fallback)
+///
+/// Produces `urn:{namespace}:error:{slug}`, e.g.:
+/// `urn:myapp:error:resource-not-found`
+///
+/// Set via env: `SHARED_TYPES_URN_NAMESPACE=myapp`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ErrorTypeMode {
+    /// Generate a resolvable URL per RFC 9457 §3.1.1 (recommended).
+    /// Format: `{base_url}/{slug}` — trailing slash in `base_url` is trimmed automatically.
+    Url {
+        /// Base URL for error documentation, e.g. `https://docs.myapp.com/errors`.
+        base_url: String,
+    },
+    /// Generate a URN per RFC 9457 §3.1.1 + RFC 8141.
+    /// Format: `urn:{namespace}:error:{slug}`.
+    Urn {
+        /// URN namespace, e.g. `"myapp"`.
+        namespace: String,
+    },
+}
+
+impl ErrorTypeMode {
+    /// Render the full `type` URI for a given error slug.
+    #[must_use]
+    pub fn render(&self, slug: &str) -> String {
+        match self {
+            Self::Url { base_url } => format!("{}/{slug}", base_url.trim_end_matches('/')),
+            Self::Urn { namespace } => format!("urn:{namespace}:error:{slug}"),
+        }
+    }
+}
+
+/// Returns the active [`ErrorTypeMode`].
+///
+/// Resolution order (first wins):
+/// 1. Value set via [`set_error_type_mode`] (programmatic, highest priority)
+/// 2. Compile-time `SHARED_TYPES_ERROR_TYPE_BASE_URL` → [`ErrorTypeMode::Url`]
+/// 3. Runtime `SHARED_TYPES_ERROR_TYPE_BASE_URL` → [`ErrorTypeMode::Url`]
+/// 4. Compile-time `SHARED_TYPES_URN_NAMESPACE` → [`ErrorTypeMode::Urn`]
+/// 5. Runtime `SHARED_TYPES_URN_NAMESPACE` → [`ErrorTypeMode::Urn`]
+/// 6. Default: `ErrorTypeMode::Urn { namespace: "brefwiz".into() }`
+static _ERROR_TYPE_MODE: std::sync::OnceLock<ErrorTypeMode> = std::sync::OnceLock::new();
+
+#[must_use]
+pub fn error_type_mode() -> &'static ErrorTypeMode {
+    _ERROR_TYPE_MODE.get_or_init(|| {
+        // 1. Compile-time base URL → URL mode
+        if let Some(url) = option_env!("SHARED_TYPES_ERROR_TYPE_BASE_URL")
+            && !url.is_empty()
+        {
+            return ErrorTypeMode::Url {
+                base_url: url.to_owned(),
+            };
+        }
+        // 2. Runtime base URL → URL mode
+        if let Ok(url) = std::env::var("SHARED_TYPES_ERROR_TYPE_BASE_URL")
+            && !url.is_empty()
+        {
+            return ErrorTypeMode::Url { base_url: url };
+        }
+        // 3. Compile-time URN namespace → URN mode
+        if let Some(ns) = option_env!("SHARED_TYPES_URN_NAMESPACE")
+            && !ns.is_empty()
+        {
+            return ErrorTypeMode::Urn {
+                namespace: ns.to_owned(),
+            };
+        }
+        // 4. Runtime URN namespace → URN mode
+        if let Ok(ns) = std::env::var("SHARED_TYPES_URN_NAMESPACE")
+            && !ns.is_empty()
+        {
+            return ErrorTypeMode::Urn { namespace: ns };
+        }
+        // 5. Default
+        ErrorTypeMode::Urn {
+            namespace: "brefwiz".to_owned(),
+        }
+    })
+}
+
+/// Override the error type mode programmatically (call once at application startup).
+///
+/// Must be called before any [`ErrorCode::urn`] or serialization occurs, as the
+/// mode is cached after first use.
+///
+/// # Example
+/// ```rust
+/// use shared_types::error::{set_error_type_mode, ErrorTypeMode};
+///
+/// set_error_type_mode(ErrorTypeMode::Url {
+///     base_url: "https://docs.myapp.com/errors".into(),
+/// });
+/// ```
+pub fn set_error_type_mode(mode: ErrorTypeMode) {
+    // Delegates to the same OnceLock used by error_type_mode().
+    // Must be called before first use — subsequent calls are no-ops.
+    let _ = _ERROR_TYPE_MODE.set(mode);
+}
+
+/// Returns the active URN namespace (convenience wrapper around [`error_type_mode`]).
+/// Only meaningful when in [`ErrorTypeMode::Urn`] mode.
+#[must_use]
+pub fn urn_namespace() -> &'static str {
+    match error_type_mode() {
+        ErrorTypeMode::Urn { namespace } => namespace.as_str(),
+        ErrorTypeMode::Url { .. } => "brefwiz",
+    }
+}
+
+impl ErrorCode {
+    /// HTTP status code for this error code.
+    #[must_use]
+    pub fn status_code(&self) -> u16 {
+        match self {
+            Self::BadRequest | Self::ValidationFailed => 400,
+            Self::Unauthorized
+            | Self::InvalidCredentials
+            | Self::TokenExpired
+            | Self::TokenInvalid => 401,
+            Self::Forbidden | Self::InsufficientPermissions => 403,
+            Self::ResourceNotFound => 404,
+            Self::Conflict | Self::ResourceAlreadyExists => 409,
+            Self::UnprocessableEntity => 422,
+            Self::RateLimited => 429,
+            Self::InternalServerError => 500,
+            Self::ServiceUnavailable => 503,
+        }
+    }
+
+    /// Human-friendly title for this error code (RFC 9457 `title` field).
+    #[must_use]
+    pub fn title(&self) -> &'static str {
+        match self {
+            Self::BadRequest => "Bad Request",
+            Self::ValidationFailed => "Validation Failed",
+            Self::Unauthorized => "Unauthorized",
+            Self::InvalidCredentials => "Invalid Credentials",
+            Self::TokenExpired => "Token Expired",
+            Self::TokenInvalid => "Token Invalid",
+            Self::Forbidden => "Forbidden",
+            Self::InsufficientPermissions => "Insufficient Permissions",
+            Self::ResourceNotFound => "Resource Not Found",
+            Self::Conflict => "Conflict",
+            Self::ResourceAlreadyExists => "Resource Already Exists",
+            Self::UnprocessableEntity => "Unprocessable Entity",
+            Self::RateLimited => "Rate Limited",
+            Self::InternalServerError => "Internal Server Error",
+            Self::ServiceUnavailable => "Service Unavailable",
+        }
+    }
+
+    /// The URN slug for this error code (the part after `urn:brefwiz:error:`).
+    #[must_use]
+    pub fn urn_slug(&self) -> &'static str {
+        match self {
+            Self::BadRequest => "bad-request",
+            Self::ValidationFailed => "validation-failed",
+            Self::Unauthorized => "unauthorized",
+            Self::InvalidCredentials => "invalid-credentials",
+            Self::TokenExpired => "token-expired",
+            Self::TokenInvalid => "token-invalid",
+            Self::Forbidden => "forbidden",
+            Self::InsufficientPermissions => "insufficient-permissions",
+            Self::ResourceNotFound => "resource-not-found",
+            Self::Conflict => "conflict",
+            Self::ResourceAlreadyExists => "resource-already-exists",
+            Self::UnprocessableEntity => "unprocessable-entity",
+            Self::RateLimited => "rate-limited",
+            Self::InternalServerError => "internal-server-error",
+            Self::ServiceUnavailable => "service-unavailable",
+        }
+    }
+
+    /// Full type URI for this error code per RFC 9457 §3.1.1.
+    ///
+    /// The format depends on the active [`ErrorTypeMode`] (see [`error_type_mode`]):
+    /// - URL mode: `https://docs.myapp.com/errors/resource-not-found`
+    /// - URN mode: `urn:myapp:error:resource-not-found`
+    #[must_use]
+    pub fn urn(&self) -> String {
+        error_type_mode().render(self.urn_slug())
+    }
+
+    /// Parse an `ErrorCode` from a type URI string (URL or URN format).
+    #[must_use]
+    pub fn from_type_uri(s: &str) -> Option<Self> {
+        // Try to extract slug from the active mode's format first, then fall back
+        let slug = match error_type_mode() {
+            ErrorTypeMode::Url { base_url } => {
+                let prefix = format!("{}/", base_url.trim_end_matches('/'));
+                s.strip_prefix(prefix.as_str()).or_else(|| {
+                    // Also accept URN format as fallback
+                    let urn_prefix = format!("urn:{}:error:", urn_namespace());
+                    s.strip_prefix(urn_prefix.as_str())
+                })?
+            }
+            ErrorTypeMode::Urn { namespace } => {
+                let prefix = format!("urn:{namespace}:error:");
+                s.strip_prefix(prefix.as_str())?
+            }
+        };
+        Some(match slug {
+            "bad-request" => Self::BadRequest,
+            "validation-failed" => Self::ValidationFailed,
+            "unauthorized" => Self::Unauthorized,
+            "invalid-credentials" => Self::InvalidCredentials,
+            "token-expired" => Self::TokenExpired,
+            "token-invalid" => Self::TokenInvalid,
+            "forbidden" => Self::Forbidden,
+            "insufficient-permissions" => Self::InsufficientPermissions,
+            "resource-not-found" => Self::ResourceNotFound,
+            "conflict" => Self::Conflict,
+            "resource-already-exists" => Self::ResourceAlreadyExists,
+            "unprocessable-entity" => Self::UnprocessableEntity,
+            "rate-limited" => Self::RateLimited,
+            "internal-server-error" => Self::InternalServerError,
+            "service-unavailable" => Self::ServiceUnavailable,
+            _ => return None,
+        })
+    }
+}
+
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.urn())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for ErrorCode {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.urn())
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> Deserialize<'de> for ErrorCode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        Self::from_type_uri(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown error type URI: {s}")))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Validation error
+// ---------------------------------------------------------------------------
+
+/// A single field-level validation error, used in [`ApiError::errors`].
+///
+/// Carried as a documented extension member alongside the standard
+/// [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ValidationError {
+    /// JSON Pointer to the offending field (e.g. `"/email"`).
+    pub field: String,
+    /// Human-readable description of what went wrong.
+    pub message: String,
+    /// Optional machine-readable rule that failed (e.g. `"min_length"`).
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub rule: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// API error — RFC 9457 Problem Details
+// ---------------------------------------------------------------------------
+
+/// [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Problem Details error response.
+///
+/// Wire format field mapping:
+///
+/// - `code` → `"type"` — URN per RFC 9457 §3.1.1 (e.g. `urn:brefwiz:error:resource-not-found`)
+/// - `title` → `"title"` — RFC 9457 §3.1.2
+/// - `status` → `"status"` — HTTP status code, RFC 9457 §3.1.3 (valid range: 100–599)
+/// - `detail` → `"detail"` — RFC 9457 §3.1.4
+/// - `request_id` → `"instance"` — URI per RFC 9457 §3.1.5, as `urn:uuid:<uuid>` per RFC 4122 §3
+/// - `errors` → `"errors"` — documented extension for field-level validation errors
+///
+/// Content-Type must be set to `application/problem+json` by the HTTP layer.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+pub struct ApiError {
+    /// Machine-readable error URN (RFC 9457 §3.1.1 `type`).
+    #[cfg_attr(feature = "serde", serde(rename = "type"))]
+    pub code: ErrorCode,
+    /// Human-friendly error label (RFC 9457 §3.1.2 `title`).
+    pub title: String,
+    /// HTTP status code (RFC 9457 §3.1.3 `status`). Valid range: 100–599.
+    pub status: u16,
+    /// Human-readable error specifics (RFC 9457 §3.1.4 `detail`).
+    pub detail: String,
+    /// URI identifying this specific occurrence (RFC 9457 §3.1.5 `instance`).
+    /// Serialized as `urn:uuid:<uuid>` per RFC 4122 §3.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            rename = "instance",
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "uuid_urn_option"
+        )
+    )]
+    pub request_id: Option<uuid::Uuid>,
+    /// Structured field-level validation errors (extension). Omitted when empty.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
+    pub errors: Vec<ValidationError>,
+}
+
+/// Serde module: serialize/deserialize `Option<Uuid>` as `"urn:uuid:<uuid>"` strings.
+/// Used for the RFC 9457 §3.1.5 `instance` field (RFC 4122 §3 `urn:uuid:` scheme).
+#[cfg(feature = "serde")]
+mod uuid_urn_option {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    #[allow(clippy::ref_option)] // serde `with` module requires &Option<T> — not caller-controlled
+    pub fn serialize<S: Serializer>(uuid: &Option<uuid::Uuid>, s: S) -> Result<S::Ok, S::Error> {
+        match uuid {
+            Some(id) => s.serialize_str(&format!("urn:uuid:{id}")),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<uuid::Uuid>, D::Error> {
+        let opt = Option::<String>::deserialize(d)?;
+        match opt {
+            None => Ok(None),
+            Some(ref urn) => {
+                let hex = urn.strip_prefix("urn:uuid:").ok_or_else(|| {
+                    serde::de::Error::custom(format!("expected urn:uuid: prefix, got {urn}"))
+                })?;
+                hex.parse::<uuid::Uuid>()
+                    .map(Some)
+                    .map_err(serde::de::Error::custom)
+            }
+        }
+    }
+}
+
+impl ApiError {
+    /// Create a new `ApiError`. `title` and `status` are derived from `code`.
+    pub fn new(code: ErrorCode, detail: impl Into<String>) -> Self {
+        let status = code.status_code();
+        debug_assert!(
+            (100..=599).contains(&status),
+            "status {status} is not a valid HTTP status code (RFC 9457 §3.1.3 requires 100–599)"
+        );
+        Self {
+            title: code.title().to_owned(),
+            status,
+            detail: detail.into(),
+            code,
+            request_id: None,
+            errors: Vec::new(),
+        }
+    }
+
+    /// Attach a request ID (typically set by tracing middleware).
+    /// Serializes as `"instance": "urn:uuid:<id>"` per RFC 9457 §3.1.5 + RFC 4122 §3.
+    #[must_use]
+    pub fn with_request_id(mut self, id: uuid::Uuid) -> Self {
+        self.request_id = Some(id);
+        self
+    }
+
+    /// Attach structured field-level validation errors.
+    #[must_use]
+    pub fn with_errors(mut self, errors: Vec<ValidationError>) -> Self {
+        self.errors = errors;
+        self
+    }
+
+    /// HTTP status code.
+    #[must_use]
+    pub fn status_code(&self) -> u16 {
+        self.status
+    }
+
+    /// Whether this is a client error (4xx).
+    #[must_use]
+    pub fn is_client_error(&self) -> bool {
+        self.status < 500
+    }
+
+    /// Whether this is a server error (5xx).
+    #[must_use]
+    pub fn is_server_error(&self) -> bool {
+        self.status >= 500
+    }
+
+    // -----------------------------------------------------------------------
+    // Convenience constructors
+    // -----------------------------------------------------------------------
+
+    /// 400 Bad Request.
+    pub fn bad_request(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::BadRequest, msg)
+    }
+
+    /// 400 Validation Failed.
+    pub fn validation_failed(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ValidationFailed, msg)
+    }
+
+    /// 401 Unauthorized.
+    pub fn unauthorized(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Unauthorized, msg)
+    }
+
+    /// 401 Invalid Credentials.
+    #[must_use]
+    pub fn invalid_credentials() -> Self {
+        Self::new(ErrorCode::InvalidCredentials, "Invalid credentials")
+    }
+
+    /// 401 Token Expired.
+    #[must_use]
+    pub fn token_expired() -> Self {
+        Self::new(ErrorCode::TokenExpired, "Token has expired")
+    }
+
+    /// 403 Forbidden.
+    pub fn forbidden(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Forbidden, msg)
+    }
+
+    /// 403 Insufficient Permissions.
+    pub fn insufficient_permissions(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::InsufficientPermissions, msg)
+    }
+
+    /// 404 Resource Not Found.
+    pub fn not_found(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ResourceNotFound, msg)
+    }
+
+    /// 409 Conflict.
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::Conflict, msg)
+    }
+
+    /// 409 Resource Already Exists.
+    pub fn already_exists(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ResourceAlreadyExists, msg)
+    }
+
+    /// 422 Unprocessable Entity.
+    pub fn unprocessable(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::UnprocessableEntity, msg)
+    }
+
+    /// 429 Rate Limited.
+    #[must_use]
+    pub fn rate_limited(retry_after_seconds: u64) -> Self {
+        Self::new(
+            ErrorCode::RateLimited,
+            format!("Rate limited, retry after {retry_after_seconds}s"),
+        )
+    }
+
+    /// 500 Internal Server Error. **Never expose internal details in `msg`.**
+    pub fn internal(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::InternalServerError, msg)
+    }
+
+    /// 503 Service Unavailable.
+    pub fn unavailable(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::ServiceUnavailable, msg)
+    }
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}] {}", self.code, self.detail)
+    }
+}
+
+impl std::error::Error for ApiError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_codes() {
+        assert_eq!(ApiError::bad_request("x").status_code(), 400);
+        assert_eq!(ApiError::unauthorized("x").status_code(), 401);
+        assert_eq!(ApiError::invalid_credentials().status_code(), 401);
+        assert_eq!(ApiError::token_expired().status_code(), 401);
+        assert_eq!(ApiError::forbidden("x").status_code(), 403);
+        assert_eq!(ApiError::not_found("x").status_code(), 404);
+        assert_eq!(ApiError::conflict("x").status_code(), 409);
+        assert_eq!(ApiError::already_exists("x").status_code(), 409);
+        assert_eq!(ApiError::unprocessable("x").status_code(), 422);
+        assert_eq!(ApiError::rate_limited(30).status_code(), 429);
+        assert_eq!(ApiError::internal("x").status_code(), 500);
+        assert_eq!(ApiError::unavailable("x").status_code(), 503);
+    }
+
+    #[test]
+    fn status_in_valid_http_range() {
+        // RFC 9457 §3.1.3: status MUST be a valid HTTP status code (100–599)
+        for err in [
+            ApiError::bad_request("x"),
+            ApiError::unauthorized("x"),
+            ApiError::forbidden("x"),
+            ApiError::not_found("x"),
+            ApiError::conflict("x"),
+            ApiError::unprocessable("x"),
+            ApiError::rate_limited(30),
+            ApiError::internal("x"),
+            ApiError::unavailable("x"),
+        ] {
+            assert!(
+                (100..=599).contains(&err.status),
+                "status {} out of RFC 9457 §3.1.3 range",
+                err.status
+            );
+        }
+    }
+
+    #[test]
+    fn error_code_urn() {
+        assert_eq!(
+            ErrorCode::ResourceNotFound.urn(),
+            "urn:brefwiz:error:resource-not-found"
+        );
+        assert_eq!(
+            ErrorCode::ValidationFailed.urn(),
+            "urn:brefwiz:error:validation-failed"
+        );
+        assert_eq!(
+            ErrorCode::InternalServerError.urn(),
+            "urn:brefwiz:error:internal-server-error"
+        );
+    }
+
+    #[test]
+    fn error_code_from_type_uri_roundtrip() {
+        let codes = [
+            ErrorCode::BadRequest,
+            ErrorCode::ValidationFailed,
+            ErrorCode::Unauthorized,
+            ErrorCode::ResourceNotFound,
+            ErrorCode::InternalServerError,
+            ErrorCode::ServiceUnavailable,
+        ];
+        for code in &codes {
+            let urn = code.urn();
+            assert_eq!(ErrorCode::from_type_uri(&urn).as_ref(), Some(code));
+        }
+    }
+
+    #[test]
+    fn error_code_from_type_uri_unknown() {
+        assert!(ErrorCode::from_type_uri("urn:brefwiz:error:unknown-thing").is_none());
+        assert!(ErrorCode::from_type_uri("RESOURCE_NOT_FOUND").is_none());
+    }
+
+    #[test]
+    fn display_format() {
+        let e = ApiError::not_found("booking 123 not found");
+        assert_eq!(
+            e.to_string(),
+            "[urn:brefwiz:error:resource-not-found] booking 123 not found"
+        );
+    }
+
+    #[test]
+    fn title_populated() {
+        let e = ApiError::not_found("x");
+        assert_eq!(e.title, "Resource Not Found");
+    }
+
+    #[test]
+    fn with_request_id() {
+        let id = uuid::Uuid::new_v4();
+        let e = ApiError::internal("oops").with_request_id(id);
+        assert_eq!(e.request_id, Some(id));
+    }
+
+    #[test]
+    fn with_errors() {
+        let e = ApiError::validation_failed("invalid input").with_errors(vec![ValidationError {
+            field: "/email".to_owned(),
+            message: "invalid format".to_owned(),
+            rule: Some("format".to_owned()),
+        }]);
+        assert!(!e.errors.is_empty());
+        assert_eq!(e.errors[0].field, "/email");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn wire_format() {
+        let e = ApiError::not_found("booking 123 not found");
+        let json = serde_json::to_value(&e).unwrap();
+        // RFC 9457: no custom envelope wrapper
+        assert!(json.get("error").is_none());
+        // RFC 9457 §3.1.1: type MUST be a URI reference
+        assert_eq!(json["type"], "urn:brefwiz:error:resource-not-found");
+        assert_eq!(json["title"], "Resource Not Found");
+        assert_eq!(json["status"], 404);
+        assert_eq!(json["detail"], "booking 123 not found");
+        // Optional fields omitted when absent
+        assert!(json.get("instance").is_none());
+        assert!(json.get("errors").is_none());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn wire_format_instance_is_urn_uuid() {
+        // RFC 9457 §3.1.5: instance is a URI; RFC 4122 §3: urn:uuid: scheme
+        let id = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let e = ApiError::internal("oops").with_request_id(id);
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(
+            json["instance"],
+            "urn:uuid:550e8400-e29b-41d4-a716-446655440000"
+        );
+        // Old field name must NOT appear
+        assert!(json.get("request_id").is_none());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn wire_format_with_errors() {
+        let e = ApiError::validation_failed("bad input").with_errors(vec![ValidationError {
+            field: "/name".to_owned(),
+            message: "required".to_owned(),
+            rule: None,
+        }]);
+        let json = serde_json::to_value(&e).unwrap();
+        assert_eq!(json["type"], "urn:brefwiz:error:validation-failed");
+        assert_eq!(json["status"], 400);
+        assert!(json["errors"].is_array());
+        assert_eq!(json["errors"][0]["field"], "/name");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn snapshot_not_found() {
+        let e = ApiError::not_found("booking 123 not found");
+        let json = serde_json::to_value(&e).unwrap();
+        let expected = serde_json::json!({
+            "type": "urn:brefwiz:error:resource-not-found",
+            "title": "Resource Not Found",
+            "status": 404,
+            "detail": "booking 123 not found"
+        });
+        assert_eq!(json, expected);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn snapshot_validation_failed_with_errors() {
+        let e = ApiError::validation_failed("invalid input").with_errors(vec![
+            ValidationError {
+                field: "/email".to_owned(),
+                message: "invalid format".to_owned(),
+                rule: Some("format".to_owned()),
+            },
+            ValidationError {
+                field: "/name".to_owned(),
+                message: "required".to_owned(),
+                rule: None,
+            },
+        ]);
+        let json = serde_json::to_value(&e).unwrap();
+        let expected = serde_json::json!({
+            "type": "urn:brefwiz:error:validation-failed",
+            "title": "Validation Failed",
+            "status": 400,
+            "detail": "invalid input",
+            "errors": [
+                {"field": "/email", "message": "invalid format", "rule": "format"},
+                {"field": "/name", "message": "required"}
+            ]
+        });
+        assert_eq!(json, expected);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn error_code_serde_roundtrip() {
+        let code = ErrorCode::ResourceNotFound;
+        let json = serde_json::to_value(&code).unwrap();
+        assert_eq!(json, "urn:brefwiz:error:resource-not-found");
+        let back: ErrorCode = serde_json::from_value(json).unwrap();
+        assert_eq!(back, code);
+    }
+
+    #[test]
+    fn client_vs_server() {
+        assert!(ApiError::not_found("x").is_client_error());
+        assert!(!ApiError::not_found("x").is_server_error());
+        assert!(ApiError::internal("x").is_server_error());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Axum IntoResponse integration
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "axum")]
+mod axum_impl {
+    use super::ApiError;
+    use axum::response::{IntoResponse, Response};
+    use http::{HeaderValue, StatusCode};
+
+    impl IntoResponse for ApiError {
+        fn into_response(self) -> Response {
+            let status =
+                StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            let body = serde_json::to_string(&self).unwrap_or_else(|_| {
+                r#"{"type":"urn:brefwiz:error:internal-server-error","title":"Internal Server Error","status":500,"detail":"Failed to serialize error"}"#.to_owned()
+            });
+
+            let mut response = (status, body).into_response();
+            response.headers_mut().insert(
+                http::header::CONTENT_TYPE,
+                HeaderValue::from_static("application/problem+json"),
+            );
+            response
+        }
+    }
+}
+
+#[cfg(all(test, feature = "axum"))]
+mod axum_tests {
+    use super::*;
+    use axum::response::IntoResponse;
+    use http::StatusCode;
+
+    #[tokio::test]
+    async fn into_response_status_and_content_type() {
+        let err = ApiError::not_found("thing 42 not found");
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/problem+json"
+        );
+    }
+
+    #[tokio::test]
+    async fn into_response_body() {
+        let err = ApiError::unauthorized("bad token");
+        let response = err.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["type"], "urn:brefwiz:error:unauthorized");
+        assert_eq!(json["status"], 401);
+        assert_eq!(json["detail"], "bad token");
+    }
+}

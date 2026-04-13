@@ -1,0 +1,52 @@
+[package]
+name = "shared-types"
+version = "1.1.0"
+edition = "2024"
+authors = ["Brefwiz Team"]
+license = "LicenseRef-Proprietary"
+description = "Shared public API types and error types for all Brefwiz services"
+repository = "https://brefwiz.mentalmorph.com/Brefwiz/shared-types"
+
+[features]
+default = ["serde", "uuid", "chrono"]
+serde = ["dep:serde", "dep:serde_json", "dep:serde_with", "uuid?/serde"]
+uuid = ["dep:uuid"]
+chrono = ["dep:chrono"]
+axum = ["dep:axum", "dep:http", "serde"]
+utoipa = ["dep:utoipa"]
+
+[dependencies]
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+serde_with = { version = "3.8", optional = true }
+uuid = { version = "1.8", features = ["v4"], optional = true }
+chrono = { version = "0.4", optional = true }
+axum = { version = "0.8", optional = true, default-features = false }
+http = { version = "1.0", optional = true }
+utoipa = { version = "5", optional = true, features = ["uuid"] }
+
+[lints.rust]
+# PLATFORM-008: Zero-Tolerance Security Linting
+unsafe_code = { level = "deny", priority = -1 }
+unsafe_op_in_unsafe_fn = { level = "deny", priority = -1 }
+warnings = { level = "deny", priority = -1 }
+unused_imports = { level = "deny", priority = -1 }
+unused_variables = { level = "deny", priority = -1 }
+dead_code = { level = "deny", priority = -1 }
+
+[lints.clippy]
+# PLATFORM-008: Tier 3 — pedantic linting at deny level
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Selective allow-list (justified below)
+missing_errors_doc = "allow"   # serde/helper fns — noise without benefit
+missing_panics_doc = "allow"   # no panic paths in public API
+module_name_repetitions = "allow"    # e.g. ErrorCode, ApiError — idiomatic
+missing_const_for_fn = "allow"       # nursery: not stable across MSRV, adds no safety value here
+derive_partial_eq_without_eq = "allow" # nursery: serde types are rarely fully Eq-hashable
+option_if_let_else = "allow"         # nursery: map_or_else is less readable in match-heavy code
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
