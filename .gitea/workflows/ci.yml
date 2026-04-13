@@ -37,7 +37,7 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component rustfmt --no-self-update
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component rustfmt
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Check formatting
@@ -66,7 +66,7 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component clippy --no-self-update
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component clippy
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Run Clippy
@@ -100,7 +100,7 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-self-update
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Run tests
@@ -129,7 +129,7 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-self-update
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Install cargo-audit
@@ -167,7 +167,7 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-self-update
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Configure Forgejo registry
