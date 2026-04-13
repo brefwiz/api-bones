@@ -152,16 +152,6 @@ jobs:
           key: ${{ runner.os }}-cargo-publish-${{ hashFiles('**/Cargo.lock') }}-v1
           restore-keys: ${{ runner.os }}-cargo-publish-
 
-      - name: Configure Forgejo registry
-        run: |
-          mkdir -p ~/.cargo
-          cat >> ~/.cargo/config.toml << 'CARGO_EOF'
-          [registry]
-          global-credential-providers = ["cargo:token"]
-
-          [registries.mentalkube]
-          index = "sparse+http://forgejo.mentalkube.local/api/packages/Brefwiz/cargo/"
-          CARGO_EOF
 
       - name: Build
         run: cargo build --lib --release

@@ -1,2 +1,2 @@
-[registries.gitea]
-index = "sparse+https://brefwiz.mentalmorph.com/api/packages/Brefwiz/cargo/"
+[registries.mentalkube]
+index = "sparse+http://forgejo.mentalkube.local/api/packages/Brefwiz/cargo/"
