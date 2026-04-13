@@ -37,8 +37,8 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          rustup toolchain install stable --component rustfmt --no-self-update
-          rustup default stable
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component rustfmt --no-self-update
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Check formatting
         run: make ci-format
@@ -66,8 +66,8 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          rustup toolchain install stable --component clippy --no-self-update
-          rustup default stable
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component clippy --no-self-update
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Run Clippy
         run: make ci-lint
@@ -100,8 +100,8 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          rustup toolchain install stable --no-self-update
-          rustup default stable
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-self-update
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Run tests
         run: make ci-test
@@ -129,8 +129,8 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          rustup toolchain install stable --no-self-update
-          rustup default stable
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-self-update
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
@@ -167,8 +167,8 @@ jobs:
 
       - name: Install Rust stable
         run: |
-          rustup toolchain install stable --no-self-update
-          rustup default stable
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --no-self-update
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Configure Forgejo registry
         run: |
