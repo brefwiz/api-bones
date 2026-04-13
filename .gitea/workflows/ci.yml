@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -113,7 +114,7 @@ jobs:
   # ============================================================================
 
   publish-crate:
-    name: Publish Crate to Gitea Registry
+    name: Publish Crate to Forgejo Registry
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [fmt, clippy, test, audit]
@@ -126,15 +127,15 @@ jobs:
         with:
           shared-key: "ci-shared-types-v1"
 
-      - name: Configure Gitea registry
+      - name: Configure Forgejo registry
         run: |
           mkdir -p ~/.cargo
           cat > ~/.cargo/config.toml << 'CARGO_EOF'
           [registry]
           global-credential-providers = ["cargo:token"]
 
-          [registries.gitea]
-          index = "sparse+https://brefwiz.mentalmorph.com/api/packages/Brefwiz/cargo/"
+          [registries.mentalkube]
+          index = "sparse+http://forgejo.mentalkube.local/api/packages/Brefwiz/cargo/"
           CARGO_EOF
 
       - name: Build
@@ -142,9 +143,9 @@ jobs:
 
       - name: Publish crate
         env:
-          CARGO_REGISTRIES_GITEA_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
+          CARGO_REGISTRIES_MENTALKUBE_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
         run: |
-          if ! cargo publish --registry gitea --allow-dirty 2>&1 | tee /tmp/publish.log; then
+          if ! cargo publish --registry mentalkube --allow-dirty 2>&1 | tee /tmp/publish.log; then
             if grep -q "already uploaded\|already exists" /tmp/publish.log; then
               echo "⚠️ Crate already published at this version (expected)"
               exit 0
@@ -162,4 +163,4 @@ jobs:
           echo "## 📦 Crate Published" >> $GITHUB_STEP_SUMMARY
           echo "**Package:** \`shared-types\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Registry:** Gitea (Brefwiz)" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** Forgejo (mentalkube)" >> $GITHUB_STEP_SUMMARY
