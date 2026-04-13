@@ -101,7 +101,7 @@ jobs:
         run: make ci-test
 
   audit:
-    name: Security Audit (PLATFORM-008)
+    name: Security Audit
     runs-on: ubuntu-latest
     needs: [fmt, clippy]
     container:
