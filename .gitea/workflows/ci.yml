@@ -13,7 +13,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  CARGO_INCREMENTAL: 1
+  CARGO_INCREMENTAL: 0
 
 jobs:
   # ============================================================================
@@ -49,23 +49,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Cache Rust toolchain
+      - name: Cache Rust toolchain + registry + target
         uses: actions/cache@v4
         with:
           path: |
             ~/.rustup/toolchains
             ~/.rustup/update-hashes
             ~/.rustup/settings.toml
-          key: ${{ runner.os }}-rustup-stable-${{ hashFiles('**/rust-toolchain.toml') }}-v1
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}-v1
+          restore-keys: |
+            ${{ runner.os }}-cargo-clippy-
 
       - name: Install Rust stable
         run: |
           rustup toolchain install stable --component clippy --no-self-update
           rustup default stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "ci-shared-types-v1"
 
       - name: Run Clippy
         run: make ci-lint
@@ -81,16 +83,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache Rust toolchain + registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+            ~/.rustup/settings.toml
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}-v1
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+
       - name: Install Rust stable
         run: |
           rustup toolchain install stable --no-self-update
           rustup default stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "ci-shared-types-v1"
-          cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run tests
         run: make ci-test
@@ -102,14 +113,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache Rust toolchain + cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+            ~/.rustup/settings.toml
+            ~/.cargo/bin/cargo-audit
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('**/Cargo.lock') }}-v1
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
+
       - name: Install Rust stable
         run: |
           rustup toolchain install stable --no-self-update
           rustup default stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "ci-shared-types-v1"
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
@@ -129,14 +150,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache Rust toolchain + registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup/toolchains
+            ~/.rustup/update-hashes
+            ~/.rustup/settings.toml
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-publish-${{ hashFiles('**/Cargo.lock') }}-v1
+          restore-keys: |
+            ${{ runner.os }}-cargo-publish-
+
       - name: Install Rust stable
         run: |
           rustup toolchain install stable --no-self-update
           rustup default stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "ci-shared-types-v1"
 
       - name: Configure Forgejo registry
         run: |
