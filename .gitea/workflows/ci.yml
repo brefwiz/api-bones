@@ -141,7 +141,7 @@ jobs:
 
       - name: Publish crate
         env:
-          CARGO_REGISTRIES_SALINGUE_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
+          CARGO_REGISTRIES_SALINGUE_TOKEN: "${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
         run: |
           REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
           if ! cargo publish --registry "$REGISTRY" --allow-dirty 2>&1 | tee /tmp/publish.log; then
