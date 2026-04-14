@@ -142,9 +142,7 @@ jobs:
       - name: Publish crate
         run: |
           REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
-          REGISTRY_UPPER=$(echo "$REGISTRY" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-          export "CARGO_REGISTRIES_${REGISTRY_UPPER}_TOKEN=Bearer $PACKAGE_PUBLISHER_TOKEN"
-          if ! cargo publish --registry "$REGISTRY" --allow-dirty 2>&1 | tee /tmp/publish.log; then
+          if ! cargo publish --registry "$REGISTRY" --token "Bearer $PACKAGE_PUBLISHER_TOKEN" --allow-dirty 2>&1 | tee /tmp/publish.log; then
             if grep -q "already uploaded\|already exists" /tmp/publish.log; then
               echo "⚠️ Crate already published at this version (expected)"
               exit 0
