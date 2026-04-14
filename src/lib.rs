@@ -34,6 +34,9 @@
 //! shared-types = { version = "0.2", registry = "gitea" }
 //! ```
 
+#[cfg(feature = "icalendar")]
+pub mod calendar;
+
 pub mod common;
 pub mod error;
 pub mod health;
