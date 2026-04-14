@@ -157,10 +157,10 @@ jobs:
         run: cargo build --lib --release
 
       - name: Publish crate
-        env:
-          CARGO_REGISTRIES_SALINGUE_TOKEN: "Bearer ${{ env.PACKAGE_PUBLISHER_TOKEN }}"
         run: |
-          if ! cargo publish --registry brefwiz --allow-dirty 2>&1 | tee /tmp/publish.log; then
+          REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
+          cargo login --registry "$REGISTRY" "Bearer $PACKAGE_PUBLISHER_TOKEN"
+          if ! cargo publish --registry "$REGISTRY" --allow-dirty 2>&1 | tee /tmp/publish.log; then
             if grep -q "already uploaded\|already exists" /tmp/publish.log; then
               echo "⚠️ Crate already published at this version (expected)"
               exit 0
@@ -175,7 +175,8 @@ jobs:
         if: success()
         run: |
           VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
           echo "## 📦 Crate Published" >> $GITHUB_STEP_SUMMARY
           echo "**Package:** \`shared-types\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Registry:** Forgejo (mentalkube)" >> $GITHUB_STEP_SUMMARY
+          echo "**Registry:** \`$REGISTRY\`" >> $GITHUB_STEP_SUMMARY
