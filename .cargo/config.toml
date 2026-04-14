@@ -1,2 +1,2 @@
-[registries.mentalkube]
-index = "sparse+http://forgejo.mentalkube.local/api/packages/Brefwiz/cargo/"
+[registries.brefwiz]
+index = "sparse+https://git.brefwiz.com/api/packages/Brefwiz/cargo/"
