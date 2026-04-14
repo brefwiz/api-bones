@@ -110,6 +110,30 @@ jobs:
         run: make ci-audit
 
   # ============================================================================
+  # Debug — runs on all events to verify secrets are available
+  # ============================================================================
+
+  debug-secrets:
+    name: Debug Secrets
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/rust-ci:latest
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    steps:
+      - name: Check PACKAGE_PUBLISHER_TOKEN
+        env:
+          TOKEN: "${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "❌ PACKAGE_PUBLISHER_TOKEN is EMPTY or not set"
+            exit 1
+          else
+            echo "✅ Token present (length: ${#TOKEN})"
+          fi
+
+  # ============================================================================
   # Publish — waits for all checks, main branch only
   # ============================================================================
 
