@@ -140,9 +140,11 @@ jobs:
         run: cargo build --lib --release
 
       - name: Publish crate
+        env:
+          CARGO_REGISTRIES_SALINGUE_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
         run: |
           REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
-          if ! cargo publish --registry "$REGISTRY" --token "Bearer $PACKAGE_PUBLISHER_TOKEN" --allow-dirty 2>&1 | tee /tmp/publish.log; then
+          if ! cargo publish --registry "$REGISTRY" --allow-dirty 2>&1 | tee /tmp/publish.log; then
             if grep -q "already uploaded\|already exists" /tmp/publish.log; then
               echo "⚠️ Crate already published at this version (expected)"
               exit 0
