@@ -26,8 +26,8 @@ jobs:
     container:
       image: harbor.mentalkube.local/brefwiz/rust-ci:latest
       credentials:
-        username: ${{ env.HARBOR_USER }}
-        password: ${{ env.HARBOR_TOKEN }}
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,8 +51,8 @@ jobs:
     container:
       image: harbor.mentalkube.local/brefwiz/rust-ci:latest
       credentials:
-        username: ${{ env.HARBOR_USER }}
-        password: ${{ env.HARBOR_TOKEN }}
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -81,8 +81,8 @@ jobs:
     container:
       image: harbor.mentalkube.local/brefwiz/rust-ci:latest
       credentials:
-        username: ${{ env.HARBOR_USER }}
-        password: ${{ env.HARBOR_TOKEN }}
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -107,8 +107,8 @@ jobs:
     container:
       image: harbor.mentalkube.local/brefwiz/rust-ci:latest
       credentials:
-        username: ${{ env.HARBOR_USER }}
-        password: ${{ env.HARBOR_TOKEN }}
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -136,8 +136,8 @@ jobs:
     container:
       image: harbor.mentalkube.local/brefwiz/rust-ci:latest
       credentials:
-        username: ${{ env.HARBOR_USER }}
-        password: ${{ env.HARBOR_TOKEN }}
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -158,9 +158,9 @@ jobs:
 
       - name: Publish crate
         env:
-          CARGO_REGISTRIES_MENTALKUBE_TOKEN: "Bearer ${{ env.PACKAGE_PUBLISHER_TOKEN }}"
+          CARGO_REGISTRIES_SALINGUE_TOKEN: "Bearer ${{ env.PACKAGE_PUBLISHER_TOKEN }}"
         run: |
-          if ! cargo publish --registry mentalkube --allow-dirty 2>&1 | tee /tmp/publish.log; then
+          if ! cargo publish --registry brefwiz --allow-dirty 2>&1 | tee /tmp/publish.log; then
             if grep -q "already uploaded\|already exists" /tmp/publish.log; then
               echo "⚠️ Crate already published at this version (expected)"
               exit 0
