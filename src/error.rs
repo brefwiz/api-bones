@@ -1617,7 +1617,9 @@ mod tests {
         assert!(json.is_object());
         // Confirm top-level type property exists
         assert!(
-            json.get("definitions").is_some() || json.get("$defs").is_some() || json.get("properties").is_some(),
+            json.get("definitions").is_some()
+                || json.get("$defs").is_some()
+                || json.get("properties").is_some(),
             "schema should contain definitions or properties"
         );
     }
