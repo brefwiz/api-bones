@@ -14,6 +14,14 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Standard error body returned by the API on failure.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::models::ErrorResponse;
+/// let err = ErrorResponse::new("oops");
+/// assert_eq!(err.error, "oops");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -27,6 +35,14 @@ pub struct ErrorResponse {
 
 impl ErrorResponse {
     /// Create a new error response.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::models::ErrorResponse;
+    /// let err = ErrorResponse::new("not found");
+    /// assert_eq!(err.error, "not found");
+    /// ```
     pub fn new(error: impl Into<String>) -> Self {
         Self {
             error: error.into(),

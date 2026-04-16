@@ -22,6 +22,14 @@ use validator::Validate;
 // ---------------------------------------------------------------------------
 
 /// Sort order for list endpoints.
+///
+/// # Examples
+///
+/// ```
+/// use api_bones::query::SortDirection;
+///
+/// assert_eq!(SortDirection::default(), SortDirection::Asc);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(
     feature = "serde",
@@ -72,6 +80,16 @@ pub struct SortParams {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl SortParams {
     /// Create sort params with the given field and direction.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::{SortParams, SortDirection};
+    ///
+    /// let p = SortParams::new("created_at", SortDirection::Desc);
+    /// assert_eq!(p.sort_by, "created_at");
+    /// assert_eq!(p.direction, SortDirection::Desc);
+    /// ```
     #[must_use]
     pub fn new(sort_by: impl Into<String>, direction: SortDirection) -> Self {
         Self {
@@ -81,12 +99,30 @@ impl SortParams {
     }
 
     /// Create sort params with ascending direction.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::{SortParams, SortDirection};
+    ///
+    /// let p = SortParams::asc("name");
+    /// assert_eq!(p.direction, SortDirection::Asc);
+    /// ```
     #[must_use]
     pub fn asc(sort_by: impl Into<String>) -> Self {
         Self::new(sort_by, SortDirection::Asc)
     }
 
     /// Create sort params with descending direction.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::{SortParams, SortDirection};
+    ///
+    /// let p = SortParams::desc("created_at");
+    /// assert_eq!(p.direction, SortDirection::Desc);
+    /// ```
     #[must_use]
     pub fn desc(sort_by: impl Into<String>) -> Self {
         Self::new(sort_by, SortDirection::Desc)
@@ -121,6 +157,17 @@ pub struct FilterEntry {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl FilterEntry {
     /// Create a filter entry.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::FilterEntry;
+    ///
+    /// let entry = FilterEntry::new("status", "eq", "active");
+    /// assert_eq!(entry.field, "status");
+    /// assert_eq!(entry.operator, "eq");
+    /// assert_eq!(entry.value, "active");
+    /// ```
     #[must_use]
     pub fn new(
         field: impl Into<String>,
@@ -159,6 +206,16 @@ pub struct FilterParams {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl FilterParams {
     /// Create filter params from an iterator of entries.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::{FilterParams, FilterEntry};
+    ///
+    /// let f = FilterParams::new([FilterEntry::new("status", "eq", "active")]);
+    /// assert!(!f.is_empty());
+    /// assert_eq!(f.filters.len(), 1);
+    /// ```
     #[must_use]
     pub fn new(filters: impl IntoIterator<Item = FilterEntry>) -> Self {
         Self {
@@ -167,6 +224,15 @@ impl FilterParams {
     }
 
     /// Returns `true` if no filters are set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::FilterParams;
+    ///
+    /// let f = FilterParams::default();
+    /// assert!(f.is_empty());
+    /// ```
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.filters.is_empty()
@@ -215,6 +281,16 @@ pub struct SearchParams {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl SearchParams {
     /// Create search params targeting all fields.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::SearchParams;
+    ///
+    /// let s = SearchParams::new("annual report");
+    /// assert_eq!(s.query, "annual report");
+    /// assert!(s.fields.is_empty());
+    /// ```
     #[must_use]
     pub fn new(query: impl Into<String>) -> Self {
         Self {
@@ -224,6 +300,16 @@ impl SearchParams {
     }
 
     /// Create search params scoped to specific fields.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::SearchParams;
+    ///
+    /// let s = SearchParams::with_fields("report", ["title", "description"]);
+    /// assert_eq!(s.query, "report");
+    /// assert_eq!(s.fields, vec!["title", "description"]);
+    /// ```
     #[must_use]
     pub fn with_fields(
         query: impl Into<String>,

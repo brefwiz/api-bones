@@ -55,6 +55,17 @@ pub struct RateLimitInfo {
 
 impl RateLimitInfo {
     /// Create a new `RateLimitInfo`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::ratelimit::RateLimitInfo;
+    ///
+    /// let info = RateLimitInfo::new(100, 50, 1_700_000_000);
+    /// assert_eq!(info.limit, 100);
+    /// assert_eq!(info.remaining, 50);
+    /// assert!(info.retry_after.is_none());
+    /// ```
     #[must_use]
     pub fn new(limit: u64, remaining: u64, reset: u64) -> Self {
         Self {
@@ -66,6 +77,15 @@ impl RateLimitInfo {
     }
 
     /// Set the `retry_after` hint (builder-style).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::ratelimit::RateLimitInfo;
+    ///
+    /// let info = RateLimitInfo::new(100, 0, 1_700_000_000).retry_after(60);
+    /// assert_eq!(info.retry_after, Some(60));
+    /// ```
     #[must_use]
     pub fn retry_after(mut self, seconds: u64) -> Self {
         self.retry_after = Some(seconds);
@@ -73,6 +93,18 @@ impl RateLimitInfo {
     }
 
     /// Return `true` when no requests remain in the current window.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::ratelimit::RateLimitInfo;
+    ///
+    /// let exceeded = RateLimitInfo::new(100, 0, 1_700_000_000);
+    /// assert!(exceeded.is_exceeded());
+    ///
+    /// let available = RateLimitInfo::new(100, 50, 1_700_000_000);
+    /// assert!(!available.is_exceeded());
+    /// ```
     #[must_use]
     pub fn is_exceeded(&self) -> bool {
         self.remaining == 0

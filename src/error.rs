@@ -34,6 +34,17 @@ use serde::{Deserialize, Serialize};
 /// Serializes as a URN per [RFC 9457 §3.1.1](https://www.rfc-editor.org/rfc/rfc9457#section-3.1.1),
 /// which requires the `type` member to be a URI reference.
 /// Format: `urn:api-bones:error:<slug>` (e.g. `urn:api-bones:error:resource-not-found`).
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::ErrorCode;
+///
+/// let code = ErrorCode::ResourceNotFound;
+/// assert_eq!(code.status_code(), 404);
+/// assert_eq!(code.title(), "Resource Not Found");
+/// assert_eq!(code.urn_slug(), "resource-not-found");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -92,6 +103,18 @@ pub enum ErrorCode {
 /// `urn:myapp:error:resource-not-found`
 ///
 /// Set via env: `SHARED_TYPES_URN_NAMESPACE=myapp`
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::ErrorTypeMode;
+///
+/// let url_mode = ErrorTypeMode::Url { base_url: "https://docs.example.com/errors".into() };
+/// assert_eq!(url_mode.render("not-found"), "https://docs.example.com/errors/not-found");
+///
+/// let urn_mode = ErrorTypeMode::Urn { namespace: "myapp".into() };
+/// assert_eq!(urn_mode.render("not-found"), "urn:myapp:error:not-found");
+/// ```
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -115,6 +138,18 @@ pub enum ErrorTypeMode {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl ErrorTypeMode {
     /// Render the full `type` URI for a given error slug.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ErrorTypeMode;
+    ///
+    /// let mode = ErrorTypeMode::Url { base_url: "https://example.com/errors/".into() };
+    /// assert_eq!(mode.render("bad-request"), "https://example.com/errors/bad-request");
+    ///
+    /// let mode = ErrorTypeMode::Urn { namespace: "acme".into() };
+    /// assert_eq!(mode.render("bad-request"), "urn:acme:error:bad-request");
+    /// ```
     #[must_use]
     pub fn render(&self, slug: &str) -> String {
         match self {
@@ -190,6 +225,16 @@ fn resolve_error_type_mode() -> ErrorTypeMode {
 /// 6. Default: `ErrorTypeMode::Urn { namespace: "api-bones".into() }`
 ///
 /// Requires the `std` feature.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::{error_type_mode, set_error_type_mode, ErrorTypeMode};
+///
+/// set_error_type_mode(ErrorTypeMode::Urn { namespace: "demo".into() });
+/// let mode = error_type_mode();
+/// assert_eq!(mode, ErrorTypeMode::Urn { namespace: "demo".into() });
+/// ```
 #[cfg(feature = "std")]
 #[must_use]
 pub fn error_type_mode() -> ErrorTypeMode {
@@ -253,6 +298,15 @@ pub(crate) fn reset_error_type_mode() {
 /// Only meaningful when in [`ErrorTypeMode::Urn`] mode.
 ///
 /// Requires the `std` feature.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::{urn_namespace, set_error_type_mode, ErrorTypeMode};
+///
+/// set_error_type_mode(ErrorTypeMode::Urn { namespace: "myapp".into() });
+/// assert_eq!(urn_namespace(), "myapp");
+/// ```
 #[cfg(feature = "std")]
 #[must_use]
 pub fn urn_namespace() -> String {
@@ -264,6 +318,16 @@ pub fn urn_namespace() -> String {
 
 impl ErrorCode {
     /// HTTP status code for this error code.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ErrorCode;
+    ///
+    /// assert_eq!(ErrorCode::BadRequest.status_code(), 400);
+    /// assert_eq!(ErrorCode::Unauthorized.status_code(), 401);
+    /// assert_eq!(ErrorCode::InternalServerError.status_code(), 500);
+    /// ```
     #[must_use]
     pub fn status_code(&self) -> u16 {
         match self {
@@ -283,6 +347,15 @@ impl ErrorCode {
     }
 
     /// Human-friendly title for this error code (RFC 9457 `title` field).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ErrorCode;
+    ///
+    /// assert_eq!(ErrorCode::ResourceNotFound.title(), "Resource Not Found");
+    /// assert_eq!(ErrorCode::BadRequest.title(), "Bad Request");
+    /// ```
     #[must_use]
     pub fn title(&self) -> &'static str {
         match self {
@@ -305,6 +378,15 @@ impl ErrorCode {
     }
 
     /// The URN slug for this error code (the part after `urn:api-bones:error:`).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ErrorCode;
+    ///
+    /// assert_eq!(ErrorCode::ResourceNotFound.urn_slug(), "resource-not-found");
+    /// assert_eq!(ErrorCode::ValidationFailed.urn_slug(), "validation-failed");
+    /// ```
     #[must_use]
     pub fn urn_slug(&self) -> &'static str {
         match self {
@@ -333,6 +415,15 @@ impl ErrorCode {
     /// - URN mode: `urn:myapp:error:resource-not-found`
     ///
     /// Requires the `std` feature (dynamic namespace resolution via [`error_type_mode`]).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ErrorCode, set_error_type_mode, ErrorTypeMode};
+    ///
+    /// set_error_type_mode(ErrorTypeMode::Urn { namespace: "test".into() });
+    /// assert_eq!(ErrorCode::ResourceNotFound.urn(), "urn:test:error:resource-not-found");
+    /// ```
     #[cfg(feature = "std")]
     #[must_use]
     pub fn urn(&self) -> String {
@@ -342,6 +433,17 @@ impl ErrorCode {
     /// Parse an `ErrorCode` from a type URI string (URL or URN format).
     ///
     /// Requires the `std` feature (dynamic namespace resolution via [`error_type_mode`]).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ErrorCode, set_error_type_mode, ErrorTypeMode};
+    ///
+    /// set_error_type_mode(ErrorTypeMode::Urn { namespace: "test".into() });
+    /// let code = ErrorCode::ResourceNotFound;
+    /// let uri = code.urn();
+    /// assert_eq!(ErrorCode::from_type_uri(&uri), Some(ErrorCode::ResourceNotFound));
+    /// ```
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_type_uri(s: &str) -> Option<Self> {
@@ -423,6 +525,26 @@ impl<'de> Deserialize<'de> for ErrorCode {
 /// [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) fields.
 ///
 /// Requires `std` or `alloc` (fields contain `String`).
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::ValidationError;
+///
+/// let err = ValidationError {
+///     field: "/email".into(),
+///     message: "must be a valid email".into(),
+///     rule: Some("email".into()),
+/// };
+/// assert_eq!(err.to_string(), "/email: must be a valid email (rule: email)");
+///
+/// let err2 = ValidationError {
+///     field: "/name".into(),
+///     message: "is required".into(),
+///     rule: None,
+/// };
+/// assert_eq!(err2.to_string(), "/name: is required");
+/// ```
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -474,6 +596,16 @@ impl core::error::Error for ValidationError {}
 /// Content-Type must be set to `application/problem+json` by the HTTP layer.
 ///
 /// Requires `std` or `alloc` (fields contain `String`/`Vec`).
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::{ApiError, ErrorCode};
+///
+/// let err = ApiError::new(ErrorCode::ResourceNotFound, "User 42 not found");
+/// assert_eq!(err.status, 404);
+/// assert_eq!(err.detail, "User 42 not found");
+/// ```
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -580,6 +712,17 @@ mod uuid_urn_option {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl ApiError {
     /// Create a new `ApiError`. `title` and `status` are derived from `code`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode};
+    ///
+    /// let err = ApiError::new(ErrorCode::BadRequest, "missing field");
+    /// assert_eq!(err.status, 400);
+    /// assert_eq!(err.title, "Bad Request");
+    /// assert_eq!(err.detail, "missing field");
+    /// ```
     pub fn new(code: ErrorCode, detail: impl Into<String>) -> Self {
         let status = code.status_code();
         debug_assert!(
@@ -600,6 +743,17 @@ impl ApiError {
 
     /// Attach a request ID (typically set by tracing middleware).
     /// Serializes as `"instance": "urn:uuid:<id>"` per RFC 9457 §3.1.5 + RFC 4122 §3.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode};
+    /// use uuid::Uuid;
+    ///
+    /// let err = ApiError::new(ErrorCode::BadRequest, "oops")
+    ///     .with_request_id(Uuid::nil());
+    /// assert_eq!(err.request_id, Some(Uuid::nil()));
+    /// ```
     #[cfg(feature = "uuid")]
     #[must_use]
     pub fn with_request_id(mut self, id: uuid::Uuid) -> Self {
@@ -608,6 +762,18 @@ impl ApiError {
     }
 
     /// Attach structured field-level validation errors.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode, ValidationError};
+    ///
+    /// let err = ApiError::new(ErrorCode::ValidationFailed, "invalid input")
+    ///     .with_errors(vec![
+    ///         ValidationError { field: "/email".into(), message: "invalid".into(), rule: None },
+    ///     ]);
+    /// assert_eq!(err.errors.len(), 1);
+    /// ```
     #[must_use]
     pub fn with_errors(mut self, errors: Vec<ValidationError>) -> Self {
         self.errors = errors;
@@ -634,12 +800,30 @@ impl ApiError {
     }
 
     /// Whether this is a client error (4xx).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode};
+    ///
+    /// assert!(ApiError::not_found("gone").is_client_error());
+    /// assert!(!ApiError::internal("boom").is_client_error());
+    /// ```
     #[must_use]
     pub fn is_client_error(&self) -> bool {
         self.status < 500
     }
 
     /// Whether this is a server error (5xx).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode};
+    ///
+    /// assert!(ApiError::internal("boom").is_server_error());
+    /// assert!(!ApiError::not_found("gone").is_server_error());
+    /// ```
     #[must_use]
     pub fn is_server_error(&self) -> bool {
         self.status >= 500
@@ -650,6 +834,16 @@ impl ApiError {
     // -----------------------------------------------------------------------
 
     /// 400 Bad Request.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ApiError;
+    ///
+    /// let err = ApiError::bad_request("missing param");
+    /// assert_eq!(err.status, 400);
+    /// assert_eq!(err.title, "Bad Request");
+    /// ```
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::BadRequest, msg)
     }
@@ -687,6 +881,16 @@ impl ApiError {
     }
 
     /// 404 Resource Not Found.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ApiError;
+    ///
+    /// let err = ApiError::not_found("user 42 not found");
+    /// assert_eq!(err.status, 404);
+    /// assert_eq!(err.title, "Resource Not Found");
+    /// ```
     pub fn not_found(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::ResourceNotFound, msg)
     }

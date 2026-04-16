@@ -74,12 +74,31 @@ pub struct ResponseMeta {
 
 impl ResponseMeta {
     /// Create an empty `ResponseMeta`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::ResponseMeta;
+    ///
+    /// let meta = ResponseMeta::new();
+    /// assert!(meta.request_id.is_none());
+    /// assert!(meta.version.is_none());
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Set the `request_id` field (builder-style).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::ResponseMeta;
+    ///
+    /// let meta = ResponseMeta::new().request_id("req-001");
+    /// assert_eq!(meta.request_id.as_deref(), Some("req-001"));
+    /// ```
     #[must_use]
     pub fn request_id(mut self, id: impl Into<String>) -> Self {
         self.request_id = Some(id.into());
@@ -94,6 +113,15 @@ impl ResponseMeta {
     }
 
     /// Set the `version` field (builder-style).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::ResponseMeta;
+    ///
+    /// let meta = ResponseMeta::new().version("1.4.0");
+    /// assert_eq!(meta.version.as_deref(), Some("1.4.0"));
+    /// ```
     #[must_use]
     pub fn version(mut self, v: impl Into<String>) -> Self {
         self.version = Some(v.into());
@@ -225,12 +253,31 @@ pub struct Links {
 
 impl Links {
     /// Create an empty `Links`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::Links;
+    ///
+    /// let links = Links::new();
+    /// assert!(links.self_link.is_none());
+    /// assert!(links.next.is_none());
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Set the `self` link (builder-style).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::Links;
+    ///
+    /// let links = Links::new().self_link("/resources/1");
+    /// assert_eq!(links.self_link.as_deref(), Some("/resources/1"));
+    /// ```
     #[must_use]
     pub fn self_link(mut self, url: impl Into<String>) -> Self {
         self.self_link = Some(url.into());
@@ -309,6 +356,17 @@ pub struct ApiResponseBuilder<T> {
 
 impl<T> ApiResponseBuilder<T> {
     /// Set the `meta` field.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::{ApiResponse, ResponseMeta};
+    ///
+    /// let response: ApiResponse<&str> = ApiResponse::builder("hi")
+    ///     .meta(ResponseMeta::new().request_id("req-1"))
+    ///     .build();
+    /// assert_eq!(response.meta.request_id.as_deref(), Some("req-1"));
+    /// ```
     #[must_use]
     pub fn meta(mut self, meta: ResponseMeta) -> Self {
         self.meta = meta;
@@ -316,6 +374,17 @@ impl<T> ApiResponseBuilder<T> {
     }
 
     /// Set the `links` field.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::{ApiResponse, Links};
+    ///
+    /// let response: ApiResponse<&str> = ApiResponse::builder("hi")
+    ///     .links(Links::new().self_link("/items/1"))
+    ///     .build();
+    /// assert!(response.links.is_some());
+    /// ```
     #[must_use]
     pub fn links(mut self, links: Links) -> Self {
         self.links = Some(links);
@@ -323,6 +392,16 @@ impl<T> ApiResponseBuilder<T> {
     }
 
     /// Consume the builder and produce an [`ApiResponse`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::ApiResponse;
+    ///
+    /// let response: ApiResponse<i32> = ApiResponse::builder(42).build();
+    /// assert_eq!(response.data, 42);
+    /// assert!(response.links.is_none());
+    /// ```
     #[must_use]
     pub fn build(self) -> ApiResponse<T> {
         ApiResponse {
