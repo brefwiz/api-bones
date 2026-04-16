@@ -156,6 +156,107 @@ impl HealthCheck {
         self.time = Some(time.into());
         self
     }
+
+    /// Return a typed builder for constructing a `HealthCheck`.
+    ///
+    /// Required fields (`component_type` and `status`) must be set before calling
+    /// [`HealthCheckBuilder::build`]; the compiler enforces this via typestate.
+    ///
+    /// # Example
+    /// ```rust
+    /// use shared_types::health::{HealthCheck, HealthStatus};
+    ///
+    /// let check = HealthCheck::builder()
+    ///     .component_type("datastore")
+    ///     .status(HealthStatus::Pass)
+    ///     .build();
+    /// assert_eq!(check.status, HealthStatus::Pass);
+    /// ```
+    #[must_use]
+    pub fn builder() -> HealthCheckBuilder<(), ()> {
+        HealthCheckBuilder {
+            component_type: (),
+            status: (),
+            output: None,
+            time: None,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HealthCheck builder — typestate
+// ---------------------------------------------------------------------------
+
+/// Typestate builder for [`HealthCheck`].
+///
+/// Type parameters track whether required fields have been set:
+/// - `CT` — `String` once `.component_type()` is called, `()` otherwise
+/// - `ST` — `HealthStatus` once `.status()` is called, `()` otherwise
+///
+/// [`HealthCheckBuilder::build`] is only available when both are set.
+pub struct HealthCheckBuilder<CT, ST> {
+    component_type: CT,
+    status: ST,
+    output: Option<String>,
+    time: Option<String>,
+}
+
+impl<ST> HealthCheckBuilder<(), ST> {
+    /// Set the component type, e.g. `"datastore"`, `"component"`, `"system"`.
+    pub fn component_type(
+        self,
+        component_type: impl Into<String>,
+    ) -> HealthCheckBuilder<String, ST> {
+        HealthCheckBuilder {
+            component_type: component_type.into(),
+            status: self.status,
+            output: self.output,
+            time: self.time,
+        }
+    }
+}
+
+impl<CT> HealthCheckBuilder<CT, ()> {
+    /// Set the check result status.
+    pub fn status(self, status: HealthStatus) -> HealthCheckBuilder<CT, HealthStatus> {
+        HealthCheckBuilder {
+            component_type: self.component_type,
+            status,
+            output: self.output,
+            time: self.time,
+        }
+    }
+}
+
+impl<CT, ST> HealthCheckBuilder<CT, ST> {
+    /// Set a human-readable output or error message.
+    #[must_use]
+    pub fn output(mut self, output: impl Into<String>) -> Self {
+        self.output = Some(output.into());
+        self
+    }
+
+    /// Set an RFC 3339 timestamp of when this check was performed.
+    #[must_use]
+    pub fn time(mut self, time: impl Into<String>) -> Self {
+        self.time = Some(time.into());
+        self
+    }
+}
+
+impl HealthCheckBuilder<String, HealthStatus> {
+    /// Build the [`HealthCheck`].
+    ///
+    /// Only available once both `component_type` and `status` have been set.
+    #[must_use]
+    pub fn build(self) -> HealthCheck {
+        HealthCheck {
+            component_type: self.component_type,
+            status: self.status,
+            output: self.output,
+            time: self.time,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +345,32 @@ impl ReadinessResponse {
         self.status.http_status()
     }
 
+    /// Return a typed builder for constructing a `ReadinessResponse`.
+    ///
+    /// Required fields (`version` and `service_id`) must be set before calling
+    /// [`ReadinessResponseBuilder::build`]; the compiler enforces this via typestate.
+    /// Use [`ReadinessResponseBuilder::add_check`] to accumulate component checks.
+    ///
+    /// # Example
+    /// ```rust
+    /// use shared_types::health::{HealthCheck, ReadinessResponse};
+    ///
+    /// let resp = ReadinessResponse::builder()
+    ///     .version("1.0.0")
+    ///     .service_id("my-service")
+    ///     .add_check("postgres:connection", HealthCheck::pass("datastore"))
+    ///     .build();
+    /// assert!(resp.checks.contains_key("postgres:connection"));
+    /// ```
+    #[must_use]
+    pub fn builder() -> ReadinessResponseBuilder<(), ()> {
+        ReadinessResponseBuilder {
+            version: (),
+            service_id: (),
+            checks: HashMap::new(),
+        }
+    }
+
     /// Compute aggregate status from all checks: worst of pass/warn/fail wins.
     fn aggregate_status(checks: &HashMap<String, Vec<HealthCheck>>) -> HealthStatus {
         let mut has_warn = false;
@@ -262,6 +389,67 @@ impl ReadinessResponse {
         } else {
             HealthStatus::Pass
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ReadinessResponse builder — typestate
+// ---------------------------------------------------------------------------
+
+/// Typestate builder for [`ReadinessResponse`].
+///
+/// Type parameters track whether required fields have been set:
+/// - `V` — `String` once `.version()` is called, `()` otherwise
+/// - `S` — `String` once `.service_id()` is called, `()` otherwise
+///
+/// [`ReadinessResponseBuilder::build`] is only available when both are set.
+pub struct ReadinessResponseBuilder<V, S> {
+    version: V,
+    service_id: S,
+    checks: HashMap<String, Vec<HealthCheck>>,
+}
+
+impl<S> ReadinessResponseBuilder<(), S> {
+    /// Set the semantic version of the service, e.g. `"1.0.0"`.
+    pub fn version(self, version: impl Into<String>) -> ReadinessResponseBuilder<String, S> {
+        ReadinessResponseBuilder {
+            version: version.into(),
+            service_id: self.service_id,
+            checks: self.checks,
+        }
+    }
+}
+
+impl<V> ReadinessResponseBuilder<V, ()> {
+    /// Set the unique service instance identifier, e.g. `"my-service"`.
+    pub fn service_id(self, service_id: impl Into<String>) -> ReadinessResponseBuilder<V, String> {
+        ReadinessResponseBuilder {
+            version: self.version,
+            service_id: service_id.into(),
+            checks: self.checks,
+        }
+    }
+}
+
+impl<V, S> ReadinessResponseBuilder<V, S> {
+    /// Add a single component check under the given key.
+    ///
+    /// Key format: `"<component>:<measurement>"`, e.g. `"postgres:connection"`.
+    /// Multiple checks under the same key are appended.
+    #[must_use]
+    pub fn add_check(mut self, key: impl Into<String>, check: HealthCheck) -> Self {
+        self.checks.entry(key.into()).or_default().push(check);
+        self
+    }
+}
+
+impl ReadinessResponseBuilder<String, String> {
+    /// Build the [`ReadinessResponse`], computing the aggregate status from all checks.
+    ///
+    /// Only available once both `version` and `service_id` have been set.
+    #[must_use]
+    pub fn build(self) -> ReadinessResponse {
+        ReadinessResponse::new(self.version, self.service_id, self.checks)
     }
 }
 
@@ -402,5 +590,127 @@ mod tests {
         assert_eq!(back.status, HealthStatus::Pass);
         assert_eq!(back.version, "1.0.0");
         assert_eq!(back.service_id, "my-service");
+    }
+
+    // -----------------------------------------------------------------------
+    // HealthCheck builder tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn health_check_builder_basic() {
+        let check = HealthCheck::builder()
+            .component_type("datastore")
+            .status(HealthStatus::Pass)
+            .build();
+        assert_eq!(check.component_type, "datastore");
+        assert_eq!(check.status, HealthStatus::Pass);
+        assert!(check.output.is_none());
+        assert!(check.time.is_none());
+    }
+
+    #[test]
+    fn health_check_builder_equivalence_with_pass() {
+        let via_factory = HealthCheck::pass("datastore");
+        let via_builder = HealthCheck::builder()
+            .component_type("datastore")
+            .status(HealthStatus::Pass)
+            .build();
+        assert_eq!(via_factory.component_type, via_builder.component_type);
+        assert_eq!(via_factory.status, via_builder.status);
+        assert_eq!(via_factory.output, via_builder.output);
+        assert_eq!(via_factory.time, via_builder.time);
+    }
+
+    #[test]
+    fn health_check_builder_chaining_optionals() {
+        let check = HealthCheck::builder()
+            .component_type("system")
+            .status(HealthStatus::Warn)
+            .output("high latency")
+            .time("2026-04-06T00:00:00Z")
+            .build();
+        assert_eq!(check.status, HealthStatus::Warn);
+        assert_eq!(check.output.as_deref(), Some("high latency"));
+        assert_eq!(check.time.as_deref(), Some("2026-04-06T00:00:00Z"));
+    }
+
+    #[test]
+    fn health_check_builder_status_before_component_type() {
+        // Typestate allows setting status before component_type
+        let check = HealthCheck::builder()
+            .status(HealthStatus::Fail)
+            .component_type("component")
+            .build();
+        assert_eq!(check.status, HealthStatus::Fail);
+        assert_eq!(check.component_type, "component");
+    }
+
+    // -----------------------------------------------------------------------
+    // ReadinessResponse builder tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn readiness_builder_empty_checks_is_pass() {
+        let resp = ReadinessResponse::builder()
+            .version("1.0.0")
+            .service_id("my-service")
+            .build();
+        assert_eq!(resp.version, "1.0.0");
+        assert_eq!(resp.service_id, "my-service");
+        assert_eq!(resp.status, HealthStatus::Pass);
+        assert!(resp.checks.is_empty());
+    }
+
+    #[test]
+    fn readiness_builder_add_check() {
+        let resp = ReadinessResponse::builder()
+            .version("1.0.0")
+            .service_id("svc")
+            .add_check("postgres:connection", HealthCheck::pass("datastore"))
+            .build();
+        assert!(resp.checks.contains_key("postgres:connection"));
+        assert_eq!(resp.status, HealthStatus::Pass);
+    }
+
+    #[test]
+    fn readiness_builder_add_multiple_checks_same_key() {
+        let resp = ReadinessResponse::builder()
+            .version("1.0.0")
+            .service_id("svc")
+            .add_check("db:ping", HealthCheck::pass("datastore"))
+            .add_check("db:ping", HealthCheck::warn("datastore", "slow"))
+            .build();
+        assert_eq!(resp.checks["db:ping"].len(), 2);
+        assert_eq!(resp.status, HealthStatus::Warn);
+    }
+
+    #[test]
+    fn readiness_builder_aggregate_fail() {
+        let resp = ReadinessResponse::builder()
+            .version("1.0.0")
+            .service_id("svc")
+            .add_check("redis:ping", HealthCheck::fail("datastore", "timeout"))
+            .build();
+        assert_eq!(resp.status, HealthStatus::Fail);
+        assert_eq!(resp.http_status(), 503);
+    }
+
+    #[test]
+    fn readiness_builder_equivalence_with_new() {
+        let mut checks = HashMap::new();
+        checks.insert(
+            "postgres:connection".into(),
+            vec![HealthCheck::pass("datastore")],
+        );
+        let via_new = ReadinessResponse::new("1.0.0", "svc", checks);
+        let via_builder = ReadinessResponse::builder()
+            .version("1.0.0")
+            .service_id("svc")
+            .add_check("postgres:connection", HealthCheck::pass("datastore"))
+            .build();
+        assert_eq!(via_new.status, via_builder.status);
+        assert_eq!(via_new.version, via_builder.version);
+        assert_eq!(via_new.service_id, via_builder.service_id);
+        assert_eq!(via_new.checks.len(), via_builder.checks.len());
     }
 }

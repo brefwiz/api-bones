@@ -564,6 +564,106 @@ impl ApiError {
     pub fn unavailable(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::ServiceUnavailable, msg)
     }
+
+    /// Return a typed builder for constructing an `ApiError`.
+    ///
+    /// Required fields (`code` and `detail`) must be set before calling
+    /// [`ApiErrorBuilder::build`]; the compiler enforces this via typestate.
+    ///
+    /// # Example
+    /// ```rust
+    /// use shared_types::error::{ApiError, ErrorCode};
+    ///
+    /// let err = ApiError::builder()
+    ///     .code(ErrorCode::ResourceNotFound)
+    ///     .detail("Booking 123 not found")
+    ///     .build();
+    /// assert_eq!(err.status, 404);
+    /// ```
+    #[must_use]
+    pub fn builder() -> ApiErrorBuilder<(), ()> {
+        ApiErrorBuilder {
+            code: (),
+            detail: (),
+            request_id: None,
+            errors: Vec::new(),
+        }
+    }
+
+    fn with_request_id_opt(mut self, id: Option<uuid::Uuid>) -> Self {
+        self.request_id = id;
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ApiError builder — typestate
+// ---------------------------------------------------------------------------
+
+/// Typestate builder for [`ApiError`].
+///
+/// Type parameters track whether required fields have been set:
+/// - `C` — `ErrorCode` once `.code()` is called, `()` otherwise
+/// - `D` — `String` once `.detail()` is called, `()` otherwise
+///
+/// [`ApiErrorBuilder::build`] is only available when both are set.
+pub struct ApiErrorBuilder<C, D> {
+    code: C,
+    detail: D,
+    request_id: Option<uuid::Uuid>,
+    errors: Vec<ValidationError>,
+}
+
+impl<D> ApiErrorBuilder<(), D> {
+    /// Set the error code. `title` and `status` are derived from it automatically.
+    pub fn code(self, code: ErrorCode) -> ApiErrorBuilder<ErrorCode, D> {
+        ApiErrorBuilder {
+            code,
+            detail: self.detail,
+            request_id: self.request_id,
+            errors: self.errors,
+        }
+    }
+}
+
+impl<C> ApiErrorBuilder<C, ()> {
+    /// Set the human-readable error detail message.
+    pub fn detail(self, detail: impl Into<String>) -> ApiErrorBuilder<C, String> {
+        ApiErrorBuilder {
+            code: self.code,
+            detail: detail.into(),
+            request_id: self.request_id,
+            errors: self.errors,
+        }
+    }
+}
+
+impl<C, D> ApiErrorBuilder<C, D> {
+    /// Attach a request ID.
+    #[must_use]
+    pub fn request_id(mut self, id: uuid::Uuid) -> Self {
+        self.request_id = Some(id);
+        self
+    }
+
+    /// Attach structured field-level validation errors.
+    #[must_use]
+    pub fn errors(mut self, errors: Vec<ValidationError>) -> Self {
+        self.errors = errors;
+        self
+    }
+}
+
+impl ApiErrorBuilder<ErrorCode, String> {
+    /// Build the [`ApiError`].
+    ///
+    /// Only available once both `code` and `detail` have been set.
+    #[must_use]
+    pub fn build(self) -> ApiError {
+        ApiError::new(self.code, self.detail)
+            .with_request_id_opt(self.request_id)
+            .with_errors(self.errors)
+    }
 }
 
 impl std::fmt::Display for ApiError {
@@ -1130,6 +1230,62 @@ mod tests {
         });
         let result: Result<ApiError, _> = serde_json::from_value(json);
         assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // ApiError builder tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn builder_basic() {
+        let err = ApiError::builder()
+            .code(ErrorCode::ResourceNotFound)
+            .detail("Booking 123 not found")
+            .build();
+        assert_eq!(err.status, 404);
+        assert_eq!(err.title, "Resource Not Found");
+        assert_eq!(err.detail, "Booking 123 not found");
+        assert!(err.request_id.is_none());
+        assert!(err.errors.is_empty());
+    }
+
+    #[test]
+    fn builder_equivalence_with_new() {
+        let via_new = ApiError::new(ErrorCode::BadRequest, "bad");
+        let via_builder = ApiError::builder()
+            .code(ErrorCode::BadRequest)
+            .detail("bad")
+            .build();
+        assert_eq!(via_new, via_builder);
+    }
+
+    #[test]
+    fn builder_chaining_all_optionals() {
+        let id = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let errs = vec![ValidationError {
+            field: "/email".to_owned(),
+            message: "invalid".to_owned(),
+            rule: None,
+        }];
+        let err = ApiError::builder()
+            .code(ErrorCode::ValidationFailed)
+            .detail("invalid input")
+            .request_id(id)
+            .errors(errs.clone())
+            .build();
+        assert_eq!(err.request_id, Some(id));
+        assert_eq!(err.errors, errs);
+    }
+
+    #[test]
+    fn builder_detail_before_code() {
+        // Typestate allows setting detail before code
+        let err = ApiError::builder()
+            .detail("forbidden action")
+            .code(ErrorCode::Forbidden)
+            .build();
+        assert_eq!(err.status, 403);
+        assert_eq!(err.detail, "forbidden action");
     }
 }
 
