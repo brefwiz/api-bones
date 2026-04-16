@@ -6,6 +6,7 @@ authors = ["Gregoire Salingue"]
 license = "LicenseRef-Proprietary"
 description = "Opinionated REST API types: errors (RFC 9457), pagination, health checks, and more"
 repository = "https://git.brefwiz.com/gsalingu/api-bones"
+publish = ["brefwiz"]
 
 [features]
 default = ["std", "serde", "uuid", "chrono", "validator"]
