@@ -40,6 +40,7 @@ pub mod calendar;
 pub mod common;
 pub mod error;
 pub mod health;
+pub mod links;
 pub mod models;
 pub mod pagination;
 pub mod query;
@@ -55,6 +56,7 @@ pub use error::{
     urn_namespace,
 };
 pub use health::{HealthCheck, HealthStatus, LivenessResponse, ReadinessResponse};
+pub use links::{Link, Links};
 pub use models::ErrorResponse;
 pub use pagination::{
     CursorPaginatedResponse, CursorPagination, PaginatedResponse, PaginationParams,
