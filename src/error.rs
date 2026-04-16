@@ -1,4 +1,4 @@
-//! Standard API error types for all Brefwiz services.
+//! Standard API error types for all api-bones services.
 //!
 //! All services serialize errors into [`ApiError`] before sending an HTTP
 //! response. The wire format conforms to
@@ -6,7 +6,7 @@
 //!
 //! ```json
 //! {
-//!   "type": "urn:brefwiz:error:resource-not-found",
+//!   "type": "urn:api-bones:error:resource-not-found",
 //!   "title": "Resource Not Found",
 //!   "status": 404,
 //!   "detail": "Booking 123 not found",
@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Serializes as a URN per [RFC 9457 §3.1.1](https://www.rfc-editor.org/rfc/rfc9457#section-3.1.1),
 /// which requires the `type` member to be a URI reference.
-/// Format: `urn:brefwiz:error:<slug>` (e.g. `urn:brefwiz:error:resource-not-found`).
+/// Format: `urn:api-bones:error:<slug>` (e.g. `urn:api-bones:error:resource-not-found`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -132,64 +132,98 @@ impl ErrorTypeMode {
 /// 3. Runtime `SHARED_TYPES_ERROR_TYPE_BASE_URL` → [`ErrorTypeMode::Url`]
 /// 4. Compile-time `SHARED_TYPES_URN_NAMESPACE` → [`ErrorTypeMode::Urn`]
 /// 5. Runtime `SHARED_TYPES_URN_NAMESPACE` → [`ErrorTypeMode::Urn`]
-/// 6. Default: `ErrorTypeMode::Urn { namespace: "brefwiz".into() }`
+/// 6. Default: `ErrorTypeMode::Urn { namespace: "api-bones".into() }`
 ///
-/// Requires the `std` feature (`OnceLock` + environment variable access).
+/// Requires the `std` feature (`RwLock` + environment variable access).
 #[cfg(feature = "std")]
-static _ERROR_TYPE_MODE: std::sync::OnceLock<ErrorTypeMode> = std::sync::OnceLock::new();
+static ERROR_TYPE_MODE: std::sync::RwLock<Option<ErrorTypeMode>> = std::sync::RwLock::new(None);
 
+/// Resolve the mode from environment variables and compile-time settings.
+#[cfg(feature = "std")]
+fn resolve_error_type_mode() -> ErrorTypeMode {
+    // 1. Compile-time base URL → URL mode (excluded from test builds;
+    //    covered by integration or build-time tests where the env var is set)
+    #[cfg(not(test))]
+    if let Some(url) = option_env!("SHARED_TYPES_ERROR_TYPE_BASE_URL")
+        && !url.is_empty()
+    {
+        return ErrorTypeMode::Url {
+            base_url: url.to_owned(),
+        };
+    }
+    // 2. Runtime base URL → URL mode
+    if let Ok(url) = std::env::var("SHARED_TYPES_ERROR_TYPE_BASE_URL")
+        && !url.is_empty()
+    {
+        return ErrorTypeMode::Url { base_url: url };
+    }
+    // 3. Compile-time URN namespace → URN mode (excluded from test builds)
+    #[cfg(not(test))]
+    if let Some(ns) = option_env!("SHARED_TYPES_URN_NAMESPACE")
+        && !ns.is_empty()
+    {
+        return ErrorTypeMode::Urn {
+            namespace: ns.to_owned(),
+        };
+    }
+    // 4. Runtime URN namespace → URN mode
+    if let Ok(ns) = std::env::var("SHARED_TYPES_URN_NAMESPACE")
+        && !ns.is_empty()
+    {
+        return ErrorTypeMode::Urn { namespace: ns };
+    }
+    // 5. Default
+    ErrorTypeMode::Urn {
+        namespace: "api-bones".to_owned(),
+    }
+}
+
+/// Returns the active [`ErrorTypeMode`].
+///
+/// Resolution order:
+///
+/// 1. Value set via [`set_error_type_mode`] (programmatic, highest priority)
+/// 2. Compile-time `SHARED_TYPES_ERROR_TYPE_BASE_URL` → [`ErrorTypeMode::Url`]
+/// 3. Runtime `SHARED_TYPES_ERROR_TYPE_BASE_URL` → [`ErrorTypeMode::Url`]
+/// 4. Compile-time `SHARED_TYPES_URN_NAMESPACE` → [`ErrorTypeMode::Urn`]
+/// 5. Runtime `SHARED_TYPES_URN_NAMESPACE` → [`ErrorTypeMode::Urn`]
+/// 6. Default: `ErrorTypeMode::Urn { namespace: "api-bones".into() }`
+///
+/// Requires the `std` feature.
 #[cfg(feature = "std")]
 #[must_use]
-pub fn error_type_mode() -> &'static ErrorTypeMode {
-    _ERROR_TYPE_MODE.get_or_init(|| {
-        // 1. Compile-time base URL → URL mode (excluded from test builds;
-        //    covered by integration or build-time tests where the env var is set)
-        #[cfg(not(test))]
-        if let Some(url) = option_env!("SHARED_TYPES_ERROR_TYPE_BASE_URL")
-            && !url.is_empty()
-        {
-            return ErrorTypeMode::Url {
-                base_url: url.to_owned(),
-            };
+pub fn error_type_mode() -> ErrorTypeMode {
+    {
+        let guard = ERROR_TYPE_MODE
+            .read()
+            .expect("error type mode lock poisoned");
+        if let Some(mode) = guard.as_ref() {
+            return mode.clone();
         }
-        // 2. Runtime base URL → URL mode
-        if let Ok(url) = std::env::var("SHARED_TYPES_ERROR_TYPE_BASE_URL")
-            && !url.is_empty()
-        {
-            return ErrorTypeMode::Url { base_url: url };
-        }
-        // 3. Compile-time URN namespace → URN mode (excluded from test builds)
-        #[cfg(not(test))]
-        if let Some(ns) = option_env!("SHARED_TYPES_URN_NAMESPACE")
-            && !ns.is_empty()
-        {
-            return ErrorTypeMode::Urn {
-                namespace: ns.to_owned(),
-            };
-        }
-        // 4. Runtime URN namespace → URN mode
-        if let Ok(ns) = std::env::var("SHARED_TYPES_URN_NAMESPACE")
-            && !ns.is_empty()
-        {
-            return ErrorTypeMode::Urn { namespace: ns };
-        }
-        // 5. Default
-        ErrorTypeMode::Urn {
-            namespace: "brefwiz".to_owned(),
-        }
-    })
+    }
+    // Not yet initialised — resolve and store.
+    let mut guard = ERROR_TYPE_MODE
+        .write()
+        .expect("error type mode lock poisoned");
+    // Double-check after acquiring write lock.
+    if let Some(mode) = guard.as_ref() {
+        return mode.clone();
+    }
+    let mode = resolve_error_type_mode();
+    *guard = Some(mode.clone());
+    mode
 }
 
 /// Override the error type mode programmatically (call once at application startup).
 ///
-/// Must be called before any [`ErrorCode::urn`] or serialization occurs, as the
-/// mode is cached after first use.
+/// Unlike the previous `OnceLock`-based implementation, this will overwrite any
+/// previously set or auto-resolved mode.
 ///
-/// Requires the `std` feature (`OnceLock` + environment variable access).
+/// Requires the `std` feature.
 ///
 /// # Example
 /// ```rust
-/// use shared_types::error::{set_error_type_mode, ErrorTypeMode};
+/// use api_bones::error::{set_error_type_mode, ErrorTypeMode};
 ///
 /// set_error_type_mode(ErrorTypeMode::Url {
 ///     base_url: "https://docs.myapp.com/errors".into(),
@@ -197,9 +231,22 @@ pub fn error_type_mode() -> &'static ErrorTypeMode {
 /// ```
 #[cfg(feature = "std")]
 pub fn set_error_type_mode(mode: ErrorTypeMode) {
-    // Delegates to the same OnceLock used by error_type_mode().
-    // Must be called before first use — subsequent calls are no-ops.
-    let _ = _ERROR_TYPE_MODE.set(mode);
+    let mut guard = ERROR_TYPE_MODE
+        .write()
+        .expect("error type mode lock poisoned");
+    *guard = Some(mode);
+}
+
+/// Reset the error type mode to uninitialized so the next call to
+/// [`error_type_mode`] re-resolves from environment variables.
+///
+/// Only available in test builds.
+#[cfg(all(test, feature = "std"))]
+pub(crate) fn reset_error_type_mode() {
+    let mut guard = ERROR_TYPE_MODE
+        .write()
+        .expect("error type mode lock poisoned");
+    *guard = None;
 }
 
 /// Returns the active URN namespace (convenience wrapper around [`error_type_mode`]).
@@ -208,10 +255,10 @@ pub fn set_error_type_mode(mode: ErrorTypeMode) {
 /// Requires the `std` feature.
 #[cfg(feature = "std")]
 #[must_use]
-pub fn urn_namespace() -> &'static str {
+pub fn urn_namespace() -> String {
     match error_type_mode() {
-        ErrorTypeMode::Urn { namespace } => namespace.as_str(),
-        ErrorTypeMode::Url { .. } => "brefwiz",
+        ErrorTypeMode::Urn { namespace } => namespace,
+        ErrorTypeMode::Url { .. } => "api-bones".to_owned(),
     }
 }
 
@@ -257,7 +304,7 @@ impl ErrorCode {
         }
     }
 
-    /// The URN slug for this error code (the part after `urn:brefwiz:error:`).
+    /// The URN slug for this error code (the part after `urn:api-bones:error:`).
     #[must_use]
     pub fn urn_slug(&self) -> &'static str {
         match self {
@@ -285,7 +332,7 @@ impl ErrorCode {
     /// - URL mode: `https://docs.myapp.com/errors/resource-not-found`
     /// - URN mode: `urn:myapp:error:resource-not-found`
     ///
-    /// Requires the `std` feature (dynamic namespace resolution via `OnceLock`).
+    /// Requires the `std` feature (dynamic namespace resolution via [`error_type_mode`]).
     #[cfg(feature = "std")]
     #[must_use]
     pub fn urn(&self) -> String {
@@ -294,7 +341,7 @@ impl ErrorCode {
 
     /// Parse an `ErrorCode` from a type URI string (URL or URN format).
     ///
-    /// Requires the `std` feature (dynamic namespace resolution via `OnceLock`).
+    /// Requires the `std` feature (dynamic namespace resolution via [`error_type_mode`]).
     #[cfg(feature = "std")]
     #[must_use]
     pub fn from_type_uri(s: &str) -> Option<Self> {
@@ -342,11 +389,11 @@ impl fmt::Display for ErrorCode {
     }
 }
 
-/// In `no_std` mode the display falls back to a fixed `urn:brefwiz:error:<slug>` format.
+/// In `no_std` mode the display falls back to a fixed `urn:api-bones:error:<slug>` format.
 #[cfg(not(feature = "std"))]
 impl fmt::Display for ErrorCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "urn:brefwiz:error:{}", self.urn_slug())
+        write!(f, "urn:api-bones:error:{}", self.urn_slug())
     }
 }
 
@@ -417,7 +464,7 @@ impl core::error::Error for ValidationError {}
 ///
 /// Wire format field mapping:
 ///
-/// - `code` → `"type"` — URN per RFC 9457 §3.1.1 (e.g. `urn:brefwiz:error:resource-not-found`)
+/// - `code` → `"type"` — URN per RFC 9457 §3.1.1 (e.g. `urn:api-bones:error:resource-not-found`)
 /// - `title` → `"title"` — RFC 9457 §3.1.2
 /// - `status` → `"status"` — HTTP status code, RFC 9457 §3.1.3 (valid range: 100–599)
 /// - `detail` → `"detail"` — RFC 9457 §3.1.4
@@ -685,7 +732,7 @@ impl ApiError {
     ///
     /// # Example
     /// ```rust
-    /// use shared_types::error::{ApiError, ErrorCode};
+    /// use api_bones::error::{ApiError, ErrorCode};
     ///
     /// let err = ApiError::builder()
     ///     .code(ErrorCode::ResourceNotFound)
@@ -858,6 +905,31 @@ impl proptest::arbitrary::Arbitrary for ApiError {
 mod tests {
     use super::*;
 
+    /// Serialises access to the global `ErrorTypeMode` and environment
+    /// variables so that tests which mutate them cannot interfere with
+    /// each other, even when `cargo test` runs them in parallel threads.
+    static MODE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// RAII guard that resets `ErrorTypeMode` on drop so subsequent tests
+    /// always start from a clean slate.
+    struct ModeGuard(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+
+    impl Drop for ModeGuard {
+        fn drop(&mut self) {
+            reset_error_type_mode();
+        }
+    }
+
+    /// Acquire `MODE_LOCK`, reset the cached mode, and return the guard.
+    /// The mode is also reset when the guard is dropped.
+    fn lock_and_reset_mode() -> ModeGuard {
+        let guard = MODE_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset_error_type_mode();
+        ModeGuard(guard)
+    }
+
     #[test]
     fn status_codes() {
         assert_eq!(ApiError::bad_request("x").status_code(), 400);
@@ -898,22 +970,24 @@ mod tests {
 
     #[test]
     fn error_code_urn() {
+        let _g = lock_and_reset_mode();
         assert_eq!(
             ErrorCode::ResourceNotFound.urn(),
-            "urn:brefwiz:error:resource-not-found"
+            "urn:api-bones:error:resource-not-found"
         );
         assert_eq!(
             ErrorCode::ValidationFailed.urn(),
-            "urn:brefwiz:error:validation-failed"
+            "urn:api-bones:error:validation-failed"
         );
         assert_eq!(
             ErrorCode::InternalServerError.urn(),
-            "urn:brefwiz:error:internal-server-error"
+            "urn:api-bones:error:internal-server-error"
         );
     }
 
     #[test]
     fn error_code_from_type_uri_roundtrip() {
+        let _g = lock_and_reset_mode();
         let codes = [
             ErrorCode::BadRequest,
             ErrorCode::ValidationFailed,
@@ -930,16 +1004,18 @@ mod tests {
 
     #[test]
     fn error_code_from_type_uri_unknown() {
-        assert!(ErrorCode::from_type_uri("urn:brefwiz:error:unknown-thing").is_none());
+        let _g = lock_and_reset_mode();
+        assert!(ErrorCode::from_type_uri("urn:api-bones:error:unknown-thing").is_none());
         assert!(ErrorCode::from_type_uri("RESOURCE_NOT_FOUND").is_none());
     }
 
     #[test]
     fn display_format() {
+        let _g = lock_and_reset_mode();
         let e = ApiError::not_found("booking 123 not found");
         assert_eq!(
             e.to_string(),
-            "[urn:brefwiz:error:resource-not-found] booking 123 not found"
+            "[urn:api-bones:error:resource-not-found] booking 123 not found"
         );
     }
 
@@ -970,12 +1046,13 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn wire_format() {
+        let _g = lock_and_reset_mode();
         let e = ApiError::not_found("booking 123 not found");
         let json = serde_json::to_value(&e).unwrap();
         // RFC 9457: no custom envelope wrapper
         assert!(json.get("error").is_none());
         // RFC 9457 §3.1.1: type MUST be a URI reference
-        assert_eq!(json["type"], "urn:brefwiz:error:resource-not-found");
+        assert_eq!(json["type"], "urn:api-bones:error:resource-not-found");
         assert_eq!(json["title"], "Resource Not Found");
         assert_eq!(json["status"], 404);
         assert_eq!(json["detail"], "booking 123 not found");
@@ -987,6 +1064,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn wire_format_instance_is_urn_uuid() {
+        let _g = lock_and_reset_mode();
         // RFC 9457 §3.1.5: instance is a URI; RFC 4122 §3: urn:uuid: scheme
         let id = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let e = ApiError::internal("oops").with_request_id(id);
@@ -1002,13 +1080,14 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn wire_format_with_errors() {
+        let _g = lock_and_reset_mode();
         let e = ApiError::validation_failed("bad input").with_errors(vec![ValidationError {
             field: "/name".to_owned(),
             message: "required".to_owned(),
             rule: None,
         }]);
         let json = serde_json::to_value(&e).unwrap();
-        assert_eq!(json["type"], "urn:brefwiz:error:validation-failed");
+        assert_eq!(json["type"], "urn:api-bones:error:validation-failed");
         assert_eq!(json["status"], 400);
         assert!(json["errors"].is_array());
         assert_eq!(json["errors"][0]["field"], "/name");
@@ -1017,10 +1096,11 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn snapshot_not_found() {
+        let _g = lock_and_reset_mode();
         let e = ApiError::not_found("booking 123 not found");
         let json = serde_json::to_value(&e).unwrap();
         let expected = serde_json::json!({
-            "type": "urn:brefwiz:error:resource-not-found",
+            "type": "urn:api-bones:error:resource-not-found",
             "title": "Resource Not Found",
             "status": 404,
             "detail": "booking 123 not found"
@@ -1031,6 +1111,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn snapshot_validation_failed_with_errors() {
+        let _g = lock_and_reset_mode();
         let e = ApiError::validation_failed("invalid input").with_errors(vec![
             ValidationError {
                 field: "/email".to_owned(),
@@ -1045,7 +1126,7 @@ mod tests {
         ]);
         let json = serde_json::to_value(&e).unwrap();
         let expected = serde_json::json!({
-            "type": "urn:brefwiz:error:validation-failed",
+            "type": "urn:api-bones:error:validation-failed",
             "title": "Validation Failed",
             "status": 400,
             "detail": "invalid input",
@@ -1060,9 +1141,10 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn error_code_serde_roundtrip() {
+        let _g = lock_and_reset_mode();
         let code = ErrorCode::ResourceNotFound;
         let json = serde_json::to_value(&code).unwrap();
-        assert_eq!(json, "urn:brefwiz:error:resource-not-found");
+        assert_eq!(json, "urn:api-bones:error:resource-not-found");
         let back: ErrorCode = serde_json::from_value(json).unwrap();
         assert_eq!(back, code);
     }
@@ -1099,29 +1181,32 @@ mod tests {
 
     // -----------------------------------------------------------------------
     // set_error_type_mode + urn_namespace URL branch
-    // Each nextest test runs in its own process → fresh OnceLock per test.
+    //
+    // These tests mutate global state (ErrorTypeMode / env vars), so each
+    // one resets the mode before and after via reset_error_type_mode().
     // -----------------------------------------------------------------------
 
     #[test]
     fn set_error_type_mode_url_and_urn_namespace_fallback() {
+        let _g = lock_and_reset_mode();
         set_error_type_mode(ErrorTypeMode::Url {
             base_url: "https://docs.test.com/errors".into(),
         });
-        // PartialEq comparison avoids a dead false-branch from matches!
         assert_eq!(
             error_type_mode(),
-            &ErrorTypeMode::Url {
+            ErrorTypeMode::Url {
                 base_url: "https://docs.test.com/errors".into()
             }
         );
-        // urn_namespace() returns "brefwiz" as a safe fallback in URL mode
-        assert_eq!(urn_namespace(), "brefwiz");
+        // urn_namespace() returns "api-bones" as a safe fallback in URL mode
+        assert_eq!(urn_namespace(), "api-bones");
     }
 
     #[test]
     fn urn_namespace_urn_mode_returns_namespace() {
-        // Default mode is Urn { "brefwiz" } — covers the Urn arm of urn_namespace()
-        assert_eq!(urn_namespace(), "brefwiz");
+        let _g = lock_and_reset_mode();
+        // Default mode is Urn { "api-bones" } — covers the Urn arm of urn_namespace()
+        assert_eq!(urn_namespace(), "api-bones");
     }
 
     // -----------------------------------------------------------------------
@@ -1131,8 +1216,8 @@ mod tests {
     #[allow(unsafe_code)]
     #[test]
     fn error_type_mode_url_from_runtime_env() {
-        // Safety: nextest runs each test in its own single-threaded process,
-        // so mutating the environment here is safe.
+        let _g = lock_and_reset_mode();
+        // Safety: single-threaded test; env var cleaned up after.
         unsafe {
             std::env::set_var(
                 "SHARED_TYPES_ERROR_TYPE_BASE_URL",
@@ -1143,26 +1228,33 @@ mod tests {
         assert!(
             matches!(mode, ErrorTypeMode::Url { base_url } if base_url == "https://env.example.com/errors")
         );
+        unsafe {
+            std::env::remove_var("SHARED_TYPES_ERROR_TYPE_BASE_URL");
+        }
     }
 
     #[allow(unsafe_code)]
     #[test]
     fn error_type_mode_urn_from_runtime_env() {
-        // Safety: nextest runs each test in its own single-threaded process,
-        // so mutating the environment here is safe.
+        let _g = lock_and_reset_mode();
+        // Safety: single-threaded test; env var cleaned up after.
         unsafe {
             std::env::set_var("SHARED_TYPES_URN_NAMESPACE", "testapp");
         }
         let mode = error_type_mode();
         assert!(matches!(mode, ErrorTypeMode::Urn { namespace } if namespace == "testapp"));
+        unsafe {
+            std::env::remove_var("SHARED_TYPES_URN_NAMESPACE");
+        }
     }
 
     // -----------------------------------------------------------------------
-    // from_type_uri — URL mode path (lines 268–274)
+    // from_type_uri — URL mode path
     // -----------------------------------------------------------------------
 
     #[test]
     fn from_type_uri_url_mode_paths() {
+        let _g = lock_and_reset_mode();
         set_error_type_mode(ErrorTypeMode::Url {
             base_url: "https://docs.test.com/errors".into(),
         });
@@ -1173,7 +1265,7 @@ mod tests {
         );
         // Fallback: URN format still accepted in URL mode
         assert_eq!(
-            ErrorCode::from_type_uri("urn:brefwiz:error:bad-request"),
+            ErrorCode::from_type_uri("urn:api-bones:error:bad-request"),
             Some(ErrorCode::BadRequest)
         );
         // URL prefix matches but slug is unknown → None (via slug match wildcard)
@@ -1189,6 +1281,7 @@ mod tests {
 
     #[test]
     fn all_error_code_variants_title_slug_status() {
+        let _g = lock_and_reset_mode();
         let cases: &[(ErrorCode, &str, &str, u16)] = &[
             (ErrorCode::BadRequest, "Bad Request", "bad-request", 400),
             (
@@ -1290,6 +1383,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn error_code_deserialize_non_string_is_error() {
+        let _g = lock_and_reset_mode();
         // Covers the ? on String::deserialize in ErrorCode::deserialize (line 321)
         let result: Result<ErrorCode, _> = serde_json::from_value(serde_json::json!(42));
         assert!(result.is_err());
@@ -1298,9 +1392,10 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn error_code_deserialize_unknown_uri_is_error() {
+        let _g = lock_and_reset_mode();
         // Covers ok_or_else closure in ErrorCode::deserialize (lines 322–323)
         let result: Result<ErrorCode, _> =
-            serde_json::from_value(serde_json::json!("urn:brefwiz:error:does-not-exist"));
+            serde_json::from_value(serde_json::json!("urn:api-bones:error:does-not-exist"));
         assert!(result.is_err());
     }
 
@@ -1320,10 +1415,11 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn uuid_urn_option_deserialize_non_string_is_error() {
+        let _g = lock_and_reset_mode();
         // Covers the ? failure path in deserialize (line 415): Option<String>::deserialize
         // returns Err when the JSON value is not a string or null.
         let json = serde_json::json!({
-            "type": "urn:brefwiz:error:bad-request",
+            "type": "urn:api-bones:error:bad-request",
             "title": "Bad Request",
             "status": 400,
             "detail": "x",
@@ -1336,9 +1432,10 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn uuid_urn_option_deserialize_null_gives_none() {
+        let _g = lock_and_reset_mode();
         // Triggers the None arm in deserialize (line 414).
         let json = serde_json::json!({
-            "type": "urn:brefwiz:error:bad-request",
+            "type": "urn:api-bones:error:bad-request",
             "title": "Bad Request",
             "status": 400,
             "detail": "x",
@@ -1351,10 +1448,11 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn uuid_urn_option_deserialize_valid_urn_uuid() {
+        let _g = lock_and_reset_mode();
         // Triggers the happy-path Some arm in deserialize (lines 415–421).
         let id = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let json = serde_json::json!({
-            "type": "urn:brefwiz:error:bad-request",
+            "type": "urn:api-bones:error:bad-request",
             "title": "Bad Request",
             "status": 400,
             "detail": "x",
@@ -1367,9 +1465,10 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn uuid_urn_option_deserialize_bad_prefix_is_error() {
+        let _g = lock_and_reset_mode();
         // Triggers the ok_or_else error path (lines 416–418).
         let json = serde_json::json!({
-            "type": "urn:brefwiz:error:bad-request",
+            "type": "urn:api-bones:error:bad-request",
             "title": "Bad Request",
             "status": 400,
             "detail": "x",
@@ -1669,6 +1768,7 @@ mod axum_tests {
 
     #[tokio::test]
     async fn into_response_status_and_content_type() {
+        reset_error_type_mode();
         let err = ApiError::not_found("thing 42 not found");
         let response = err.into_response();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -1680,13 +1780,14 @@ mod axum_tests {
 
     #[tokio::test]
     async fn into_response_body() {
+        reset_error_type_mode();
         let err = ApiError::unauthorized("bad token");
         let response = err.into_response();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(json["type"], "urn:brefwiz:error:unauthorized");
+        assert_eq!(json["type"], "urn:api-bones:error:unauthorized");
         assert_eq!(json["status"], 401);
         assert_eq!(json["detail"], "bad token");
     }
