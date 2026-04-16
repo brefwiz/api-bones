@@ -34,6 +34,15 @@ use crate::error::ApiError;
 // ---------------------------------------------------------------------------
 
 /// A batch of items to be processed in a single API call.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::bulk::BulkRequest;
+///
+/// let request: BulkRequest<i32> = BulkRequest { items: vec![1, 2, 3] };
+/// assert_eq!(request.items.len(), 3);
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
@@ -72,12 +81,34 @@ pub enum BulkItemResult<T> {
 
 impl<T> BulkItemResult<T> {
     /// Returns `true` if this result is a [`BulkItemResult::Success`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::bulk::BulkItemResult;
+    ///
+    /// let result: BulkItemResult<i32> = BulkItemResult::Success { data: 42 };
+    /// assert!(result.is_success());
+    /// ```
     #[must_use]
     pub fn is_success(&self) -> bool {
         matches!(self, Self::Success { .. })
     }
 
     /// Returns `true` if this result is a [`BulkItemResult::Failure`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::bulk::BulkItemResult;
+    /// use api_bones::ApiError;
+    ///
+    /// let result: BulkItemResult<i32> = BulkItemResult::Failure {
+    ///     index: 0,
+    ///     error: ApiError::not_found("missing"),
+    /// };
+    /// assert!(result.is_failure());
+    /// ```
     #[must_use]
     pub fn is_failure(&self) -> bool {
         matches!(self, Self::Failure { .. })
@@ -100,18 +131,61 @@ pub struct BulkResponse<T> {
 
 impl<T> BulkResponse<T> {
     /// Returns the number of successfully processed items.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::bulk::{BulkResponse, BulkItemResult};
+    ///
+    /// let response: BulkResponse<i32> = BulkResponse {
+    ///     results: vec![
+    ///         BulkItemResult::Success { data: 1 },
+    ///         BulkItemResult::Success { data: 2 },
+    ///     ],
+    /// };
+    /// assert_eq!(response.succeeded_count(), 2);
+    /// ```
     #[must_use]
     pub fn succeeded_count(&self) -> usize {
         self.results.iter().filter(|r| r.is_success()).count()
     }
 
     /// Returns the number of items that failed to process.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::bulk::{BulkResponse, BulkItemResult};
+    /// use api_bones::ApiError;
+    ///
+    /// let response: BulkResponse<i32> = BulkResponse {
+    ///     results: vec![
+    ///         BulkItemResult::Failure { index: 0, error: ApiError::not_found("gone") },
+    ///     ],
+    /// };
+    /// assert_eq!(response.failed_count(), 1);
+    /// ```
     #[must_use]
     pub fn failed_count(&self) -> usize {
         self.results.iter().filter(|r| r.is_failure()).count()
     }
 
     /// Returns `true` if at least one item failed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::bulk::{BulkResponse, BulkItemResult};
+    /// use api_bones::ApiError;
+    ///
+    /// let response: BulkResponse<i32> = BulkResponse {
+    ///     results: vec![
+    ///         BulkItemResult::Success { data: 1 },
+    ///         BulkItemResult::Failure { index: 1, error: ApiError::not_found("nope") },
+    ///     ],
+    /// };
+    /// assert!(response.has_failures());
+    /// ```
     #[must_use]
     pub fn has_failures(&self) -> bool {
         self.results.iter().any(BulkItemResult::is_failure)

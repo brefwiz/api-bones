@@ -71,6 +71,22 @@ impl<T> PaginatedResponse<T> {
     /// Build a paginated response from items, total count, and the query params.
     ///
     /// `has_more` is set to `true` when `offset + items.len() < total_count`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::{PaginatedResponse, PaginationParams};
+    ///
+    /// let params = PaginationParams::default();
+    /// let resp = PaginatedResponse::new(vec![1, 2, 3], 25, &params);
+    /// assert!(resp.has_more);
+    /// assert_eq!(resp.total_count, 25);
+    /// assert_eq!(resp.limit, 20);
+    /// assert_eq!(resp.offset, 0);
+    ///
+    /// let resp = PaginatedResponse::new(vec![1, 2, 3], 3, &params);
+    /// assert!(!resp.has_more);
+    /// ```
     #[must_use]
     pub fn new(items: Vec<T>, total_count: u64, params: &PaginationParams) -> Self {
         let limit = params.limit();
@@ -105,6 +121,16 @@ fn default_offset() -> Option<u64> {
 ///
 /// When the `validator` feature is enabled (the default), calling
 /// `.validate()` enforces these constraints before the values are used.
+///
+/// # Examples
+///
+/// ```
+/// use api_bones::pagination::PaginationParams;
+///
+/// let p = PaginationParams::default();
+/// assert_eq!(p.limit(), 20);
+/// assert_eq!(p.offset(), 0);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
@@ -136,12 +162,36 @@ impl Default for PaginationParams {
 
 impl PaginationParams {
     /// Resolved limit value (falls back to the default of 20).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::PaginationParams;
+    ///
+    /// let p = PaginationParams { limit: None, offset: None };
+    /// assert_eq!(p.limit(), 20);
+    ///
+    /// let p = PaginationParams { limit: Some(50), offset: None };
+    /// assert_eq!(p.limit(), 50);
+    /// ```
     #[must_use]
     pub fn limit(&self) -> u64 {
         self.limit.unwrap_or(20)
     }
 
     /// Resolved offset value (falls back to the default of 0).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::PaginationParams;
+    ///
+    /// let p = PaginationParams { limit: None, offset: None };
+    /// assert_eq!(p.offset(), 0);
+    ///
+    /// let p = PaginationParams { limit: None, offset: Some(100) };
+    /// assert_eq!(p.offset(), 100);
+    /// ```
     #[must_use]
     pub fn offset(&self) -> u64 {
         self.offset.unwrap_or(0)
@@ -178,6 +228,19 @@ pub struct CursorPaginatedResponse<T> {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl<T> CursorPaginatedResponse<T> {
     /// Create a new cursor-paginated response.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::{CursorPaginatedResponse, CursorPagination};
+    ///
+    /// let resp = CursorPaginatedResponse::new(
+    ///     vec!["a", "b"],
+    ///     CursorPagination::more("next_token"),
+    /// );
+    /// assert_eq!(resp.data.len(), 2);
+    /// assert!(resp.pagination.has_more);
+    /// ```
     #[must_use]
     pub fn new(data: Vec<T>, pagination: CursorPagination) -> Self {
         Self { data, pagination }
@@ -210,6 +273,16 @@ pub struct CursorPagination {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl CursorPagination {
     /// Create cursor metadata indicating more results.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::CursorPagination;
+    ///
+    /// let c = CursorPagination::more("eyJpZCI6NDJ9");
+    /// assert!(c.has_more);
+    /// assert_eq!(c.next_cursor.as_deref(), Some("eyJpZCI6NDJ9"));
+    /// ```
     #[must_use]
     pub fn more(cursor: impl Into<String>) -> Self {
         Self {
@@ -219,6 +292,16 @@ impl CursorPagination {
     }
 
     /// Create cursor metadata indicating this is the last page.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::CursorPagination;
+    ///
+    /// let c = CursorPagination::last_page();
+    /// assert!(!c.has_more);
+    /// assert!(c.next_cursor.is_none());
+    /// ```
     #[must_use]
     pub fn last_page() -> Self {
         Self {
@@ -277,6 +360,18 @@ impl Default for CursorPaginationParams {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl CursorPaginationParams {
     /// Resolved limit value (falls back to the default of 20).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::CursorPaginationParams;
+    ///
+    /// let p = CursorPaginationParams::default();
+    /// assert_eq!(p.limit(), 20);
+    ///
+    /// let p = CursorPaginationParams { limit: Some(50), after: None };
+    /// assert_eq!(p.limit(), 50);
+    /// ```
     #[must_use]
     pub fn limit(&self) -> u64 {
         self.limit.unwrap_or(20)

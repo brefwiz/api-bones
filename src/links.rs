@@ -54,6 +54,15 @@ pub struct Link {
 
 impl Link {
     /// Create a new `Link` with the given relation and href.
+    ///
+    /// ```
+    /// use api_bones::links::Link;
+    ///
+    /// let link = Link::new("related", "/other");
+    /// assert_eq!(link.rel, "related");
+    /// assert_eq!(link.href, "/other");
+    /// assert!(link.method.is_none());
+    /// ```
     pub fn new(rel: impl Into<String>, href: impl Into<String>) -> Self {
         Self {
             rel: rel.into(),
@@ -63,6 +72,13 @@ impl Link {
     }
 
     /// Set the optional HTTP method hint (builder-style).
+    ///
+    /// ```
+    /// use api_bones::links::Link;
+    ///
+    /// let link = Link::new("create", "/items").method("POST");
+    /// assert_eq!(link.method.as_deref(), Some("POST"));
+    /// ```
     #[must_use]
     pub fn method(mut self, method: impl Into<String>) -> Self {
         self.method = Some(method.into());
@@ -70,6 +86,14 @@ impl Link {
     }
 
     /// Construct a `"self"` link.
+    ///
+    /// ```
+    /// use api_bones::links::Link;
+    ///
+    /// let link = Link::self_link("/resources/42");
+    /// assert_eq!(link.rel, "self");
+    /// assert_eq!(link.href, "/resources/42");
+    /// ```
     pub fn self_link(href: impl Into<String>) -> Self {
         Self::new("self", href)
     }
@@ -120,12 +144,28 @@ pub struct Links(Vec<Link>);
 
 impl Links {
     /// Create an empty `Links` collection.
+    ///
+    /// ```
+    /// use api_bones::links::Links;
+    ///
+    /// let links = Links::new();
+    /// assert!(links.is_empty());
+    /// ```
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Append a [`Link`] and return `self` (builder-style).
+    ///
+    /// ```
+    /// use api_bones::links::{Link, Links};
+    ///
+    /// let links = Links::new()
+    ///     .push(Link::self_link("/a"))
+    ///     .push(Link::next("/b"));
+    /// assert_eq!(links.len(), 2);
+    /// ```
     #[must_use]
     pub fn push(mut self, link: Link) -> Self {
         self.0.push(link);
@@ -133,6 +173,16 @@ impl Links {
     }
 
     /// Return the first [`Link`] whose `rel` matches `rel`, if any.
+    ///
+    /// ```
+    /// use api_bones::links::{Link, Links};
+    ///
+    /// let links = Links::new()
+    ///     .push(Link::self_link("/a"))
+    ///     .push(Link::next("/b"));
+    /// assert_eq!(links.find("next").unwrap().href, "/b");
+    /// assert!(links.find("prev").is_none());
+    /// ```
     #[must_use]
     pub fn find(&self, rel: &str) -> Option<&Link> {
         self.0.iter().find(|l| l.rel == rel)

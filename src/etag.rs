@@ -51,6 +51,13 @@ impl ETag {
     /// Construct a strong `ETag`.
     ///
     /// The serialized form is `"<value>"` (with surrounding double-quotes).
+    ///
+    /// ```
+    /// use api_bones::etag::ETag;
+    ///
+    /// let tag = ETag::strong("v1");
+    /// assert_eq!(tag.to_string(), "\"v1\"");
+    /// ```
     pub fn strong(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
@@ -61,6 +68,13 @@ impl ETag {
     /// Construct a weak `ETag`.
     ///
     /// The serialized form is `W/"<value>"`.
+    ///
+    /// ```
+    /// use api_bones::etag::ETag;
+    ///
+    /// let tag = ETag::weak("v1");
+    /// assert_eq!(tag.to_string(), "W/\"v1\"");
+    /// ```
     pub fn weak(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
@@ -75,12 +89,33 @@ impl ETag {
     ///
     /// This method uses **strong comparison**: returns `true` only when both
     /// `ETags` are strong and their values are identical.
+    ///
+    /// ```
+    /// use api_bones::etag::ETag;
+    ///
+    /// let a = ETag::strong("abc");
+    /// let b = ETag::strong("abc");
+    /// assert!(a.matches(&b));
+    ///
+    /// // Weak tags never match under strong comparison.
+    /// let w = ETag::weak("abc");
+    /// assert!(!a.matches(&w));
+    /// ```
     #[must_use]
     pub fn matches(&self, other: &Self) -> bool {
         !self.weak && !other.weak && self.value == other.value
     }
 
     /// Weak comparison per RFC 7232 §2.3: values match regardless of strength.
+    ///
+    /// ```
+    /// use api_bones::etag::ETag;
+    ///
+    /// let strong = ETag::strong("abc");
+    /// let weak = ETag::weak("abc");
+    /// assert!(strong.matches_weak(&weak));
+    /// assert!(weak.matches_weak(&strong));
+    /// ```
     #[must_use]
     pub fn matches_weak(&self, other: &Self) -> bool {
         self.value == other.value
@@ -123,6 +158,18 @@ pub enum IfMatch {
 impl IfMatch {
     /// Returns `true` if the given `current` `ETag` satisfies this `If-Match`
     /// condition using strong comparison per RFC 7232.
+    ///
+    /// ```
+    /// use api_bones::etag::{ETag, IfMatch};
+    ///
+    /// // Wildcard matches everything.
+    /// assert!(IfMatch::Any.matches(&ETag::strong("v1")));
+    ///
+    /// // Tag list uses strong comparison.
+    /// let cond = IfMatch::Tags(vec![ETag::strong("v1"), ETag::strong("v2")]);
+    /// assert!(cond.matches(&ETag::strong("v1")));
+    /// assert!(!cond.matches(&ETag::strong("v3")));
+    /// ```
     #[must_use]
     pub fn matches(&self, current: &ETag) -> bool {
         match self {
@@ -162,6 +209,18 @@ impl IfNoneMatch {
     /// Per RFC 7232 §3.2, the condition is satisfied when the current `ETag`
     /// does **not** weakly match any tag in the list (or no representation
     /// exists for `Any`).
+    ///
+    /// ```
+    /// use api_bones::etag::{ETag, IfNoneMatch};
+    ///
+    /// // Wildcard is never satisfied (any representation exists).
+    /// assert!(!IfNoneMatch::Any.matches(&ETag::strong("v1")));
+    ///
+    /// // Satisfied when current tag is NOT in the list.
+    /// let cond = IfNoneMatch::Tags(vec![ETag::strong("v1")]);
+    /// assert!(cond.matches(&ETag::strong("v2")));
+    /// assert!(!cond.matches(&ETag::strong("v1")));
+    /// ```
     #[must_use]
     pub fn matches(&self, current: &ETag) -> bool {
         match self {

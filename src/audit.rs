@@ -74,6 +74,20 @@ pub struct AuditInfo {
 
 impl AuditInfo {
     /// Construct an `AuditInfo` with explicit timestamps.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "chrono")] {
+    /// use api_bones::AuditInfo;
+    /// use chrono::Utc;
+    ///
+    /// let now = Utc::now();
+    /// let info = AuditInfo::new(now, now, Some("alice".to_string()), None);
+    /// assert_eq!(info.created_by.as_deref(), Some("alice"));
+    /// assert!(info.updated_by.is_none());
+    /// # }
+    /// ```
     #[must_use]
     pub fn new(
         created_at: Timestamp,
@@ -93,6 +107,18 @@ impl AuditInfo {
     /// current UTC time.
     ///
     /// Requires the `chrono` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "chrono")] {
+    /// use api_bones::AuditInfo;
+    ///
+    /// let info = AuditInfo::now(Some("alice".to_string()));
+    /// assert_eq!(info.created_by.as_deref(), Some("alice"));
+    /// assert!(info.updated_by.is_none());
+    /// # }
+    /// ```
     #[cfg(feature = "chrono")]
     #[must_use]
     pub fn now(created_by: Option<String>) -> Self {
@@ -108,6 +134,18 @@ impl AuditInfo {
     /// Update `updated_at` to the current UTC time and set `updated_by`.
     ///
     /// Requires the `chrono` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "chrono")] {
+    /// use api_bones::AuditInfo;
+    ///
+    /// let mut info = AuditInfo::now(Some("alice".to_string()));
+    /// info.touch(Some("bob".to_string()));
+    /// assert_eq!(info.updated_by.as_deref(), Some("bob"));
+    /// # }
+    /// ```
     #[cfg(feature = "chrono")]
     pub fn touch(&mut self, updated_by: Option<String>) {
         self.updated_at = chrono::Utc::now();

@@ -77,6 +77,17 @@ impl Slug {
     /// # Errors
     ///
     /// Returns a [`SlugError`] variant that describes which constraint failed.
+    ///
+    /// ```
+    /// use api_bones::slug::{Slug, SlugError};
+    ///
+    /// let slug = Slug::new("hello-world").unwrap();
+    /// assert_eq!(slug.as_str(), "hello-world");
+    ///
+    /// assert!(matches!(Slug::new(""), Err(SlugError::Empty)));
+    /// assert!(matches!(Slug::new("Hello"), Err(SlugError::InvalidChars)));
+    /// assert!(matches!(Slug::new("-bad"), Err(SlugError::LeadingHyphen)));
+    /// ```
     pub fn new(s: impl AsRef<str>) -> Result<Self, SlugError> {
         let s = s.as_ref();
         if s.is_empty() {
@@ -115,6 +126,13 @@ impl Slug {
     /// The result is guaranteed to be a valid `Slug` as long as the input
     /// contains at least one alphanumeric ASCII character; otherwise this
     /// returns a `Slug` with the value `"untitled"`.
+    ///
+    /// ```
+    /// use api_bones::slug::Slug;
+    ///
+    /// let slug = Slug::from_title("Hello, World! 2024");
+    /// assert_eq!(slug.as_str(), "hello-world-2024");
+    /// ```
     #[must_use]
     pub fn from_title(s: impl AsRef<str>) -> Self {
         let lowered = s.as_ref().to_lowercase();
@@ -150,12 +168,27 @@ impl Slug {
     }
 
     /// Return the inner string slice.
+    ///
+    /// ```
+    /// use api_bones::slug::Slug;
+    ///
+    /// let slug = Slug::new("my-slug").unwrap();
+    /// assert_eq!(slug.as_str(), "my-slug");
+    /// ```
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
     /// Consume the `Slug` and return the underlying `String`.
+    ///
+    /// ```
+    /// use api_bones::slug::Slug;
+    ///
+    /// let slug = Slug::new("hello").unwrap();
+    /// let s: String = slug.into_string();
+    /// assert_eq!(s, "hello");
+    /// ```
     #[must_use]
     pub fn into_string(self) -> String {
         self.0

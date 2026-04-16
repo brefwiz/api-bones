@@ -45,6 +45,20 @@ use serde::{Deserialize, Serialize};
 /// RFC 8458 §3 health check status.
 ///
 /// Serializes as lowercase `"pass"`, `"fail"`, or `"warn"`.
+///
+/// # Examples
+///
+/// ```
+/// use api_bones::health::HealthStatus;
+///
+/// let pass = HealthStatus::Pass;
+/// let fail = HealthStatus::Fail;
+/// let warn = HealthStatus::Warn;
+///
+/// assert_eq!(pass.http_status(), 200);
+/// assert_eq!(fail.http_status(), 503);
+/// assert_eq!(warn.http_status(), 200);
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
@@ -66,6 +80,16 @@ impl HealthStatus {
     ///
     /// - `Pass` / `Warn` → `200 OK`
     /// - `Fail` → `503 Service Unavailable`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::health::HealthStatus;
+    ///
+    /// assert_eq!(HealthStatus::Pass.http_status(), 200);
+    /// assert_eq!(HealthStatus::Warn.http_status(), 200);
+    /// assert_eq!(HealthStatus::Fail.http_status(), 503);
+    /// ```
     #[must_use]
     pub const fn http_status(&self) -> u16 {
         match self {
@@ -75,6 +99,16 @@ impl HealthStatus {
     }
 
     /// Returns `true` if the status indicates healthy or degraded-but-operational.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::health::HealthStatus;
+    ///
+    /// assert!(HealthStatus::Pass.is_available());
+    /// assert!(HealthStatus::Warn.is_available());
+    /// assert!(!HealthStatus::Fail.is_available());
+    /// ```
     #[must_use]
     pub const fn is_available(&self) -> bool {
         matches!(self, Self::Pass | Self::Warn)
@@ -131,6 +165,17 @@ pub struct HealthCheck {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl HealthCheck {
     /// Create a passing component check.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::health::{HealthCheck, HealthStatus};
+    ///
+    /// let check = HealthCheck::pass("datastore");
+    /// assert_eq!(check.status, HealthStatus::Pass);
+    /// assert_eq!(check.component_type, "datastore");
+    /// assert!(check.output.is_none());
+    /// ```
     pub fn pass(component_type: impl Into<String>) -> Self {
         Self {
             component_type: component_type.into(),
@@ -141,6 +186,16 @@ impl HealthCheck {
     }
 
     /// Create a failing component check with an error message.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::health::{HealthCheck, HealthStatus};
+    ///
+    /// let check = HealthCheck::fail("datastore", "connection timeout");
+    /// assert_eq!(check.status, HealthStatus::Fail);
+    /// assert_eq!(check.output.as_deref(), Some("connection timeout"));
+    /// ```
     pub fn fail(component_type: impl Into<String>, output: impl Into<String>) -> Self {
         Self {
             component_type: component_type.into(),
@@ -151,6 +206,16 @@ impl HealthCheck {
     }
 
     /// Create a warn-level component check with a message.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::health::{HealthCheck, HealthStatus};
+    ///
+    /// let check = HealthCheck::warn("datastore", "high latency");
+    /// assert_eq!(check.status, HealthStatus::Warn);
+    /// assert_eq!(check.output.as_deref(), Some("high latency"));
+    /// ```
     pub fn warn(component_type: impl Into<String>, output: impl Into<String>) -> Self {
         Self {
             component_type: component_type.into(),
@@ -161,6 +226,16 @@ impl HealthCheck {
     }
 
     /// Attach an RFC 3339 timestamp to this check result.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::health::HealthCheck;
+    ///
+    /// let check = HealthCheck::pass("datastore")
+    ///     .with_time("2026-01-01T00:00:00Z");
+    /// assert_eq!(check.time.as_deref(), Some("2026-01-01T00:00:00Z"));
+    /// ```
     #[must_use]
     pub fn with_time(mut self, time: impl Into<String>) -> Self {
         self.time = Some(time.into());
@@ -306,6 +381,17 @@ pub struct LivenessResponse {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl LivenessResponse {
     /// Create a passing liveness response.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::health::{LivenessResponse, HealthStatus};
+    ///
+    /// let resp = LivenessResponse::pass("1.0.0", "my-service");
+    /// assert_eq!(resp.status, HealthStatus::Pass);
+    /// assert_eq!(resp.version, "1.0.0");
+    /// assert_eq!(resp.service_id, "my-service");
+    /// ```
     pub fn pass(version: impl Into<String>, service_id: impl Into<String>) -> Self {
         Self {
             status: HealthStatus::Pass,
@@ -352,6 +438,26 @@ impl ReadinessResponse {
     /// Create a new readiness response, computing overall status from checks.
     ///
     /// Status is the worst of all check statuses: `fail` > `warn` > `pass`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::HashMap;
+    /// use api_bones::health::{ReadinessResponse, HealthCheck, HealthStatus};
+    ///
+    /// let mut checks = HashMap::new();
+    /// checks.insert(
+    ///     "postgres:connection".to_string(),
+    ///     vec![HealthCheck::pass("datastore")],
+    /// );
+    /// checks.insert(
+    ///     "redis:ping".to_string(),
+    ///     vec![HealthCheck::fail("datastore", "timeout")],
+    /// );
+    /// let resp = ReadinessResponse::new("1.0.0", "my-service", checks);
+    /// assert_eq!(resp.status, HealthStatus::Fail);
+    /// assert_eq!(resp.http_status(), 503);
+    /// ```
     pub fn new(
         version: impl Into<String>,
         service_id: impl Into<String>,
