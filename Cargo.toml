@@ -81,3 +81,6 @@ name = "pagination"
 
 [[example]]
 name = "health_check"
+
+[[example]]
+name = "comprehensive"
