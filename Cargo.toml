@@ -1,6 +1,6 @@
 [package]
 name = "shared-types"
-version = "1.2.0"
+version = "1.3.0"
 edition = "2024"
 authors = ["Brefwiz Team"]
 license = "LicenseRef-Proprietary"
@@ -8,13 +8,14 @@ description = "Shared public API types and error types for all Brefwiz services"
 repository = "https://brefwiz.mentalmorph.com/Brefwiz/shared-types"
 
 [features]
-default = ["serde", "uuid", "chrono"]
+default = ["serde", "uuid", "chrono", "validator"]
 serde = ["dep:serde", "dep:serde_json", "dep:serde_with", "uuid?/serde"]
 uuid = ["dep:uuid"]
 chrono = ["dep:chrono"]
 axum = ["dep:axum", "dep:http", "serde"]
 utoipa = ["dep:utoipa"]
 icalendar = ["dep:icalendar"]
+validator = ["dep:validator"]
 
 [dependencies]
 thiserror = "1.0"
@@ -27,6 +28,7 @@ axum = { version = "0.8", optional = true, default-features = false }
 http = { version = "1.0", optional = true }
 utoipa = { version = "5", optional = true, features = ["uuid"] }
 icalendar = { version = "0.17", features = ["parser", "serde"], optional = true }
+validator = { version = "0.19", features = ["derive"], optional = true }
 
 [lints.rust]
 # PLATFORM-008: Zero-Tolerance Security Linting
