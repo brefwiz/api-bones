@@ -354,6 +354,17 @@ pub struct ValidationError {
     pub rule: Option<String>,
 }
 
+impl std::fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.rule {
+            Some(rule) => write!(f, "{}: {} (rule: {})", self.field, self.message, rule),
+            None => write!(f, "{}: {}", self.field, self.message),
+        }
+    }
+}
+
+impl std::error::Error for ValidationError {}
+
 // ---------------------------------------------------------------------------
 // API error — RFC 9457 Problem Details
 // ---------------------------------------------------------------------------
@@ -370,7 +381,7 @@ pub struct ValidationError {
 /// - `errors` → `"errors"` — documented extension for field-level validation errors
 ///
 /// Content-Type must be set to `application/problem+json` by the HTTP layer.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
@@ -402,6 +413,27 @@ pub struct ApiError {
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     pub errors: Vec<ValidationError>,
+    /// Upstream error that caused this `ApiError`, if any.
+    ///
+    /// Not serialized — for in-process error chaining only. Exposed via
+    /// [`std::error::Error::source`] so that `anyhow`, `eyre`, and tracing
+    /// can walk the full error chain.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    pub source: Option<std::sync::Arc<dyn std::error::Error + Send + Sync + 'static>>,
+}
+
+impl PartialEq for ApiError {
+    fn eq(&self, other: &Self) -> bool {
+        // `source` is intentionally excluded: trait objects have no meaningful
+        // equality and the field is not part of the wire format.
+        self.code == other.code
+            && self.title == other.title
+            && self.status == other.status
+            && self.detail == other.detail
+            && self.request_id == other.request_id
+            && self.errors == other.errors
+    }
 }
 
 /// Serde module: serialize/deserialize `Option<Uuid>` as `"urn:uuid:<uuid>"` strings.
@@ -449,6 +481,7 @@ impl ApiError {
             code,
             request_id: None,
             errors: Vec::new(),
+            source: None,
         }
     }
 
@@ -464,6 +497,16 @@ impl ApiError {
     #[must_use]
     pub fn with_errors(mut self, errors: Vec<ValidationError>) -> Self {
         self.errors = errors;
+        self
+    }
+
+    /// Attach an upstream error as the `source()` for this `ApiError`.
+    ///
+    /// The source is exposed via [`std::error::Error::source`] for error-chain
+    /// tools (`anyhow`, `eyre`, tracing) but is **not** serialized to the wire.
+    #[must_use]
+    pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
+        self.source = Some(std::sync::Arc::new(source));
         self
     }
 
@@ -672,7 +715,13 @@ impl std::fmt::Display for ApiError {
     }
 }
 
-impl std::error::Error for ApiError {}
+impl std::error::Error for ApiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.source
+            .as_deref()
+            .map(|s| s as &(dyn std::error::Error + 'static))
+    }
+}
 
 // ---------------------------------------------------------------------------
 // proptest::arbitrary::Arbitrary for ApiError
@@ -702,6 +751,7 @@ impl proptest::arbitrary::Arbitrary for ApiError {
                 detail,
                 request_id,
                 errors,
+                source: None,
             })
             .boxed()
     }
@@ -1286,6 +1336,168 @@ mod tests {
             .build();
         assert_eq!(err.status, 403);
         assert_eq!(err.detail, "forbidden action");
+    }
+
+    // -----------------------------------------------------------------------
+    // Error source() chaining — issue #37
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn api_error_source_none_by_default() {
+        use std::error::Error;
+        let err = ApiError::not_found("booking 42");
+        assert!(err.source().is_none());
+    }
+
+    #[test]
+    fn api_error_with_source_chain_is_walkable() {
+        use std::error::Error;
+
+        #[derive(Debug)]
+        struct RootCause;
+        impl std::fmt::Display for RootCause {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("database connection refused")
+            }
+        }
+        impl Error for RootCause {}
+
+        let err = ApiError::internal("upstream failure").with_source(RootCause);
+
+        // source() returns the attached cause
+        let source = err.source().expect("source should be set");
+        assert_eq!(source.to_string(), "database connection refused");
+
+        // chain ends after one hop
+        assert!(source.source().is_none());
+    }
+
+    #[test]
+    fn api_error_source_chain_two_levels() {
+        use std::error::Error;
+
+        #[derive(Debug)]
+        struct Mid(std::io::Error);
+        impl std::fmt::Display for Mid {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "mid: {}", self.0)
+            }
+        }
+        impl Error for Mid {
+            fn source(&self) -> Option<&(dyn Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+
+        let io_err = std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out");
+        let mid = Mid(io_err);
+
+        let err = ApiError::unavailable("service down").with_source(mid);
+
+        let hop1 = err.source().expect("first source");
+        assert!(hop1.to_string().starts_with("mid:"));
+
+        let hop2 = hop1.source().expect("second source");
+        assert_eq!(hop2.to_string(), "timed out");
+    }
+
+    #[test]
+    fn api_error_partial_eq_ignores_source() {
+        #[derive(Debug)]
+        struct Cause;
+        impl std::fmt::Display for Cause {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("cause")
+            }
+        }
+        impl std::error::Error for Cause {}
+
+        // Exercise the Display impl (required by std::error::Error) so coverage is satisfied.
+        assert_eq!(Cause.to_string(), "cause");
+        let a = ApiError::not_found("x");
+        let b = ApiError::not_found("x").with_source(Cause);
+        // source is intentionally excluded from PartialEq
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn api_error_with_source_is_cloneable() {
+        use std::error::Error;
+
+        #[derive(Debug)]
+        struct Cause;
+        impl std::fmt::Display for Cause {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("cause")
+            }
+        }
+        impl Error for Cause {}
+
+        // Exercise Display (required by std::error::Error) for coverage.
+        assert_eq!(Cause.to_string(), "cause");
+        let a = ApiError::internal("oops").with_source(Cause);
+        // Clone is derived; Arc clone shares the allocation.
+        let b = a.clone();
+        // Both a and b must have source set — verify both are still usable.
+        assert!(a.source().is_some());
+        assert!(b.source().is_some());
+    }
+
+    #[test]
+    fn validation_error_display_with_rule() {
+        let ve = ValidationError {
+            field: "/email".to_owned(),
+            message: "invalid format".to_owned(),
+            rule: Some("format".to_owned()),
+        };
+        assert_eq!(ve.to_string(), "/email: invalid format (rule: format)");
+    }
+
+    #[test]
+    fn validation_error_display_without_rule() {
+        let ve = ValidationError {
+            field: "/name".to_owned(),
+            message: "required".to_owned(),
+            rule: None,
+        };
+        assert_eq!(ve.to_string(), "/name: required");
+    }
+
+    #[test]
+    fn validation_error_is_std_error() {
+        use std::error::Error;
+        let ve = ValidationError {
+            field: "/age".to_owned(),
+            message: "must be positive".to_owned(),
+            rule: Some("min".to_owned()),
+        };
+        // source() is None — ValidationError has no inner cause
+        assert!(ve.source().is_none());
+        // usable as &dyn Error
+        let _: &dyn Error = &ve;
+    }
+
+    #[test]
+    fn api_error_source_downcast() {
+        use std::error::Error;
+        use std::sync::Arc;
+
+        #[derive(Debug)]
+        struct Typed(u32);
+        impl std::fmt::Display for Typed {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "typed({})", self.0)
+            }
+        }
+        impl Error for Typed {}
+
+        // Exercise Display (required by std::error::Error) for coverage.
+        assert_eq!(Typed(7).to_string(), "typed(7)");
+        let err = ApiError::internal("oops").with_source(Typed(42));
+        let source_arc: &Arc<dyn Error + Send + Sync> = err.source.as_ref().expect("source set");
+        let downcasted = source_arc.downcast_ref::<Typed>();
+        assert!(downcasted.is_some());
+        assert_eq!(downcasted.unwrap().0, 42);
     }
 }
 

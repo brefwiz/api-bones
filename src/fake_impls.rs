@@ -129,6 +129,7 @@ impl Dummy<Faker> for crate::error::ApiError {
             detail,
             request_id,
             errors,
+            source: None,
         }
     }
 }
