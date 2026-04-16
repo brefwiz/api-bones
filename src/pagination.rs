@@ -583,8 +583,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn cursor_response_serde_includes_cursor() {
-        let resp =
-            CursorPaginatedResponse::new(vec!["x"], CursorPagination::more("eyJpZCI6NDJ9"));
+        let resp = CursorPaginatedResponse::new(vec!["x"], CursorPagination::more("eyJpZCI6NDJ9"));
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["pagination"]["next_cursor"], "eyJpZCI6NDJ9");
     }
