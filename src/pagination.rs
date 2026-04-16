@@ -3,6 +3,21 @@
 //! Supports both offset-based and cursor-based pagination patterns.
 //! All types are framework-agnostic — consumers add their own framework
 //! derives (e.g. `utoipa::ToSchema`, `utoipa::IntoParams`).
+//!
+//! # Choosing a pagination strategy
+//!
+//! ## Offset-based (`PaginatedResponse` + `PaginationParams`)
+//! - Best for: admin dashboards, internal tools, small bounded datasets
+//! - Supports: random page access (jump to page N), total count
+//! - Trade-off: pages can shift when rows are inserted/deleted between requests
+//! - Use when: dataset is small (<10k rows), real-time consistency is not critical
+//!
+//! ## Cursor-based (`CursorPaginatedResponse` + `CursorPaginationParams`)
+//! - Best for: public APIs, feeds, large or live datasets
+//! - Supports: stable iteration (no skipped/duplicate items on insert)
+//! - Trade-off: no random page access, no total count
+//! - Use when: dataset is large or frequently mutated, API is public-facing
+//! - Industry standard: Stripe, GitHub, Slack all use cursor-based for list endpoints
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -179,6 +194,55 @@ impl CursorPagination {
             has_more: false,
             next_cursor: None,
         }
+    }
+}
+
+#[allow(clippy::unnecessary_wraps)]
+fn default_cursor_limit() -> Option<u64> {
+    Some(20)
+}
+
+/// Query parameters for cursor-based list endpoints.
+///
+/// `limit` must be between 1 and 100 (inclusive) and defaults to 20.
+/// `after` is an opaque cursor token; omit it (or pass `None`) for the first page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "validator", derive(Validate))]
+pub struct CursorPaginationParams {
+    /// Maximum number of items to return (1–100). Defaults to 20.
+    #[cfg_attr(feature = "serde", serde(default = "default_cursor_limit"))]
+    #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
+    pub limit: Option<u64>,
+    /// Opaque cursor for the next page. `None` requests the first page.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub after: Option<String>,
+}
+
+impl Default for CursorPaginationParams {
+    fn default() -> Self {
+        Self {
+            limit: Some(20),
+            after: None,
+        }
+    }
+}
+
+impl CursorPaginationParams {
+    /// Resolved limit value (falls back to the default of 20).
+    #[must_use]
+    pub fn limit(&self) -> u64 {
+        self.limit.unwrap_or(20)
+    }
+
+    /// The cursor token, if any.
+    #[must_use]
+    pub fn after(&self) -> Option<&str> {
+        self.after.as_deref()
     }
 }
 
@@ -428,5 +492,100 @@ mod tests {
             }
         });
         assert_eq!(json, expected);
+    }
+
+    // -----------------------------------------------------------------------
+    // CursorPaginationParams defaults and accessors
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cursor_pagination_params_defaults() {
+        let p = CursorPaginationParams::default();
+        assert_eq!(p.limit(), 20);
+        assert!(p.after().is_none());
+    }
+
+    #[test]
+    fn cursor_pagination_params_none_falls_back_to_defaults() {
+        let p = CursorPaginationParams {
+            limit: None,
+            after: None,
+        };
+        assert_eq!(p.limit(), 20);
+        assert!(p.after().is_none());
+    }
+
+    #[test]
+    fn cursor_pagination_params_custom_values() {
+        let p = CursorPaginationParams {
+            limit: Some(50),
+            after: Some("eyJpZCI6NDJ9".to_string()),
+        };
+        assert_eq!(p.limit(), 50);
+        assert_eq!(p.after(), Some("eyJpZCI6NDJ9"));
+    }
+
+    // -----------------------------------------------------------------------
+    // CursorPaginationParams — validator feature
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "validator")]
+    #[test]
+    fn cursor_pagination_params_validate_min_limit() {
+        use validator::Validate;
+        let p = CursorPaginationParams {
+            limit: Some(0),
+            after: None,
+        };
+        assert!(p.validate().is_err());
+    }
+
+    #[cfg(feature = "validator")]
+    #[test]
+    fn cursor_pagination_params_validate_max_limit() {
+        use validator::Validate;
+        let p = CursorPaginationParams {
+            limit: Some(101),
+            after: None,
+        };
+        assert!(p.validate().is_err());
+    }
+
+    #[cfg(feature = "validator")]
+    #[test]
+    fn cursor_pagination_params_validate_boundary_values() {
+        use validator::Validate;
+        let min = CursorPaginationParams {
+            limit: Some(1),
+            after: None,
+        };
+        assert!(min.validate().is_ok());
+        let max = CursorPaginationParams {
+            limit: Some(100),
+            after: None,
+        };
+        assert!(max.validate().is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // CursorPaginationParams — serde feature
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn cursor_pagination_params_serde_defaults() {
+        let json = serde_json::json!({});
+        let p: CursorPaginationParams = serde_json::from_value(json).unwrap();
+        assert_eq!(p.limit(), 20);
+        assert!(p.after().is_none());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn cursor_pagination_params_serde_custom() {
+        let json = serde_json::json!({"limit": 50, "after": "eyJpZCI6NDJ9"});
+        let p: CursorPaginationParams = serde_json::from_value(json).unwrap();
+        assert_eq!(p.limit(), 50);
+        assert_eq!(p.after(), Some("eyJpZCI6NDJ9"));
     }
 }
