@@ -82,7 +82,10 @@ impl Slug {
         if s.len() > 128 {
             return Err(SlugError::TooLong);
         }
-        if !s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+        if !s
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
             return Err(SlugError::InvalidChars);
         }
         if s.starts_with('-') {
@@ -315,7 +318,11 @@ mod tests {
     #[test]
     fn special_chars_are_rejected() {
         for s in ["hello_world", "hello world", "héllo", "hello.world"] {
-            assert_eq!(Slug::new(s), Err(SlugError::InvalidChars), "expected {s:?} to be invalid");
+            assert_eq!(
+                Slug::new(s),
+                Err(SlugError::InvalidChars),
+                "expected {s:?} to be invalid"
+            );
         }
     }
 
@@ -331,7 +338,10 @@ mod tests {
 
     #[test]
     fn consecutive_hyphens_are_rejected() {
-        assert_eq!(Slug::new("hello--world"), Err(SlugError::ConsecutiveHyphens));
+        assert_eq!(
+            Slug::new("hello--world"),
+            Err(SlugError::ConsecutiveHyphens)
+        );
     }
 
     // --- Slug::from_title ---
