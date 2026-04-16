@@ -210,6 +210,6 @@ jobs:
           VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
           REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
           echo "## 📦 Crate Published" >> $GITHUB_STEP_SUMMARY
-          echo "**Package:** \`shared-types\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Package:** \`api-bones\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
           echo "**Registry:** \`$REGISTRY\`" >> $GITHUB_STEP_SUMMARY
