@@ -44,6 +44,7 @@ pub mod links;
 pub mod models;
 pub mod pagination;
 pub mod query;
+pub mod ratelimit;
 pub mod response;
 
 #[cfg(feature = "uuid")]
@@ -62,4 +63,5 @@ pub use pagination::{
     CursorPaginatedResponse, CursorPagination, PaginatedResponse, PaginationParams,
 };
 pub use query::{FilterEntry, FilterParams, SearchParams, SortDirection, SortParams};
-pub use response::{ApiResponse, ApiResponseBuilder, Links, ResponseMeta};
+pub use ratelimit::RateLimitInfo;
+pub use response::{ApiResponse, ApiResponseBuilder, ResponseMeta};
