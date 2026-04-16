@@ -39,6 +39,7 @@ pub mod calendar;
 
 pub mod common;
 pub mod error;
+pub mod etag;
 pub mod health;
 pub mod links;
 pub mod models;
@@ -56,6 +57,7 @@ pub use error::{
     ApiError, ErrorCode, ErrorTypeMode, ValidationError, error_type_mode, set_error_type_mode,
     urn_namespace,
 };
+pub use etag::{ETag, IfMatch, IfNoneMatch};
 pub use health::{HealthCheck, HealthStatus, LivenessResponse, ReadinessResponse};
 pub use links::{Link, Links};
 pub use models::ErrorResponse;
