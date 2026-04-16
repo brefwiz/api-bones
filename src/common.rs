@@ -4,6 +4,9 @@
 //! - Timestamps: [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) (Internet Date/Time Format)
 //! - Identifiers: [RFC 4122](https://www.rfc-editor.org/rfc/rfc4122) (UUID)
 
+#[cfg(all(not(feature = "std"), feature = "alloc", not(feature = "chrono")))]
+use alloc::string::String;
+
 /// RFC 3339 timestamp alias for API responses.
 ///
 /// Serializes as `"2026-03-09T15:00:00Z"` via `chrono`'s serde integration.
@@ -12,7 +15,9 @@
 pub type Timestamp = chrono::DateTime<chrono::Utc>;
 
 /// RFC 3339 timestamp alias (string fallback when `chrono` feature is disabled).
-#[cfg(not(feature = "chrono"))]
+///
+/// Requires `std` or `alloc` when `chrono` is disabled.
+#[cfg(all(not(feature = "chrono"), any(feature = "std", feature = "alloc")))]
 pub type Timestamp = String;
 
 /// RFC 4122 UUID v4 resource identifier.

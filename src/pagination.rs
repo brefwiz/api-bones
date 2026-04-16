@@ -19,6 +19,8 @@
 //! - Use when: dataset is large or frequently mutated, API is public-facing
 //! - Industry standard: Stripe, GitHub, Slack all use cursor-based for list endpoints
 
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::{string::String, vec::Vec};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "validator")]
@@ -29,6 +31,8 @@ use validator::Validate;
 // ---------------------------------------------------------------------------
 
 /// Offset-based paginated response envelope with a flat shape.
+///
+/// Requires `std` or `alloc`.
 ///
 /// All list endpoints that use `PaginationParams` should wrap their result
 /// with this type so SDK consumers always see the same contract.
@@ -42,6 +46,7 @@ use validator::Validate;
 ///   "offset": 0
 /// }
 /// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -60,6 +65,7 @@ pub struct PaginatedResponse<T> {
     pub offset: u64,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl<T> PaginatedResponse<T> {
     /// Build a paginated response from items, total count, and the query params.
     ///
@@ -79,11 +85,13 @@ impl<T> PaginatedResponse<T> {
     }
 }
 
+#[cfg(feature = "serde")]
 #[allow(clippy::unnecessary_wraps)] // required by serde(default) which must return the field type
 fn default_limit() -> Option<u64> {
     Some(20)
 }
 
+#[cfg(feature = "serde")]
 #[allow(clippy::unnecessary_wraps)] // required by serde(default) which must return the field type
 fn default_offset() -> Option<u64> {
     Some(0)
@@ -144,11 +152,14 @@ impl PaginationParams {
 
 /// Cursor-based paginated response envelope (PLATFORM-003).
 ///
+/// Requires `std` or `alloc`.
+///
 /// Cursor values are opaque tokens. Clients MUST NOT interpret their contents.
 ///
 /// ```json
 /// {"data": [...], "pagination": {"has_more": true, "next_cursor": "eyJpZCI6NDJ9"}}
 /// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -161,6 +172,7 @@ pub struct CursorPaginatedResponse<T> {
     pub pagination: CursorPagination,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl<T> CursorPaginatedResponse<T> {
     /// Create a new cursor-paginated response.
     #[must_use]
@@ -171,7 +183,10 @@ impl<T> CursorPaginatedResponse<T> {
 
 /// Cursor-based pagination metadata (PLATFORM-003).
 ///
+/// Requires `std` or `alloc`.
+///
 /// `next_cursor` is an opaque token. Clients MUST NOT interpret its contents.
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -188,6 +203,7 @@ pub struct CursorPagination {
     pub next_cursor: Option<String>,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl CursorPagination {
     /// Create cursor metadata indicating more results.
     #[must_use]
@@ -208,6 +224,7 @@ impl CursorPagination {
     }
 }
 
+#[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
 #[allow(clippy::unnecessary_wraps)]
 fn default_cursor_limit() -> Option<u64> {
     Some(20)
@@ -217,6 +234,9 @@ fn default_cursor_limit() -> Option<u64> {
 ///
 /// `limit` must be between 1 and 100 (inclusive) and defaults to 20.
 /// `after` is an opaque cursor token; omit it (or pass `None`) for the first page.
+///
+/// Requires `std` or `alloc` (`after` field contains `String`).
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
@@ -239,6 +259,7 @@ pub struct CursorPaginationParams {
     pub after: Option<String>,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl Default for CursorPaginationParams {
     fn default() -> Self {
         Self {
@@ -248,6 +269,7 @@ impl Default for CursorPaginationParams {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl CursorPaginationParams {
     /// Resolved limit value (falls back to the default of 20).
     #[must_use]
@@ -283,7 +305,7 @@ impl<'a> arbitrary::Arbitrary<'a> for PaginationParams {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(all(feature = "arbitrary", any(feature = "std", feature = "alloc")))]
 impl<'a> arbitrary::Arbitrary<'a> for CursorPaginationParams {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         use arbitrary::Arbitrary;

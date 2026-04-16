@@ -29,6 +29,10 @@
 //! - `LivenessResponse` → always `200 OK`
 //! - `ReadinessResponse` → `200 OK` on `pass`/`warn`, `503 Service Unavailable` on `fail`
 
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::string::String;
+use core::fmt;
+#[cfg(feature = "std")]
 use std::collections::HashMap;
 
 #[cfg(feature = "serde")]
@@ -76,8 +80,8 @@ impl HealthStatus {
     }
 }
 
-impl std::fmt::Display for HealthStatus {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for HealthStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Pass => f.write_str("pass"),
             Self::Fail => f.write_str("fail"),
@@ -94,6 +98,9 @@ impl std::fmt::Display for HealthStatus {
 ///
 /// Used as values in [`ReadinessResponse::checks`].
 /// Map key format: `"<component>:<measurement>"`, e.g. `"postgres:connection"`.
+///
+/// Requires `std` or `alloc` (fields contain `String`).
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -119,6 +126,7 @@ pub struct HealthCheck {
     pub time: Option<String>,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl HealthCheck {
     /// Create a passing component check.
     pub fn pass(component_type: impl Into<String>) -> Self {
@@ -194,6 +202,9 @@ impl HealthCheck {
 /// - `ST` — `HealthStatus` once `.status()` is called, `()` otherwise
 ///
 /// [`HealthCheckBuilder::build`] is only available when both are set.
+///
+/// Requires `std` or `alloc`.
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub struct HealthCheckBuilder<CT, ST> {
     component_type: CT,
     status: ST,
@@ -201,6 +212,7 @@ pub struct HealthCheckBuilder<CT, ST> {
     time: Option<String>,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl<ST> HealthCheckBuilder<(), ST> {
     /// Set the component type, e.g. `"datastore"`, `"component"`, `"system"`.
     pub fn component_type(
@@ -216,6 +228,7 @@ impl<ST> HealthCheckBuilder<(), ST> {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl<CT> HealthCheckBuilder<CT, ()> {
     /// Set the check result status.
     pub fn status(self, status: HealthStatus) -> HealthCheckBuilder<CT, HealthStatus> {
@@ -228,6 +241,7 @@ impl<CT> HealthCheckBuilder<CT, ()> {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl<CT, ST> HealthCheckBuilder<CT, ST> {
     /// Set a human-readable output or error message.
     #[must_use]
@@ -244,6 +258,7 @@ impl<CT, ST> HealthCheckBuilder<CT, ST> {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl HealthCheckBuilder<String, HealthStatus> {
     /// Build the [`HealthCheck`].
     ///
@@ -267,6 +282,9 @@ impl HealthCheckBuilder<String, HealthStatus> {
 ///
 /// Answers the question: "is this process alive?" No dependency checks.
 /// Always returns HTTP `200 OK`.
+///
+/// Requires `std` or `alloc` (fields contain `String`).
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -282,6 +300,7 @@ pub struct LivenessResponse {
     pub service_id: String,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl LivenessResponse {
     /// Create a passing liveness response.
     pub fn pass(version: impl Into<String>, service_id: impl Into<String>) -> Self {
@@ -294,7 +313,7 @@ impl LivenessResponse {
 }
 
 // ---------------------------------------------------------------------------
-// ReadinessResponse
+// ReadinessResponse (requires std for HashMap)
 // ---------------------------------------------------------------------------
 
 /// Readiness/startup probe response (`GET /health/ready`, `GET /health/startup`) — RFC 8458.
@@ -303,6 +322,9 @@ impl LivenessResponse {
 /// Includes dependency checks (database, cache, upstream services).
 ///
 /// HTTP status: `200 OK` on `pass`/`warn`, `503 Service Unavailable` on `fail`.
+///
+/// Requires the `std` feature (uses `HashMap` for dependency checks).
+#[cfg(feature = "std")]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -321,6 +343,7 @@ pub struct ReadinessResponse {
     pub checks: HashMap<String, Vec<HealthCheck>>,
 }
 
+#[cfg(feature = "std")]
 impl ReadinessResponse {
     /// Create a new readiness response, computing overall status from checks.
     ///
@@ -403,12 +426,16 @@ impl ReadinessResponse {
 /// - `S` — `String` once `.service_id()` is called, `()` otherwise
 ///
 /// [`ReadinessResponseBuilder::build`] is only available when both are set.
+///
+/// Requires the `std` feature (uses `HashMap` internally).
+#[cfg(feature = "std")]
 pub struct ReadinessResponseBuilder<V, S> {
     version: V,
     service_id: S,
     checks: HashMap<String, Vec<HealthCheck>>,
 }
 
+#[cfg(feature = "std")]
 impl<S> ReadinessResponseBuilder<(), S> {
     /// Set the semantic version of the service, e.g. `"1.0.0"`.
     pub fn version(self, version: impl Into<String>) -> ReadinessResponseBuilder<String, S> {
@@ -420,6 +447,7 @@ impl<S> ReadinessResponseBuilder<(), S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<V> ReadinessResponseBuilder<V, ()> {
     /// Set the unique service instance identifier, e.g. `"my-service"`.
     pub fn service_id(self, service_id: impl Into<String>) -> ReadinessResponseBuilder<V, String> {
@@ -431,6 +459,7 @@ impl<V> ReadinessResponseBuilder<V, ()> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<V, S> ReadinessResponseBuilder<V, S> {
     /// Add a single component check under the given key.
     ///
@@ -443,6 +472,7 @@ impl<V, S> ReadinessResponseBuilder<V, S> {
     }
 }
 
+#[cfg(feature = "std")]
 impl ReadinessResponseBuilder<String, String> {
     /// Build the [`ReadinessResponse`], computing the aggregate status from all checks.
     ///

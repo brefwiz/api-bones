@@ -4,6 +4,8 @@
 //! canonical definitions shared between the server, SDKs, and consumers.
 //! They carry no business logic — serialization only.
 
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::string::String;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 

@@ -10,6 +10,8 @@
 //! - [`FilterParams`] — field/operator/value triples for structured filtering
 //! - [`SearchParams`] — full-text query with optional field scoping
 
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::{string::String, vec::Vec};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "validator")]
@@ -41,7 +43,7 @@ pub enum SortDirection {
 // SortParams
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
 fn default_sort_direction() -> SortDirection {
     SortDirection::Asc
 }
@@ -51,6 +53,7 @@ fn default_sort_direction() -> SortDirection {
 /// ```json
 /// {"sort_by": "created_at", "direction": "desc"}
 /// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
@@ -64,6 +67,7 @@ pub struct SortParams {
     pub direction: SortDirection,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl SortParams {
     /// Create sort params with the given field and direction.
     #[must_use]
@@ -96,6 +100,7 @@ impl SortParams {
 /// ```json
 /// {"field": "status", "operator": "eq", "value": "active"}
 /// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -110,6 +115,7 @@ pub struct FilterEntry {
     pub value: String,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl FilterEntry {
     /// Create a filter entry.
     #[must_use]
@@ -134,6 +140,7 @@ impl FilterEntry {
 /// ```json
 /// {"filters": [{"field": "status", "operator": "eq", "value": "active"}]}
 /// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
@@ -145,6 +152,7 @@ pub struct FilterParams {
     pub filters: Vec<FilterEntry>,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl FilterParams {
     /// Create filter params from an iterator of entries.
     #[must_use]
@@ -173,6 +181,7 @@ impl FilterParams {
 /// ```json
 /// {"query": "annual report", "fields": ["title", "description"]}
 /// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
@@ -198,6 +207,7 @@ pub struct SearchParams {
     pub fields: Vec<String>,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl SearchParams {
     /// Create search params targeting all fields.
     #[must_use]
@@ -225,7 +235,7 @@ impl SearchParams {
 // proptest strategy helpers
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "proptest")]
+#[cfg(all(feature = "proptest", any(feature = "std", feature = "alloc")))]
 fn search_query_strategy() -> impl proptest::strategy::Strategy<Value = String> {
     proptest::string::string_regex("[a-zA-Z0-9 ]{1,500}").expect("valid regex")
 }
@@ -234,7 +244,7 @@ fn search_query_strategy() -> impl proptest::strategy::Strategy<Value = String> 
 // arbitrary::Arbitrary manual impl — constrained SearchParams
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "arbitrary")]
+#[cfg(all(feature = "arbitrary", any(feature = "std", feature = "alloc")))]
 impl<'a> arbitrary::Arbitrary<'a> for SearchParams {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         // Generate a query length between 1 and 500, then fill with arbitrary bytes
