@@ -117,107 +117,6 @@ impl PaginationParams {
 }
 
 // ---------------------------------------------------------------------------
-// Page-based pagination (legacy / page+per_page contract)
-// ---------------------------------------------------------------------------
-
-/// Page-based pagination metadata.
-///
-/// Used together with [`PagedResponse`] for endpoints that prefer a
-/// `page` / `per_page` query contract over `limit` / `offset`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub struct Pagination {
-    /// Total number of items across all pages.
-    pub total: i64,
-    /// Current page number (1-indexed).
-    pub page: i64,
-    /// Items per page.
-    pub per_page: i64,
-    /// Total number of pages.
-    pub total_pages: i64,
-}
-
-impl Pagination {
-    /// Compute pagination metadata from total count and params.
-    #[must_use]
-    pub fn new(total: i64, page: i64, per_page: i64) -> Self {
-        let total_pages = if per_page > 0 {
-            (total + per_page - 1) / per_page
-        } else {
-            0
-        };
-        Self {
-            total,
-            page,
-            per_page,
-            total_pages,
-        }
-    }
-}
-
-/// Page-based paginated response envelope.
-///
-/// ```json
-/// {"data": [...], "pagination": {"total": 142, "page": 2, "per_page": 20, "total_pages": 8}}
-/// ```
-#[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-pub struct PagedResponse<T> {
-    /// The page of results.
-    pub data: Vec<T>,
-    /// Pagination metadata.
-    pub pagination: Pagination,
-}
-
-impl<T> PagedResponse<T> {
-    /// Create a new page-based paginated response.
-    #[must_use]
-    pub fn new(data: Vec<T>, pagination: Pagination) -> Self {
-        Self { data, pagination }
-    }
-}
-
-/// Query parameters for page-based list endpoints.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
-pub struct PageParams {
-    /// Page number (1-indexed). Defaults to 1.
-    #[cfg_attr(feature = "serde", serde(default = "default_page"))]
-    pub page: i64,
-    /// Items per page. Defaults to 20.
-    #[cfg_attr(feature = "serde", serde(default = "default_per_page"))]
-    pub per_page: i64,
-}
-
-fn default_page() -> i64 {
-    1
-}
-
-fn default_per_page() -> i64 {
-    20
-}
-
-impl Default for PageParams {
-    fn default() -> Self {
-        Self {
-            page: default_page(),
-            per_page: default_per_page(),
-        }
-    }
-}
-
-impl PageParams {
-    /// SQL-friendly offset: `(page - 1) * per_page`.
-    #[must_use]
-    pub fn offset(&self) -> i64 {
-        (self.page - 1) * self.per_page
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Cursor-based pagination
 // ---------------------------------------------------------------------------
 
@@ -415,66 +314,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Page-based types (Pagination / PagedResponse / PageParams)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn pagination_new_computes_total_pages() {
-        let p = Pagination::new(142, 2, 20);
-        assert_eq!(p.total_pages, 8);
-        assert_eq!(p.total, 142);
-        assert_eq!(p.page, 2);
-        assert_eq!(p.per_page, 20);
-    }
-
-    #[test]
-    fn pagination_exact_division() {
-        let p = Pagination::new(100, 1, 20);
-        assert_eq!(p.total_pages, 5);
-    }
-
-    #[test]
-    fn pagination_zero_per_page() {
-        let p = Pagination::new(100, 1, 0);
-        assert_eq!(p.total_pages, 0);
-    }
-
-    #[test]
-    fn pagination_zero_total() {
-        let p = Pagination::new(0, 1, 20);
-        assert_eq!(p.total_pages, 0);
-    }
-
-    #[test]
-    fn paged_response_new() {
-        let resp = PagedResponse::new(vec![1, 2, 3], Pagination::new(3, 1, 20));
-        assert_eq!(resp.data.len(), 3);
-        assert_eq!(resp.pagination.total, 3);
-    }
-
-    #[test]
-    fn page_params_defaults() {
-        let p = PageParams::default();
-        assert_eq!(p.page, 1);
-        assert_eq!(p.per_page, 20);
-    }
-
-    #[test]
-    fn page_params_offset() {
-        let p = PageParams {
-            page: 3,
-            per_page: 25,
-        };
-        assert_eq!(p.offset(), 50);
-    }
-
-    #[test]
-    fn page_params_offset_first_page() {
-        let p = PageParams::default();
-        assert_eq!(p.offset(), 0);
-    }
-
-    // -----------------------------------------------------------------------
     // Cursor-based types
     // -----------------------------------------------------------------------
 
@@ -557,19 +396,6 @@ mod tests {
         let p: PaginationParams = serde_json::from_value(json).unwrap();
         assert_eq!(p.limit(), 50);
         assert_eq!(p.offset(), 100);
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn paged_response_serde_round_trip() {
-        let resp = PagedResponse::new(vec![1i32, 2, 3], Pagination::new(50, 2, 10));
-        let json = serde_json::to_value(&resp).unwrap();
-        assert_eq!(json["pagination"]["total"], 50);
-        assert_eq!(json["pagination"]["total_pages"], 5);
-        assert_eq!(json["data"], serde_json::json!([1, 2, 3]));
-
-        let back: PagedResponse<i32> = serde_json::from_value(json).unwrap();
-        assert_eq!(back, resp);
     }
 
     #[cfg(feature = "serde")]
