@@ -621,3 +621,28 @@ impl<T: Dummy<Faker>> Dummy<Faker> for crate::bulk::BulkResponse<T> {
         Self { results }
     }
 }
+
+// ---------------------------------------------------------------------------
+// slug module
+// ---------------------------------------------------------------------------
+
+impl Dummy<Faker> for crate::slug::Slug {
+    fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
+        const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+        let segments = rng.gen_range(1usize..=4);
+        let parts: Vec<String> = (0..segments)
+            .map(|_| {
+                let len = rng.gen_range(2usize..=12);
+                (0..len)
+                    .map(|_| {
+                        let idx = rng.gen_range(0..CHARS.len());
+                        CHARS[idx] as char
+                    })
+                    .collect()
+            })
+            .collect();
+        let s = parts.join("-");
+        // Guaranteed valid: only [a-z0-9], joined by single hyphens, non-empty
+        crate::slug::Slug::new(s).expect("fake Slug must be valid")
+    }
+}
