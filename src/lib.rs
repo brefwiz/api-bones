@@ -36,6 +36,9 @@
 
 pub mod audit;
 
+#[cfg(feature = "fake")]
+mod fake_impls;
+
 #[cfg(feature = "icalendar")]
 pub mod calendar;
 
