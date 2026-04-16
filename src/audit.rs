@@ -33,6 +33,15 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+// When chrono is disabled, Timestamp = String which implements Arbitrary/proptest.
+#[cfg_attr(
+    all(feature = "arbitrary", not(feature = "chrono")),
+    derive(arbitrary::Arbitrary)
+)]
+#[cfg_attr(
+    all(feature = "proptest", not(feature = "chrono")),
+    derive(proptest_derive::Arbitrary)
+)]
 pub struct AuditInfo {
     /// When the resource was created (RFC 3339).
     #[cfg_attr(
@@ -100,6 +109,57 @@ impl AuditInfo {
     pub fn touch(&mut self, updated_by: Option<String>) {
         self.updated_at = chrono::Utc::now();
         self.updated_by = updated_by;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// arbitrary / proptest impls — chrono Timestamp requires manual impl
+// ---------------------------------------------------------------------------
+
+/// When `chrono` is enabled, `Timestamp = chrono::DateTime<Utc>` which does
+/// not implement `arbitrary::Arbitrary`, so we provide a hand-rolled impl.
+#[cfg(all(feature = "arbitrary", feature = "chrono"))]
+impl<'a> arbitrary::Arbitrary<'a> for AuditInfo {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        use arbitrary::Arbitrary;
+        // Generate timestamps as i64 seconds in a sane range (year 2000–3000).
+        let created_secs = i64::arbitrary(u)? % 32_503_680_000i64;
+        let updated_secs = i64::arbitrary(u)? % 32_503_680_000i64;
+        let created_at = chrono::DateTime::from_timestamp(created_secs.abs(), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        let updated_at = chrono::DateTime::from_timestamp(updated_secs.abs(), 0)
+            .unwrap_or_else(chrono::Utc::now);
+        Ok(Self {
+            created_at,
+            updated_at,
+            created_by: Arbitrary::arbitrary(u)?,
+            updated_by: Arbitrary::arbitrary(u)?,
+        })
+    }
+}
+
+#[cfg(all(feature = "proptest", feature = "chrono"))]
+impl proptest::arbitrary::Arbitrary for AuditInfo {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        use proptest::prelude::*;
+        (
+            0i64..=32_503_680_000i64,
+            0i64..=32_503_680_000i64,
+            proptest::option::of(any::<String>()),
+            proptest::option::of(any::<String>()),
+        )
+            .prop_map(|(cs, us, cb, ub)| Self {
+                created_at: chrono::DateTime::from_timestamp(cs, 0)
+                    .unwrap_or_else(chrono::Utc::now),
+                updated_at: chrono::DateTime::from_timestamp(us, 0)
+                    .unwrap_or_else(chrono::Utc::now),
+                created_by: cb,
+                updated_by: ub,
+            })
+            .boxed()
     }
 }
 

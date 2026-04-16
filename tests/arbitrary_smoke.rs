@@ -193,6 +193,11 @@ mod arbitrary_tests {
     }
 
     #[test]
+    fn smoke_audit_info() {
+        smoke::<shared_types::AuditInfo>(1000);
+    }
+
+    #[test]
     fn smoke_ratelimit_info() {
         smoke::<shared_types::ratelimit::RateLimitInfo>(1000);
     }
@@ -285,6 +290,11 @@ mod proptest_tests {
                 "SearchParams.query length out of range: {}",
                 p.query.len()
             );
+        }
+
+        #[test]
+        fn proptest_audit_info(v in any::<shared_types::AuditInfo>()) {
+            let _ = v;
         }
 
         #[test]
