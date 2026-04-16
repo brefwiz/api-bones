@@ -42,6 +42,7 @@ pub mod error;
 pub mod health;
 pub mod models;
 pub mod pagination;
+pub mod query;
 
 #[cfg(feature = "uuid")]
 pub use common::new_resource_id;
@@ -55,6 +56,6 @@ pub use error::{
 pub use health::{HealthCheck, HealthStatus, LivenessResponse, ReadinessResponse};
 pub use models::ErrorResponse;
 pub use pagination::{
-    CursorPaginatedResponse, CursorPagination, CursorPaginationParams, PaginatedResponse,
-    PaginationParams,
+    CursorPaginatedResponse, CursorPagination, PaginatedResponse, PaginationParams,
 };
+pub use query::{FilterEntry, FilterParams, SearchParams, SortDirection, SortParams};
