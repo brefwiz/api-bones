@@ -449,6 +449,28 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // --- arbitrary ---
+
+    #[cfg(feature = "arbitrary")]
+    mod arbitrary_tests {
+        use super::super::Slug;
+        use arbitrary::{Arbitrary, Unstructured};
+
+        #[test]
+        fn arbitrary_generates_valid_slugs() {
+            let raw: Vec<u8> = (0u8..=255).cycle().take(1024).collect();
+            let mut u = Unstructured::new(&raw);
+            for _ in 0..50 {
+                if let Ok(slug) = Slug::arbitrary(&mut u) {
+                    assert!(
+                        Slug::new(slug.as_str()).is_ok(),
+                        "arbitrary produced invalid slug: {slug:?}"
+                    );
+                }
+            }
+        }
+    }
+
     // --- proptest ---
 
     #[cfg(feature = "proptest")]
@@ -457,6 +479,11 @@ mod tests {
         use proptest::prelude::*;
 
         proptest! {
+            #[test]
+            fn arbitrary_with_generates_valid_slugs(slug in <Slug as proptest::arbitrary::Arbitrary>::arbitrary_with(())) {
+                prop_assert!(Slug::new(slug.as_str()).is_ok());
+            }
+
             #[test]
             fn generated_slugs_are_always_valid(slug in proptest_strategies::slug_strategy()) {
                 prop_assert!(Slug::new(slug.as_str()).is_ok());

@@ -66,16 +66,15 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Cache Rust registry + target
+      - name: Cache Rust registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}-v1
-          restore-keys: ${{ runner.os }}-cargo-test-
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}-v1
+          restore-keys: ${{ runner.os }}-cargo-registry-
       - name: Run tests
         run: make ci-test
 
@@ -89,16 +88,15 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Cache Rust registry + target
+      - name: Cache Rust registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}-v1
-          restore-keys: ${{ runner.os }}-cargo-coverage-
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}-v1
+          restore-keys: ${{ runner.os }}-cargo-registry-
       - name: Check coverage
         run: make ci-coverage
 
