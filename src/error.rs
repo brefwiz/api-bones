@@ -36,6 +36,7 @@ use serde::{Deserialize, Serialize};
 /// Format: `urn:brefwiz:error:<slug>` (e.g. `urn:brefwiz:error:resource-not-found`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum ErrorCode {
@@ -93,6 +94,7 @@ pub enum ErrorCode {
 /// Set via env: `SHARED_TYPES_URN_NAMESPACE=myapp`
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum ErrorTypeMode {
@@ -378,6 +380,7 @@ impl<'de> Deserialize<'de> for ErrorCode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct ValidationError {
@@ -428,6 +431,7 @@ impl core::error::Error for ValidationError {}
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ApiError {
     /// Machine-readable error URN (RFC 9457 §3.1.1 `type`).
@@ -451,6 +455,7 @@ pub struct ApiError {
             with = "uuid_urn_option"
         )
     )]
+    #[cfg_attr(feature = "schemars", schemars(with = "Option<String>"))]
     pub request_id: Option<uuid::Uuid>,
     /// Structured field-level validation errors (extension). Omitted when empty.
     #[cfg_attr(
@@ -1590,6 +1595,39 @@ mod tests {
         let downcasted = source_arc.downcast_ref::<Typed>();
         assert!(downcasted.is_some());
         assert_eq!(downcasted.unwrap().0, 42);
+    }
+
+    // -----------------------------------------------------------------------
+    // schemars
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "schemars")]
+    #[test]
+    fn error_code_schema_is_valid() {
+        let schema = schemars::schema_for!(ErrorCode);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object(), "schema should be a JSON object");
+    }
+
+    #[cfg(all(feature = "schemars", any(feature = "std", feature = "alloc")))]
+    #[test]
+    fn api_error_schema_is_valid() {
+        let schema = schemars::schema_for!(ApiError);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object());
+        // Confirm top-level type property exists
+        assert!(
+            json.get("definitions").is_some() || json.get("$defs").is_some() || json.get("properties").is_some(),
+            "schema should contain definitions or properties"
+        );
+    }
+
+    #[cfg(all(feature = "schemars", any(feature = "std", feature = "alloc")))]
+    #[test]
+    fn validation_error_schema_is_valid() {
+        let schema = schemars::schema_for!(ValidationError);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object());
     }
 }
 

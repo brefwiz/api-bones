@@ -50,6 +50,7 @@ use validator::Validate;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct PaginatedResponse<T> {
@@ -107,6 +108,7 @@ fn default_offset() -> Option<u64> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "validator", derive(Validate))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct PaginationParams {
@@ -163,6 +165,7 @@ impl PaginationParams {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct CursorPaginatedResponse<T> {
@@ -190,6 +193,7 @@ impl<T> CursorPaginatedResponse<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct CursorPagination {
@@ -240,6 +244,7 @@ fn default_cursor_limit() -> Option<u64> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "validator", derive(Validate))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct CursorPaginationParams {
@@ -662,5 +667,29 @@ mod tests {
         let p: CursorPaginationParams = serde_json::from_value(json).unwrap();
         assert_eq!(p.limit(), 50);
         assert_eq!(p.after(), Some("eyJpZCI6NDJ9"));
+    }
+
+    #[cfg(feature = "schemars")]
+    #[test]
+    fn pagination_params_schema_is_valid() {
+        let schema = schemars::schema_for!(PaginationParams);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object());
+    }
+
+    #[cfg(all(feature = "schemars", any(feature = "std", feature = "alloc")))]
+    #[test]
+    fn cursor_pagination_schema_is_valid() {
+        let schema = schemars::schema_for!(CursorPagination);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object());
+    }
+
+    #[cfg(all(feature = "schemars", any(feature = "std", feature = "alloc")))]
+    #[test]
+    fn paginated_response_schema_is_valid() {
+        let schema = schemars::schema_for!(PaginatedResponse<String>);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object());
     }
 }

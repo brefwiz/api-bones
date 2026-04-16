@@ -49,6 +49,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum HealthStatus {
@@ -104,6 +105,7 @@ impl fmt::Display for HealthStatus {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct HealthCheck {
@@ -288,6 +290,7 @@ impl HealthCheckBuilder<String, HealthStatus> {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct LivenessResponse {
@@ -328,6 +331,7 @@ impl LivenessResponse {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct ReadinessResponse {
@@ -742,5 +746,21 @@ mod tests {
         assert_eq!(via_new.version, via_builder.version);
         assert_eq!(via_new.service_id, via_builder.service_id);
         assert_eq!(via_new.checks.len(), via_builder.checks.len());
+    }
+
+    #[cfg(feature = "schemars")]
+    #[test]
+    fn health_status_schema_is_valid() {
+        let schema = schemars::schema_for!(HealthStatus);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object());
+    }
+
+    #[cfg(all(feature = "schemars", any(feature = "std", feature = "alloc")))]
+    #[test]
+    fn liveness_response_schema_is_valid() {
+        let schema = schemars::schema_for!(LivenessResponse);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object());
     }
 }

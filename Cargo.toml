@@ -1,6 +1,6 @@
 [package]
 name = "shared-types"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2024"
 authors = ["Brefwiz Team"]
 license = "LicenseRef-Proprietary"
@@ -26,6 +26,7 @@ validator = ["dep:validator"]
 arbitrary = ["dep:arbitrary", "uuid?/arbitrary"]
 proptest = ["dep:proptest", "dep:proptest-derive"]
 fake = ["dep:fake", "dep:rand"]
+schemars = ["dep:schemars", "schemars/uuid1", "schemars/chrono"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
@@ -44,6 +45,7 @@ icalendar = { version = "0.17", features = ["parser", "serde"], optional = true 
 validator = { version = "0.19", features = ["derive"], optional = true }
 fake = { version = "2", optional = true }
 rand = { version = "0.8", optional = true }
+schemars = { version = "0.8", optional = true }
 
 [lints.rust]
 # PLATFORM-008: Zero-Tolerance Security Linting

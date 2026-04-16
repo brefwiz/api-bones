@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 // When chrono is disabled, Timestamp = String which implements Arbitrary/proptest.
 #[cfg_attr(
     all(feature = "arbitrary", not(feature = "chrono")),
