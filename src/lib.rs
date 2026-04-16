@@ -53,6 +53,7 @@ pub mod pagination;
 pub mod query;
 pub mod ratelimit;
 pub mod response;
+pub mod slug;
 
 pub use audit::AuditInfo;
 pub use bulk::{BulkItemResult, BulkRequest, BulkResponse};
@@ -75,3 +76,4 @@ pub use pagination::{
 pub use query::{FilterEntry, FilterParams, SearchParams, SortDirection, SortParams};
 pub use ratelimit::RateLimitInfo;
 pub use response::{ApiResponse, ApiResponseBuilder, ResponseMeta};
+pub use slug::{Slug, SlugError};
