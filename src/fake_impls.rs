@@ -480,10 +480,10 @@ impl Dummy<Faker> for crate::audit::AuditInfo {
         // year 2000-2100 as Unix seconds
         let created_secs: i64 = rng.gen_range(946_684_800i64..=4_102_444_800i64);
         let updated_secs: i64 = rng.gen_range(946_684_800i64..=4_102_444_800i64);
-        let created_at = chrono::DateTime::from_timestamp(created_secs, 0)
-            .unwrap_or_else(chrono::Utc::now);
-        let updated_at = chrono::DateTime::from_timestamp(updated_secs, 0)
-            .unwrap_or_else(chrono::Utc::now);
+        let created_at =
+            chrono::DateTime::from_timestamp(created_secs, 0).unwrap_or_else(chrono::Utc::now);
+        let updated_at =
+            chrono::DateTime::from_timestamp(updated_secs, 0).unwrap_or_else(chrono::Utc::now);
         Self {
             created_at,
             updated_at,
