@@ -67,6 +67,7 @@ pub enum SlugError {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct Slug(String);
 
 impl Slug {
@@ -502,5 +503,13 @@ mod tests {
                 prop_assert!(Slug::new(slug.as_str()).is_ok());
             }
         }
+    }
+
+    #[cfg(feature = "schemars")]
+    #[test]
+    fn slug_schema_is_valid() {
+        let schema = schemars::schema_for!(Slug);
+        let json = serde_json::to_value(&schema).expect("schema serializable");
+        assert!(json.is_object());
     }
 }

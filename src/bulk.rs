@@ -39,6 +39,7 @@ use crate::error::ApiError;
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BulkRequest<T> {
     /// The items to be processed.
     pub items: Vec<T>,
@@ -52,6 +53,7 @@ pub struct BulkRequest<T> {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "serde", serde(tag = "status", rename_all = "snake_case"))]
 pub enum BulkItemResult<T> {
     /// The item was processed successfully.
@@ -90,6 +92,7 @@ impl<T> BulkItemResult<T> {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BulkResponse<T> {
     /// Per-item outcomes, in the same order as [`BulkRequest::items`].
     pub results: Vec<BulkItemResult<T>>,

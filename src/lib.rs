@@ -42,6 +42,19 @@
 //! }
 //! ```
 //!
+//! ## Feature flags (selection)
+//!
+//! | Feature    | What it enables                                      |
+//! |------------|------------------------------------------------------|
+//! | `schemars` | [`schemars::JsonSchema`] derive on all public types  |
+//! | `utoipa`   | [`utoipa::ToSchema`] derive on all public types      |
+//!
+//! Enable `schemars` in your `Cargo.toml`:
+//!
+//! ```toml
+//! shared-types = { version = "1.6", features = ["schemars"] }
+//! ```
+//!
 //! ## Add as dependency
 //!
 //! ```toml
