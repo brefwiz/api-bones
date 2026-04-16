@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```rust
-//! use shared_types::ratelimit::RateLimitInfo;
+//! use api_bones::ratelimit::RateLimitInfo;
 //!
 //! let info = RateLimitInfo::new(100, 0, 1_700_000_000).retry_after(60);
 //! assert!(info.is_exceeded());

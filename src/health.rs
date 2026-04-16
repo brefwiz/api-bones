@@ -174,7 +174,7 @@ impl HealthCheck {
     ///
     /// # Example
     /// ```rust
-    /// use shared_types::health::{HealthCheck, HealthStatus};
+    /// use api_bones::health::{HealthCheck, HealthStatus};
     ///
     /// let check = HealthCheck::builder()
     ///     .component_type("datastore")
@@ -380,7 +380,7 @@ impl ReadinessResponse {
     ///
     /// # Example
     /// ```rust
-    /// use shared_types::health::{HealthCheck, ReadinessResponse};
+    /// use api_bones::health::{HealthCheck, ReadinessResponse};
     ///
     /// let resp = ReadinessResponse::builder()
     ///     .version("1.0.0")

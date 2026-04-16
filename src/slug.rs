@@ -10,7 +10,7 @@
 //! # Example
 //!
 //! ```rust
-//! use shared_types::slug::{Slug, SlugError};
+//! use api_bones::slug::{Slug, SlugError};
 //!
 //! let slug = Slug::new("hello-world").unwrap();
 //! assert_eq!(slug.as_str(), "hello-world");

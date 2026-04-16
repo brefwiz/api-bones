@@ -29,77 +29,77 @@ mod arbitrary_tests {
 
     #[test]
     fn smoke_error_code() {
-        smoke::<shared_types::ErrorCode>(1000);
+        smoke::<api_bones::ErrorCode>(1000);
     }
 
     #[test]
     fn smoke_error_type_mode() {
-        smoke::<shared_types::ErrorTypeMode>(1000);
+        smoke::<api_bones::ErrorTypeMode>(1000);
     }
 
     #[test]
     fn smoke_validation_error() {
-        smoke::<shared_types::ValidationError>(1000);
+        smoke::<api_bones::ValidationError>(1000);
     }
 
     #[test]
     fn smoke_api_error() {
-        smoke::<shared_types::ApiError>(1000);
+        smoke::<api_bones::ApiError>(1000);
     }
 
     #[test]
     fn smoke_etag() {
-        smoke::<shared_types::ETag>(1000);
+        smoke::<api_bones::ETag>(1000);
     }
 
     #[test]
     fn smoke_if_match() {
-        smoke::<shared_types::IfMatch>(1000);
+        smoke::<api_bones::IfMatch>(1000);
     }
 
     #[test]
     fn smoke_if_none_match() {
-        smoke::<shared_types::IfNoneMatch>(1000);
+        smoke::<api_bones::IfNoneMatch>(1000);
     }
 
     #[test]
     fn smoke_health_status() {
-        smoke::<shared_types::health::HealthStatus>(1000);
+        smoke::<api_bones::health::HealthStatus>(1000);
     }
 
     #[test]
     fn smoke_health_check() {
-        smoke::<shared_types::health::HealthCheck>(1000);
+        smoke::<api_bones::health::HealthCheck>(1000);
     }
 
     #[test]
     fn smoke_liveness_response() {
-        smoke::<shared_types::health::LivenessResponse>(1000);
+        smoke::<api_bones::health::LivenessResponse>(1000);
     }
 
     #[test]
     fn smoke_readiness_response() {
-        smoke::<shared_types::health::ReadinessResponse>(1000);
+        smoke::<api_bones::health::ReadinessResponse>(1000);
     }
 
     #[test]
     fn smoke_link() {
-        smoke::<shared_types::links::Link>(1000);
+        smoke::<api_bones::links::Link>(1000);
     }
 
     #[test]
     fn smoke_links() {
-        smoke::<shared_types::links::Links>(1000);
+        smoke::<api_bones::links::Links>(1000);
     }
 
     #[test]
     fn smoke_error_response() {
-        smoke::<shared_types::models::ErrorResponse>(1000);
+        smoke::<api_bones::models::ErrorResponse>(1000);
     }
 
     #[test]
     fn smoke_paginated_response() {
-        smoke::<shared_types::pagination::PaginatedResponse<u32>>(1000);
+        smoke::<api_bones::pagination::PaginatedResponse<u32>>(1000);
     }
 
     #[test]
@@ -111,7 +111,7 @@ mod arbitrary_tests {
             if u.is_empty() {
                 u = Unstructured::new(&raw);
             }
-            if let Ok(p) = shared_types::pagination::PaginationParams::arbitrary(&mut u) {
+            if let Ok(p) = api_bones::pagination::PaginationParams::arbitrary(&mut u) {
                 // Constraint: limit must be None or Some(1..=100)
                 if let Some(limit) = p.limit {
                     assert!(
@@ -125,12 +125,12 @@ mod arbitrary_tests {
 
     #[test]
     fn smoke_cursor_paginated_response() {
-        smoke::<shared_types::pagination::CursorPaginatedResponse<String>>(1000);
+        smoke::<api_bones::pagination::CursorPaginatedResponse<String>>(1000);
     }
 
     #[test]
     fn smoke_cursor_pagination() {
-        smoke::<shared_types::pagination::CursorPagination>(1000);
+        smoke::<api_bones::pagination::CursorPagination>(1000);
     }
 
     #[test]
@@ -142,7 +142,7 @@ mod arbitrary_tests {
             if u.is_empty() {
                 u = Unstructured::new(&raw);
             }
-            if let Ok(p) = shared_types::pagination::CursorPaginationParams::arbitrary(&mut u)
+            if let Ok(p) = api_bones::pagination::CursorPaginationParams::arbitrary(&mut u)
                 && let Some(limit) = p.limit
             {
                 assert!(
@@ -155,22 +155,22 @@ mod arbitrary_tests {
 
     #[test]
     fn smoke_sort_direction() {
-        smoke::<shared_types::query::SortDirection>(1000);
+        smoke::<api_bones::query::SortDirection>(1000);
     }
 
     #[test]
     fn smoke_sort_params() {
-        smoke::<shared_types::query::SortParams>(1000);
+        smoke::<api_bones::query::SortParams>(1000);
     }
 
     #[test]
     fn smoke_filter_entry() {
-        smoke::<shared_types::query::FilterEntry>(1000);
+        smoke::<api_bones::query::FilterEntry>(1000);
     }
 
     #[test]
     fn smoke_filter_params() {
-        smoke::<shared_types::query::FilterParams>(1000);
+        smoke::<api_bones::query::FilterParams>(1000);
     }
 
     #[test]
@@ -182,7 +182,7 @@ mod arbitrary_tests {
             if u.is_empty() {
                 u = Unstructured::new(&raw);
             }
-            if let Ok(p) = shared_types::query::SearchParams::arbitrary(&mut u) {
+            if let Ok(p) = api_bones::query::SearchParams::arbitrary(&mut u) {
                 assert!(
                     !p.query.is_empty() && p.query.len() <= 500,
                     "SearchParams.query length out of range: {}",
@@ -194,27 +194,27 @@ mod arbitrary_tests {
 
     #[test]
     fn smoke_audit_info() {
-        smoke::<shared_types::AuditInfo>(1000);
+        smoke::<api_bones::AuditInfo>(1000);
     }
 
     #[test]
     fn smoke_ratelimit_info() {
-        smoke::<shared_types::ratelimit::RateLimitInfo>(1000);
+        smoke::<api_bones::ratelimit::RateLimitInfo>(1000);
     }
 
     #[test]
     fn smoke_response_meta() {
-        smoke::<shared_types::response::ResponseMeta>(1000);
+        smoke::<api_bones::response::ResponseMeta>(1000);
     }
 
     #[test]
     fn smoke_response_links() {
-        smoke::<shared_types::response::Links>(1000);
+        smoke::<api_bones::response::Links>(1000);
     }
 
     #[test]
     fn smoke_api_response() {
-        smoke::<shared_types::response::ApiResponse<u32>>(1000);
+        smoke::<api_bones::response::ApiResponse<u32>>(1000);
     }
 }
 
@@ -228,38 +228,38 @@ mod proptest_tests {
 
     proptest! {
         #[test]
-        fn proptest_error_code(v in any::<shared_types::ErrorCode>()) {
+        fn proptest_error_code(v in any::<api_bones::ErrorCode>()) {
             let _ = v;
         }
 
         #[test]
-        fn proptest_validation_error(v in any::<shared_types::ValidationError>()) {
+        fn proptest_validation_error(v in any::<api_bones::ValidationError>()) {
             let _ = v;
         }
 
         #[test]
-        fn proptest_api_error(v in any::<shared_types::ApiError>()) {
+        fn proptest_api_error(v in any::<api_bones::ApiError>()) {
             let _ = v;
         }
 
         #[test]
-        fn proptest_etag(v in any::<shared_types::ETag>()) {
+        fn proptest_etag(v in any::<api_bones::ETag>()) {
             let _ = v;
         }
 
         #[test]
-        fn proptest_health_status(v in any::<shared_types::health::HealthStatus>()) {
+        fn proptest_health_status(v in any::<api_bones::health::HealthStatus>()) {
             let _ = v;
         }
 
         #[test]
-        fn proptest_liveness_response(v in any::<shared_types::health::LivenessResponse>()) {
+        fn proptest_liveness_response(v in any::<api_bones::health::LivenessResponse>()) {
             let _ = v;
         }
 
         #[test]
         fn proptest_pagination_params_constrained(
-            p in any::<shared_types::pagination::PaginationParams>()
+            p in any::<api_bones::pagination::PaginationParams>()
         ) {
             if let Some(limit) = p.limit {
                 prop_assert!(
@@ -271,7 +271,7 @@ mod proptest_tests {
 
         #[test]
         fn proptest_cursor_pagination_params_constrained(
-            p in any::<shared_types::pagination::CursorPaginationParams>()
+            p in any::<api_bones::pagination::CursorPaginationParams>()
         ) {
             if let Some(limit) = p.limit {
                 prop_assert!(
@@ -283,7 +283,7 @@ mod proptest_tests {
 
         #[test]
         fn proptest_search_params_constrained(
-            p in any::<shared_types::query::SearchParams>()
+            p in any::<api_bones::query::SearchParams>()
         ) {
             prop_assert!(
                 !p.query.is_empty() && p.query.len() <= 500,
@@ -293,22 +293,22 @@ mod proptest_tests {
         }
 
         #[test]
-        fn proptest_audit_info(v in any::<shared_types::AuditInfo>()) {
+        fn proptest_audit_info(v in any::<api_bones::AuditInfo>()) {
             let _ = v;
         }
 
         #[test]
-        fn proptest_ratelimit_info(v in any::<shared_types::ratelimit::RateLimitInfo>()) {
+        fn proptest_ratelimit_info(v in any::<api_bones::ratelimit::RateLimitInfo>()) {
             let _ = v;
         }
 
         #[test]
-        fn proptest_response_meta(v in any::<shared_types::response::ResponseMeta>()) {
+        fn proptest_response_meta(v in any::<api_bones::response::ResponseMeta>()) {
             let _ = v;
         }
 
         #[test]
-        fn proptest_api_response(v in any::<shared_types::response::ApiResponse<u32>>()) {
+        fn proptest_api_response(v in any::<api_bones::response::ApiResponse<u32>>()) {
             let _ = v;
         }
     }

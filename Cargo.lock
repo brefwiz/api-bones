@@ -27,6 +27,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "api-bones"
+version = "1.6.0"
+dependencies = [
+ "arbitrary",
+ "axum",
+ "chrono",
+ "fake",
+ "http",
+ "icalendar",
+ "proptest",
+ "proptest-derive",
+ "rand 0.8.5",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "thiserror",
+ "tokio",
+ "utoipa",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1166,30 +1190,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "shared-types"
-version = "1.6.0"
-dependencies = [
- "arbitrary",
- "axum",
- "chrono",
- "fake",
- "http",
- "icalendar",
- "proptest",
- "proptest-derive",
- "rand 0.8.5",
- "schemars 0.8.22",
- "serde",
- "serde_json",
- "serde_with",
- "thiserror",
- "tokio",
- "utoipa",
- "uuid",
- "validator",
 ]
 
 [[package]]

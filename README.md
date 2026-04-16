@@ -1,21 +1,14 @@
-# shared-types
+# api-bones
 
-Shared public API types for the Brefwiz service ecosystem — no HTTP client, no business logic, just types.
+Opinionated REST API types: errors (RFC 9457), pagination, health checks, and more. No HTTP client, no business logic — just types.
 
 ## Usage
 
-Add the Gitea registry to your `~/.cargo/config.toml`:
-
-```toml
-[registries.gitea]
-index = "sparse+https://brefwiz.mentalmorph.com/api/packages/Brefwiz/cargo/"
-```
-
-Then add the dependency:
+Add the dependency:
 
 ```toml
 [dependencies]
-shared-types = { version = "1.1", registry = "gitea" }
+api-bones = "1.6"
 ```
 
 ## Types
@@ -102,7 +95,7 @@ Implements the IETF Health Check Response Format. Content-Type: `application/hea
 ## Example
 
 ```rust
-use shared_types::{ApiError, ErrorCode};
+use api_bones::{ApiError, ErrorCode};
 
 fn find_booking(id: u64) -> Result<(), ApiError> {
     Err(ApiError::not_found(format!("booking {id} not found")))
@@ -113,7 +106,7 @@ Wire format (RFC 9457):
 
 ```json
 {
-  "type": "urn:brefwiz:error:resource-not-found",
+  "type": "urn:api-bones:error:resource-not-found",
   "title": "Resource Not Found",
   "status": 404,
   "detail": "booking 42 not found"

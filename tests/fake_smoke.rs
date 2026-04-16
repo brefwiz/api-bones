@@ -30,17 +30,17 @@ where
 
 #[test]
 fn fake_error_code() {
-    smoke::<shared_types::ErrorCode, _>(200, |_| {});
+    smoke::<api_bones::ErrorCode, _>(200, |_| {});
 }
 
 #[test]
 fn fake_error_type_mode() {
-    smoke::<shared_types::ErrorTypeMode, _>(200, |_| {});
+    smoke::<api_bones::ErrorTypeMode, _>(200, |_| {});
 }
 
 #[test]
 fn fake_validation_error() {
-    smoke::<shared_types::ValidationError, _>(200, |v| {
+    smoke::<api_bones::ValidationError, _>(200, |v| {
         assert!(!v.field.is_empty());
         assert!(!v.message.is_empty());
     });
@@ -48,7 +48,7 @@ fn fake_validation_error() {
 
 #[test]
 fn fake_api_error_status_in_range() {
-    smoke::<shared_types::ApiError, _>(200, |v| {
+    smoke::<api_bones::ApiError, _>(200, |v| {
         assert!(
             (100..=599).contains(&v.status),
             "ApiError.status out of range: {}",
@@ -60,9 +60,9 @@ fn fake_api_error_status_in_range() {
 #[cfg(feature = "serde")]
 #[test]
 fn fake_api_error_serde_roundtrip() {
-    smoke::<shared_types::ApiError, _>(50, |v| {
+    smoke::<api_bones::ApiError, _>(50, |v| {
         let json = serde_json::to_value(&v).expect("serialize");
-        let back: shared_types::ApiError = serde_json::from_value(json).expect("deserialize");
+        let back: api_bones::ApiError = serde_json::from_value(json).expect("deserialize");
         assert_eq!(back.status, v.status);
         assert_eq!(back.code, v.code);
     });
@@ -74,19 +74,19 @@ fn fake_api_error_serde_roundtrip() {
 
 #[test]
 fn fake_etag() {
-    smoke::<shared_types::ETag, _>(200, |v| {
+    smoke::<api_bones::ETag, _>(200, |v| {
         assert!(!v.value.is_empty());
     });
 }
 
 #[test]
 fn fake_if_match() {
-    smoke::<shared_types::IfMatch, _>(200, |_| {});
+    smoke::<api_bones::IfMatch, _>(200, |_| {});
 }
 
 #[test]
 fn fake_if_none_match() {
-    smoke::<shared_types::IfNoneMatch, _>(200, |_| {});
+    smoke::<api_bones::IfNoneMatch, _>(200, |_| {});
 }
 
 // ---------------------------------------------------------------------------
@@ -95,19 +95,19 @@ fn fake_if_none_match() {
 
 #[test]
 fn fake_health_status() {
-    smoke::<shared_types::HealthStatus, _>(200, |_| {});
+    smoke::<api_bones::HealthStatus, _>(200, |_| {});
 }
 
 #[test]
 fn fake_health_check() {
-    smoke::<shared_types::health::HealthCheck, _>(200, |v| {
+    smoke::<api_bones::health::HealthCheck, _>(200, |v| {
         assert!(!v.component_type.is_empty());
     });
 }
 
 #[test]
 fn fake_liveness_response() {
-    smoke::<shared_types::LivenessResponse, _>(200, |v| {
+    smoke::<api_bones::LivenessResponse, _>(200, |v| {
         assert!(!v.version.is_empty());
         assert!(!v.service_id.is_empty());
     });
@@ -115,7 +115,7 @@ fn fake_liveness_response() {
 
 #[test]
 fn fake_readiness_response() {
-    smoke::<shared_types::ReadinessResponse, _>(200, |_| {});
+    smoke::<api_bones::ReadinessResponse, _>(200, |_| {});
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ fn fake_readiness_response() {
 
 #[test]
 fn fake_link() {
-    smoke::<shared_types::links::Link, _>(200, |v| {
+    smoke::<api_bones::links::Link, _>(200, |v| {
         assert!(!v.rel.is_empty());
         assert!(!v.href.is_empty());
     });
@@ -132,7 +132,7 @@ fn fake_link() {
 
 #[test]
 fn fake_links() {
-    smoke::<shared_types::links::Links, _>(200, |_| {});
+    smoke::<api_bones::links::Links, _>(200, |_| {});
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ fn fake_links() {
 
 #[test]
 fn fake_error_response() {
-    smoke::<shared_types::models::ErrorResponse, _>(200, |_| {});
+    smoke::<api_bones::models::ErrorResponse, _>(200, |_| {});
 }
 
 // ---------------------------------------------------------------------------
@@ -150,12 +150,12 @@ fn fake_error_response() {
 
 #[test]
 fn fake_paginated_response() {
-    smoke::<shared_types::pagination::PaginatedResponse<u32>, _>(200, |_| {});
+    smoke::<api_bones::pagination::PaginatedResponse<u32>, _>(200, |_| {});
 }
 
 #[test]
 fn fake_pagination_params_limit_in_range() {
-    smoke::<shared_types::PaginationParams, _>(200, |v| {
+    smoke::<api_bones::PaginationParams, _>(200, |v| {
         if let Some(limit) = v.limit {
             assert!(
                 (1..=100).contains(&limit),
@@ -167,17 +167,17 @@ fn fake_pagination_params_limit_in_range() {
 
 #[test]
 fn fake_cursor_paginated_response() {
-    smoke::<shared_types::pagination::CursorPaginatedResponse<String>, _>(200, |_| {});
+    smoke::<api_bones::pagination::CursorPaginatedResponse<String>, _>(200, |_| {});
 }
 
 #[test]
 fn fake_cursor_pagination() {
-    smoke::<shared_types::CursorPagination, _>(200, |_| {});
+    smoke::<api_bones::CursorPagination, _>(200, |_| {});
 }
 
 #[test]
 fn fake_cursor_pagination_params_limit_in_range() {
-    smoke::<shared_types::pagination::CursorPaginationParams, _>(200, |v| {
+    smoke::<api_bones::pagination::CursorPaginationParams, _>(200, |v| {
         if let Some(limit) = v.limit {
             assert!(
                 (1..=100).contains(&limit),
@@ -193,19 +193,19 @@ fn fake_cursor_pagination_params_limit_in_range() {
 
 #[test]
 fn fake_sort_direction() {
-    smoke::<shared_types::SortDirection, _>(200, |_| {});
+    smoke::<api_bones::SortDirection, _>(200, |_| {});
 }
 
 #[test]
 fn fake_sort_params() {
-    smoke::<shared_types::SortParams, _>(200, |v| {
+    smoke::<api_bones::SortParams, _>(200, |v| {
         assert!(!v.sort_by.is_empty());
     });
 }
 
 #[test]
 fn fake_filter_entry() {
-    smoke::<shared_types::FilterEntry, _>(200, |v| {
+    smoke::<api_bones::FilterEntry, _>(200, |v| {
         assert!(!v.field.is_empty());
         assert!(!v.operator.is_empty());
     });
@@ -213,12 +213,12 @@ fn fake_filter_entry() {
 
 #[test]
 fn fake_filter_params() {
-    smoke::<shared_types::FilterParams, _>(200, |_| {});
+    smoke::<api_bones::FilterParams, _>(200, |_| {});
 }
 
 #[test]
 fn fake_search_params_query_constraints() {
-    smoke::<shared_types::SearchParams, _>(200, |v| {
+    smoke::<api_bones::SearchParams, _>(200, |v| {
         assert!(!v.query.is_empty(), "SearchParams.query must not be empty");
         assert!(
             v.query.len() <= 500,
@@ -234,7 +234,7 @@ fn fake_search_params_query_constraints() {
 
 #[test]
 fn fake_ratelimit_info() {
-    smoke::<shared_types::RateLimitInfo, _>(200, |v| {
+    smoke::<api_bones::RateLimitInfo, _>(200, |v| {
         assert!(v.remaining <= v.limit, "remaining > limit");
     });
 }
@@ -245,15 +245,15 @@ fn fake_ratelimit_info() {
 
 #[test]
 fn fake_audit_info() {
-    smoke::<shared_types::AuditInfo, _>(200, |_| {});
+    smoke::<api_bones::AuditInfo, _>(200, |_| {});
 }
 
 #[cfg(all(feature = "chrono", feature = "serde"))]
 #[test]
 fn fake_audit_info_serde_roundtrip() {
-    smoke::<shared_types::AuditInfo, _>(50, |v| {
+    smoke::<api_bones::AuditInfo, _>(50, |v| {
         let json = serde_json::to_value(&v).expect("serialize");
-        let back: shared_types::AuditInfo = serde_json::from_value(json).expect("deserialize");
+        let back: api_bones::AuditInfo = serde_json::from_value(json).expect("deserialize");
         assert_eq!(back, v);
     });
 }
@@ -264,17 +264,17 @@ fn fake_audit_info_serde_roundtrip() {
 
 #[test]
 fn fake_response_meta() {
-    smoke::<shared_types::response::ResponseMeta, _>(200, |_| {});
+    smoke::<api_bones::response::ResponseMeta, _>(200, |_| {});
 }
 
 #[test]
 fn fake_response_links() {
-    smoke::<shared_types::response::Links, _>(200, |_| {});
+    smoke::<api_bones::response::Links, _>(200, |_| {});
 }
 
 #[test]
 fn fake_api_response() {
-    smoke::<shared_types::response::ApiResponse<u32>, _>(200, |_| {});
+    smoke::<api_bones::response::ApiResponse<u32>, _>(200, |_| {});
 }
 
 // ---------------------------------------------------------------------------
@@ -283,8 +283,8 @@ fn fake_api_response() {
 
 #[test]
 fn fake_slug() {
-    smoke::<shared_types::Slug, _>(200, |slug| {
-        assert!(shared_types::Slug::new(slug.as_str()).is_ok());
+    smoke::<api_bones::Slug, _>(200, |slug| {
+        assert!(api_bones::Slug::new(slug.as_str()).is_ok());
         assert!(!slug.as_str().is_empty());
         assert!(slug.as_str().len() <= 128);
     });
@@ -296,19 +296,19 @@ fn fake_slug() {
 
 #[test]
 fn fake_bulk_request() {
-    smoke::<shared_types::bulk::BulkRequest<u32>, _>(200, |v| {
+    smoke::<api_bones::bulk::BulkRequest<u32>, _>(200, |v| {
         assert!(!v.items.is_empty());
     });
 }
 
 #[test]
 fn fake_bulk_item_result() {
-    smoke::<shared_types::bulk::BulkItemResult<u32>, _>(200, |_| {});
+    smoke::<api_bones::bulk::BulkItemResult<u32>, _>(200, |_| {});
 }
 
 #[test]
 fn fake_bulk_response() {
-    smoke::<shared_types::bulk::BulkResponse<u32>, _>(200, |v| {
+    smoke::<api_bones::bulk::BulkResponse<u32>, _>(200, |v| {
         assert!(!v.results.is_empty());
     });
 }

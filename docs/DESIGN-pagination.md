@@ -1,4 +1,4 @@
-# Design: Pagination Types for shared-types
+# Design: Pagination Types for api-bones
 
 **Issue:** my-service#552  
 **ADR:** PLATFORM-006  
@@ -10,11 +10,11 @@
 
 ## Problem
 
-All Brefwiz list endpoints currently return bare `Vec<T>`. There's no pagination, no total counts, no cursor support. As datasets grow this becomes untenable. We need a standard paginated envelope that:
+All api-bones list endpoints currently return bare `Vec<T>`. There's no pagination, no total counts, no cursor support. As datasets grow this becomes untenable. We need a standard paginated envelope that:
 
 1. Works for offset-based pagination (admin dashboards, tables)
 2. Works for cursor-based pagination (infinite scroll, event streams)
-3. Lives in `shared-types` so every service uses the same wire format
+3. Lives in `api-bones` so every service uses the same wire format
 4. Stays framework-agnostic in the core, with an optional `axum` feature for extractor support
 
 ## Wire Format (target)
@@ -62,7 +62,7 @@ axum = ["dep:axum", "serde"]          # NEW — optional Axum integration
 axum = { version = "0.8", optional = true, default-features = false, features = ["query"] }
 ```
 
-Services that use Axum (all of them today) enable `shared-types = { features = ["axum"] }`. The core types remain usable without Axum.
+Services that use Axum (all of them today) enable `api-bones = { features = ["axum"] }`. The core types remain usable without Axum.
 
 ---
 
@@ -201,7 +201,7 @@ const DEFAULT_PAGE: u32 = 1;
 /// Missing values get sensible defaults.
 ///
 /// ```
-/// use shared_types::OffsetParams;
+/// use api_bones::OffsetParams;
 ///
 /// let params = OffsetParams::default();
 /// assert_eq!(params.page(), 1);
@@ -474,7 +474,7 @@ Note: `PaginatedResponse<T>` gets `PartialEq` only (not `Eq`) to match `ApiError
 
 ```rust
 use axum::extract::{Query, State};
-use shared_types::{OffsetParams, PaginatedResponse};
+use api_bones::{OffsetParams, PaginatedResponse};
 
 async fn list_users(
     State(state): State<AppState>,
@@ -498,7 +498,7 @@ async fn list_users(
 ### Handler returning cursor-paginated events
 
 ```rust
-use shared_types::{CursorParams, PaginatedResponse};
+use api_bones::{CursorParams, PaginatedResponse};
 
 async fn list_events(
     State(state): State<AppState>,
