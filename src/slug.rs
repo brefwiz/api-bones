@@ -270,7 +270,7 @@ impl proptest::arbitrary::Arbitrary for Slug {
     type Parameters = ();
     type Strategy = proptest::strategy::BoxedStrategy<Self>;
 
-    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         use proptest::prelude::*;
         proptest_strategies::slug_strategy().boxed()
     }

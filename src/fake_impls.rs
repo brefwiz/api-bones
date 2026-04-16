@@ -643,6 +643,6 @@ impl Dummy<Faker> for crate::slug::Slug {
             .collect();
         let s = parts.join("-");
         // Guaranteed valid: only [a-z0-9], joined by single hyphens, non-empty
-        crate::slug::Slug::new(s).expect("fake Slug must be valid")
+        Self::new(s).expect("fake Slug must be valid")
     }
 }
