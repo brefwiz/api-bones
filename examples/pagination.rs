@@ -5,9 +5,7 @@
 //!
 //! Run: `cargo run --example pagination`
 
-use api_bones::{
-    CursorPaginatedResponse, CursorPagination, PaginatedResponse, PaginationParams,
-};
+use api_bones::{CursorPaginatedResponse, CursorPagination, PaginatedResponse, PaginationParams};
 
 fn main() {
     // -- Offset-based pagination --
@@ -40,10 +38,7 @@ fn main() {
     println!("\n=== Cursor-based pagination ===");
     println!("Data:        {:?}", cursor_response.data);
     println!("Has more:    {}", cursor_response.pagination.has_more);
-    println!(
-        "Next cursor: {:?}",
-        cursor_response.pagination.next_cursor
-    );
+    println!("Next cursor: {:?}", cursor_response.pagination.next_cursor);
 
     #[cfg(feature = "serde")]
     println!(

@@ -77,10 +77,37 @@ name = "axum_error_handling"
 required-features = ["axum"]
 
 [[example]]
-name = "pagination"
+name = "audit"
+
+[[example]]
+name = "bulk_operations"
+
+[[example]]
+name = "common_types"
+
+[[example]]
+name = "error_handling"
+
+[[example]]
+name = "etag"
+
+[[example]]
+name = "hateoas_links"
 
 [[example]]
 name = "health_check"
 
 [[example]]
-name = "comprehensive"
+name = "pagination"
+
+[[example]]
+name = "query_params"
+
+[[example]]
+name = "rate_limit"
+
+[[example]]
+name = "response_envelope"
+
+[[example]]
+name = "slug"
