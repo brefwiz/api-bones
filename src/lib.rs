@@ -1,6 +1,6 @@
-//! # shared-types
+//! # api-bones
 //!
-//! Shared public API types for the Brefwiz service ecosystem.
+//! Opinionated REST API types: errors (RFC 9457), pagination, health checks, and more.
 //!
 //! ## `no_std` support
 //!
@@ -14,10 +14,10 @@
 //!
 //! ```toml
 //! # no_std + alloc (WASM, embedded with allocator)
-//! shared-types = { version = "...", default-features = false, features = ["alloc"] }
+//! api-bones = { version = "...", default-features = false, features = ["alloc"] }
 //!
 //! # pure no_std (core types only)
-//! shared-types = { version = "...", default-features = false }
+//! api-bones = { version = "...", default-features = false }
 //! ```
 //!
 //! ## Core type: [`ApiError`]
@@ -27,7 +27,7 @@
 //!
 //! ```json
 //! {
-//!   "type": "urn:brefwiz:error:resource-not-found",
+//!   "type": "urn:api-bones:error:resource-not-found",
 //!   "title": "Resource Not Found",
 //!   "status": 404,
 //!   "detail": "Booking 123 not found"
@@ -35,7 +35,7 @@
 //! ```
 //!
 //! ```rust
-//! use shared_types::{ApiError, ErrorCode};
+//! use api_bones::{ApiError, ErrorCode};
 //!
 //! fn find_booking(id: u64) -> Result<(), ApiError> {
 //!     Err(ApiError::not_found(format!("booking {id} not found")))
@@ -52,17 +52,17 @@
 //! Enable `schemars` in your `Cargo.toml`:
 //!
 //! ```toml
-//! shared-types = { version = "1.6", features = ["schemars"] }
+//! api-bones = { version = "1.6", features = ["schemars"] }
 //! ```
 //!
 //! ## Add as dependency
 //!
 //! ```toml
-//! [registries.gitea]
-//! index = "sparse+https://brefwiz.mentalmorph.com/api/packages/Brefwiz/cargo/"
+//! [registries.brefwiz]
+//! index = "sparse+https://git.brefwiz.com/api/packages/gsalingu/cargo/"
 //!
 //! [dependencies]
-//! shared-types = { version = "0.2", registry = "gitea" }
+//! api-bones = { version = "1.6", registry = "brefwiz" }
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]

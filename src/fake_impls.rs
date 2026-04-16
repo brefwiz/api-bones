@@ -5,7 +5,7 @@
 //!
 //! ```toml
 //! [dev-dependencies]
-//! shared-types = { version = "*", features = ["fake"] }
+//! api-bones = { version = "*", features = ["fake"] }
 //! fake = "2"
 //! ```
 //!
@@ -14,7 +14,7 @@
 //! ```rust
 //! # #[cfg(feature = "fake")] {
 //! use fake::{Fake, Faker};
-//! let error: shared_types::ApiError = Faker.fake();
+//! let error: api_bones::ApiError = Faker.fake();
 //! # }
 //! ```
 //!

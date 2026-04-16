@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// ```rust
 /// # #[cfg(feature = "chrono")] {
-/// use shared_types::AuditInfo;
+/// use api_bones::AuditInfo;
 ///
 /// let mut info = AuditInfo::now(Some("alice".to_string()));
 /// info.touch(Some("bob".to_string()));

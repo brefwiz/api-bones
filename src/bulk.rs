@@ -6,8 +6,8 @@
 //! single top-level error.
 //!
 //! ```rust
-//! use shared_types::bulk::{BulkRequest, BulkResponse, BulkItemResult};
-//! use shared_types::ApiError;
+//! use api_bones::bulk::{BulkRequest, BulkResponse, BulkItemResult};
+//! use api_bones::ApiError;
 //!
 //! let request: BulkRequest<i32> = BulkRequest { items: vec![1, 2, 3] };
 //! assert_eq!(request.items.len(), 3);

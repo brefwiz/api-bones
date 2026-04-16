@@ -1,11 +1,11 @@
 [package]
-name = "shared-types"
+name = "api-bones"
 version = "1.6.0"
 edition = "2024"
-authors = ["Brefwiz Team"]
+authors = ["Gregoire Salingue"]
 license = "LicenseRef-Proprietary"
-description = "Shared public API types and error types for all Brefwiz services"
-repository = "https://brefwiz.mentalmorph.com/Brefwiz/shared-types"
+description = "Opinionated REST API types: errors (RFC 9457), pagination, health checks, and more"
+repository = "https://git.brefwiz.com/gsalingu/api-bones"
 
 [features]
 default = ["std", "serde", "uuid", "chrono", "validator"]

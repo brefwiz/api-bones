@@ -18,7 +18,7 @@
 //! # Builder example
 //!
 //! ```rust
-//! use shared_types::response::{ApiResponse, ResponseMeta};
+//! use api_bones::response::{ApiResponse, ResponseMeta};
 //!
 //! let response: ApiResponse<&str> = ApiResponse::builder("hello world")
 //!     .meta(ResponseMeta::new().request_id("req-001").version("1.0"))
@@ -265,8 +265,8 @@ impl Links {
 /// # Composing with `PaginatedResponse`
 ///
 /// ```rust
-/// use shared_types::pagination::{PaginatedResponse, PaginationParams};
-/// use shared_types::response::ApiResponse;
+/// use api_bones::pagination::{PaginatedResponse, PaginationParams};
+/// use api_bones::response::ApiResponse;
 ///
 /// let params = PaginationParams::default();
 /// let page = PaginatedResponse::new(vec![1i32, 2, 3], 10, &params);

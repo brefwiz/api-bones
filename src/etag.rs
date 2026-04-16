@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```rust
-//! use shared_types::etag::{ETag, IfMatch};
+//! use api_bones::etag::{ETag, IfMatch};
 //!
 //! let tag = ETag::strong("abc123");
 //! assert_eq!(tag.to_string(), "\"abc123\"");

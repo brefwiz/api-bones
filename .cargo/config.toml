@@ -1,5 +1,2 @@
 [registry]
 global-credential-providers = ["cargo:token"]
-
-[registries.brefwiz]
-index = "sparse+https://git.brefwiz.com/api/packages/Brefwiz/cargo/"

@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```rust
-//! use shared_types::links::{Link, Links};
+//! use api_bones::links::{Link, Links};
 //!
 //! let links = Links::new()
 //!     .push(Link::self_link("/resources/42"))
