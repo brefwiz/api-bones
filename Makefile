@@ -1,6 +1,6 @@
 # Makefile for my-service-types
 
-.PHONY: help fmt ci-format ci-lint ci-test ci-coverage ci-audit build clean
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit build clean
 
 .DEFAULT_GOAL := help
 
@@ -15,6 +15,10 @@ ci-format: ## Check formatting (CI)
 
 ci-lint: ## Run Clippy (CI — zero warnings)
 	cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
+
+ci-no-std: ## Verify no_std compilation (core-only and alloc)
+	cargo check --no-default-features
+	cargo check --no-default-features --features alloc
 
 ci-test: ## Run tests with nextest (CI)
 	cargo nextest run --workspace --all-features

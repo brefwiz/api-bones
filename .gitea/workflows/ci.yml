@@ -56,6 +56,31 @@ jobs:
       - name: Run Clippy
         run: make ci-lint
 
+  no-std:
+    name: no_std Compilation
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache Rust registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-no-std-${{ hashFiles('**/Cargo.lock') }}-v1
+          restore-keys: ${{ runner.os }}-cargo-no-std-
+      - name: Check no_std (core types only)
+        run: cargo check --no-default-features
+      - name: Check no_std + alloc
+        run: cargo check --no-default-features --features alloc
+
   test:
     name: Tests
     runs-on: brefwiz
@@ -130,7 +155,7 @@ jobs:
     name: Publish Crate to Forgejo Registry
     runs-on: brefwiz
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [fmt, clippy, test, coverage, audit]
+    needs: [fmt, clippy, no-std, test, coverage, audit]
     container:
       image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
       credentials:

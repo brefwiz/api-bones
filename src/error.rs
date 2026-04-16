@@ -16,6 +16,12 @@
 //!
 //! Content-Type: `application/problem+json`
 
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::{borrow::ToOwned, format, string::String, sync::Arc, vec::Vec};
+use core::fmt;
+#[cfg(feature = "std")]
+use std::sync::Arc;
+
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +71,8 @@ pub enum ErrorCode {
 /// resolvable URLs so consumers can look up documentation. This enum lets you
 /// choose the format that fits your deployment.
 ///
+/// Requires `std` or `alloc` (fields contain `String`).
+///
 /// # Configuration
 ///
 /// Set the mode once at startup via [`set_error_type_mode`], or let it
@@ -83,6 +91,7 @@ pub enum ErrorCode {
 /// `urn:myapp:error:resource-not-found`
 ///
 /// Set via env: `SHARED_TYPES_URN_NAMESPACE=myapp`
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
@@ -101,6 +110,7 @@ pub enum ErrorTypeMode {
     },
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl ErrorTypeMode {
     /// Render the full `type` URI for a given error slug.
     #[must_use]
@@ -121,8 +131,12 @@ impl ErrorTypeMode {
 /// 4. Compile-time `SHARED_TYPES_URN_NAMESPACE` → [`ErrorTypeMode::Urn`]
 /// 5. Runtime `SHARED_TYPES_URN_NAMESPACE` → [`ErrorTypeMode::Urn`]
 /// 6. Default: `ErrorTypeMode::Urn { namespace: "brefwiz".into() }`
+///
+/// Requires the `std` feature (`OnceLock` + environment variable access).
+#[cfg(feature = "std")]
 static _ERROR_TYPE_MODE: std::sync::OnceLock<ErrorTypeMode> = std::sync::OnceLock::new();
 
+#[cfg(feature = "std")]
 #[must_use]
 pub fn error_type_mode() -> &'static ErrorTypeMode {
     _ERROR_TYPE_MODE.get_or_init(|| {
@@ -169,6 +183,8 @@ pub fn error_type_mode() -> &'static ErrorTypeMode {
 /// Must be called before any [`ErrorCode::urn`] or serialization occurs, as the
 /// mode is cached after first use.
 ///
+/// Requires the `std` feature (`OnceLock` + environment variable access).
+///
 /// # Example
 /// ```rust
 /// use shared_types::error::{set_error_type_mode, ErrorTypeMode};
@@ -177,6 +193,7 @@ pub fn error_type_mode() -> &'static ErrorTypeMode {
 ///     base_url: "https://docs.myapp.com/errors".into(),
 /// });
 /// ```
+#[cfg(feature = "std")]
 pub fn set_error_type_mode(mode: ErrorTypeMode) {
     // Delegates to the same OnceLock used by error_type_mode().
     // Must be called before first use — subsequent calls are no-ops.
@@ -185,6 +202,9 @@ pub fn set_error_type_mode(mode: ErrorTypeMode) {
 
 /// Returns the active URN namespace (convenience wrapper around [`error_type_mode`]).
 /// Only meaningful when in [`ErrorTypeMode::Urn`] mode.
+///
+/// Requires the `std` feature.
+#[cfg(feature = "std")]
 #[must_use]
 pub fn urn_namespace() -> &'static str {
     match error_type_mode() {
@@ -262,12 +282,18 @@ impl ErrorCode {
     /// The format depends on the active [`ErrorTypeMode`] (see [`error_type_mode`]):
     /// - URL mode: `https://docs.myapp.com/errors/resource-not-found`
     /// - URN mode: `urn:myapp:error:resource-not-found`
+    ///
+    /// Requires the `std` feature (dynamic namespace resolution via `OnceLock`).
+    #[cfg(feature = "std")]
     #[must_use]
     pub fn urn(&self) -> String {
         error_type_mode().render(self.urn_slug())
     }
 
     /// Parse an `ErrorCode` from a type URI string (URL or URN format).
+    ///
+    /// Requires the `std` feature (dynamic namespace resolution via `OnceLock`).
+    #[cfg(feature = "std")]
     #[must_use]
     pub fn from_type_uri(s: &str) -> Option<Self> {
         // Try to extract slug from the active mode's format first, then fall back
@@ -306,20 +332,30 @@ impl ErrorCode {
     }
 }
 
-impl std::fmt::Display for ErrorCode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+/// In `std` mode the display resolves through the dynamic [`error_type_mode`].
+#[cfg(feature = "std")]
+impl fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.urn())
     }
 }
 
-#[cfg(feature = "serde")]
+/// In `no_std` mode the display falls back to a fixed `urn:brefwiz:error:<slug>` format.
+#[cfg(not(feature = "std"))]
+impl fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "urn:brefwiz:error:{}", self.urn_slug())
+    }
+}
+
+#[cfg(all(feature = "serde", feature = "std"))]
 impl Serialize for ErrorCode {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(&self.urn())
     }
 }
 
-#[cfg(feature = "serde")]
+#[cfg(all(feature = "serde", feature = "std"))]
 impl<'de> Deserialize<'de> for ErrorCode {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
@@ -336,6 +372,9 @@ impl<'de> Deserialize<'de> for ErrorCode {
 ///
 /// Carried as a documented extension member alongside the standard
 /// [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) fields.
+///
+/// Requires `std` or `alloc` (fields contain `String`).
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -354,8 +393,9 @@ pub struct ValidationError {
     pub rule: Option<String>,
 }
 
-impl std::fmt::Display for ValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.rule {
             Some(rule) => write!(f, "{}: {} (rule: {})", self.field, self.message, rule),
             None => write!(f, "{}: {}", self.field, self.message),
@@ -363,7 +403,8 @@ impl std::fmt::Display for ValidationError {
     }
 }
 
-impl std::error::Error for ValidationError {}
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl core::error::Error for ValidationError {}
 
 // ---------------------------------------------------------------------------
 // API error — RFC 9457 Problem Details
@@ -381,6 +422,9 @@ impl std::error::Error for ValidationError {}
 /// - `errors` → `"errors"` — documented extension for field-level validation errors
 ///
 /// Content-Type must be set to `application/problem+json` by the HTTP layer.
+///
+/// Requires `std` or `alloc` (fields contain `String`/`Vec`).
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -397,6 +441,7 @@ pub struct ApiError {
     pub detail: String,
     /// URI identifying this specific occurrence (RFC 9457 §3.1.5 `instance`).
     /// Serialized as `urn:uuid:<uuid>` per RFC 4122 §3.
+    #[cfg(feature = "uuid")]
     #[cfg_attr(
         feature = "serde",
         serde(
@@ -416,13 +461,17 @@ pub struct ApiError {
     /// Upstream error that caused this `ApiError`, if any.
     ///
     /// Not serialized — for in-process error chaining only. Exposed via
-    /// [`std::error::Error::source`] so that `anyhow`, `eyre`, and tracing
+    /// [`core::error::Error::source`] so that `anyhow`, `eyre`, and tracing
     /// can walk the full error chain.
+    ///
+    /// Requires `std` or `alloc` (uses `Arc`).
+    #[cfg(any(feature = "std", feature = "alloc"))]
     #[cfg_attr(feature = "serde", serde(skip))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub source: Option<std::sync::Arc<dyn std::error::Error + Send + Sync + 'static>>,
+    pub source: Option<Arc<dyn core::error::Error + Send + Sync + 'static>>,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl PartialEq for ApiError {
     fn eq(&self, other: &Self) -> bool {
         // `source` is intentionally excluded: trait objects have no meaningful
@@ -431,14 +480,24 @@ impl PartialEq for ApiError {
             && self.title == other.title
             && self.status == other.status
             && self.detail == other.detail
-            && self.request_id == other.request_id
             && self.errors == other.errors
+            // request_id only exists when the `uuid` feature is on
+            && {
+                #[cfg(feature = "uuid")]
+                { self.request_id == other.request_id }
+                #[cfg(not(feature = "uuid"))]
+                true
+            }
     }
 }
 
 /// Serde module: serialize/deserialize `Option<Uuid>` as `"urn:uuid:<uuid>"` strings.
 /// Used for the RFC 9457 §3.1.5 `instance` field (RFC 4122 §3 `urn:uuid:` scheme).
-#[cfg(feature = "serde")]
+#[cfg(all(
+    feature = "serde",
+    feature = "uuid",
+    any(feature = "std", feature = "alloc")
+))]
 mod uuid_urn_option {
     use serde::{Deserialize, Deserializer, Serializer};
 
@@ -466,6 +525,7 @@ mod uuid_urn_option {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl ApiError {
     /// Create a new `ApiError`. `title` and `status` are derived from `code`.
     pub fn new(code: ErrorCode, detail: impl Into<String>) -> Self {
@@ -479,6 +539,7 @@ impl ApiError {
             status,
             detail: detail.into(),
             code,
+            #[cfg(feature = "uuid")]
             request_id: None,
             errors: Vec::new(),
             source: None,
@@ -487,6 +548,7 @@ impl ApiError {
 
     /// Attach a request ID (typically set by tracing middleware).
     /// Serializes as `"instance": "urn:uuid:<id>"` per RFC 9457 §3.1.5 + RFC 4122 §3.
+    #[cfg(feature = "uuid")]
     #[must_use]
     pub fn with_request_id(mut self, id: uuid::Uuid) -> Self {
         self.request_id = Some(id);
@@ -502,11 +564,14 @@ impl ApiError {
 
     /// Attach an upstream error as the `source()` for this `ApiError`.
     ///
-    /// The source is exposed via [`std::error::Error::source`] for error-chain
+    /// The source is exposed via [`core::error::Error::source`] for error-chain
     /// tools (`anyhow`, `eyre`, tracing) but is **not** serialized to the wire.
+    ///
+    /// Requires `std` or `alloc` (uses `Arc`).
+    #[cfg(any(feature = "std", feature = "alloc"))]
     #[must_use]
-    pub fn with_source(mut self, source: impl std::error::Error + Send + Sync + 'static) -> Self {
-        self.source = Some(std::sync::Arc::new(source));
+    pub fn with_source(mut self, source: impl core::error::Error + Send + Sync + 'static) -> Self {
+        self.source = Some(Arc::new(source));
         self
     }
 
@@ -628,13 +693,20 @@ impl ApiError {
         ApiErrorBuilder {
             code: (),
             detail: (),
+            #[cfg(feature = "uuid")]
             request_id: None,
             errors: Vec::new(),
         }
     }
 
+    #[cfg(feature = "uuid")]
     fn with_request_id_opt(mut self, id: Option<uuid::Uuid>) -> Self {
         self.request_id = id;
+        self
+    }
+
+    #[cfg(not(feature = "uuid"))]
+    fn with_request_id_opt(self, _id: Option<()>) -> Self {
         self
     }
 }
@@ -650,39 +722,49 @@ impl ApiError {
 /// - `D` — `String` once `.detail()` is called, `()` otherwise
 ///
 /// [`ApiErrorBuilder::build`] is only available when both are set.
+///
+/// Requires `std` or `alloc`.
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub struct ApiErrorBuilder<C, D> {
     code: C,
     detail: D,
+    #[cfg(feature = "uuid")]
     request_id: Option<uuid::Uuid>,
     errors: Vec<ValidationError>,
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl<D> ApiErrorBuilder<(), D> {
     /// Set the error code. `title` and `status` are derived from it automatically.
     pub fn code(self, code: ErrorCode) -> ApiErrorBuilder<ErrorCode, D> {
         ApiErrorBuilder {
             code,
             detail: self.detail,
+            #[cfg(feature = "uuid")]
             request_id: self.request_id,
             errors: self.errors,
         }
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl<C> ApiErrorBuilder<C, ()> {
     /// Set the human-readable error detail message.
     pub fn detail(self, detail: impl Into<String>) -> ApiErrorBuilder<C, String> {
         ApiErrorBuilder {
             code: self.code,
             detail: detail.into(),
+            #[cfg(feature = "uuid")]
             request_id: self.request_id,
             errors: self.errors,
         }
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl<C, D> ApiErrorBuilder<C, D> {
     /// Attach a request ID.
+    #[cfg(feature = "uuid")]
     #[must_use]
     pub fn request_id(mut self, id: uuid::Uuid) -> Self {
         self.request_id = Some(id);
@@ -697,29 +779,34 @@ impl<C, D> ApiErrorBuilder<C, D> {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl ApiErrorBuilder<ErrorCode, String> {
     /// Build the [`ApiError`].
     ///
     /// Only available once both `code` and `detail` have been set.
     #[must_use]
     pub fn build(self) -> ApiError {
-        ApiError::new(self.code, self.detail)
-            .with_request_id_opt(self.request_id)
-            .with_errors(self.errors)
+        #[cfg(feature = "uuid")]
+        let built = ApiError::new(self.code, self.detail).with_request_id_opt(self.request_id);
+        #[cfg(not(feature = "uuid"))]
+        let built = ApiError::new(self.code, self.detail).with_request_id_opt(None::<()>);
+        built.with_errors(self.errors)
     }
 }
 
-impl std::fmt::Display for ApiError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl fmt::Display for ApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "[{}] {}", self.code, self.detail)
     }
 }
 
-impl std::error::Error for ApiError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl core::error::Error for ApiError {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         self.source
             .as_deref()
-            .map(|s| s as &(dyn std::error::Error + 'static))
+            .map(|s| s as &(dyn core::error::Error + 'static))
     }
 }
 
@@ -729,7 +816,11 @@ impl std::error::Error for ApiError {
 // uuid::Uuid does not implement proptest::arbitrary::Arbitrary, so we write
 // a manual Strategy that constructs a Uuid from a random u128 value.
 
-#[cfg(feature = "proptest")]
+#[cfg(all(
+    feature = "proptest",
+    feature = "uuid",
+    any(feature = "std", feature = "alloc")
+))]
 impl proptest::arbitrary::Arbitrary for ApiError {
     type Parameters = ();
     type Strategy = proptest::strategy::BoxedStrategy<Self>;
@@ -749,6 +840,7 @@ impl proptest::arbitrary::Arbitrary for ApiError {
                 title,
                 status,
                 detail,
+                #[cfg(feature = "uuid")]
                 request_id,
                 errors,
                 source: None,

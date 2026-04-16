@@ -27,6 +27,8 @@
 //! assert_eq!(response.data, "hello world");
 //! ```
 
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::string::String;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 

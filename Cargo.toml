@@ -1,6 +1,6 @@
 [package]
 name = "shared-types"
-version = "1.4.0"
+version = "1.5.0"
 edition = "2024"
 authors = ["Brefwiz Team"]
 license = "LicenseRef-Proprietary"
@@ -8,7 +8,13 @@ description = "Shared public API types and error types for all Brefwiz services"
 repository = "https://brefwiz.mentalmorph.com/Brefwiz/shared-types"
 
 [features]
-default = ["serde", "uuid", "chrono", "validator"]
+default = ["std", "serde", "uuid", "chrono", "validator"]
+## Enables `std`-dependent types (`HashMap`, `std::error::Error`, etc.).
+## Disabling this switches the crate to `#![no_std]` mode; pair with `alloc`
+## for heap-allocated types (`String`, `Vec`, `Arc`).
+std = ["alloc", "thiserror/std"]
+## Enables heap-allocated types (`String`, `Vec`, `Arc`) in `no_std` contexts.
+alloc = []
 serde = ["dep:serde", "dep:serde_json", "dep:serde_with", "uuid?/serde", "chrono?/serde"]
 uuid = ["dep:uuid"]
 chrono = ["dep:chrono", "utoipa?/chrono"]
@@ -22,7 +28,7 @@ proptest = ["dep:proptest", "dep:proptest-derive"]
 fake = ["dep:fake", "dep:rand"]
 
 [dependencies]
-thiserror = "1.0"
+thiserror = { version = "2", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
 serde_with = { version = "3.8", optional = true }

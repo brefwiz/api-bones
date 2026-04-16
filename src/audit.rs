@@ -7,6 +7,8 @@
 //! - Timestamps: [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339)
 
 use crate::common::Timestamp;
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::string::String;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};

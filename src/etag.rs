@@ -19,9 +19,11 @@
 //! assert!(!tag.matches(&weak));
 //! ```
 
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::{string::String, vec::Vec};
+use core::fmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 // ---------------------------------------------------------------------------
 // ETag

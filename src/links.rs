@@ -16,6 +16,8 @@
 //! assert_eq!(links.find("self").unwrap().href, "/resources/42");
 //! ```
 
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::{string::String, vec::Vec};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -160,7 +162,7 @@ impl From<Vec<Link>> for Links {
 
 impl IntoIterator for Links {
     type Item = Link;
-    type IntoIter = std::vec::IntoIter<Link>;
+    type IntoIter = <Vec<Link> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
