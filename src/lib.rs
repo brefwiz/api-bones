@@ -55,5 +55,6 @@ pub use error::{
 pub use health::{HealthCheck, HealthStatus, LivenessResponse, ReadinessResponse};
 pub use models::ErrorResponse;
 pub use pagination::{
-    CursorPaginatedResponse, CursorPagination, PaginatedResponse, PaginationParams,
+    CursorPaginatedResponse, CursorPagination, CursorPaginationParams, PaginatedResponse,
+    PaginationParams,
 };
