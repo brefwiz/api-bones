@@ -30,16 +30,6 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Cache Rust registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-cargo-fmt-${{ hashFiles('**/Cargo.lock') }}-v1
-          restore-keys: ${{ runner.os }}-cargo-fmt-
       - name: Check formatting
         run: make ci-format
 
@@ -89,6 +79,29 @@ jobs:
       - name: Run tests
         run: make ci-test
 
+  coverage:
+    name: Test Coverage (100%)
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache Rust registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}-v1
+          restore-keys: ${{ runner.os }}-cargo-coverage-
+      - name: Check coverage
+        run: make ci-coverage
+
   audit:
     name: Security Audit
     runs-on: brefwiz
@@ -119,7 +132,7 @@ jobs:
     name: Publish Crate to Forgejo Registry
     runs-on: brefwiz
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [fmt, clippy, test, audit]
+    needs: [fmt, clippy, test, coverage, audit]
     container:
       image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
       credentials:

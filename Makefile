@@ -1,6 +1,6 @@
 # Makefile for my-service-types
 
-.PHONY: help fmt ci-format ci-lint ci-test ci-audit build clean
+.PHONY: help fmt ci-format ci-lint ci-test ci-coverage ci-audit build clean
 
 .DEFAULT_GOAL := help
 
@@ -16,8 +16,11 @@ ci-format: ## Check formatting (CI)
 ci-lint: ## Run Clippy (CI — zero warnings)
 	cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
-ci-test: ## Run tests (CI)
-	cargo test --workspace --all-features
+ci-test: ## Run tests with nextest (CI)
+	cargo nextest run --workspace --all-features
+
+ci-coverage: ## Enforce 100% function coverage with llvm-cov + nextest (CI)
+	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100
 
 build: ## Build the crate
 	cargo build --release
