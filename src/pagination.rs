@@ -45,6 +45,8 @@ use validator::Validate;
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct PaginatedResponse<T> {
     /// The items on this page.
     pub items: Vec<T>,
@@ -98,10 +100,15 @@ fn default_offset() -> Option<u64> {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
 #[cfg_attr(feature = "validator", derive(Validate))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct PaginationParams {
     /// Maximum number of items to return (1–100). Defaults to 20.
     #[cfg_attr(feature = "serde", serde(default = "default_limit"))]
     #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
+    #[cfg_attr(
+        feature = "proptest",
+        proptest(strategy = "proptest::option::of(1u64..=100u64)")
+    )]
     pub limit: Option<u64>,
     /// Number of items to skip. Defaults to 0.
     #[cfg_attr(feature = "serde", serde(default = "default_offset"))]
@@ -145,6 +152,8 @@ impl PaginationParams {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct CursorPaginatedResponse<T> {
     /// The page of results.
     pub data: Vec<T>,
@@ -166,6 +175,8 @@ impl<T> CursorPaginatedResponse<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct CursorPagination {
     /// Whether more results exist beyond this page.
     pub has_more: bool,
@@ -210,10 +221,15 @@ fn default_cursor_limit() -> Option<u64> {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
 #[cfg_attr(feature = "validator", derive(Validate))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct CursorPaginationParams {
     /// Maximum number of items to return (1–100). Defaults to 20.
     #[cfg_attr(feature = "serde", serde(default = "default_cursor_limit"))]
     #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
+    #[cfg_attr(
+        feature = "proptest",
+        proptest(strategy = "proptest::option::of(1u64..=100u64)")
+    )]
     pub limit: Option<u64>,
     /// Opaque cursor for the next page. `None` requests the first page.
     #[cfg_attr(
@@ -243,6 +259,43 @@ impl CursorPaginationParams {
     #[must_use]
     pub fn after(&self) -> Option<&str> {
         self.after.as_deref()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// arbitrary::Arbitrary manual impls — constrained limit (1–100)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for PaginationParams {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        use arbitrary::Arbitrary;
+        // limit is None or Some(1..=100)
+        let limit = if bool::arbitrary(u)? {
+            Some(u.int_in_range(1u64..=100)?)
+        } else {
+            None
+        };
+        Ok(Self {
+            limit,
+            offset: Arbitrary::arbitrary(u)?,
+        })
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for CursorPaginationParams {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        use arbitrary::Arbitrary;
+        let limit = if bool::arbitrary(u)? {
+            Some(u.int_in_range(1u64..=100)?)
+        } else {
+            None
+        };
+        Ok(Self {
+            limit,
+            after: Arbitrary::arbitrary(u)?,
+        })
     }
 }
 
