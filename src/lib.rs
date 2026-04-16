@@ -34,6 +34,8 @@
 //! shared-types = { version = "0.2", registry = "gitea" }
 //! ```
 
+pub mod audit;
+
 #[cfg(feature = "icalendar")]
 pub mod calendar;
 
@@ -49,6 +51,7 @@ pub mod query;
 pub mod ratelimit;
 pub mod response;
 
+pub use audit::AuditInfo;
 pub use bulk::{BulkItemResult, BulkRequest, BulkResponse};
 #[cfg(feature = "uuid")]
 pub use common::new_resource_id;
