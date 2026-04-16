@@ -27,6 +27,8 @@ use validator::Validate;
     serde(rename_all = "lowercase")
 )]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum SortDirection {
     /// Ascending order (A → Z, 0 → 9).
     #[default]
@@ -52,6 +54,8 @@ fn default_sort_direction() -> SortDirection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct SortParams {
     /// The field name to sort by (e.g. `"created_at"`, `"name"`).
     pub sort_by: String,
@@ -95,6 +99,8 @@ impl SortParams {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct FilterEntry {
     /// The field name to filter on.
     pub field: String,
@@ -131,6 +137,8 @@ impl FilterEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct FilterParams {
     /// The list of filter entries.
     #[cfg_attr(feature = "serde", serde(default))]
@@ -169,6 +177,7 @@ impl FilterParams {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
 #[cfg_attr(feature = "validator", derive(Validate))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct SearchParams {
     /// The search string. Must not exceed 500 characters.
     #[cfg_attr(
@@ -179,6 +188,7 @@ pub struct SearchParams {
             message = "query must be between 1 and 500 characters"
         ))
     )]
+    #[cfg_attr(feature = "proptest", proptest(strategy = "search_query_strategy()"))]
     pub query: String,
     /// Optional list of field names to scope the search to.
     #[cfg_attr(
@@ -208,6 +218,36 @@ impl SearchParams {
             query: query.into(),
             fields: fields.into_iter().map(Into::into).collect(),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// proptest strategy helpers
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "proptest")]
+fn search_query_strategy() -> impl proptest::strategy::Strategy<Value = String> {
+    proptest::string::string_regex("[a-zA-Z0-9 ]{1,500}").expect("valid regex")
+}
+
+// ---------------------------------------------------------------------------
+// arbitrary::Arbitrary manual impl — constrained SearchParams
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for SearchParams {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        // Generate a query length between 1 and 500, then fill with arbitrary bytes
+        // mapped to printable ASCII (32–126) to satisfy the validator constraint.
+        let len = u.int_in_range(1usize..=500)?;
+        let query: String = (0..len)
+            .map(|_| -> arbitrary::Result<char> {
+                let byte = u.int_in_range(32u8..=126)?;
+                Ok(char::from(byte))
+            })
+            .collect::<arbitrary::Result<_>>()?;
+        let fields = <Vec<String> as arbitrary::Arbitrary>::arbitrary(u)?;
+        Ok(Self { query, fields })
     }
 }
 

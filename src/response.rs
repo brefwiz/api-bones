@@ -99,6 +99,90 @@ impl ResponseMeta {
 }
 
 // ---------------------------------------------------------------------------
+// arbitrary / proptest impls for ResponseMeta
+// ---------------------------------------------------------------------------
+
+// ResponseMeta contains `Option<Timestamp>` where Timestamp is chrono::DateTime<Utc>
+// (when the `chrono` feature is enabled).  Since chrono does not implement
+// arbitrary::Arbitrary or proptest::arbitrary::Arbitrary, we provide hand-rolled
+// impls for both feature combinations.
+
+#[cfg(all(feature = "arbitrary", not(feature = "chrono")))]
+impl<'a> arbitrary::Arbitrary<'a> for ResponseMeta {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        use arbitrary::Arbitrary;
+        Ok(Self {
+            request_id: Arbitrary::arbitrary(u)?,
+            timestamp: Arbitrary::arbitrary(u)?,
+            version: Arbitrary::arbitrary(u)?,
+        })
+    }
+}
+
+#[cfg(all(feature = "arbitrary", feature = "chrono"))]
+impl<'a> arbitrary::Arbitrary<'a> for ResponseMeta {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        use arbitrary::Arbitrary;
+        use chrono::TimeZone as _;
+        let timestamp = if bool::arbitrary(u)? {
+            // Clamp to a valid Unix timestamp range (year 1970–3000)
+            let secs = u.int_in_range(0i64..=32_503_680_000i64)?;
+            chrono::Utc.timestamp_opt(secs, 0).single()
+        } else {
+            None
+        };
+        Ok(Self {
+            request_id: Arbitrary::arbitrary(u)?,
+            timestamp,
+            version: Arbitrary::arbitrary(u)?,
+        })
+    }
+}
+
+#[cfg(all(feature = "proptest", not(feature = "chrono")))]
+impl proptest::arbitrary::Arbitrary for ResponseMeta {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        use proptest::prelude::*;
+        (
+            proptest::option::of(any::<String>()),
+            proptest::option::of(any::<String>()),
+            proptest::option::of(any::<String>()),
+        )
+            .prop_map(|(request_id, timestamp, version)| Self {
+                request_id,
+                timestamp,
+                version,
+            })
+            .boxed()
+    }
+}
+
+#[cfg(all(feature = "proptest", feature = "chrono"))]
+impl proptest::arbitrary::Arbitrary for ResponseMeta {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        use chrono::TimeZone as _;
+        use proptest::prelude::*;
+        (
+            proptest::option::of(any::<String>()),
+            proptest::option::of(0i64..=32_503_680_000i64),
+            proptest::option::of(any::<String>()),
+        )
+            .prop_map(|(request_id, ts_secs, version)| Self {
+                request_id,
+                timestamp: ts_secs.and_then(|s| chrono::Utc.timestamp_opt(s, 0).single()),
+                version,
+            })
+            .boxed()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Links
 // ---------------------------------------------------------------------------
 
@@ -110,6 +194,8 @@ impl ResponseMeta {
 #[derive(Debug, Clone, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct Links {
     /// The canonical URL for this resource.
     #[cfg_attr(
@@ -186,6 +272,8 @@ impl Links {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct ApiResponse<T> {
     /// The primary payload.
     pub data: T,

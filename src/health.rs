@@ -45,6 +45,8 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum HealthStatus {
     /// The service is healthy and all checks pass.
     Pass,
@@ -95,6 +97,8 @@ impl std::fmt::Display for HealthStatus {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct HealthCheck {
     /// Component type, e.g. `"datastore"`, `"component"`, `"system"`.
     #[cfg_attr(feature = "serde", serde(rename = "componentType"))]
@@ -165,6 +169,8 @@ impl HealthCheck {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct LivenessResponse {
     /// Overall health status. Should always be [`HealthStatus::Pass`] for liveness.
     pub status: HealthStatus,
@@ -199,6 +205,8 @@ impl LivenessResponse {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct ReadinessResponse {
     /// Overall health status, derived from the worst check result.
     pub status: HealthStatus,

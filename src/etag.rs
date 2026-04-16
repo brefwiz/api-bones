@@ -35,6 +35,8 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct ETag {
     /// The opaque tag value (without surrounding quotes).
     pub value: String,
@@ -105,6 +107,8 @@ impl fmt::Display for ETag {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "tags"))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum IfMatch {
     /// Matches any existing representation (`If-Match: *`).
     Any,
@@ -137,6 +141,8 @@ impl IfMatch {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "serde", serde(tag = "type", content = "tags"))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum IfNoneMatch {
     /// Condition fails if any representation exists (`If-None-Match: *`).
     Any,

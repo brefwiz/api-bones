@@ -30,6 +30,8 @@ use serde::{Deserialize, Serialize};
 /// Format: `urn:brefwiz:error:<slug>` (e.g. `urn:brefwiz:error:resource-not-found`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum ErrorCode {
     // 400
     BadRequest,
@@ -82,6 +84,8 @@ pub enum ErrorCode {
 ///
 /// Set via env: `SHARED_TYPES_URN_NAMESPACE=myapp`
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub enum ErrorTypeMode {
     /// Generate a resolvable URL per RFC 9457 §3.1.1 (recommended).
     /// Format: `{base_url}/{slug}` — trailing slash in `base_url` is trimmed automatically.
@@ -335,6 +339,8 @@ impl<'de> Deserialize<'de> for ErrorCode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct ValidationError {
     /// JSON Pointer to the offending field (e.g. `"/email"`).
     pub field: String,
@@ -367,6 +373,7 @@ pub struct ValidationError {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ApiError {
     /// Machine-readable error URN (RFC 9457 §3.1.1 `type`).
     #[cfg_attr(feature = "serde", serde(rename = "type"))]
@@ -566,6 +573,39 @@ impl std::fmt::Display for ApiError {
 }
 
 impl std::error::Error for ApiError {}
+
+// ---------------------------------------------------------------------------
+// proptest::arbitrary::Arbitrary for ApiError
+// ---------------------------------------------------------------------------
+// uuid::Uuid does not implement proptest::arbitrary::Arbitrary, so we write
+// a manual Strategy that constructs a Uuid from a random u128 value.
+
+#[cfg(feature = "proptest")]
+impl proptest::arbitrary::Arbitrary for ApiError {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        use proptest::prelude::*;
+        (
+            any::<ErrorCode>(),
+            any::<String>(),
+            any::<u16>(),
+            any::<String>(),
+            proptest::option::of(any::<u128>().prop_map(uuid::Uuid::from_u128)),
+            any::<Vec<ValidationError>>(),
+        )
+            .prop_map(|(code, title, status, detail, request_id, errors)| Self {
+                code,
+                title,
+                status,
+                detail,
+                request_id,
+                errors,
+            })
+            .boxed()
+    }
+}
 
 #[cfg(test)]
 mod tests {
