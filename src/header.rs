@@ -18,7 +18,7 @@
 //! assert_eq!(value.to_str().unwrap(), "application/json");
 //! ```
 
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[cfg(all(not(feature = "std"), feature = "alloc", feature = "serde"))]
 use alloc::string::String;
 use core::fmt;
 use http::header::{
@@ -215,6 +215,8 @@ impl Serialize for HeaderValue {
 
 impl From<crate::etag::ETag> for HeaderValue {
     fn from(tag: crate::etag::ETag) -> Self {
+        #[cfg(not(feature = "std"))]
+        use alloc::string::ToString;
         // ETag display is always valid ASCII; the expect is justified.
         Self(
             tag.to_string()

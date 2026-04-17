@@ -118,6 +118,8 @@ impl RateLimitInfo {
 #[cfg(feature = "http")]
 mod http_impl {
     use super::RateLimitInfo;
+    #[cfg(not(feature = "std"))]
+    use alloc::string::ToString;
     use http::{HeaderMap, HeaderValue};
 
     /// Header name constants.

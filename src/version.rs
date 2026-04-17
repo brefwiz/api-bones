@@ -220,6 +220,8 @@ impl ApiVersion {
         &self,
         headers: &mut http::HeaderMap,
     ) -> Result<(), http::header::InvalidHeaderValue> {
+        #[cfg(not(feature = "std"))]
+        use alloc::string::ToString;
         use http::header::HeaderValue;
         let val = HeaderValue::from_str(&self.to_string())?;
         headers.insert(
