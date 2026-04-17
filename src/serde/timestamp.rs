@@ -36,6 +36,18 @@
 //! let json = serde_json::to_string(&from_epoch).unwrap();
 //! assert_eq!(json, r#"{"occurred_at":"1970-01-01T00:00:00+00:00"}"#);
 //! ```
+//!
+//! ## Feature gating
+//!
+//! This module is re-exported only when the `chrono` feature is enabled
+//! (see `serde/mod.rs`). The `serde` feature gate on the parent `serde`
+//! module is a *necessary but not sufficient* condition — `chrono` must
+//! also be active for this module to be available. The explicit
+//! `#[cfg(feature = "chrono")]` in `mod.rs` is the authoritative gate;
+//! `serde` is required transitively because `DateTime<Utc>` serialization
+//! depends on it.
+
+#![cfg(feature = "chrono")]
 
 use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserializer, Serializer, de};

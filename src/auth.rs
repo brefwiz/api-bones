@@ -35,13 +35,14 @@
 //! }
 //! ```
 
+#[cfg(all(not(feature = "std"), feature = "alloc", test))]
+use alloc::vec::Vec;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{
     borrow::ToOwned,
     collections::BTreeSet,
     format,
     string::{String, ToString},
-    vec::Vec,
 };
 use core::{fmt, str::FromStr};
 #[cfg(feature = "serde")]

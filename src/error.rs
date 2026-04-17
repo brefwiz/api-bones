@@ -32,7 +32,9 @@ use alloc::collections::BTreeMap;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{borrow::ToOwned, format, string::String, string::ToString, sync::Arc, vec::Vec};
 use core::fmt;
-#[cfg(feature = "std")]
+#[cfg(all(feature = "std", not(feature = "serde")))]
+use std::sync::Arc;
+#[cfg(all(feature = "std", feature = "serde"))]
 use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(feature = "serde")]
@@ -902,6 +904,8 @@ pub struct ApiError {
     /// Requires `std` or `alloc` (uses `Arc`).
     #[cfg(any(feature = "std", feature = "alloc"))]
     #[cfg_attr(all(feature = "std", feature = "serde"), serde(skip))]
+    #[cfg_attr(feature = "utoipa", schema(value_type = (), ignore))]
+    #[cfg_attr(feature = "schemars", schemars(skip))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub source: Option<Arc<dyn core::error::Error + Send + Sync + 'static>>,
     /// Nested cause chain serialized as RFC 9457 extension member `"causes"`.
