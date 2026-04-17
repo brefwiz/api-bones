@@ -323,6 +323,30 @@ impl SearchParams {
 }
 
 // ---------------------------------------------------------------------------
+// Axum extractors — `axum` feature
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "axum")]
+#[allow(clippy::result_large_err)]
+mod axum_extractors {
+    use super::SortParams;
+    use crate::error::ApiError;
+    use axum::extract::{FromRequestParts, Query};
+    use axum::http::request::Parts;
+
+    impl<S: Send + Sync> FromRequestParts<S> for SortParams {
+        type Rejection = ApiError;
+
+        async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+            let Query(params) = Query::<Self>::from_request_parts(parts, state)
+                .await
+                .map_err(|e| ApiError::bad_request(e.to_string()))?;
+            Ok(params)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // proptest strategy helpers
 // ---------------------------------------------------------------------------
 
@@ -506,6 +530,39 @@ mod tests {
         use validator::Validate;
         let s = SearchParams::new("a".repeat(500));
         assert!(s.validate().is_ok());
+    }
+
+    #[cfg(feature = "axum")]
+    mod axum_extractor_tests {
+        use super::super::{SortDirection, SortParams};
+        use axum::extract::FromRequestParts;
+        use axum::http::Request;
+
+        async fn extract(q: &str) -> Result<SortParams, u16> {
+            let req = Request::builder().uri(format!("/?{q}")).body(()).unwrap();
+            let (mut parts, ()) = req.into_parts();
+            SortParams::from_request_parts(&mut parts, &())
+                .await
+                .map_err(|e| e.status)
+        }
+
+        #[tokio::test]
+        async fn sort_default_direction() {
+            let p = extract("sort_by=name").await.unwrap();
+            assert_eq!(p.sort_by, "name");
+            assert_eq!(p.direction, SortDirection::Asc);
+        }
+
+        #[tokio::test]
+        async fn sort_custom_direction() {
+            let p = extract("sort_by=created_at&direction=desc").await.unwrap();
+            assert_eq!(p.direction, SortDirection::Desc);
+        }
+
+        #[tokio::test]
+        async fn sort_missing_sort_by_rejected() {
+            assert_eq!(extract("").await.unwrap_err(), 400);
+        }
     }
 
     #[cfg(feature = "validator")]

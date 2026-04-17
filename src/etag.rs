@@ -22,6 +22,8 @@
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{string::String, vec::Vec};
 use core::fmt;
+#[cfg(feature = "http")]
+use core::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -133,6 +135,129 @@ impl fmt::Display for ETag {
 }
 
 // ---------------------------------------------------------------------------
+// Parsing (RFC 7232 §2.3 wire format) — `http` feature
+// ---------------------------------------------------------------------------
+
+/// Error returned when parsing an [`ETag`] from its HTTP wire format fails.
+#[cfg(feature = "http")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParseETagError {
+    /// The input was empty after trimming.
+    Empty,
+    /// The tag was not enclosed in double quotes.
+    Unquoted,
+    /// The input was otherwise malformed (e.g. stray `W` prefix, missing closing quote).
+    Malformed,
+}
+
+#[cfg(feature = "http")]
+impl fmt::Display for ParseETagError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => f.write_str("ETag is empty"),
+            Self::Unquoted => f.write_str("ETag must be enclosed in double quotes"),
+            Self::Malformed => f.write_str("ETag is malformed"),
+        }
+    }
+}
+
+#[cfg(all(feature = "http", feature = "std"))]
+impl std::error::Error for ParseETagError {}
+
+#[cfg(feature = "http")]
+impl FromStr for ETag {
+    type Err = ParseETagError;
+
+    /// Parse an `ETag` from its RFC 7232 §2.3 wire format.
+    ///
+    /// Accepts `"<value>"` (strong) and `W/"<value>"` (weak). Leading and
+    /// trailing ASCII whitespace is trimmed.
+    ///
+    /// ```
+    /// use api_bones::etag::ETag;
+    ///
+    /// let strong: ETag = "\"v1\"".parse().unwrap();
+    /// assert_eq!(strong, ETag::strong("v1"));
+    ///
+    /// let weak: ETag = "W/\"v1\"".parse().unwrap();
+    /// assert_eq!(weak, ETag::weak("v1"));
+    /// ```
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Err(ParseETagError::Empty);
+        }
+
+        let (weak, rest) = if let Some(rest) = s.strip_prefix("W/") {
+            (true, rest)
+        } else {
+            (false, s)
+        };
+
+        let rest = rest.trim_start();
+        if !rest.starts_with('"') {
+            return Err(ParseETagError::Unquoted);
+        }
+        if rest.len() < 2 || !rest.ends_with('"') {
+            return Err(ParseETagError::Malformed);
+        }
+        let value = &rest[1..rest.len() - 1];
+        if value.contains('"') {
+            return Err(ParseETagError::Malformed);
+        }
+        Ok(Self {
+            value: value.into(),
+            weak,
+        })
+    }
+}
+
+#[cfg(feature = "http")]
+impl ETag {
+    /// Parse a comma-separated list of `ETag`s from a header value
+    /// (e.g. the body of an `If-Match` or `If-None-Match` header).
+    ///
+    /// Returns an error on the first malformed entry.
+    ///
+    /// ```
+    /// use api_bones::etag::ETag;
+    ///
+    /// let tags = ETag::parse_list("\"a\", W/\"b\", \"c\"").unwrap();
+    /// assert_eq!(tags.len(), 3);
+    /// assert_eq!(tags[0], ETag::strong("a"));
+    /// assert_eq!(tags[1], ETag::weak("b"));
+    /// ```
+    pub fn parse_list(s: &str) -> Result<Vec<Self>, ParseETagError> {
+        // Split on commas that are outside quoted sections.
+        let mut out = Vec::new();
+        let mut start = 0usize;
+        let mut in_quotes = false;
+        let bytes = s.as_bytes();
+        for (i, &b) in bytes.iter().enumerate() {
+            match b {
+                b'"' => in_quotes = !in_quotes,
+                b',' if !in_quotes => {
+                    let piece = &s[start..i];
+                    if !piece.trim().is_empty() {
+                        out.push(piece.parse::<Self>()?);
+                    }
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        let tail = &s[start..];
+        if !tail.trim().is_empty() {
+            out.push(tail.parse::<Self>()?);
+        }
+        if out.is_empty() {
+            return Err(ParseETagError::Empty);
+        }
+        Ok(out)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // IfMatch
 // ---------------------------------------------------------------------------
 
@@ -237,9 +362,13 @@ impl IfNoneMatch {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "axum")]
+#[allow(clippy::result_large_err)]
 mod axum_support {
-    use super::ETag;
+    use super::{ETag, IfMatch, IfNoneMatch};
+    use crate::error::ApiError;
+    use axum::extract::FromRequestParts;
     use axum::http::HeaderValue;
+    use axum::http::request::Parts;
     use axum::response::{IntoResponseParts, ResponseParts};
 
     impl IntoResponseParts for ETag {
@@ -250,6 +379,61 @@ mod axum_support {
                 .expect("ETag display value is always valid ASCII");
             res.headers_mut().insert(axum::http::header::ETAG, val);
             Ok(res)
+        }
+    }
+
+    fn header_str<'a>(
+        parts: &'a Parts,
+        name: &axum::http::HeaderName,
+    ) -> Result<&'a str, ApiError> {
+        parts
+            .headers
+            .get(name)
+            .ok_or_else(|| ApiError::bad_request(format!("missing {name} header")))?
+            .to_str()
+            .map_err(|_| ApiError::bad_request(format!("{name} header is not valid ASCII")))
+    }
+
+    fn parse_condition(raw: &str) -> Result<(bool, Vec<ETag>), ApiError> {
+        let trimmed = raw.trim();
+        if trimmed == "*" {
+            return Ok((true, Vec::new()));
+        }
+        let tags = ETag::parse_list(trimmed).map_err(|e| ApiError::bad_request(format!("{e}")))?;
+        Ok((false, tags))
+    }
+
+    impl<S: Send + Sync> FromRequestParts<S> for IfMatch {
+        type Rejection = ApiError;
+
+        async fn from_request_parts(
+            parts: &mut Parts,
+            _state: &S,
+        ) -> Result<Self, Self::Rejection> {
+            let raw = header_str(parts, &axum::http::header::IF_MATCH)?;
+            let (is_any, tags) = parse_condition(raw)?;
+            if is_any {
+                Ok(Self::Any)
+            } else {
+                Ok(Self::Tags(tags))
+            }
+        }
+    }
+
+    impl<S: Send + Sync> FromRequestParts<S> for IfNoneMatch {
+        type Rejection = ApiError;
+
+        async fn from_request_parts(
+            parts: &mut Parts,
+            _state: &S,
+        ) -> Result<Self, Self::Rejection> {
+            let raw = header_str(parts, &axum::http::header::IF_NONE_MATCH)?;
+            let (is_any, tags) = parse_condition(raw)?;
+            if is_any {
+                Ok(Self::Any)
+            } else {
+                Ok(Self::Tags(tags))
+            }
         }
     }
 }
@@ -486,6 +670,185 @@ mod tests {
         let response = (ETag::strong("abc123"), axum::http::StatusCode::OK).into_response();
         let etag_header = response.headers().get(axum::http::header::ETAG);
         assert_eq!(etag_header.unwrap().to_str().unwrap(), "\"abc123\"");
+    }
+
+    // -----------------------------------------------------------------------
+    // FromStr / parse_list (http feature)
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_from_str_strong() {
+        let t: ETag = "\"v1\"".parse().unwrap();
+        assert_eq!(t, ETag::strong("v1"));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_from_str_weak() {
+        let t: ETag = "W/\"v1\"".parse().unwrap();
+        assert_eq!(t, ETag::weak("v1"));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_from_str_rejects_unquoted() {
+        assert_eq!("v1".parse::<ETag>(), Err(ParseETagError::Unquoted));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_from_str_rejects_empty() {
+        assert_eq!("".parse::<ETag>(), Err(ParseETagError::Empty));
+        assert_eq!("   ".parse::<ETag>(), Err(ParseETagError::Empty));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_from_str_rejects_missing_closing_quote() {
+        assert!("\"v1".parse::<ETag>().is_err());
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_from_str_rejects_embedded_quote() {
+        assert_eq!("\"a\"b\"".parse::<ETag>(), Err(ParseETagError::Malformed));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_from_str_trims_whitespace() {
+        let t: ETag = "  \"v1\"  ".parse().unwrap();
+        assert_eq!(t, ETag::strong("v1"));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_round_trip_strong() {
+        let t = ETag::strong("abc123");
+        assert_eq!(t.to_string().parse::<ETag>(), Ok(t));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_round_trip_weak() {
+        let t = ETag::weak("xyz");
+        assert_eq!(t.to_string().parse::<ETag>(), Ok(t));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_parse_list_multiple() {
+        let tags = ETag::parse_list("\"a\", W/\"b\", \"c\"").unwrap();
+        assert_eq!(tags.len(), 3);
+        assert_eq!(tags[0], ETag::strong("a"));
+        assert_eq!(tags[1], ETag::weak("b"));
+        assert_eq!(tags[2], ETag::strong("c"));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_parse_list_single() {
+        let tags = ETag::parse_list("\"only\"").unwrap();
+        assert_eq!(tags, vec![ETag::strong("only")]);
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_parse_list_empty_errors() {
+        assert!(ETag::parse_list("").is_err());
+        assert!(ETag::parse_list("   ").is_err());
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn etag_parse_list_propagates_bad_entry() {
+        assert!(ETag::parse_list("\"a\", bad, \"c\"").is_err());
+    }
+
+    #[cfg(feature = "axum")]
+    mod axum_extractor_tests {
+        use super::super::*;
+        use axum::extract::FromRequestParts;
+        use axum::http::Request;
+
+        async fn extract_if_match(header: Option<&str>) -> Result<IfMatch, ApiError> {
+            let mut builder = Request::builder();
+            if let Some(v) = header {
+                builder = builder.header("if-match", v);
+            }
+            let req = builder.body(()).unwrap();
+            let (mut parts, ()) = req.into_parts();
+            IfMatch::from_request_parts(&mut parts, &()).await
+        }
+
+        async fn extract_if_none_match(header: Option<&str>) -> Result<IfNoneMatch, ApiError> {
+            let mut builder = Request::builder();
+            if let Some(v) = header {
+                builder = builder.header("if-none-match", v);
+            }
+            let req = builder.body(()).unwrap();
+            let (mut parts, ()) = req.into_parts();
+            IfNoneMatch::from_request_parts(&mut parts, &()).await
+        }
+
+        use crate::error::ApiError;
+
+        #[tokio::test]
+        async fn if_match_wildcard() {
+            let r = extract_if_match(Some("*")).await.unwrap();
+            assert_eq!(r, IfMatch::Any);
+        }
+
+        #[tokio::test]
+        async fn if_match_tag_list() {
+            let r = extract_if_match(Some("\"a\", W/\"b\"")).await.unwrap();
+            assert_eq!(r, IfMatch::Tags(vec![ETag::strong("a"), ETag::weak("b")]));
+        }
+
+        #[tokio::test]
+        async fn if_match_missing_header_is_bad_request() {
+            let err = extract_if_match(None).await.unwrap_err();
+            assert_eq!(err.status, 400);
+        }
+
+        #[tokio::test]
+        async fn if_match_malformed_is_bad_request() {
+            let err = extract_if_match(Some("not-a-tag")).await.unwrap_err();
+            assert_eq!(err.status, 400);
+        }
+
+        #[tokio::test]
+        async fn if_none_match_wildcard() {
+            let r = extract_if_none_match(Some("*")).await.unwrap();
+            assert_eq!(r, IfNoneMatch::Any);
+        }
+
+        #[tokio::test]
+        async fn if_none_match_tag_list() {
+            let r = extract_if_none_match(Some("\"v1\"")).await.unwrap();
+            assert_eq!(r, IfNoneMatch::Tags(vec![ETag::strong("v1")]));
+        }
+
+        #[tokio::test]
+        async fn if_match_non_ascii_header_rejected() {
+            // Header value bytes outside ASCII → to_str() fails → bad_request.
+            let req = Request::builder()
+                .header("if-match", &[0xFFu8][..])
+                .body(())
+                .unwrap();
+            let (mut parts, ()) = req.into_parts();
+            let err = IfMatch::from_request_parts(&mut parts, &())
+                .await
+                .unwrap_err();
+            assert_eq!(err.status, 400);
+        }
+
+        #[tokio::test]
+        async fn if_none_match_missing_is_bad_request() {
+            let err = extract_if_none_match(None).await.unwrap_err();
+            assert_eq!(err.status, 400);
+        }
     }
 
     #[cfg(feature = "axum")]

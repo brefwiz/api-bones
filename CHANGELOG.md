@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-04-09
+
+### Added
+
+- **Axum extractors** (`axum` feature) — `FromRequestParts` impls removing the need for downstream newtype wrappers:
+  - `PaginationParams` and `CursorPaginationParams` — parse query string and run `validator` range checks (limit 1..=100)
+  - `SortParams` — parse `sort_by` / `direction` query params
+  - `IfMatch` and `IfNoneMatch` — parse the matching conditional request headers, including the `*` wildcard and comma-separated tag lists
+  - All rejections are `ApiError::bad_request`, so consumers get Problem+JSON bodies for free
+- **`ETag` wire-format parsing** (`http` feature):
+  - `impl FromStr for ETag` — accepts `"v1"` / `W/"v1"`, rejects unquoted, empty, or malformed input
+  - `ETag::parse_list(&str)` — handles comma-separated header values (e.g. `If-Match: "a", W/"b"`)
+  - `ParseETagError` enum with `Display` + `std::error::Error`
+- **Structured rate-limit metadata on `ApiError`**:
+  - `ApiError::with_rate_limit(RateLimitInfo)` — attaches quota data to any error
+  - `ApiError::rate_limited_with(RateLimitInfo)` — 429 constructor that derives `detail` from `retry_after`
+  - New optional `rate_limit` field serializes inline on `ApiError` and propagates to `ProblemJson` as the `rate_limit` extension member
+- Runnable example `axum_extractors_and_ratelimit` demonstrating the new extractors and structured 429 bodies
+
 ## [1.8.0] - 2026-04-08
 
 ### Added

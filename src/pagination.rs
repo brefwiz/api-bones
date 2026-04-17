@@ -385,6 +385,51 @@ impl CursorPaginationParams {
 }
 
 // ---------------------------------------------------------------------------
+// Axum extractors — `axum` feature
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "axum")]
+#[allow(clippy::result_large_err)]
+mod axum_extractors {
+    use super::{CursorPaginationParams, PaginationParams};
+    use crate::error::ApiError;
+    use axum::extract::{FromRequestParts, Query};
+    use axum::http::request::Parts;
+    #[cfg(feature = "validator")]
+    use validator::Validate;
+
+    impl<S: Send + Sync> FromRequestParts<S> for PaginationParams {
+        type Rejection = ApiError;
+
+        async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+            let Query(params) = Query::<Self>::from_request_parts(parts, state)
+                .await
+                .map_err(|e| ApiError::bad_request(e.to_string()))?;
+            #[cfg(feature = "validator")]
+            params
+                .validate()
+                .map_err(|e| ApiError::bad_request(e.to_string()))?;
+            Ok(params)
+        }
+    }
+
+    impl<S: Send + Sync> FromRequestParts<S> for CursorPaginationParams {
+        type Rejection = ApiError;
+
+        async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+            let Query(params) = Query::<Self>::from_request_parts(parts, state)
+                .await
+                .map_err(|e| ApiError::bad_request(e.to_string()))?;
+            #[cfg(feature = "validator")]
+            params
+                .validate()
+                .map_err(|e| ApiError::bad_request(e.to_string()))?;
+            Ok(params)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // arbitrary::Arbitrary manual impls — constrained limit (1–100)
 // ---------------------------------------------------------------------------
 
@@ -778,6 +823,86 @@ mod tests {
         let schema = schemars::schema_for!(CursorPagination);
         let json = serde_json::to_value(&schema).expect("schema serializable");
         assert!(json.is_object());
+    }
+
+    #[cfg(feature = "axum")]
+    mod axum_extractor_tests {
+        use super::super::{CursorPaginationParams, PaginationParams};
+        use axum::extract::FromRequestParts;
+        use axum::http::Request;
+
+        async fn extract_offset(q: &str) -> Result<PaginationParams, u16> {
+            let req = Request::builder().uri(format!("/?{q}")).body(()).unwrap();
+            let (mut parts, ()) = req.into_parts();
+            PaginationParams::from_request_parts(&mut parts, &())
+                .await
+                .map_err(|e| e.status)
+        }
+
+        async fn extract_cursor(q: &str) -> Result<CursorPaginationParams, u16> {
+            let req = Request::builder().uri(format!("/?{q}")).body(()).unwrap();
+            let (mut parts, ()) = req.into_parts();
+            CursorPaginationParams::from_request_parts(&mut parts, &())
+                .await
+                .map_err(|e| e.status)
+        }
+
+        #[tokio::test]
+        async fn default_params() {
+            let p = extract_offset("").await.unwrap();
+            assert_eq!(p.limit(), 20);
+            assert_eq!(p.offset(), 0);
+        }
+
+        #[tokio::test]
+        async fn custom_params() {
+            let p = extract_offset("limit=50&offset=100").await.unwrap();
+            assert_eq!(p.limit(), 50);
+            assert_eq!(p.offset(), 100);
+        }
+
+        #[cfg(feature = "validator")]
+        #[tokio::test]
+        async fn limit_zero_rejected() {
+            assert_eq!(extract_offset("limit=0").await.unwrap_err(), 400);
+        }
+
+        #[cfg(feature = "validator")]
+        #[tokio::test]
+        async fn limit_101_rejected() {
+            assert_eq!(extract_offset("limit=101").await.unwrap_err(), 400);
+        }
+
+        #[tokio::test]
+        async fn cursor_default() {
+            let p = extract_cursor("").await.unwrap();
+            assert_eq!(p.limit(), 20);
+            assert!(p.after().is_none());
+        }
+
+        #[tokio::test]
+        async fn cursor_custom() {
+            let p = extract_cursor("limit=10&after=abc").await.unwrap();
+            assert_eq!(p.limit(), 10);
+            assert_eq!(p.after(), Some("abc"));
+        }
+
+        #[cfg(feature = "validator")]
+        #[tokio::test]
+        async fn cursor_limit_101_rejected() {
+            assert_eq!(extract_cursor("limit=101").await.unwrap_err(), 400);
+        }
+
+        #[tokio::test]
+        async fn offset_invalid_query_type_rejected() {
+            // Non-numeric limit fails axum Query deserialization → 400 branch.
+            assert_eq!(extract_offset("limit=abc").await.unwrap_err(), 400);
+        }
+
+        #[tokio::test]
+        async fn cursor_invalid_query_type_rejected() {
+            assert_eq!(extract_cursor("limit=abc").await.unwrap_err(), 400);
+        }
     }
 
     #[cfg(all(feature = "schemars", any(feature = "std", feature = "alloc")))]
