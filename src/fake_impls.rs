@@ -284,6 +284,8 @@ impl Dummy<Faker> for crate::links::Links {
     }
 }
 
+}
+
 // ---------------------------------------------------------------------------
 // pagination module
 // ---------------------------------------------------------------------------
@@ -549,12 +551,28 @@ impl Dummy<Faker> for crate::response::ResponseMeta {
     }
 }
 
+impl Dummy<Faker> for crate::response::Links {
+    fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
+        let mut links = Self::new();
+        if rng.gen_bool(0.5) {
+            links = links.self_link(gen_url(rng));
+        }
+        if rng.gen_bool(0.5) {
+            links = links.next(gen_url(rng));
+        }
+        if rng.gen_bool(0.5) {
+            links = links.prev(gen_url(rng));
+        }
+        links
+    }
+}
+
 impl<T: Dummy<Faker>> Dummy<Faker> for crate::response::ApiResponse<T> {
     fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
         let data: T = Faker.fake_with_rng(rng);
         let meta = Faker.fake_with_rng::<crate::response::ResponseMeta, _>(rng);
         let links = if rng.gen_bool(0.5) {
-            Some(Faker.fake_with_rng::<crate::links::Links, _>(rng))
+            Some(Faker.fake_with_rng::<crate::response::Links, _>(rng))
         } else {
             None
         };
