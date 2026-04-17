@@ -99,26 +99,66 @@ impl Link {
     }
 
     /// Construct a `"next"` link (next page in a paginated response).
+    ///
+    /// ```
+    /// use api_bones::links::Link;
+    ///
+    /// let link = Link::next("/resources?page=2");
+    /// assert_eq!(link.rel, "next");
+    /// assert_eq!(link.href, "/resources?page=2");
+    /// ```
     pub fn next(href: impl Into<String>) -> Self {
         Self::new("next", href)
     }
 
     /// Construct a `"prev"` link (previous page in a paginated response).
+    ///
+    /// ```
+    /// use api_bones::links::Link;
+    ///
+    /// let link = Link::prev("/resources?page=1");
+    /// assert_eq!(link.rel, "prev");
+    /// assert_eq!(link.href, "/resources?page=1");
+    /// ```
     pub fn prev(href: impl Into<String>) -> Self {
         Self::new("prev", href)
     }
 
     /// Construct a `"related"` link.
+    ///
+    /// ```
+    /// use api_bones::links::Link;
+    ///
+    /// let link = Link::related("/users/42");
+    /// assert_eq!(link.rel, "related");
+    /// assert_eq!(link.href, "/users/42");
+    /// ```
     pub fn related(href: impl Into<String>) -> Self {
         Self::new("related", href)
     }
 
     /// Construct a `"first"` link (first page of a paginated response).
+    ///
+    /// ```
+    /// use api_bones::links::Link;
+    ///
+    /// let link = Link::first("/resources?page=1");
+    /// assert_eq!(link.rel, "first");
+    /// assert_eq!(link.href, "/resources?page=1");
+    /// ```
     pub fn first(href: impl Into<String>) -> Self {
         Self::new("first", href)
     }
 
     /// Construct a `"last"` link (last page of a paginated response).
+    ///
+    /// ```
+    /// use api_bones::links::Link;
+    ///
+    /// let link = Link::last("/resources?page=10");
+    /// assert_eq!(link.rel, "last");
+    /// assert_eq!(link.href, "/resources?page=10");
+    /// ```
     pub fn last(href: impl Into<String>) -> Self {
         Self::new("last", href)
     }
