@@ -35,9 +35,6 @@ arbitrary = ["dep:arbitrary", "uuid?/arbitrary"]
 proptest = ["dep:proptest", "dep:proptest-derive"]
 fake = ["dep:fake", "dep:rand"]
 schemars = ["dep:schemars", "schemars/uuid1", "schemars/chrono04"]
-## Enables `ApiError::from_response` to extract RFC 9457 Problem Details from
-## a `reqwest::Response`. Requires `std` and `serde`.
-reqwest = ["dep:reqwest", "std", "serde"]
 ## Enables `AuthScheme`, `AuthorizationHeader`, credential types, `Scope`, and `Permission`.
 ## Requires `alloc`. Enables Base64 decode for Basic auth.
 auth = ["alloc", "base64", "dep:zeroize"]
@@ -62,7 +59,6 @@ validator = { version = "0.19", features = ["derive"], optional = true }
 fake = { version = "2", optional = true }
 rand = { version = "0.8", optional = true }
 schemars = { version = "1", optional = true }
-reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
 zeroize = { version = "1", features = ["derive"], optional = true }
 hmac = { version = "0.12", optional = true }

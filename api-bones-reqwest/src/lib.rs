@@ -294,6 +294,63 @@ fn map_status_to_api_error(status: u16, detail: String) -> ApiError {
 }
 
 // ---------------------------------------------------------------------------
+// ApiError::from_response — moved from main crate (issue #167)
+// ---------------------------------------------------------------------------
+
+/// Extract an [`api_bones::ApiError`] from a [`reqwest::Response`].
+///
+/// - If the response has `Content-Type: application/problem+json`, the body is
+///   deserialized as a [`api_bones::ProblemJson`] and converted into an
+///   [`api_bones::ApiError`].
+/// - Otherwise a generic [`api_bones::ApiError`] is constructed from the HTTP
+///   status code with the raw body text as the `detail`.
+pub async fn from_response(resp: reqwest::Response) -> api_bones::ApiError {
+    use api_bones::{ApiError, ErrorCode, ProblemJson};
+
+    let http_status = resp.status().as_u16();
+
+    let is_problem_json = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| ct.contains("application/problem+json"));
+
+    if is_problem_json {
+        match resp.json::<ProblemJson>().await {
+            Ok(p) => {
+                let code = ErrorCode::from_type_uri(&p.r#type)
+                    .unwrap_or_else(|| map_status_to_api_error(http_status, String::new()).code);
+                let mut err = ApiError::new(code, p.detail);
+                err.title = p.title;
+                err.status = p.status;
+                if let Some(inst) = p.instance {
+                    #[cfg(feature = "uuid")]
+                    if let Some(hex) = inst.strip_prefix("urn:uuid:")
+                        && let Ok(id) = hex.parse::<uuid::Uuid>()
+                    {
+                        err.request_id = Some(id);
+                    }
+                    #[cfg(not(feature = "uuid"))]
+                    let _ = inst;
+                }
+                err.extensions = p.extensions;
+                err
+            }
+            Err(_) => ApiError::new(
+                map_status_to_api_error(http_status, String::new()).code,
+                "failed to parse problem+json response",
+            ),
+        }
+    } else {
+        let detail = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "upstream error".to_owned());
+        map_status_to_api_error(http_status, detail)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
