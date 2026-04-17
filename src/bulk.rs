@@ -60,10 +60,16 @@ pub struct BulkRequest<T> {
 
 /// The outcome of processing a single item in a [`BulkRequest`].
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(all(feature = "std", feature = "serde"), derive(Serialize, Deserialize))]
+#[cfg_attr(
+    all(feature = "std", feature = "serde"),
+    derive(Serialize, Deserialize)
+)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(all(feature = "std", feature = "serde"), serde(tag = "status", rename_all = "snake_case"))]
+#[cfg_attr(
+    all(feature = "std", feature = "serde"),
+    serde(tag = "status", rename_all = "snake_case")
+)]
 pub enum BulkItemResult<T> {
     /// The item was processed successfully.
     Success {
@@ -121,7 +127,10 @@ impl<T> BulkItemResult<T> {
 
 /// The response to a [`BulkRequest`], containing per-item results.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(all(feature = "std", feature = "serde"), derive(Serialize, Deserialize))]
+#[cfg_attr(
+    all(feature = "std", feature = "serde"),
+    derive(Serialize, Deserialize)
+)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct BulkResponse<T> {
