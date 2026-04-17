@@ -600,4 +600,45 @@ mod tests {
         let qs = QueryBuilder::new().param("q", "hello world&more").build();
         assert_eq!(qs, "q=hello+world%26more");
     }
+
+    // --- UrlBuilder Default ---
+
+    #[test]
+    fn url_builder_default_produces_empty_string() {
+        let b = UrlBuilder::default();
+        assert_eq!(b.build(), "");
+    }
+
+    // --- QueryBuilder Display ---
+
+    #[test]
+    fn query_builder_display_matches_build() {
+        let qb = QueryBuilder::new()
+            .param("limit", 10u32)
+            .param("sort", "asc");
+        assert_eq!(qb.to_string(), qb.build());
+    }
+
+    // --- QueryBuilder is_empty ---
+
+    #[test]
+    fn query_builder_is_empty_true_when_no_params() {
+        assert!(QueryBuilder::new().is_empty());
+    }
+
+    #[test]
+    fn query_builder_is_empty_false_after_param() {
+        assert!(!QueryBuilder::new().param("k", "v").is_empty());
+    }
+
+    // --- merge_into with empty QueryBuilder ---
+
+    #[test]
+    fn merge_into_empty_no_change() {
+        let qb = QueryBuilder::default();
+        assert_eq!(
+            qb.merge_into("https://example.com/path"),
+            "https://example.com/path"
+        );
+    }
 }

@@ -235,4 +235,33 @@ mod tests {
         let json = serde_json::to_value(&d).unwrap();
         assert!(json.get("link").is_none());
     }
+
+    #[test]
+    fn display_format() {
+        let d = Deprecated::new("2025-12-31");
+        assert_eq!(d.to_string(), "Deprecated(sunset=2025-12-31)");
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn inject_headers_sets_deprecation_and_sunset() {
+        let d = Deprecated::new("Sat, 31 Dec 2025 00:00:00 GMT");
+        let mut headers = http::HeaderMap::new();
+        d.inject_headers(&mut headers).unwrap();
+        assert_eq!(headers["deprecation"], "true");
+        assert_eq!(headers["sunset"], "Sat, 31 Dec 2025 00:00:00 GMT");
+        assert!(headers.get(http::header::LINK).is_none());
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn inject_headers_with_link() {
+        let d = Deprecated::new("2025-12-31").with_link("https://example.com/v2");
+        let mut headers = http::HeaderMap::new();
+        d.inject_headers(&mut headers).unwrap();
+        assert_eq!(headers["deprecation"], "true");
+        let link = headers[http::header::LINK].to_str().unwrap();
+        assert!(link.contains("https://example.com/v2"));
+        assert!(link.contains("successor-version"));
+    }
 }

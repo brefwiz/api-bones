@@ -23,11 +23,7 @@
 //! ```
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{
-    format,
-    string::String,
-    vec::Vec,
-};
+use alloc::{format, string::String, vec::Vec};
 use core::{fmt, str::FromStr};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -483,5 +479,145 @@ mod tests {
     fn parse_max_stale_with_value() {
         let cc: CacheControl = "max-stale=300".parse().unwrap();
         assert_eq!(cc.max_stale, Some(300));
+    }
+
+    #[test]
+    fn builder_private() {
+        let cc = CacheControl::new().private();
+        assert!(cc.private);
+        assert_eq!(cc.to_string(), "private");
+    }
+
+    #[test]
+    fn builder_no_cache() {
+        let cc = CacheControl::new().no_cache();
+        assert!(cc.no_cache);
+        assert_eq!(cc.to_string(), "no-cache");
+    }
+
+    #[test]
+    fn builder_no_transform() {
+        let cc = CacheControl::new().no_transform();
+        assert!(cc.no_transform);
+        assert_eq!(cc.to_string(), "no-transform");
+    }
+
+    #[test]
+    fn builder_must_revalidate() {
+        let cc = CacheControl::new().must_revalidate();
+        assert!(cc.must_revalidate);
+        assert_eq!(cc.to_string(), "must-revalidate");
+    }
+
+    #[test]
+    fn builder_proxy_revalidate() {
+        let cc = CacheControl::new().proxy_revalidate();
+        assert!(cc.proxy_revalidate);
+        assert_eq!(cc.to_string(), "proxy-revalidate");
+    }
+
+    #[test]
+    fn builder_s_maxage() {
+        let cc = CacheControl::new().s_maxage(7200);
+        assert_eq!(cc.s_maxage, Some(7200));
+        assert_eq!(cc.to_string(), "s-maxage=7200");
+    }
+
+    #[test]
+    fn builder_stale_while_revalidate() {
+        let cc = CacheControl::new().stale_while_revalidate(60);
+        assert_eq!(cc.stale_while_revalidate, Some(60));
+        assert_eq!(cc.to_string(), "stale-while-revalidate=60");
+    }
+
+    #[test]
+    fn builder_stale_if_error() {
+        let cc = CacheControl::new().stale_if_error(86_400);
+        assert_eq!(cc.stale_if_error, Some(86_400));
+        assert_eq!(cc.to_string(), "stale-if-error=86400");
+    }
+
+    #[test]
+    fn builder_only_if_cached() {
+        let cc = CacheControl::new().only_if_cached();
+        assert!(cc.only_if_cached);
+        assert_eq!(cc.to_string(), "only-if-cached");
+    }
+
+    #[test]
+    fn builder_max_stale() {
+        let cc = CacheControl::new().max_stale(120);
+        assert_eq!(cc.max_stale, Some(120));
+        assert_eq!(cc.to_string(), "max-stale=120");
+    }
+
+    #[test]
+    fn builder_min_fresh() {
+        let cc = CacheControl::new().min_fresh(30);
+        assert_eq!(cc.min_fresh, Some(30));
+        assert_eq!(cc.to_string(), "min-fresh=30");
+    }
+
+    #[test]
+    fn parse_cache_control_error_display() {
+        let err = ParseCacheControlError("max-age requires a value".into());
+        let s = err.to_string();
+        assert!(s.contains("invalid Cache-Control header"));
+        assert!(s.contains("max-age requires a value"));
+    }
+
+    #[test]
+    fn parse_numeric_missing_value_is_error() {
+        // max-age without a value should return an error
+        let result = "max-age".parse::<CacheControl>();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_numeric_bad_integer_is_error() {
+        let result = "max-age=abc".parse::<CacheControl>();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_all_boolean_directives() {
+        let cc: CacheControl = "public, private, no-cache, no-store, no-transform, must-revalidate, proxy-revalidate, immutable, only-if-cached"
+            .parse()
+            .unwrap();
+        assert!(cc.public);
+        assert!(cc.private);
+        assert!(cc.no_cache);
+        assert!(cc.no_store);
+        assert!(cc.no_transform);
+        assert!(cc.must_revalidate);
+        assert!(cc.proxy_revalidate);
+        assert!(cc.immutable);
+        assert!(cc.only_if_cached);
+    }
+
+    #[test]
+    fn parse_all_numeric_directives() {
+        let cc: CacheControl =
+            "max-age=10, s-maxage=20, stale-while-revalidate=30, stale-if-error=40, max-stale=50, min-fresh=60"
+                .parse()
+                .unwrap();
+        assert_eq!(cc.max_age, Some(10));
+        assert_eq!(cc.s_maxage, Some(20));
+        assert_eq!(cc.stale_while_revalidate, Some(30));
+        assert_eq!(cc.stale_if_error, Some(40));
+        assert_eq!(cc.max_stale, Some(50));
+        assert_eq!(cc.min_fresh, Some(60));
+    }
+
+    #[test]
+    fn display_mixed_boolean_and_numeric_with_only_if_cached() {
+        let cc = CacheControl::new()
+            .only_if_cached()
+            .max_stale(0)
+            .min_fresh(10);
+        let s = cc.to_string();
+        assert!(s.contains("only-if-cached"));
+        assert!(s.contains("max-stale=0"));
+        assert!(s.contains("min-fresh=10"));
     }
 }

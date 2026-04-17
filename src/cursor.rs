@@ -278,4 +278,15 @@ mod tests {
         let result = Cursor::decode_signed(&short, b"key");
         assert_eq!(result.unwrap_err(), CursorError::TooShort);
     }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: CursorError Display for all variants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cursor_error_display_all_variants() {
+        assert!(!CursorError::InvalidBase64.to_string().is_empty());
+        assert!(!CursorError::InvalidSignature.to_string().is_empty());
+        assert!(!CursorError::TooShort.to_string().is_empty());
+    }
 }

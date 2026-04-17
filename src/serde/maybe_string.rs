@@ -112,3 +112,144 @@ where
         self.visit_str(&v.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct WithU64 {
+        #[serde(with = "super")]
+        value: u64,
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct WithI64 {
+        #[serde(with = "super")]
+        value: i64,
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct WithF64 {
+        #[serde(with = "super")]
+        value: f64,
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct WithBool {
+        #[serde(with = "super")]
+        value: bool,
+    }
+
+    // --- serialize ---
+
+    #[test]
+    fn serialize_u64() {
+        let w = WithU64 { value: 99 };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"value":99}"#);
+    }
+
+    #[test]
+    fn serialize_bool() {
+        let w = WithBool { value: true };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"value":true}"#);
+    }
+
+    // --- deserialize: visit_str (JSON string input) ---
+
+    #[test]
+    fn deserialize_u64_from_string() {
+        let w: WithU64 = serde_json::from_str(r#"{"value":"42"}"#).unwrap();
+        assert_eq!(w.value, 42);
+    }
+
+    #[test]
+    fn deserialize_i64_from_string() {
+        let w: WithI64 = serde_json::from_str(r#"{"value":"-7"}"#).unwrap();
+        assert_eq!(w.value, -7);
+    }
+
+    #[test]
+    fn deserialize_f64_from_string() {
+        let w: WithF64 = serde_json::from_str(r#"{"value":"3.14"}"#).unwrap();
+        assert!((w.value - 3.14).abs() < 1e-9);
+    }
+
+    #[test]
+    fn deserialize_bool_from_string_true() {
+        let w: WithBool = serde_json::from_str(r#"{"value":"true"}"#).unwrap();
+        assert!(w.value);
+    }
+
+    #[test]
+    fn deserialize_bool_from_string_false() {
+        let w: WithBool = serde_json::from_str(r#"{"value":"false"}"#).unwrap();
+        assert!(!w.value);
+    }
+
+    // --- deserialize: visit_u64 (JSON number, positive) ---
+
+    #[test]
+    fn deserialize_u64_from_number() {
+        let w: WithU64 = serde_json::from_str(r#"{"value":100}"#).unwrap();
+        assert_eq!(w.value, 100);
+    }
+
+    // --- deserialize: visit_i64 (JSON number, negative) ---
+
+    #[test]
+    fn deserialize_i64_from_negative_number() {
+        let w: WithI64 = serde_json::from_str(r#"{"value":-5}"#).unwrap();
+        assert_eq!(w.value, -5);
+    }
+
+    // --- deserialize: visit_f64 (JSON float) ---
+
+    #[test]
+    fn deserialize_f64_from_float() {
+        let w: WithF64 = serde_json::from_str(r#"{"value":2.718}"#).unwrap();
+        assert!((w.value - 2.718).abs() < 1e-9);
+    }
+
+    // --- deserialize: visit_bool (JSON bool) ---
+
+    #[test]
+    fn deserialize_bool_from_true() {
+        let w: WithBool = serde_json::from_str(r#"{"value":true}"#).unwrap();
+        assert!(w.value);
+    }
+
+    #[test]
+    fn deserialize_bool_from_false() {
+        let w: WithBool = serde_json::from_str(r#"{"value":false}"#).unwrap();
+        assert!(!w.value);
+    }
+
+    // --- visit_string is triggered by serde_json::Value::String via from_value ---
+
+    #[test]
+    fn deserialize_u64_from_value_string() {
+        let val = serde_json::json!({"value": "55"});
+        let w: WithU64 = serde_json::from_value(val).unwrap();
+        assert_eq!(w.value, 55);
+    }
+
+    // --- error path: unparseable string ---
+
+    #[test]
+    fn deserialize_u64_invalid_string() {
+        let result: Result<WithU64, _> = serde_json::from_str(r#"{"value":"not_a_number"}"#);
+        assert!(result.is_err());
+    }
+
+    // --- expecting path: covered implicitly by error messages, exercise directly ---
+
+    #[test]
+    fn deserialize_error_message_contains_expectation() {
+        // Provide a JSON type (array) that the visitor cannot handle → triggers `expecting`
+        let result: Result<WithU64, _> = serde_json::from_str(r#"{"value":[1,2,3]}"#);
+        assert!(result.is_err());
+    }
+}

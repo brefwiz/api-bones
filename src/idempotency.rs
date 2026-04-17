@@ -297,4 +297,23 @@ mod tests {
         let result: Result<IdempotencyKey, _> = serde_json::from_str(r#""""#);
         assert!(result.is_err());
     }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: AsRef<str> impl
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn as_ref_str() {
+        let key = IdempotencyKey::new("my-key").unwrap();
+        let s: &str = key.as_ref();
+        assert_eq!(s, "my-key");
+    }
+
+    // Coverage gap: IdempotencyKeyError Display variants
+    #[test]
+    fn error_display_all_variants() {
+        assert!(!IdempotencyKeyError::Empty.to_string().is_empty());
+        assert!(!IdempotencyKeyError::TooLong.to_string().is_empty());
+        assert!(!IdempotencyKeyError::InvalidChars.to_string().is_empty());
+    }
 }

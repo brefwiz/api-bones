@@ -357,7 +357,6 @@ impl fmt::Display for SamplingFlags {
 /// `Display` produces the canonical `traceparent` string which can be used
 /// directly as an HTTP header value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TraceContext {
@@ -469,6 +468,13 @@ impl FromStr for TraceContext {
             span_id,
             flags,
         })
+    }
+}
+
+#[cfg(feature = "serde")]
+impl Serialize for TraceContext {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
     }
 }
 
@@ -664,5 +670,192 @@ mod tests {
         let json = serde_json::to_string(&id).unwrap();
         let back: TraceId = serde_json::from_str(&json).unwrap();
         assert_eq!(id, back);
+    }
+
+    // --- TraceId additional coverage ---
+
+    #[test]
+    fn trace_id_from_bytes_valid() {
+        let bytes = [1u8, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let id = TraceId::from_bytes(bytes).unwrap();
+        assert_eq!(id.as_bytes(), &bytes);
+        assert!(!id.is_zero());
+    }
+
+    #[test]
+    fn trace_id_as_bytes_roundtrip() {
+        let id = TraceId::new();
+        let bytes = *id.as_bytes();
+        let back = TraceId::from_bytes(bytes).unwrap();
+        assert_eq!(id, back);
+    }
+
+    #[test]
+    fn trace_id_to_hex() {
+        let id = TraceId::new();
+        assert_eq!(id.to_hex(), id.to_string());
+        assert_eq!(id.to_hex().len(), 32);
+    }
+
+    #[test]
+    fn trace_id_default_not_zero() {
+        let id = TraceId::default();
+        assert!(!id.is_zero());
+    }
+
+    #[test]
+    fn trace_id_parse_rejects_invalid_hex() {
+        let err = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+            .parse::<TraceId>()
+            .unwrap_err();
+        assert_eq!(err, TraceContextError::InvalidFormat);
+    }
+
+    // --- SpanId additional coverage ---
+
+    #[test]
+    fn span_id_from_bytes_valid() {
+        let bytes = [1u8, 2, 3, 4, 5, 6, 7, 8];
+        let id = SpanId::from_bytes(bytes).unwrap();
+        assert_eq!(id.as_bytes(), &bytes);
+        assert!(!id.is_zero());
+    }
+
+    #[test]
+    fn span_id_from_bytes_rejects_zeros() {
+        assert!(SpanId::from_bytes([0u8; 8]).is_none());
+    }
+
+    #[test]
+    fn span_id_as_bytes_roundtrip() {
+        let id = SpanId::new();
+        let bytes = *id.as_bytes();
+        let back = SpanId::from_bytes(bytes).unwrap();
+        assert_eq!(id, back);
+    }
+
+    #[test]
+    fn span_id_to_hex() {
+        let id = SpanId::new();
+        assert_eq!(id.to_hex(), id.to_string());
+        assert_eq!(id.to_hex().len(), 16);
+    }
+
+    #[test]
+    fn span_id_default_not_zero() {
+        let id = SpanId::default();
+        assert!(!id.is_zero());
+    }
+
+    #[test]
+    fn span_id_parse_rejects_wrong_length() {
+        assert!("abc".parse::<SpanId>().is_err());
+    }
+
+    #[test]
+    fn span_id_parse_rejects_invalid_hex() {
+        let err = "zzzzzzzzzzzzzzzz".parse::<SpanId>().unwrap_err();
+        assert_eq!(err, TraceContextError::InvalidFormat);
+    }
+
+    // --- SamplingFlags additional coverage ---
+
+    #[test]
+    fn sampling_flags_default_is_not_sampled() {
+        let f = SamplingFlags::default();
+        assert!(!f.is_sampled());
+        assert_eq!(f.as_byte(), 0x00);
+    }
+
+    #[test]
+    fn sampling_flags_as_byte() {
+        assert_eq!(SamplingFlags::sampled().as_byte(), 0x01);
+        assert_eq!(SamplingFlags::not_sampled().as_byte(), 0x00);
+        assert_eq!(SamplingFlags::from_byte(0xAB).as_byte(), 0xAB);
+    }
+
+    // --- TraceContext additional coverage ---
+
+    #[test]
+    fn trace_context_default_is_sampled() {
+        let tc = TraceContext::default();
+        assert!(tc.flags.is_sampled());
+        assert!(!tc.trace_id.is_zero());
+        assert!(!tc.span_id.is_zero());
+    }
+
+    #[test]
+    fn trace_context_header_value() {
+        let tc: TraceContext = SAMPLE.parse().unwrap();
+        assert_eq!(tc.header_value(), SAMPLE);
+        assert_eq!(tc.header_value(), tc.to_string());
+    }
+
+    // --- TraceContextError Display ---
+
+    #[test]
+    fn trace_context_error_display() {
+        assert_eq!(
+            TraceContextError::InvalidFormat.to_string(),
+            "invalid traceparent format"
+        );
+        assert_eq!(
+            TraceContextError::UnsupportedVersion.to_string(),
+            "unsupported traceparent version: must be \"00\""
+        );
+        assert_eq!(
+            TraceContextError::ZeroTraceId.to_string(),
+            "trace-id must not be all zeros"
+        );
+        assert_eq!(
+            TraceContextError::ZeroSpanId.to_string(),
+            "span-id must not be all zeros"
+        );
+    }
+
+    // --- TraceContext parse edge cases ---
+
+    #[test]
+    fn parse_rejects_invalid_flags_hex() {
+        let s = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-zz";
+        assert!(s.parse::<TraceContext>().is_err());
+    }
+
+    #[test]
+    fn parse_rejects_flags_wrong_length() {
+        let s = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-1";
+        assert!(s.parse::<TraceContext>().is_err());
+    }
+
+    // --- SpanId serde roundtrip ---
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn span_id_serde_roundtrip() {
+        let id = SpanId::new();
+        let json = serde_json::to_string(&id).unwrap();
+        let back: SpanId = serde_json::from_str(&json).unwrap();
+        assert_eq!(id, back);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn trace_id_serde_deserialize_error() {
+        let result: Result<TraceId, _> = serde_json::from_str("\"not-valid\"");
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn span_id_serde_deserialize_error() {
+        let result: Result<SpanId, _> = serde_json::from_str("\"not-valid\"");
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn trace_context_serde_deserialize_error() {
+        let result: Result<TraceContext, _> = serde_json::from_str("\"not-valid\"");
+        assert!(result.is_err());
     }
 }

@@ -342,4 +342,55 @@ mod tests {
         let parsed: Vary = s.parse().unwrap();
         assert_eq!(parsed, v);
     }
+
+    // --- Default ---
+
+    #[test]
+    fn default_is_empty_headers() {
+        let v = Vary::default();
+        assert!(v.is_empty());
+        assert!(!v.is_wildcard());
+    }
+
+    // --- headers() ---
+
+    #[test]
+    fn headers_returns_slice_for_headers_variant() {
+        let mut v = Vary::new();
+        v.add("Accept");
+        v.add("Content-Type");
+        let h = v.headers().unwrap();
+        assert_eq!(h.len(), 2);
+        assert_eq!(h[0], "Accept");
+        assert_eq!(h[1], "Content-Type");
+    }
+
+    #[test]
+    fn headers_returns_none_for_wildcard() {
+        let v = Vary::wildcard();
+        assert!(v.headers().is_none());
+    }
+
+    // --- ParseVaryError Display ---
+
+    #[test]
+    fn parse_vary_error_display() {
+        let e = ParseVaryError;
+        assert_eq!(e.to_string(), "invalid Vary header");
+    }
+
+    // --- len() for wildcard ---
+
+    #[test]
+    fn len_returns_none_for_wildcard() {
+        assert_eq!(Vary::wildcard().len(), None);
+    }
+
+    // --- contains on wildcard ---
+
+    #[test]
+    fn contains_returns_false_for_wildcard() {
+        let v = Vary::wildcard();
+        assert!(!v.contains("Accept"));
+    }
 }

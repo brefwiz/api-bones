@@ -1064,4 +1064,174 @@ mod tests {
         let back: BearerToken = serde_json::from_str(&json).unwrap();
         assert_eq!(back, t);
     }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: Scope::from_permissions, Scope::empty (constructor), Scope::iter
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn scope_from_permissions() {
+        let perms = vec![
+            Permission::new("read").unwrap(),
+            Permission::new("write").unwrap(),
+        ];
+        let s = Scope::from_permissions(perms);
+        assert_eq!(s.len(), 2);
+        assert!(s.contains("read"));
+        assert!(s.contains("write"));
+    }
+
+    #[test]
+    fn scope_empty_constructor() {
+        let s = Scope::empty();
+        assert!(s.is_empty());
+        assert_eq!(s.len(), 0);
+    }
+
+    #[test]
+    fn scope_iter() {
+        let s: Scope = "a b c".parse().unwrap();
+        let tokens: Vec<&str> = s.iter().map(|p| p.as_str()).collect();
+        assert_eq!(tokens, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn scope_try_from_string() {
+        let s = Scope::try_from("read write".to_owned()).unwrap();
+        assert!(s.contains("read"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: OAuth2Token with no token_type
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn oauth2_token_no_token_type() {
+        let t = OAuth2Token::new("tok", None::<String>);
+        assert_eq!(t.token_type(), None);
+        assert_eq!(t.as_str(), "tok");
+    }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: PartialEq impls for credential newtypes
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn bearer_token_eq() {
+        let a = BearerToken::new("tok");
+        let b = BearerToken::new("tok");
+        let c = BearerToken::new("other");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn basic_credentials_eq() {
+        let a = BasicCredentials::new("user", "pass");
+        let b = BasicCredentials::new("user", "pass");
+        let c = BasicCredentials::new("user", "wrong");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn api_key_eq() {
+        let a = ApiKeyCredentials::new("key");
+        let b = ApiKeyCredentials::new("key");
+        let c = ApiKeyCredentials::new("other");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn oauth2_token_eq() {
+        let a = OAuth2Token::new("tok", Some("Bearer"));
+        let b = OAuth2Token::new("tok", Some("Bearer"));
+        let c = OAuth2Token::new("tok", None::<String>);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: AuthorizationHeader::scheme() for all variants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn authorization_header_scheme_all_variants() {
+        let h: AuthorizationHeader = "Bearer tok".parse().unwrap();
+        assert_eq!(h.scheme(), AuthScheme::Bearer);
+
+        let h: AuthorizationHeader = "Basic dXNlcjpwYXNz".parse().unwrap();
+        assert_eq!(h.scheme(), AuthScheme::Basic);
+
+        let h: AuthorizationHeader = "ApiKey key".parse().unwrap();
+        assert_eq!(h.scheme(), AuthScheme::ApiKey);
+
+        let h: AuthorizationHeader = "OAuth2 tok".parse().unwrap();
+        assert_eq!(h.scheme(), AuthScheme::OAuth2);
+    }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: ParseAuthorizationError Display for all variants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_authorization_error_display() {
+        assert!(!ParseAuthorizationError::Empty.to_string().is_empty());
+        assert!(
+            !ParseAuthorizationError::MissingCredentials
+                .to_string()
+                .is_empty()
+        );
+        assert!(
+            !ParseAuthorizationError::InvalidBase64("bad".to_owned())
+                .to_string()
+                .is_empty()
+        );
+        assert!(
+            !ParseAuthorizationError::InvalidBasicFormat
+                .to_string()
+                .is_empty()
+        );
+        assert!(!ParseAuthorizationError::InvalidUtf8.to_string().is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: parse Basic with invalid UTF-8
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_basic_invalid_utf8_is_error() {
+        use base64::Engine as _;
+        // 0xFF is not valid UTF-8
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"\xFF\xFE");
+        let input = format!("Basic {encoded}");
+        assert_eq!(
+            input.parse::<AuthorizationHeader>(),
+            Err(ParseAuthorizationError::InvalidUtf8)
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: ParsePermissionError Display, ParseScopeError Display
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_permission_error_display() {
+        assert!(!ParsePermissionError::Empty.to_string().is_empty());
+        assert!(
+            !ParsePermissionError::ContainsWhitespace
+                .to_string()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn parse_scope_error_display() {
+        // ParseScopeError wraps ParsePermissionError; trigger via consecutive spaces
+        // Actually empty tokens are skipped via split_ascii_whitespace, so trigger via
+        // constructing directly
+        let err = ParseScopeError::from(ParsePermissionError::Empty);
+        assert!(!err.to_string().is_empty());
+    }
 }

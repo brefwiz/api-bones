@@ -619,4 +619,26 @@ mod tests {
             assert_eq!(&parsed, cr);
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Coverage gap: ByteRange::from_str empty string path
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn byte_range_parse_empty_is_error() {
+        assert_eq!("".parse::<ByteRange>(), Err(ParseRangeError::Empty));
+    }
+
+    // Coverage gap: ParseRangeError Display
+    #[test]
+    fn parse_range_error_display() {
+        assert!(!ParseRangeError::Empty.to_string().is_empty());
+        assert!(!ParseRangeError::Malformed.to_string().is_empty());
+    }
+
+    // Coverage gap: ByteRange parse malformed (no dash, non-empty)
+    #[test]
+    fn byte_range_parse_malformed_no_dash() {
+        assert_eq!("abc".parse::<ByteRange>(), Err(ParseRangeError::Malformed));
+    }
 }

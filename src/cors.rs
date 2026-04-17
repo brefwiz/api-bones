@@ -29,10 +29,7 @@
 //! ```
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{
-    string::String,
-    vec::Vec,
-};
+use alloc::{string::String, vec::Vec};
 use core::fmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
