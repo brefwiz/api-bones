@@ -149,6 +149,36 @@ impl Default for PaginationParams {
 }
 
 impl PaginationParams {
+    /// Create validated pagination params.
+    ///
+    /// Returns `Err` if `limit` is outside 1–100.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::PaginationParams;
+    ///
+    /// let p = PaginationParams::new(20, 0).unwrap();
+    /// assert_eq!(p.limit(), 20);
+    /// assert_eq!(p.offset(), 0);
+    ///
+    /// assert!(PaginationParams::new(0, 0).is_err());
+    /// assert!(PaginationParams::new(101, 0).is_err());
+    /// ```
+    pub fn new(limit: u64, offset: u64) -> Result<Self, crate::error::ValidationError> {
+        if !(1..=100).contains(&limit) {
+            return Err(crate::error::ValidationError {
+                field: "/limit".into(),
+                message: "must be between 1 and 100".into(),
+                rule: Some("range".into()),
+            });
+        }
+        Ok(Self {
+            limit: Some(limit),
+            offset: Some(offset),
+        })
+    }
+
     /// Resolved limit value (falls back to the default of 20).
     ///
     /// # Examples
@@ -347,6 +377,38 @@ impl Default for CursorPaginationParams {
 
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl CursorPaginationParams {
+    /// Create validated cursor pagination params.
+    ///
+    /// Returns `Err` if `limit` is outside 1–100.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::CursorPaginationParams;
+    ///
+    /// let p = CursorPaginationParams::new(50, None).unwrap();
+    /// assert_eq!(p.limit(), 50);
+    ///
+    /// assert!(CursorPaginationParams::new(0, None).is_err());
+    /// assert!(CursorPaginationParams::new(101, None).is_err());
+    /// ```
+    pub fn new(
+        limit: u64,
+        after: Option<String>,
+    ) -> Result<Self, crate::error::ValidationError> {
+        if !(1..=100).contains(&limit) {
+            return Err(crate::error::ValidationError {
+                field: "/limit".into(),
+                message: "must be between 1 and 100".into(),
+                rule: Some("range".into()),
+            });
+        }
+        Ok(Self {
+            limit: Some(limit),
+            after,
+        })
+    }
+
     /// Resolved limit value (falls back to the default of 20).
     ///
     /// # Examples
@@ -427,6 +489,40 @@ impl<K> Default for KeysetPaginationParams<K> {
 
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl<K> KeysetPaginationParams<K> {
+    /// Create validated keyset pagination params.
+    ///
+    /// Returns `Err` if `limit` is outside 1–100.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::KeysetPaginationParams;
+    ///
+    /// let p = KeysetPaginationParams::<String>::new(10, None, None).unwrap();
+    /// assert_eq!(p.limit(), 10);
+    ///
+    /// assert!(KeysetPaginationParams::<String>::new(0, None, None).is_err());
+    /// assert!(KeysetPaginationParams::<String>::new(101, None, None).is_err());
+    /// ```
+    pub fn new(
+        limit: u64,
+        after: Option<K>,
+        before: Option<K>,
+    ) -> Result<Self, crate::error::ValidationError> {
+        if !(1..=100).contains(&limit) {
+            return Err(crate::error::ValidationError {
+                field: "/limit".into(),
+                message: "must be between 1 and 100".into(),
+                rule: Some("range".into()),
+            });
+        }
+        Ok(Self {
+            after,
+            before,
+            limit: Some(limit),
+        })
+    }
+
     /// Resolved limit value (falls back to 20).
     ///
     /// # Examples
@@ -754,6 +850,82 @@ mod tests {
             offset: None,
         };
         assert!(p.validate().is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // PaginationParams::new — fallible constructor
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn pagination_params_new_valid() {
+        let p = PaginationParams::new(1, 0).unwrap();
+        assert_eq!(p.limit(), 1);
+        assert_eq!(p.offset(), 0);
+
+        let p = PaginationParams::new(100, 500).unwrap();
+        assert_eq!(p.limit(), 100);
+        assert_eq!(p.offset(), 500);
+    }
+
+    #[test]
+    fn pagination_params_new_limit_zero_fails() {
+        let err = PaginationParams::new(0, 0).unwrap_err();
+        assert_eq!(err.field, "/limit");
+        assert_eq!(err.rule.as_deref(), Some("range"));
+    }
+
+    #[test]
+    fn pagination_params_new_limit_101_fails() {
+        let err = PaginationParams::new(101, 0).unwrap_err();
+        assert_eq!(err.field, "/limit");
+    }
+
+    // -----------------------------------------------------------------------
+    // CursorPaginationParams::new — fallible constructor
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cursor_pagination_params_new_valid() {
+        let p = CursorPaginationParams::new(1, None).unwrap();
+        assert_eq!(p.limit(), 1);
+
+        let p = CursorPaginationParams::new(100, Some("tok".to_string())).unwrap();
+        assert_eq!(p.limit(), 100);
+        assert_eq!(p.after(), Some("tok"));
+    }
+
+    #[test]
+    fn cursor_pagination_params_new_limit_zero_fails() {
+        assert!(CursorPaginationParams::new(0, None).is_err());
+    }
+
+    #[test]
+    fn cursor_pagination_params_new_limit_101_fails() {
+        let err = CursorPaginationParams::new(101, None).unwrap_err();
+        assert_eq!(err.field, "/limit");
+    }
+
+    // -----------------------------------------------------------------------
+    // KeysetPaginationParams::new — fallible constructor
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn keyset_pagination_params_new_valid() {
+        let p = KeysetPaginationParams::<u64>::new(10, Some(5), None).unwrap();
+        assert_eq!(p.limit(), 10);
+        assert_eq!(p.after, Some(5));
+        assert!(p.before.is_none());
+    }
+
+    #[test]
+    fn keyset_pagination_params_new_limit_zero_fails() {
+        assert!(KeysetPaginationParams::<u64>::new(0, None, None).is_err());
+    }
+
+    #[test]
+    fn keyset_pagination_params_new_limit_101_fails() {
+        let err = KeysetPaginationParams::<u64>::new(101, None, None).unwrap_err();
+        assert_eq!(err.field, "/limit");
     }
 
     // -----------------------------------------------------------------------
