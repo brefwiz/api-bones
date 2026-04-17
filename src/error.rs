@@ -3202,8 +3202,8 @@ mod axum_tests {
     async fn from_response_text_read_error_falls_back_to_upstream_error() {
         // Trigger the unwrap_or_else closure by serving a response that drops
         // the connection before sending the promised body.
-        use std::net::TcpListener as StdTcpListener;
         use std::io::Write as _;
+        use std::net::TcpListener as StdTcpListener;
 
         let std_listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
         std_listener.set_nonblocking(false).unwrap();
@@ -3217,9 +3217,7 @@ mod axum_tests {
             let _ = stream.read(&mut buf);
             // Send headers claiming 100 bytes but close immediately.
             stream
-                .write_all(
-                    b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 100\r\n\r\n",
-                )
+                .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 100\r\n\r\n")
                 .unwrap();
             // Drop stream — reqwest text() gets unexpected EOF.
         });
