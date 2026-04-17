@@ -299,6 +299,55 @@ impl SearchParams {
         }
     }
 
+    /// Create validated search params — enforces 1–500 char constraint without `validator` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::SearchParams;
+    ///
+    /// let s = SearchParams::try_new("annual report").unwrap();
+    /// assert_eq!(s.query, "annual report");
+    ///
+    /// assert!(SearchParams::try_new("").is_err());
+    /// assert!(SearchParams::try_new("a".repeat(501)).is_err());
+    /// ```
+    pub fn try_new(query: impl Into<String>) -> Result<Self, crate::error::ValidationError> {
+        let query = query.into();
+        if query.is_empty() || query.len() > 500 {
+            return Err(crate::error::ValidationError {
+                field: "/query".into(),
+                message: "must be between 1 and 500 characters".into(),
+                rule: Some("length".into()),
+            });
+        }
+        Ok(Self {
+            query,
+            fields: Vec::new(),
+        })
+    }
+
+    /// Create validated search params scoped to specific fields.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::query::SearchParams;
+    ///
+    /// let s = SearchParams::try_with_fields("report", ["title"]).unwrap();
+    /// assert_eq!(s.fields, vec!["title"]);
+    ///
+    /// assert!(SearchParams::try_with_fields("", ["title"]).is_err());
+    /// ```
+    pub fn try_with_fields(
+        query: impl Into<String>,
+        fields: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, crate::error::ValidationError> {
+        let mut s = Self::try_new(query)?;
+        s.fields = fields.into_iter().map(Into::into).collect();
+        Ok(s)
+    }
+
     /// Create search params scoped to specific fields.
     ///
     /// # Examples
@@ -530,6 +579,51 @@ mod tests {
         use validator::Validate;
         let s = SearchParams::new("a".repeat(500));
         assert!(s.validate().is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // SearchParams::try_new / try_with_fields — fallible constructors
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn search_params_try_new_valid() {
+        let s = SearchParams::try_new("report").unwrap();
+        assert_eq!(s.query, "report");
+        assert!(s.fields.is_empty());
+    }
+
+    #[test]
+    fn search_params_try_new_boundary_min() {
+        assert!(SearchParams::try_new("a").is_ok());
+    }
+
+    #[test]
+    fn search_params_try_new_boundary_max() {
+        assert!(SearchParams::try_new("a".repeat(500)).is_ok());
+    }
+
+    #[test]
+    fn search_params_try_new_empty_fails() {
+        let err = SearchParams::try_new("").unwrap_err();
+        assert_eq!(err.field, "/query");
+        assert_eq!(err.rule.as_deref(), Some("length"));
+    }
+
+    #[test]
+    fn search_params_try_new_too_long_fails() {
+        assert!(SearchParams::try_new("a".repeat(501)).is_err());
+    }
+
+    #[test]
+    fn search_params_try_with_fields_valid() {
+        let s = SearchParams::try_with_fields("report", ["title", "body"]).unwrap();
+        assert_eq!(s.query, "report");
+        assert_eq!(s.fields, vec!["title", "body"]);
+    }
+
+    #[test]
+    fn search_params_try_with_fields_empty_query_fails() {
+        assert!(SearchParams::try_with_fields("", ["title"]).is_err());
     }
 
     #[cfg(feature = "axum")]
