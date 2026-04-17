@@ -395,10 +395,7 @@ impl CursorPaginationParams {
     /// assert!(CursorPaginationParams::new(0, None).is_err());
     /// assert!(CursorPaginationParams::new(101, None).is_err());
     /// ```
-    pub fn new(
-        limit: u64,
-        after: Option<String>,
-    ) -> Result<Self, crate::error::ValidationError> {
+    pub fn new(limit: u64, after: Option<String>) -> Result<Self, crate::error::ValidationError> {
         if !(1..=100).contains(&limit) {
             return Err(crate::error::ValidationError {
                 field: "/limit".into(),
