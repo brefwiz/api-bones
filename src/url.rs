@@ -218,6 +218,7 @@ impl UrlBuilder {
     /// assert_eq!(url, "https://example.com?q=hello+world");
     /// ```
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn query(mut self, key: impl Into<String>, value: impl ToString) -> Self {
         self.query.push((key.into(), value.to_string()));
         self
@@ -354,6 +355,7 @@ impl QueryBuilder {
     /// assert_eq!(qs, "active=true");
     /// ```
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn param(mut self, key: impl Into<String>, value: impl ToString) -> Self {
         self.params.push((key.into(), value.to_string()));
         self

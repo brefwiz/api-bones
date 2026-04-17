@@ -61,6 +61,8 @@ pub enum TraceContextError {
 /// The all-zeros value is invalid per the W3C spec and will never be produced
 /// by [`TraceId::new`] or accepted by [`TraceId::from_str`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct TraceId([u8; 16]);
 
 impl TraceId {
@@ -167,6 +169,8 @@ impl<'de> Deserialize<'de> for TraceId {
 /// The all-zeros value is invalid per the W3C spec and will never be produced
 /// by [`SpanId::new`] or accepted by [`SpanId::from_str`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SpanId([u8; 8]);
 
 impl SpanId {
@@ -281,6 +285,8 @@ impl<'de> Deserialize<'de> for SpanId {
 /// Currently only the `sampled` flag (bit 0) is defined by the spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct SamplingFlags(u8);
 
 impl SamplingFlags {

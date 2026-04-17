@@ -125,7 +125,7 @@ impl From<uuid::Uuid> for RequestId {
 }
 
 impl From<RequestId> for uuid::Uuid {
-    fn from(r: RequestId) -> uuid::Uuid {
+    fn from(r: RequestId) -> Self {
         r.0
     }
 }

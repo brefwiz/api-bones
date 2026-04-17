@@ -256,36 +256,35 @@ mod axum_support {
         fn into_response_parts(self, mut res: ResponseParts) -> Result<ResponseParts, Self::Error> {
             let headers = res.headers_mut();
 
-            if let Some(origin) = &self.allow_origin {
-                if let Ok(v) = HeaderValue::from_str(&origin.to_string()) {
-                    headers.insert("access-control-allow-origin", v);
-                }
+            if let Some(origin) = &self.allow_origin
+                && let Ok(v) = HeaderValue::from_str(&origin.to_string())
+            {
+                headers.insert("access-control-allow-origin", v);
             }
-            if let Some(methods) = &self.allow_methods {
-                if let Ok(v) = HeaderValue::from_str(&methods.join(", ")) {
-                    headers.insert("access-control-allow-methods", v);
-                }
+            if let Some(methods) = &self.allow_methods
+                && let Ok(v) = HeaderValue::from_str(&methods.join(", "))
+            {
+                headers.insert("access-control-allow-methods", v);
             }
-            if let Some(hdrs) = &self.allow_headers {
-                if let Ok(v) = HeaderValue::from_str(&hdrs.join(", ")) {
-                    headers.insert("access-control-allow-headers", v);
-                }
+            if let Some(hdrs) = &self.allow_headers
+                && let Ok(v) = HeaderValue::from_str(&hdrs.join(", "))
+            {
+                headers.insert("access-control-allow-headers", v);
             }
-            if let Some(expose) = &self.expose_headers {
-                if let Ok(v) = HeaderValue::from_str(&expose.join(", ")) {
-                    headers.insert("access-control-expose-headers", v);
-                }
+            if let Some(expose) = &self.expose_headers
+                && let Ok(v) = HeaderValue::from_str(&expose.join(", "))
+            {
+                headers.insert("access-control-expose-headers", v);
             }
-            if let Some(max_age) = self.max_age {
-                if let Ok(v) = HeaderValue::from_str(&max_age.to_string()) {
-                    headers.insert("access-control-max-age", v);
-                }
+            if let Some(max_age) = self.max_age
+                && let Ok(v) = HeaderValue::from_str(&max_age.to_string())
+            {
+                headers.insert("access-control-max-age", v);
             }
             if let Some(creds) = self.allow_credentials {
                 let val = if creds { "true" } else { "false" };
-                if let Ok(v) = HeaderValue::from_static(val) {
-                    headers.insert("access-control-allow-credentials", v);
-                }
+                let v = HeaderValue::from_static(val);
+                headers.insert("access-control-allow-credentials", v);
             }
 
             Ok(res)

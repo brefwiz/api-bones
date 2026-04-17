@@ -404,8 +404,8 @@ impl CursorPaginationParams {
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(bound = "K: schemars::JsonSchema"))]
 #[cfg_attr(feature = "validator", derive(Validate))]
 pub struct KeysetPaginationParams<K> {
     /// Fetch items after (exclusive) this key value.

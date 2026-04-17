@@ -6,7 +6,7 @@
 //! | Type / Trait       | Issue | Purpose                                               |
 //! |--------------------|-------|-------------------------------------------------------|
 //! | [`RetryPolicy`]    | #112  | Max-attempt cap + backoff strategy                    |
-//! | [`BackoffStrategy`]| #112  | Fixed, Exponential, or DecorrelatedJitter delays      |
+//! | [`BackoffStrategy`]| #112  | `Fixed`, `Exponential`, or `DecorrelatedJitter` delays |
 //! | [`RetryAfter`]     | #113  | Parse `Retry-After` header (delta-seconds or date)    |
 //! | [`Idempotent`]     | #114  | Marker trait for request types safe to retry          |
 //!
