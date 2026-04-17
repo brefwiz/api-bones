@@ -131,6 +131,8 @@ impl Dummy<Faker> for crate::error::ApiError {
             errors,
             rate_limit: None,
             source: None,
+            causes: vec![],
+            extensions: Default::default(),
         }
     }
 }
