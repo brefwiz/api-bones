@@ -231,6 +231,47 @@ impl ApiVersion {
 }
 
 // ---------------------------------------------------------------------------
+// Axum extractor
+// ---------------------------------------------------------------------------
+
+/// Extracts the API version from the `X-Api-Version` header or the `v` query
+/// parameter (header takes precedence). Parses the raw string through
+/// [`ApiVersion::from_str`]; rejects with `400 Bad Request` when neither
+/// source is present or the value is not a recognised version format.
+#[cfg(all(feature = "axum", any(feature = "std", feature = "alloc")))]
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for ApiVersion {
+    type Rejection = crate::error::ApiError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        // 1. Try X-Api-Version header
+        if let Some(val) = parts.headers.get("x-api-version") {
+            let s = val.to_str().map_err(|_| {
+                crate::error::ApiError::bad_request("header x-api-version contains non-UTF-8 bytes")
+            })?;
+            return s.parse::<Self>().map_err(|e| {
+                crate::error::ApiError::bad_request(format!("invalid X-Api-Version: {e}"))
+            });
+        }
+        // 2. Try query parameter `v`
+        if let Some(query) = parts.uri.query() {
+            for pair in query.split('&') {
+                if let Some(v) = pair.strip_prefix("v=") {
+                    return v.parse::<Self>().map_err(|e| {
+                        crate::error::ApiError::bad_request(format!("invalid v= query param: {e}"))
+                    });
+                }
+            }
+        }
+        Err(crate::error::ApiError::bad_request(
+            "missing api version: provide X-Api-Version header or v= query parameter",
+        ))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
