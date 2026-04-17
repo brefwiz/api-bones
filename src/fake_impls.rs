@@ -27,6 +27,7 @@
 //!   `Some(1..=100)`, consistent with the domain constraints.
 //! - `SearchParams::query` is a non-empty string of at most 500 bytes.
 
+#[cfg(feature = "serde")]
 use std::collections::BTreeMap;
 
 use fake::{Dummy, Fake, Faker};
@@ -122,18 +123,18 @@ impl Dummy<Faker> for crate::error::ApiError {
         } else {
             None
         };
-        #[cfg(not(feature = "uuid"))]
-        let request_id = None;
         Self {
             code,
             title,
             status,
             detail,
+            #[cfg(feature = "uuid")]
             request_id,
             errors,
             rate_limit: None,
             source: None,
             causes: vec![],
+            #[cfg(feature = "serde")]
             extensions: BTreeMap::default(),
         }
     }

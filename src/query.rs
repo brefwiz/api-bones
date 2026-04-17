@@ -14,7 +14,7 @@
 use alloc::{string::String, vec::Vec};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "validator")]
+#[cfg(all(feature = "validator", any(feature = "std", feature = "alloc")))]
 use validator::Validate;
 
 // ---------------------------------------------------------------------------

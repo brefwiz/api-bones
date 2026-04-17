@@ -71,6 +71,29 @@ jobs:
       - name: Check no_std + alloc + serde (regression guard for issue 80)
         run: cargo check --no-default-features --features alloc,serde
 
+  feature-powerset:
+    name: Feature Powerset (cargo-hack)
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install cargo-hack
+        run: cargo hack --version 2>/dev/null || cargo install cargo-hack --locked
+      - name: Test feature powerset (main crate)
+        run: cargo hack check --feature-powerset --depth 2 --package api-bones
+      - name: Test feature powerset (api-bones-tower)
+        run: cargo hack check --feature-powerset --package api-bones-tower
+      - name: Test feature powerset (api-bones-reqwest)
+        run: cargo hack check --feature-powerset --package api-bones-reqwest
+
   test:
     name: Tests
     runs-on: brefwiz
@@ -135,7 +158,7 @@ jobs:
     name: Publish Crate to Forgejo Registry
     runs-on: brefwiz
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [fmt, clippy, no-std, test, coverage, audit]
+    needs: [fmt, clippy, no-std, feature-powerset, test, coverage, audit]
     container:
       image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
