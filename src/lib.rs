@@ -121,6 +121,8 @@ pub use common::Timestamp;
 pub use error::ErrorCode;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use error::ErrorTypeMode;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+pub use error::ProblemJson;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use error::{ApiError, ValidationError};
 #[cfg(feature = "std")]
