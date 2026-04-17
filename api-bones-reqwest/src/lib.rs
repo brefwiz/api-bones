@@ -8,6 +8,15 @@
 //! - [`ResponseExt`] — extract `Problem+JSON` errors, parse
 //!   `X-RateLimit-*` headers, and follow RFC 5988 `Link` pagination.
 //!
+//! ## Feature flags
+//!
+//! By default this crate enables `std` and `serde` on `api-bones`.
+//! Additional `api-bones` features can be opted into:
+//!
+//! | Feature | What it enables                                    |
+//! |---------|----------------------------------------------------|
+//! | `uuid`  | UUID-typed request/correlation IDs (`api-bones/uuid`) |
+//!
 //! # Example
 //!
 //! ```rust,no_run

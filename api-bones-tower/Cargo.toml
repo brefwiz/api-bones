@@ -8,6 +8,20 @@ description = "Tower middleware for api-bones services (RequestIdLayer, ProblemJ
 repository = "https://git.brefwiz.com/gsalingu/api-bones"
 publish = ["brefwiz"]
 
+## Feature flags
+##
+## By default this crate enables `std` and `serde` on `api-bones`.
+## Use optional features to pass through additional `api-bones` features:
+##
+## ```toml
+## api-bones-tower = { version = "2", features = ["uuid", "chrono"] }
+## ```
+[features]
+## Enables UUID-based request IDs via api-bones/uuid.
+uuid = ["api-bones/uuid"]
+## Enables chrono timestamp support via api-bones/chrono.
+chrono = ["api-bones/chrono"]
+
 [dependencies]
 api-bones = { version = "2.0", path = "..", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
 tower = { version = "0.5", features = ["util"] }
