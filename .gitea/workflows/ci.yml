@@ -24,7 +24,7 @@ jobs:
     name: Code Formatting
     runs-on: brefwiz
     container:
-      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
         username: ${{ secrets.HARBOR_USER }}
         password: ${{ secrets.HARBOR_TOKEN }}
@@ -37,7 +37,7 @@ jobs:
     name: Clippy Lints
     runs-on: brefwiz
     container:
-      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
         username: ${{ secrets.HARBOR_USER }}
         password: ${{ secrets.HARBOR_TOKEN }}
@@ -54,7 +54,7 @@ jobs:
     name: no_std Compilation
     runs-on: brefwiz
     container:
-      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
         username: ${{ secrets.HARBOR_USER }}
         password: ${{ secrets.HARBOR_TOKEN }}
@@ -73,7 +73,7 @@ jobs:
     name: Tests
     runs-on: brefwiz
     container:
-      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
         username: ${{ secrets.HARBOR_USER }}
         password: ${{ secrets.HARBOR_TOKEN }}
@@ -90,7 +90,7 @@ jobs:
     name: Test Coverage (100%)
     runs-on: brefwiz
     container:
-      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
         username: ${{ secrets.HARBOR_USER }}
         password: ${{ secrets.HARBOR_TOKEN }}
@@ -107,7 +107,7 @@ jobs:
     name: Security Audit
     runs-on: brefwiz
     container:
-      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
         username: ${{ secrets.HARBOR_USER }}
         password: ${{ secrets.HARBOR_TOKEN }}
@@ -135,7 +135,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [fmt, clippy, no-std, test, coverage, audit]
     container:
-      image: harbor.brefwiz.com/brefwiz/rust-ci:rust-1.94
+      image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
         username: ${{ secrets.HARBOR_USER }}
         password: ${{ secrets.HARBOR_TOKEN }}
