@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-04-09
+
+### Breaking Changes
+
+- **`response::Links` removed** — use `links::Links` everywhere. `links::Links` is `Vec<Link>`-backed and supports arbitrary `rel` types; the old 3-field struct is gone.
+- **`models::ErrorResponse` removed** — use `ApiError` directly for all error responses.
+- **`reqwest` feature removed from main crate** — `ApiError::from_response` moved to the new `api-bones-reqwest` satellite crate.
+- **`RequestIdParseError` renamed to `RequestIdError`** — now an enum with meaningful variants.
+
+### Added
+
+- **`api-bones-tower`** satellite crate — Tower `RequestIdLayer` and `ProblemJsonLayer` extracted from main crate; main crate is now pure types.
+- **`api-bones-reqwest`** satellite crate — reqwest client extensions (`RequestBuilderExt`, `ResponseExt`) extracted from main crate.
+- **`HeaderId` trait** — shared abstraction over `RequestId`, `CorrelationId`, `IdempotencyKey` HTTP header newtypes (`as_str()`, `header_name()`).
+- **`TryFrom<StatusCode> for ErrorCode`** — 4xx/5xx status codes now convert back to their canonical `ErrorCode`.
+- **`QueryBuilder`** — typed query parameter builder with `.set()`, `.set_opt()`, `.extend_from_struct<T: Serialize>()`, `.merge_into_url()`.
+- **Fallible constructors** for all constrained param types: `PaginationParams::new()`, `CursorPaginationParams::new()`, `KeysetPaginationParams::new()`, `SearchParams::new()` — enforce constraints without the `validator` feature.
+- **`FromRequestParts`** implemented directly on core types (`PaginationParams`, `SortParams`, `IfMatch`, `IfNoneMatch`) when `axum` feature is enabled — no wrapper newtypes needed.
+- **`ETag::parse_list()`** — parse comma-separated `If-Match`/`If-None-Match` header values.
+- **Feature powerset CI** via `cargo-hack` — all feature combinations tested.
+- New runnable examples: `auth_flow`, `bulk_envelope`, `cursor_hmac`, `error_construction`, `cache_control`, `etag_conditional`, `range_headers`, `trace_context`, `axum_core_extractors`, `query_builder`.
+
+### Changed
+
+- `api-bones-tower` and `api-bones-reqwest` version aligned with main crate (`2.0.0`).
+- `api-bones-tower` adds optional `uuid` and `chrono` feature passthroughs.
+- `PaginationParams` fields use `#[serde(default)]` matching the rest of the query param types.
+- `CorrelationId` redundant constructors (`new_random`, `new_id`) removed — keep only `new_uuid()`.
+- `ErrorTypeMode` std-only limitation (`error_type_mode()`, `set_error_type_mode()`) documented explicitly.
+
+### Removed
+
+- `models::ErrorResponse` (use `ApiError`)
+- `response::Links` (use `links::Links`)
+- `reqwest` feature from main crate (moved to `api-bones-reqwest`)
+- `tower` feature from main crate (moved to `api-bones-tower`)
+- `CorrelationId::new_random()`, `CorrelationId::new_id()` (redundant)
+
 ## [1.10.0] - 2026-04-09
 
 ### Added
@@ -140,7 +178,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release with core API types: `ApiError`, `ValidationError`, `HealthCheck`, `ReadinessResponse`, `PaginationParams`
 
-[Unreleased]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.6.0...HEAD
+[Unreleased]: https://git.brefwiz.com/brefwiz/api-bones/compare/v2.0.0...HEAD
+[2.0.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.10.0...v2.0.0
+[1.10.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.9.0...v1.10.0
+[1.9.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.8.0...v1.9.0
+[1.8.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.7.0...v1.8.0
+[1.7.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.6.0...v1.7.0
 [1.6.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.5.0...v1.6.0
 [1.5.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.4.0...v1.5.0
 [1.4.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.3.1...v1.4.0
