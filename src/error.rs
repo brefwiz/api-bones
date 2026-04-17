@@ -629,7 +629,10 @@ impl core::error::Error for ValidationError {}
 /// ```
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone)]
-#[cfg_attr(all(feature = "std", feature = "serde"), derive(Serialize, Deserialize))]
+#[cfg_attr(
+    all(feature = "std", feature = "serde"),
+    derive(Serialize, Deserialize)
+)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
