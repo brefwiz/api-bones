@@ -65,9 +65,11 @@ use std::borrow::ToOwned;
 // RequestId
 // ---------------------------------------------------------------------------
 
-/// Extracted `X-Request-Id` header value.
+/// Extracted and UUID-validated `X-Request-Id` header value.
 ///
-/// Rejects with `400 Bad Request` when the header is absent or not valid UTF-8.
+/// The inner type is [`crate::request_id::RequestId`], which guarantees the
+/// value is a well-formed UUID v4.  Rejects with `400 Bad Request` when the
+/// header is absent, not valid UTF-8, or not a valid UUID.
 ///
 /// # Example
 ///
@@ -80,16 +82,16 @@ use std::borrow::ToOwned;
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RequestId(pub String);
+pub struct RequestId(pub crate::request_id::RequestId);
 
 impl core::fmt::Display for RequestId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&self.0)
+        core::fmt::Display::fmt(&self.0, f)
     }
 }
 
 impl core::ops::Deref for RequestId {
-    type Target = str;
+    type Target = crate::request_id::RequestId;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -100,7 +102,10 @@ impl<S: Send + Sync> FromRequestParts<S> for RequestId {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        required_header(&parts.headers, "x-request-id").map(Self)
+        let raw = required_header(&parts.headers, "x-request-id")?;
+        raw.parse::<crate::request_id::RequestId>()
+            .map(Self)
+            .map_err(|e| ApiError::bad_request(format!("invalid X-Request-Id: {e}")))
     }
 }
 
@@ -108,9 +113,11 @@ impl<S: Send + Sync> FromRequestParts<S> for RequestId {
 // IdempotencyKey
 // ---------------------------------------------------------------------------
 
-/// Extracted `Idempotency-Key` header value.
+/// Extracted and validated `Idempotency-Key` header value.
 ///
-/// Rejects with `400 Bad Request` when the header is absent or not valid UTF-8.
+/// The inner type is [`crate::idempotency::IdempotencyKey`], which enforces
+/// the 1–255 printable-ASCII constraint.  Rejects with `400 Bad Request` when
+/// the header is absent, not valid UTF-8, or fails validation.
 ///
 /// # Example
 ///
@@ -123,16 +130,16 @@ impl<S: Send + Sync> FromRequestParts<S> for RequestId {
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IdempotencyKey(pub String);
+pub struct IdempotencyKey(pub crate::idempotency::IdempotencyKey);
 
 impl core::fmt::Display for IdempotencyKey {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str(&self.0)
+        core::fmt::Display::fmt(&self.0, f)
     }
 }
 
 impl core::ops::Deref for IdempotencyKey {
-    type Target = str;
+    type Target = crate::idempotency::IdempotencyKey;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -143,7 +150,10 @@ impl<S: Send + Sync> FromRequestParts<S> for IdempotencyKey {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        required_header(&parts.headers, "idempotency-key").map(Self)
+        let raw = required_header(&parts.headers, "idempotency-key")?;
+        crate::idempotency::IdempotencyKey::new(&raw)
+            .map(Self)
+            .map_err(|e| ApiError::bad_request(format!("invalid Idempotency-Key: {e}")))
     }
 }
 
@@ -338,10 +348,10 @@ mod tests {
 
     #[tokio::test]
     async fn request_id_present() {
-        let rid = extract_request_id(&[("x-request-id", "abc-123")])
+        let rid = extract_request_id(&[("x-request-id", "550e8400-e29b-41d4-a716-446655440000")])
             .await
             .unwrap();
-        assert_eq!(&*rid, "abc-123");
+        assert_eq!(rid.to_string(), "550e8400-e29b-41d4-a716-446655440000");
     }
 
     #[tokio::test]
@@ -351,16 +361,43 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn request_id_invalid_uuid_rejects_400() {
+        let err = extract_request_id(&[("x-request-id", "not-a-uuid")])
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    #[tokio::test]
+    async fn request_id_deref_to_inner() {
+        let rid = extract_request_id(&[("x-request-id", "550e8400-e29b-41d4-a716-446655440000")])
+            .await
+            .unwrap();
+        // Deref gives crate::request_id::RequestId; check UUID version
+        assert_eq!(rid.as_uuid().get_version_num(), 4);
+    }
+
+    #[tokio::test]
     async fn idempotency_key_present() {
         let key = extract_idempotency(&[("idempotency-key", "key-xyz")])
             .await
             .unwrap();
-        assert_eq!(&*key, "key-xyz");
+        assert_eq!(key.as_str(), "key-xyz");
     }
 
     #[tokio::test]
     async fn idempotency_key_missing_rejects_400() {
         let err = extract_idempotency(&[]).await.unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    #[tokio::test]
+    async fn idempotency_key_too_long_rejects_400() {
+        // A 256-char key is valid UTF-8 ASCII but exceeds IdempotencyKey's 255-char limit.
+        let long_key = "a".repeat(256);
+        let err = extract_idempotency(&[("idempotency-key", long_key.as_str())])
+            .await
+            .unwrap_err();
         assert_eq!(err.status, 400);
     }
 
@@ -420,19 +457,10 @@ mod tests {
 
     #[tokio::test]
     async fn request_id_display() {
-        let rid = extract_request_id(&[("x-request-id", "disp-001")])
+        let rid = extract_request_id(&[("x-request-id", "550e8400-e29b-41d4-a716-446655440000")])
             .await
             .unwrap();
-        assert_eq!(rid.to_string(), "disp-001");
-    }
-
-    #[tokio::test]
-    async fn request_id_deref() {
-        let rid = extract_request_id(&[("x-request-id", "deref-test")])
-            .await
-            .unwrap();
-        let s: &str = &rid;
-        assert_eq!(s, "deref-test");
+        assert_eq!(rid.to_string(), "550e8400-e29b-41d4-a716-446655440000");
     }
 
     #[tokio::test]
@@ -448,8 +476,8 @@ mod tests {
         let key = extract_idempotency(&[("idempotency-key", "deref-key")])
             .await
             .unwrap();
-        let s: &str = &key;
-        assert_eq!(s, "deref-key");
+        let inner: &crate::idempotency::IdempotencyKey = &key;
+        assert_eq!(inner.as_str(), "deref-key");
     }
 
     #[tokio::test]
@@ -518,6 +546,32 @@ mod tests {
         let (mut parts, ()) = req.into_parts();
         parts.headers.insert("x-api-version", bad_val);
         let err = ApiVersion::from_request_parts(&mut parts, &())
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    #[tokio::test]
+    async fn request_id_non_utf8_rejects_400() {
+        use axum::http::{Request, header::HeaderValue};
+        let bad_val = HeaderValue::from_bytes(b"\xff\xfe").unwrap();
+        let req = Request::builder().uri("/").body(()).unwrap();
+        let (mut parts, ()) = req.into_parts();
+        parts.headers.insert("x-request-id", bad_val);
+        let err = RequestId::from_request_parts(&mut parts, &())
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    #[tokio::test]
+    async fn idempotency_key_non_utf8_rejects_400() {
+        use axum::http::{Request, header::HeaderValue};
+        let bad_val = HeaderValue::from_bytes(b"\xff\xfe").unwrap();
+        let req = Request::builder().uri("/").body(()).unwrap();
+        let (mut parts, ()) = req.into_parts();
+        parts.headers.insert("idempotency-key", bad_val);
+        let err = IdempotencyKey::from_request_parts(&mut parts, &())
             .await
             .unwrap_err();
         assert_eq!(err.status, 400);
