@@ -385,6 +385,177 @@ impl CursorPaginationParams {
 }
 
 // ---------------------------------------------------------------------------
+// Keyset (seek) pagination
+// ---------------------------------------------------------------------------
+
+/// Query parameters for keyset (seek-based) pagination.
+///
+/// Keyset pagination is more efficient than offset pagination for large datasets
+/// because the database anchors the query on an indexed column value rather than
+/// skipping rows.
+///
+/// - `after` — fetch items whose sort key is **greater than** this value
+/// - `before` — fetch items whose sort key is **less than** this value
+/// - `limit` — maximum number of items to return (1–100, default 20)
+///
+/// Typically only one of `after` / `before` is supplied per request.
+///
+/// Requires `std` or `alloc`.
+#[cfg(any(feature = "std", feature = "alloc"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema, utoipa::IntoParams))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "validator", derive(Validate))]
+pub struct KeysetPaginationParams<K> {
+    /// Fetch items after (exclusive) this key value.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub after: Option<K>,
+    /// Fetch items before (exclusive) this key value.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub before: Option<K>,
+    /// Maximum number of items to return (1–100). Defaults to 20.
+    #[cfg_attr(feature = "serde", serde(default = "default_keyset_limit"))]
+    #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
+    pub limit: Option<u64>,
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl<K> Default for KeysetPaginationParams<K> {
+    fn default() -> Self {
+        Self {
+            after: None,
+            before: None,
+            limit: Some(20),
+        }
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl<K> KeysetPaginationParams<K> {
+    /// Resolved limit value (falls back to 20).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::KeysetPaginationParams;
+    ///
+    /// let p = KeysetPaginationParams::<String>::default();
+    /// assert_eq!(p.limit(), 20);
+    /// ```
+    #[must_use]
+    pub fn limit(&self) -> u64 {
+        self.limit.unwrap_or(20)
+    }
+}
+
+#[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
+#[allow(clippy::unnecessary_wraps)]
+fn default_keyset_limit() -> Option<u64> {
+    Some(20)
+}
+
+/// A page of results from a keyset-paginated endpoint.
+///
+/// `has_next` / `has_prev` reflect whether further pages exist in each direction.
+/// Cursors for navigation are opaque strings — typically the serialised key of
+/// the first/last item in `items`.
+///
+/// Requires `std` or `alloc`.
+#[cfg(any(feature = "std", feature = "alloc"))]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct KeysetPaginatedResponse<T> {
+    /// The items on this page.
+    pub items: Vec<T>,
+    /// Whether a next page exists (there are items after the last item).
+    pub has_next: bool,
+    /// Whether a previous page exists (there are items before the first item).
+    pub has_prev: bool,
+    /// Opaque cursor pointing to the item just before the first item in `items`.
+    ///
+    /// Pass this as `before` to retrieve the previous page.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub prev_cursor: Option<String>,
+    /// Opaque cursor pointing to the item just after the last item in `items`.
+    ///
+    /// Pass this as `after` to retrieve the next page.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub next_cursor: Option<String>,
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl<T> KeysetPaginatedResponse<T> {
+    /// Create a new keyset-paginated response.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::KeysetPaginatedResponse;
+    ///
+    /// let resp = KeysetPaginatedResponse::new(
+    ///     vec![1i32, 2, 3],
+    ///     true,
+    ///     false,
+    ///     None,
+    ///     Some("cursor_after_3".to_string()),
+    /// );
+    /// assert!(resp.has_next);
+    /// assert!(!resp.has_prev);
+    /// ```
+    #[must_use]
+    pub fn new(
+        items: Vec<T>,
+        has_next: bool,
+        has_prev: bool,
+        prev_cursor: Option<String>,
+        next_cursor: Option<String>,
+    ) -> Self {
+        Self {
+            items,
+            has_next,
+            has_prev,
+            prev_cursor,
+            next_cursor,
+        }
+    }
+
+    /// Convenience: first page with no previous cursor.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::pagination::KeysetPaginatedResponse;
+    ///
+    /// let resp = KeysetPaginatedResponse::first_page(
+    ///     vec!["a", "b", "c"],
+    ///     true,
+    ///     Some("cursor_after_c".to_string()),
+    /// );
+    /// assert!(!resp.has_prev);
+    /// assert!(resp.has_next);
+    /// ```
+    #[must_use]
+    pub fn first_page(items: Vec<T>, has_next: bool, next_cursor: Option<String>) -> Self {
+        Self::new(items, has_next, false, None, next_cursor)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Axum extractors — `axum` feature
 // ---------------------------------------------------------------------------
 

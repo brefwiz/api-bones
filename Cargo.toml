@@ -17,6 +17,9 @@ std = ["alloc", "thiserror/std"]
 ## Enables heap-allocated types (`String`, `Vec`, `Arc`) in `no_std` contexts.
 alloc = []
 serde = ["dep:serde", "dep:serde_json", "dep:serde_with", "uuid?/serde", "chrono?/serde"]
+## Enables `serde::base64_bytes` — `Vec<u8>` ↔ Base64 string serde helpers.
+## Requires `alloc`.
+base64 = ["alloc", "dep:base64"]
 uuid = ["dep:uuid"]
 chrono = ["dep:chrono", "utoipa?/chrono"]
 http = ["dep:http"]
@@ -32,6 +35,12 @@ schemars = ["dep:schemars", "schemars/uuid1", "schemars/chrono04"]
 ## a `reqwest::Response`. Requires `std` and `serde`.
 reqwest = ["dep:reqwest", "std", "serde"]
 tower = ["dep:tower", "dep:http-body", "dep:pin-project", "http", "serde"]
+## Enables `AuthScheme`, `AuthorizationHeader`, credential types, `Scope`, and `Permission`.
+## Requires `alloc`. Enables Base64 decode for Basic auth.
+auth = ["alloc", "base64", "dep:zeroize"]
+## Enables HMAC-SHA256 signing for opaque cursors (`Cursor::encode_signed` / `decode_signed`).
+## Requires `base64` and `alloc`.
+hmac = ["base64", "alloc", "dep:hmac", "dep:sha2"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
@@ -55,6 +64,10 @@ reqwest = { version = "0.12", default-features = false, features = ["json"], opt
 tower = { version = "0.5", features = ["util"], optional = true }
 http-body = { version = "1.0", optional = true }
 pin-project = { version = "1", optional = true }
+base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
+zeroize = { version = "1", features = ["derive"], optional = true }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
 
 [lints.rust]
 # Allow cfg(coverage) set by cargo-llvm-cov
