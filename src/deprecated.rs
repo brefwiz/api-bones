@@ -156,10 +156,7 @@ impl Deprecated {
             HeaderValue::from_str(&self.sunset)?,
         );
         if let Some(link_val) = self.link_header_value() {
-            headers.insert(
-                http::header::LINK,
-                HeaderValue::from_str(&link_val)?,
-            );
+            headers.insert(http::header::LINK, HeaderValue::from_str(&link_val)?);
         }
         Ok(())
     }

@@ -220,9 +220,7 @@ impl CorsHeaders {
     /// Returns `None` if the field is not set.
     #[must_use]
     pub fn allow_methods_header(&self) -> Option<String> {
-        self.allow_methods
-            .as_ref()
-            .map(|m| m.join(", "))
+        self.allow_methods.as_ref().map(|m| m.join(", "))
     }
 
     /// Render the `Access-Control-Allow-Headers` value as a comma-separated string.
@@ -230,9 +228,7 @@ impl CorsHeaders {
     /// Returns `None` if the field is not set.
     #[must_use]
     pub fn allow_headers_header(&self) -> Option<String> {
-        self.allow_headers
-            .as_ref()
-            .map(|h| h.join(", "))
+        self.allow_headers.as_ref().map(|h| h.join(", "))
     }
 
     /// Render the `Access-Control-Expose-Headers` value as a comma-separated string.
@@ -240,9 +236,7 @@ impl CorsHeaders {
     /// Returns `None` if the field is not set.
     #[must_use]
     pub fn expose_headers_header(&self) -> Option<String> {
-        self.expose_headers
-            .as_ref()
-            .map(|h| h.join(", "))
+        self.expose_headers.as_ref().map(|h| h.join(", "))
     }
 }
 
@@ -326,8 +320,8 @@ mod tests {
 
     #[test]
     fn builder_allow_origin_specific() {
-        let cors = CorsHeaders::new()
-            .allow_origin(CorsOrigin::Origin("https://example.com".into()));
+        let cors =
+            CorsHeaders::new().allow_origin(CorsOrigin::Origin("https://example.com".into()));
         assert_eq!(
             cors.allow_origin.unwrap().to_string(),
             "https://example.com"

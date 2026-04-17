@@ -46,7 +46,9 @@ where
     D: Deserializer<'de>,
 {
     let s = String::deserialize(deserializer)?;
-    engine.decode(s.as_bytes()).map_err(serde::de::Error::custom)
+    engine
+        .decode(s.as_bytes())
+        .map_err(serde::de::Error::custom)
 }
 
 /// Standard Base64 alphabet (`A-Za-z0-9+/`) **with** `=` padding.

@@ -114,17 +114,20 @@ impl FromStr for ApiVersion {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         // vN / VN
         if let Some(rest) = s.strip_prefix(['v', 'V']) {
-            let n: u32 = rest
-                .parse()
-                .map_err(|_| ApiVersionParseError(s.into()))?;
+            let n: u32 = rest.parse().map_err(|_| ApiVersionParseError(s.into()))?;
             return Ok(Self::Simple(n));
         }
 
         // YYYY-MM-DD — exactly 10 chars, dashes at positions 4 and 7
-        if s.len() == 10 && s.as_bytes().get(4) == Some(&b'-') && s.as_bytes().get(7) == Some(&b'-') {
+        if s.len() == 10 && s.as_bytes().get(4) == Some(&b'-') && s.as_bytes().get(7) == Some(&b'-')
+        {
             let year: u16 = s[..4].parse().map_err(|_| ApiVersionParseError(s.into()))?;
-            let month: u8 = s[5..7].parse().map_err(|_| ApiVersionParseError(s.into()))?;
-            let day: u8 = s[8..10].parse().map_err(|_| ApiVersionParseError(s.into()))?;
+            let month: u8 = s[5..7]
+                .parse()
+                .map_err(|_| ApiVersionParseError(s.into()))?;
+            let day: u8 = s[8..10]
+                .parse()
+                .map_err(|_| ApiVersionParseError(s.into()))?;
             if (1..=12).contains(&month) && (1..=31).contains(&day) {
                 return Ok(Self::Date(year, month, day));
             }
@@ -134,9 +137,15 @@ impl FromStr for ApiVersion {
         // N.N.N
         let parts: Vec<&str> = s.splitn(4, '.').collect();
         if parts.len() == 3 {
-            let maj: u32 = parts[0].parse().map_err(|_| ApiVersionParseError(s.into()))?;
-            let min: u32 = parts[1].parse().map_err(|_| ApiVersionParseError(s.into()))?;
-            let pat: u32 = parts[2].parse().map_err(|_| ApiVersionParseError(s.into()))?;
+            let maj: u32 = parts[0]
+                .parse()
+                .map_err(|_| ApiVersionParseError(s.into()))?;
+            let min: u32 = parts[1]
+                .parse()
+                .map_err(|_| ApiVersionParseError(s.into()))?;
+            let pat: u32 = parts[2]
+                .parse()
+                .map_err(|_| ApiVersionParseError(s.into()))?;
             return Ok(Self::Semver(SemverTriple(maj, min, pat)));
         }
 
@@ -185,7 +194,10 @@ impl ApiVersion {
     ) -> Result<(), http::header::InvalidHeaderValue> {
         use http::header::HeaderValue;
         let val = HeaderValue::from_str(&self.to_string())?;
-        headers.insert(http::header::HeaderName::from_static("content-version"), val);
+        headers.insert(
+            http::header::HeaderName::from_static("content-version"),
+            val,
+        );
         Ok(())
     }
 }

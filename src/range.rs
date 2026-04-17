@@ -386,9 +386,7 @@ impl FromStr for ContentRange {
     /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        let rest = s
-            .strip_prefix("bytes ")
-            .ok_or(ParseRangeError::Malformed)?;
+        let rest = s.strip_prefix("bytes ").ok_or(ParseRangeError::Malformed)?;
 
         if let Some(len_str) = rest.strip_prefix("*/") {
             let complete_length: u64 = len_str.parse().map_err(|_| ParseRangeError::Malformed)?;

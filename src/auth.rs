@@ -43,11 +43,11 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-#[cfg(feature = "std")]
-use std::collections::BTreeSet;
 use core::{fmt, str::FromStr};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "std")]
+use std::collections::BTreeSet;
 use thiserror::Error;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -157,9 +157,7 @@ impl BearerToken {
 
 impl fmt::Debug for BearerToken {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("BearerToken")
-            .field(&"[REDACTED]")
-            .finish()
+        f.debug_tuple("BearerToken").field(&"[REDACTED]").finish()
     }
 }
 
@@ -481,9 +479,7 @@ impl FromStr for AuthorizationHeader {
                     .ok_or(ParseAuthorizationError::InvalidBasicFormat)?;
                 Ok(Self::Basic(BasicCredentials::new(user, pass)))
             }
-            "ApiKey" | "apikey" | "APIKEY" => {
-                Ok(Self::ApiKey(ApiKeyCredentials::new(credentials)))
-            }
+            "ApiKey" | "apikey" | "APIKEY" => Ok(Self::ApiKey(ApiKeyCredentials::new(credentials))),
             "OAuth2" | "oauth2" | "OAuth" => {
                 Ok(Self::OAuth2(OAuth2Token::new(credentials, None::<String>)))
             }
@@ -596,13 +592,7 @@ impl FromStr for Permission {
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(
-        try_from = "String",
-        into = "String"
-    )
-)]
+#[cfg_attr(feature = "serde", serde(try_from = "String", into = "String"))]
 pub struct Scope(BTreeSet<Permission>);
 
 /// Error returned when parsing a [`Scope`] fails.
@@ -780,10 +770,7 @@ mod tests {
         assert_eq!(AuthScheme::ApiKey.to_string(), "ApiKey");
         assert_eq!(AuthScheme::OAuth2.to_string(), "OAuth2");
         assert_eq!(AuthScheme::Digest.to_string(), "Digest");
-        assert_eq!(
-            AuthScheme::Custom("NTLM".to_owned()).to_string(),
-            "NTLM"
-        );
+        assert_eq!(AuthScheme::Custom("NTLM".to_owned()).to_string(), "NTLM");
     }
 
     #[test]
@@ -956,8 +943,7 @@ mod tests {
     fn parse_basic_missing_colon_is_error() {
         // "userpass" without colon (valid base64 of "userpass")
         use base64::Engine as _;
-        let encoded =
-            base64::engine::general_purpose::STANDARD.encode(b"userpass");
+        let encoded = base64::engine::general_purpose::STANDARD.encode(b"userpass");
         let input = format!("Basic {encoded}");
         assert_eq!(
             input.parse::<AuthorizationHeader>(),

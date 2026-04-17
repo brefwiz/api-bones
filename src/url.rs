@@ -58,9 +58,25 @@ fn percent_encode_path(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for byte in s.bytes() {
         if byte.is_ascii_alphanumeric()
-            || matches!(byte, b'-' | b'.' | b'_' | b'~'
-                | b':' | b'@' | b'!' | b'$' | b'&' | b'\'' | b'(' | b')'
-                | b'*' | b'+' | b',' | b';' | b'=')
+            || matches!(
+                byte,
+                b'-' | b'.'
+                    | b'_'
+                    | b'~'
+                    | b':'
+                    | b'@'
+                    | b'!'
+                    | b'$'
+                    | b'&'
+                    | b'\''
+                    | b'('
+                    | b')'
+                    | b'*'
+                    | b'+'
+                    | b','
+                    | b';'
+                    | b'='
+            )
         {
             out.push(byte as char);
         } else {
@@ -574,10 +590,7 @@ mod tests {
     #[test]
     fn merge_into_empty_returns_url_unchanged() {
         let qs = QueryBuilder::new();
-        assert_eq!(
-            qs.merge_into("https://example.com"),
-            "https://example.com"
-        );
+        assert_eq!(qs.merge_into("https://example.com"), "https://example.com");
     }
 
     #[test]

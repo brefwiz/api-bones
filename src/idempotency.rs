@@ -214,10 +214,7 @@ mod tests {
     #[test]
     fn too_long_is_rejected() {
         let s: String = "a".repeat(256);
-        assert_eq!(
-            IdempotencyKey::new(&s),
-            Err(IdempotencyKeyError::TooLong)
-        );
+        assert_eq!(IdempotencyKey::new(&s), Err(IdempotencyKeyError::TooLong));
     }
 
     #[test]

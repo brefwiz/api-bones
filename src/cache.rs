@@ -368,7 +368,9 @@ impl FromStr for CacheControl {
             let parse_u64 = |v: Option<&str>| -> Result<u64, ParseCacheControlError> {
                 v.ok_or_else(|| ParseCacheControlError(format!("{name} requires a value")))?
                     .parse::<u64>()
-                    .map_err(|_| ParseCacheControlError(format!("{name} value is not a valid integer")))
+                    .map_err(|_| {
+                        ParseCacheControlError(format!("{name} value is not a valid integer"))
+                    })
             };
 
             match name.as_str() {
