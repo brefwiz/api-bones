@@ -68,6 +68,8 @@ jobs:
         run: cargo check --no-default-features
       - name: Check no_std + alloc
         run: cargo check --no-default-features --features alloc
+      - name: Check no_std + alloc + serde (regression guard for issue 80)
+        run: cargo check --no-default-features --features alloc,serde
 
   test:
     name: Tests

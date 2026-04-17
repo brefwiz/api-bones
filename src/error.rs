@@ -629,13 +629,13 @@ impl core::error::Error for ValidationError {}
 /// ```
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(all(feature = "std", feature = "serde"), derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ApiError {
     /// Machine-readable error URN (RFC 9457 §3.1.1 `type`).
-    #[cfg_attr(feature = "serde", serde(rename = "type"))]
+    #[cfg_attr(all(feature = "std", feature = "serde"), serde(rename = "type"))]
     pub code: ErrorCode,
     /// Human-friendly error label (RFC 9457 §3.1.2 `title`).
     pub title: String,
@@ -647,7 +647,7 @@ pub struct ApiError {
     /// Serialized as `urn:uuid:<uuid>` per RFC 4122 §3.
     #[cfg(feature = "uuid")]
     #[cfg_attr(
-        feature = "serde",
+        all(feature = "std", feature = "serde"),
         serde(
             rename = "instance",
             default,
@@ -659,7 +659,7 @@ pub struct ApiError {
     pub request_id: Option<uuid::Uuid>,
     /// Structured field-level validation errors (extension). Omitted when empty.
     #[cfg_attr(
-        feature = "serde",
+        all(feature = "std", feature = "serde"),
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     pub errors: Vec<ValidationError>,
@@ -668,7 +668,7 @@ pub struct ApiError {
     /// [`ApiError::with_rate_limit`]. Serialized as the top-level
     /// `rate_limit` member.
     #[cfg_attr(
-        feature = "serde",
+        all(feature = "std", feature = "serde"),
         serde(default, skip_serializing_if = "Option::is_none")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
@@ -681,7 +681,7 @@ pub struct ApiError {
     ///
     /// Requires `std` or `alloc` (uses `Arc`).
     #[cfg(any(feature = "std", feature = "alloc"))]
-    #[cfg_attr(feature = "serde", serde(skip))]
+    #[cfg_attr(all(feature = "std", feature = "serde"), serde(skip))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub source: Option<Arc<dyn core::error::Error + Send + Sync + 'static>>,
 }
@@ -2176,7 +2176,7 @@ impl ProblemJson {
     }
 }
 
-#[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+#[cfg(all(feature = "std", feature = "serde"))]
 impl From<ApiError> for ProblemJson {
     /// Convert an [`ApiError`] into a `ProblemJson`.
     ///
@@ -2219,7 +2219,7 @@ impl From<ApiError> for ProblemJson {
     }
 }
 
-#[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde", test))]
+#[cfg(all(feature = "std", feature = "serde", test))]
 mod problem_json_tests {
     use super::*;
 
