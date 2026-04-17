@@ -1256,7 +1256,8 @@ impl ApiError {
                     if let Some(inst) = p.instance {
                         #[cfg(feature = "uuid")]
                         if let Some(hex) = inst.strip_prefix("urn:uuid:")
-                            && let Ok(id) = hex.parse::<uuid::Uuid>() {
+                            && let Ok(id) = hex.parse::<uuid::Uuid>()
+                        {
                             err.request_id = Some(id);
                         }
                         #[cfg(not(feature = "uuid"))]

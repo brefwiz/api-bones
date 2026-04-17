@@ -387,7 +387,10 @@ mod tests {
     #[test]
     fn bulk_item_result_failure_uses_api_error() {
         let error = ApiError::new(ErrorCode::ValidationFailed, "bad input");
-        let r: BulkItemResult<()> = BulkItemResult::Failure { index: 0, error: Box::new(error) };
+        let r: BulkItemResult<()> = BulkItemResult::Failure {
+            index: 0,
+            error: Box::new(error),
+        };
         if let BulkItemResult::Failure { error, .. } = &r {
             assert_eq!(error.code, ErrorCode::ValidationFailed);
         } else {
