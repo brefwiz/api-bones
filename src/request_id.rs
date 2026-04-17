@@ -27,20 +27,30 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 /// Error returned when parsing a [`RequestId`] from a string fails.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RequestIdParseError(uuid::Error);
+pub enum RequestIdError {
+    /// The string is not a valid UUID.
+    InvalidUuid(uuid::Error),
+}
 
-impl fmt::Display for RequestIdParseError {
+impl fmt::Display for RequestIdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid request ID: {}", self.0)
+        match self {
+            Self::InvalidUuid(e) => write!(f, "invalid request ID: {e}"),
+        }
     }
 }
 
 #[cfg(feature = "std")]
-impl std::error::Error for RequestIdParseError {
+impl std::error::Error for RequestIdError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&self.0)
+        match self {
+            Self::InvalidUuid(e) => Some(e),
+        }
     }
 }
+
+/// Backwards-compatible alias — prefer [`RequestIdError`].
+pub type RequestIdParseError = RequestIdError;
 
 // ---------------------------------------------------------------------------
 // RequestId
@@ -131,17 +141,17 @@ impl From<RequestId> for uuid::Uuid {
 }
 
 impl FromStr for RequestId {
-    type Err = RequestIdParseError;
+    type Err = RequestIdError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         uuid::Uuid::parse_str(s)
             .map(Self)
-            .map_err(RequestIdParseError)
+            .map_err(RequestIdError::InvalidUuid)
     }
 }
 
 impl TryFrom<&str> for RequestId {
-    type Error = RequestIdParseError;
+    type Error = RequestIdError;
 
     fn try_from(s: &str) -> Result<Self, Self::Error> {
         s.parse()
@@ -149,7 +159,7 @@ impl TryFrom<&str> for RequestId {
 }
 
 impl TryFrom<String> for RequestId {
-    type Error = RequestIdParseError;
+    type Error = RequestIdError;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         s.parse()
@@ -279,7 +289,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Coverage gaps: RequestIdParseError Display, source, RequestId::as_str
+    // Coverage gaps: RequestIdError Display, source, RequestId::as_str
     // -----------------------------------------------------------------------
 
     #[test]

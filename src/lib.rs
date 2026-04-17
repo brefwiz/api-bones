@@ -219,7 +219,7 @@ pub use range::{ByteRange, ContentRange, ParseRangeError, RangeHeader};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use ratelimit::RateLimitInfo;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub use request_id::{RequestId, RequestIdParseError};
+pub use request_id::{RequestId, RequestIdError, RequestIdParseError};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use response::{ApiResponse, ApiResponseBuilder, ResponseMeta};
 pub use retry::{BackoffStrategy, Idempotent, RetryPolicy};
