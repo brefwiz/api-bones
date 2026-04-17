@@ -917,6 +917,9 @@ pub struct ApiError {
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    // `Vec<Self>` would cause utoipa's schema generator to recurse infinitely.
+    // Use `Object` (anonymous open schema) to represent nested cause objects.
+    #[cfg_attr(feature = "utoipa", schema(value_type = Vec<Object>))]
     pub causes: Vec<Self>,
     /// Arbitrary RFC 9457 extension members attached by the caller.
     ///
