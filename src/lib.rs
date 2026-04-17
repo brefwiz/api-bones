@@ -148,10 +148,6 @@ pub mod openapi;
 #[cfg(feature = "axum")]
 pub mod axum_extractors;
 
-// Reqwest client adapter (issue #122).
-#[cfg(feature = "reqwest")]
-pub mod reqwest_ext;
-
 // Tower middleware (issue #123).
 #[cfg(feature = "tower")]
 pub mod tower_middleware;

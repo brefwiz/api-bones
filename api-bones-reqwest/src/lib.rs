@@ -8,13 +8,11 @@
 //! - [`ResponseExt`] — extract `Problem+JSON` errors, parse
 //!   `X-RateLimit-*` headers, and follow RFC 5988 `Link` pagination.
 //!
-//! Feature gate: `reqwest` (see `Cargo.toml`).
-//!
 //! # Example
 //!
 //! ```rust,no_run
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! use api_bones::reqwest_ext::{RequestBuilderExt, ResponseExt};
+//! use api_bones_reqwest::{RequestBuilderExt, ResponseExt};
 //!
 //! let client = reqwest::Client::new();
 //! let response = client
@@ -31,10 +29,10 @@
 //! # }
 //! ```
 
-use reqwest::{RequestBuilder, Response};
+use core::future::Future;
 
-use crate::error::ApiError;
-use crate::ratelimit::RateLimitInfo;
+use api_bones::{ApiError, RateLimitInfo};
+use reqwest::{RequestBuilder, Response};
 
 // ---------------------------------------------------------------------------
 // RequestBuilderExt
@@ -47,7 +45,7 @@ pub trait RequestBuilderExt: Sized {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use api_bones::reqwest_ext::RequestBuilderExt;
+    /// use api_bones_reqwest::RequestBuilderExt;
     ///
     /// let _builder = reqwest::Client::new()
     ///     .get("https://api.example.com/")
@@ -61,7 +59,7 @@ pub trait RequestBuilderExt: Sized {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use api_bones::reqwest_ext::RequestBuilderExt;
+    /// use api_bones_reqwest::RequestBuilderExt;
     ///
     /// let _builder = reqwest::Client::new()
     ///     .post("https://api.example.com/orders")
@@ -75,7 +73,7 @@ pub trait RequestBuilderExt: Sized {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use api_bones::reqwest_ext::RequestBuilderExt;
+    /// use api_bones_reqwest::RequestBuilderExt;
     ///
     /// let _builder = reqwest::Client::new()
     ///     .get("https://api.example.com/protected")
@@ -113,7 +111,7 @@ pub trait ResponseExt {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use api_bones::reqwest_ext::ResponseExt;
+    /// use api_bones_reqwest::ResponseExt;
     ///
     /// # async fn example() -> reqwest::Result<()> {
     /// let resp = reqwest::get("https://api.example.com/").await?;
@@ -132,7 +130,7 @@ pub trait ResponseExt {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use api_bones::reqwest_ext::ResponseExt;
+    /// use api_bones_reqwest::ResponseExt;
     ///
     /// # async fn example() -> reqwest::Result<()> {
     /// let resp = reqwest::get("https://api.example.com/items").await?;
@@ -164,7 +162,7 @@ pub trait ResponseExt {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use api_bones::reqwest_ext::{RequestBuilderExt, ResponseExt};
+    /// use api_bones_reqwest::{RequestBuilderExt, ResponseExt};
     ///
     /// # async fn example() -> Result<(), api_bones::ApiError> {
     /// let resp = reqwest::Client::new()
@@ -181,8 +179,6 @@ pub trait ResponseExt {
         self,
     ) -> impl Future<Output = Result<T, ApiError>> + Send;
 }
-
-use core::future::Future;
 
 impl ResponseExt for Response {
     fn rate_limit_info(&self) -> Option<RateLimitInfo> {
@@ -205,15 +201,12 @@ impl ResponseExt for Response {
     }
 
     fn next_page_url(&self) -> Option<String> {
-        // Parse Link header(s): `<url>; rel="next"`
         for link_val in self.headers().get_all("link") {
             let Ok(s) = link_val.to_str() else {
                 continue;
             };
-            // Each Link header may contain comma-separated entries.
             for entry in s.split(',') {
                 let entry = entry.trim();
-                // A link entry looks like: <https://...>; rel="next"
                 if let Some(url) = parse_link_next(entry) {
                     return Some(url);
                 }
@@ -232,7 +225,6 @@ impl ResponseExt for Response {
                 .is_some_and(|ct| ct.contains("application/problem+json"));
 
             if is_problem {
-                // Attempt to parse as ProblemJson and convert to ApiError.
                 let body: serde_json::Value = self
                     .json()
                     .await
@@ -251,7 +243,7 @@ impl ResponseExt for Response {
             }
 
             return Err(ApiError::new(
-                crate::error::ErrorCode::InternalServerError,
+                api_bones::ErrorCode::InternalServerError,
                 format!("HTTP {}", status.as_u16()),
             ));
         }
@@ -267,7 +259,6 @@ impl ResponseExt for Response {
 // ---------------------------------------------------------------------------
 
 fn parse_link_next(entry: &str) -> Option<String> {
-    // Split on `;`: first part is `<url>`, rest are params.
     let mut parts = entry.split(';');
     let url_part = parts.next()?.trim();
     let url = url_part
@@ -276,7 +267,6 @@ fn parse_link_next(entry: &str) -> Option<String> {
 
     let is_next = parts.any(|p| {
         let p = p.trim();
-        // Match rel="next" or rel=next
         p == "rel=\"next\"" || p == "rel=next"
     });
 
@@ -284,7 +274,7 @@ fn parse_link_next(entry: &str) -> Option<String> {
 }
 
 fn map_status_to_api_error(status: u16, detail: String) -> ApiError {
-    use crate::error::ErrorCode;
+    use api_bones::ErrorCode;
     let code = match status {
         400 => ErrorCode::BadRequest,
         401 => ErrorCode::Unauthorized,
@@ -311,10 +301,6 @@ fn map_status_to_api_error(status: u16, detail: String) -> ApiError {
 #[allow(clippy::significant_drop_tightening)]
 mod tests {
     use super::*;
-
-    // -----------------------------------------------------------------------
-    // map_status_to_api_error — remaining variants
-    // -----------------------------------------------------------------------
 
     #[test]
     fn map_status_401() {
@@ -369,10 +355,6 @@ mod tests {
         let err = map_status_to_api_error(504, "timeout".into());
         assert_eq!(err.status, 504);
     }
-
-    // -----------------------------------------------------------------------
-    // RequestBuilderExt — header attachment tests (via mockito)
-    // -----------------------------------------------------------------------
 
     #[tokio::test]
     async fn request_builder_with_request_id() {
@@ -440,10 +422,6 @@ mod tests {
         mock.assert_async().await;
     }
 
-    // -----------------------------------------------------------------------
-    // ResponseExt::rate_limit_info
-    // -----------------------------------------------------------------------
-
     #[tokio::test]
     async fn rate_limit_info_present() {
         let mut server = mockito::Server::new_async().await;
@@ -498,10 +476,6 @@ mod tests {
         assert_eq!(rl.retry_after, None);
     }
 
-    // -----------------------------------------------------------------------
-    // ResponseExt::next_page_url
-    // -----------------------------------------------------------------------
-
     #[tokio::test]
     async fn next_page_url_present() {
         let mut server = mockito::Server::new_async().await;
@@ -537,10 +511,6 @@ mod tests {
         assert!(resp.next_page_url().is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // ResponseExt::problem_json_or_json
-    // -----------------------------------------------------------------------
-
     #[tokio::test]
     async fn problem_json_or_json_success() {
         let mut server = mockito::Server::new_async().await;
@@ -571,7 +541,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
-        let err: crate::error::ApiError = resp
+        let err: api_bones::ApiError = resp
             .problem_json_or_json::<serde_json::Value>()
             .await
             .unwrap_err();
@@ -590,7 +560,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
-        let err: crate::error::ApiError = resp
+        let err: api_bones::ApiError = resp
             .problem_json_or_json::<serde_json::Value>()
             .await
             .unwrap_err();
@@ -599,16 +569,10 @@ mod tests {
 
     #[test]
     fn map_status_418_defaults_to_bad_request() {
-        // 418 is not explicitly mapped — exercises the `_ => BadRequest` arm.
         let err = map_status_to_api_error(418, "teapot".into());
         assert_eq!(err.status, 400);
     }
 
-    /// Spin up a minimal raw TCP server that returns an HTTP/1.1 response whose
-    /// `Link` header contains a non-UTF-8 byte sequence.  Because `reqwest` /
-    /// `hyper` stores header bytes verbatim, `HeaderValue::to_str()` will
-    /// return `Err`, exercising the `continue` branch at the top of
-    /// `next_page_url`.
     #[tokio::test]
     async fn next_page_url_non_utf8_link_header_is_skipped() {
         use tokio::io::AsyncWriteExt;
@@ -619,11 +583,8 @@ mod tests {
 
         tokio::spawn(async move {
             if let Ok((mut stream, _)) = listener.accept().await {
-                // Read (and discard) the request.
                 let mut buf = [0u8; 4096];
                 let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
-
-                // Respond with a Link header whose value contains 0xFF (not valid UTF-8).
                 let response: &[u8] =
                     b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nLink: \xff\r\n\r\n[]";
                 let _ = stream.write_all(response).await;
@@ -631,17 +592,13 @@ mod tests {
         });
 
         let url = format!("http://{addr}/");
-        // reqwest may reject the non-UTF8 header at the transport layer; either
-        // way `next_page_url` must not panic.
         if let Ok(resp) = reqwest::get(&url).await {
-            // The non-UTF8 link header should be silently skipped.
             assert!(resp.next_page_url().is_none());
         }
     }
 
     #[tokio::test]
     async fn next_page_url_with_only_prev_link() {
-        // Link header present but only rel="prev" — exercises the inner-loop exit path.
         let mut server = mockito::Server::new_async().await;
         let _mock = server
             .mock("GET", "/")
@@ -658,31 +615,19 @@ mod tests {
         assert!(resp.next_page_url().is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // parse_link_next — additional edge cases
-    // -----------------------------------------------------------------------
-
     #[test]
     fn parse_link_next_empty_entry_returns_none() {
-        // `parts.next()?` returns None when the entry is empty.
         assert!(parse_link_next("").is_none());
     }
 
     #[test]
     fn parse_link_next_malformed_url_no_closing_angle_returns_none() {
-        // strip_suffix('>') returns None when there's no closing `>`.
         let entry = "<https://example.com; rel=\"next\"";
         assert!(parse_link_next(entry).is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // problem_json_or_json — error paths for JSON deserialization
-    // -----------------------------------------------------------------------
-
     #[tokio::test]
     async fn problem_json_or_json_problem_response_invalid_json_body() {
-        // Problem+JSON content-type but body is not valid JSON — exercises
-        // the `map_err(|e| ApiError::bad_request(e.to_string()))?` at L239.
         let mut server = mockito::Server::new_async().await;
         let _mock = server
             .mock("GET", "/")
@@ -693,7 +638,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
-        let err: crate::error::ApiError = resp
+        let err: api_bones::ApiError = resp
             .problem_json_or_json::<serde_json::Value>()
             .await
             .unwrap_err();
@@ -702,8 +647,6 @@ mod tests {
 
     #[tokio::test]
     async fn problem_json_or_json_success_invalid_json_body() {
-        // 200 response but body is not valid JSON — exercises the final
-        // `map_err(|e| ApiError::bad_request(e.to_string()))` at L261.
         let mut server = mockito::Server::new_async().await;
         let _mock = server
             .mock("GET", "/")
@@ -714,7 +657,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
-        let err: crate::error::ApiError = resp
+        let err: api_bones::ApiError = resp
             .problem_json_or_json::<serde_json::Value>()
             .await
             .unwrap_err();
