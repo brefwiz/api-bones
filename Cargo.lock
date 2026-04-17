@@ -42,7 +42,6 @@ dependencies = [
  "proptest",
  "proptest-derive",
  "rand 0.8.5",
- "reqwest",
  "schemars",
  "serde",
  "serde_json",
@@ -53,6 +52,19 @@ dependencies = [
  "uuid",
  "validator",
  "zeroize",
+]
+
+[[package]]
+name = "api-bones-reqwest"
+version = "2.0.0"
+dependencies = [
+ "api-bones",
+ "mockito",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
