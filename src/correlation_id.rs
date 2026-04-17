@@ -13,7 +13,7 @@
 //! ```rust
 //! use api_bones::correlation_id::CorrelationId;
 //!
-//! let id = CorrelationId::new();
+//! let id = CorrelationId::new_uuid();
 //! assert_eq!(id.header_name(), "X-Correlation-Id");
 //!
 //! let parsed: CorrelationId = "my-correlation-123".parse().unwrap();
@@ -108,35 +108,6 @@ impl CorrelationId {
     pub fn new_uuid() -> Self {
         // UUID hyphenated string is always 36 printable ASCII chars — always valid.
         Self(uuid::Uuid::new_v4().to_string())
-    }
-
-    /// Create a new random `CorrelationId` (alias for [`Self::new_uuid`]).
-    ///
-    /// ```rust
-    /// use api_bones::correlation_id::CorrelationId;
-    ///
-    /// let id = CorrelationId::new_random();
-    /// assert!(!id.as_str().is_empty());
-    /// ```
-    #[must_use]
-    pub fn new_random() -> Self {
-        Self::new_uuid()
-    }
-
-    /// Convenience constructor; same as [`Self::new_uuid`] — generates a new
-    /// UUID v4 backed ID.
-    ///
-    /// Matches the naming convention of [`crate::request_id::RequestId::new`].
-    ///
-    /// ```rust
-    /// use api_bones::correlation_id::CorrelationId;
-    ///
-    /// let id = CorrelationId::new_id();
-    /// assert_eq!(id.as_str().len(), 36);
-    /// ```
-    #[must_use]
-    pub fn new_id() -> Self {
-        Self::new_uuid()
     }
 
     /// Return the inner string slice.
@@ -351,23 +322,6 @@ mod tests {
     fn serde_deserialize_invalid_rejects() {
         let result: Result<CorrelationId, _> = serde_json::from_str(r#""""#);
         assert!(result.is_err());
-    }
-
-    // -----------------------------------------------------------------------
-    // Coverage gaps: new_random, new_id, AsRef<str>
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn new_random_produces_valid_id() {
-        let id = CorrelationId::new_random();
-        assert!(!id.as_str().is_empty());
-        assert!(CorrelationId::new(id.as_str()).is_ok());
-    }
-
-    #[test]
-    fn new_id_produces_valid_id() {
-        let id = CorrelationId::new_id();
-        assert_eq!(id.as_str().len(), 36);
     }
 
     #[test]
