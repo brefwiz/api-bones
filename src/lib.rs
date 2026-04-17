@@ -94,9 +94,17 @@ pub mod slug;
 pub mod common;
 pub mod error;
 pub mod health;
+pub mod method;
 pub mod pagination;
 pub mod query;
 pub mod ratelimit;
+pub mod status;
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub mod content_type;
+
+#[cfg(feature = "http")]
+pub mod header;
 
 #[cfg(feature = "fake")]
 mod fake_impls;
@@ -152,3 +160,9 @@ pub use ratelimit::RateLimitInfo;
 pub use response::{ApiResponse, ApiResponseBuilder, ResponseMeta};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use slug::{Slug, SlugError};
+pub use method::HttpMethod;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use content_type::ContentType;
+pub use status::StatusCode;
+#[cfg(feature = "http")]
+pub use header::{HeaderName, HeaderValue};
