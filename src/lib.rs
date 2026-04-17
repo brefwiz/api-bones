@@ -148,9 +148,6 @@ pub mod openapi;
 #[cfg(feature = "axum")]
 pub mod axum_extractors;
 
-// Tower middleware (issue #123).
-#[cfg(feature = "tower")]
-pub mod tower_middleware;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use audit::AuditInfo;
 #[cfg(feature = "auth")]

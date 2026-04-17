@@ -1,0 +1,45 @@
+[package]
+name = "api-bones-tower"
+version = "0.1.0"
+edition = "2024"
+authors = ["Gregoire Salingue"]
+license = "LicenseRef-Proprietary"
+description = "Tower middleware for api-bones services (RequestIdLayer, ProblemJsonLayer)"
+repository = "https://git.brefwiz.com/gsalingu/api-bones"
+publish = ["brefwiz"]
+
+[dependencies]
+api-bones = { version = "2.0", path = "..", default-features = false, features = ["std", "serde"] }
+tower = { version = "0.5", features = ["util"] }
+http = { version = "1.0" }
+http-body = { version = "1.0" }
+pin-project = { version = "1" }
+serde_json = { version = "1.0" }
+
+[lints.rust]
+unsafe_code = { level = "deny", priority = -1 }
+unsafe_op_in_unsafe_fn = { level = "deny", priority = -1 }
+warnings = { level = "deny", priority = -1 }
+unused_imports = { level = "deny", priority = -1 }
+unused_variables = { level = "deny", priority = -1 }
+dead_code = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+missing_const_for_fn = "allow"
+derive_partial_eq_without_eq = "allow"
+option_if_let_else = "allow"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+
+[[example]]
+name = "request_id"
+
+[[example]]
+name = "problem_json"
