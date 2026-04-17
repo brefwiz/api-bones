@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "api-bones-tower"]
+members = [".", "api-bones-tower", "api-bones-reqwest"]
 resolver = "2"
 
 [package]
@@ -158,3 +158,20 @@ required-features = ["base64"]
 [[example]]
 name = "auth_flow"
 required-features = ["auth"]
+
+[[example]]
+name = "axum_core_extractors"
+required-features = ["axum"]
+
+[[example]]
+name = "cache_control"
+
+[[example]]
+name = "etag_conditional"
+
+[[example]]
+name = "range_headers"
+
+[[example]]
+name = "trace_context"
+required-features = ["uuid"]

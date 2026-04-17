@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-reqwest"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "LicenseRef-Proprietary"
@@ -9,7 +9,7 @@ repository = "https://git.brefwiz.com/gsalingu/api-bones"
 publish = ["brefwiz"]
 
 [dependencies]
-api-bones = { path = "..", version = "1.11.0", default-features = false, features = ["std", "serde"] }
+api-bones = { path = "..", version = "2.0.0", default-features = false, features = ["std", "serde"] }
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0" }
