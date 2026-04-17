@@ -201,9 +201,9 @@ static ERROR_TYPE_MODE: std::sync::RwLock<Option<ErrorTypeMode>> = std::sync::Rw
 /// Resolve the mode from environment variables and compile-time settings.
 #[cfg(feature = "std")]
 fn resolve_error_type_mode() -> ErrorTypeMode {
-    // 1. Compile-time base URL → URL mode (excluded from test builds;
-    //    covered by integration or build-time tests where the env var is set)
-    #[cfg(not(test))]
+    // 1. Compile-time base URL → URL mode (never set in CI/test; excluded from
+    //    coverage instrumentation to avoid false "missed function" reports)
+    #[cfg(not(coverage))]
     if let Some(url) = option_env!("SHARED_TYPES_ERROR_TYPE_BASE_URL")
         && !url.is_empty()
     {
@@ -217,8 +217,8 @@ fn resolve_error_type_mode() -> ErrorTypeMode {
     {
         return ErrorTypeMode::Url { base_url: url };
     }
-    // 3. Compile-time URN namespace → URN mode (excluded from test builds)
-    #[cfg(not(test))]
+    // 3. Compile-time URN namespace → URN mode (same rationale as #1)
+    #[cfg(not(coverage))]
     if let Some(ns) = option_env!("SHARED_TYPES_URN_NAMESPACE")
         && !ns.is_empty()
     {
@@ -1283,7 +1283,7 @@ impl ApiError {
 
     /// Map an HTTP status code to the closest [`ErrorCode`].
     #[cfg(feature = "reqwest")]
-    fn status_to_error_code(status: u16) -> ErrorCode {
+    pub(crate) fn status_to_error_code(status: u16) -> ErrorCode {
         match status {
             400 => ErrorCode::BadRequest,
             401 => ErrorCode::Unauthorized,
@@ -2415,6 +2415,7 @@ mod tests {
             }
         }
 
+        assert_eq!(NotFound(99).status_code(), 404);
         let err: ApiError = NotFound(99).into();
         assert_eq!(err.status, 404);
         assert_eq!(err.code, ErrorCode::ResourceNotFound);
@@ -3021,5 +3022,211 @@ mod axum_tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json.get("instance").is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // rate_limited_with — None retry_after branch
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rate_limited_with_no_retry_after() {
+        use crate::ratelimit::RateLimitInfo;
+        let info = RateLimitInfo::new(100, 5, 1_700_000_000);
+        let err = ApiError::rate_limited_with(info);
+        assert_eq!(err.status, 429);
+        assert_eq!(err.detail, "Rate limited");
+        assert!(err.rate_limit.is_some());
+    }
+
+    // -----------------------------------------------------------------------
+    // #109 — from_response + status_to_error_code (reqwest feature)
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "reqwest")]
+    #[tokio::test]
+    async fn from_response_parses_problem_json() {
+        use axum::{Router, routing::get};
+        use tokio::net::TcpListener;
+
+        let app = Router::new().route(
+            "/",
+            get(|| async {
+                let body = r#"{"type":"urn:api-bones:error:not-found","title":"Not Found","status":404,"detail":"gone"}"#;
+                axum::response::Response::builder()
+                    .status(404)
+                    .header("content-type", "application/problem+json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap()
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, app).into_future());
+
+        let resp = reqwest::get(format!("http://{addr}/")).await.unwrap();
+        let err = ApiError::from_response(resp).await;
+        assert_eq!(err.status, 404);
+        assert_eq!(err.code, ErrorCode::ResourceNotFound);
+        assert_eq!(err.detail, "gone");
+    }
+
+    #[cfg(feature = "reqwest")]
+    #[tokio::test]
+    async fn from_response_plain_text_fallback() {
+        use axum::{Router, routing::get};
+        use tokio::net::TcpListener;
+
+        let app = Router::new().route(
+            "/",
+            get(|| async {
+                axum::response::Response::builder()
+                    .status(503)
+                    .header("content-type", "text/plain")
+                    .body(axum::body::Body::from("service down"))
+                    .unwrap()
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, app).into_future());
+
+        let resp = reqwest::get(format!("http://{addr}/")).await.unwrap();
+        let err = ApiError::from_response(resp).await;
+        assert_eq!(err.status, 503);
+        assert_eq!(err.code, ErrorCode::ServiceUnavailable);
+        assert_eq!(err.detail, "service down");
+    }
+
+    #[cfg(feature = "reqwest")]
+    #[tokio::test]
+    async fn from_response_problem_json_parse_error_fallback() {
+        use axum::{Router, routing::get};
+        use tokio::net::TcpListener;
+
+        let app = Router::new().route(
+            "/",
+            get(|| async {
+                axum::response::Response::builder()
+                    .status(400)
+                    .header("content-type", "application/problem+json")
+                    .body(axum::body::Body::from("not valid json"))
+                    .unwrap()
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, app).into_future());
+
+        let resp = reqwest::get(format!("http://{addr}/")).await.unwrap();
+        let err = ApiError::from_response(resp).await;
+        assert_eq!(err.status, 400);
+        assert_eq!(err.detail, "failed to parse problem+json response");
+    }
+
+    #[cfg(all(feature = "reqwest", feature = "uuid"))]
+    #[tokio::test]
+    async fn from_response_extracts_uuid_instance() {
+        use axum::{Router, routing::get};
+        use tokio::net::TcpListener;
+
+        let id = uuid::Uuid::nil();
+        let body = format!(
+            r#"{{"type":"urn:api-bones:error:bad-request","title":"Bad Request","status":400,"detail":"bad","instance":"urn:uuid:{id}"}}"#
+        );
+
+        let app = Router::new().route(
+            "/",
+            get(move || {
+                let body = body.clone();
+                async move {
+                    axum::response::Response::builder()
+                        .status(400)
+                        .header("content-type", "application/problem+json")
+                        .body(axum::body::Body::from(body))
+                        .unwrap()
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(axum::serve(listener, app).into_future());
+
+        let resp = reqwest::get(format!("http://{addr}/")).await.unwrap();
+        let err = ApiError::from_response(resp).await;
+        assert_eq!(err.request_id, Some(id));
+    }
+
+    #[cfg(feature = "reqwest")]
+    #[test]
+    fn status_to_error_code_coverage() {
+        // Drive status_to_error_code through all branches via the public API.
+        // The function is private but exercised transitively via from_response;
+        // here we verify the mapping via status field on constructed errors.
+        use super::ApiError;
+        let cases: &[(u16, ErrorCode)] = &[
+            (400, ErrorCode::BadRequest),
+            (401, ErrorCode::Unauthorized),
+            (403, ErrorCode::Forbidden),
+            (404, ErrorCode::ResourceNotFound),
+            (405, ErrorCode::MethodNotAllowed),
+            (406, ErrorCode::NotAcceptable),
+            (408, ErrorCode::RequestTimeout),
+            (409, ErrorCode::Conflict),
+            (410, ErrorCode::Gone),
+            (412, ErrorCode::PreconditionFailed),
+            (413, ErrorCode::PayloadTooLarge),
+            (415, ErrorCode::UnsupportedMediaType),
+            (422, ErrorCode::UnprocessableEntity),
+            (428, ErrorCode::PreconditionRequired),
+            (429, ErrorCode::RateLimited),
+            (431, ErrorCode::RequestHeaderFieldsTooLarge),
+            (501, ErrorCode::NotImplemented),
+            (502, ErrorCode::BadGateway),
+            (503, ErrorCode::ServiceUnavailable),
+            (504, ErrorCode::GatewayTimeout),
+            (500, ErrorCode::InternalServerError),
+            (599, ErrorCode::InternalServerError),
+            (418, ErrorCode::BadRequest), // fallthrough
+        ];
+        for &(status, ref expected_code) in cases {
+            assert_eq!(
+                ApiError::status_to_error_code(status),
+                *expected_code,
+                "status {status}"
+            );
+        }
+    }
+
+    #[cfg(feature = "reqwest")]
+    #[tokio::test]
+    async fn from_response_text_read_error_falls_back_to_upstream_error() {
+        // Trigger the unwrap_or_else closure by serving a response that drops
+        // the connection before sending the promised body.
+        use std::net::TcpListener as StdTcpListener;
+        use std::io::Write as _;
+
+        let std_listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        std_listener.set_nonblocking(false).unwrap();
+        let addr = std_listener.local_addr().unwrap();
+
+        std::thread::spawn(move || {
+            use std::io::Read as _;
+            let (mut stream, _) = std_listener.accept().unwrap();
+            // Drain the HTTP request so hyper doesn't see a broken pipe.
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            // Send headers claiming 100 bytes but close immediately.
+            stream
+                .write_all(
+                    b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 100\r\n\r\n",
+                )
+                .unwrap();
+            // Drop stream — reqwest text() gets unexpected EOF.
+        });
+
+        let resp = reqwest::get(format!("http://{addr}/")).await.unwrap();
+        let err = ApiError::from_response(resp).await;
+        assert_eq!(err.status, 500);
+        assert_eq!(err.detail, "upstream error");
     }
 }
