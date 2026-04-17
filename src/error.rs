@@ -1685,7 +1685,10 @@ mod tests {
         use http::StatusCode;
         let pairs = [
             (StatusCode::NOT_FOUND, ErrorCode::ResourceNotFound),
-            (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::InternalServerError),
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::InternalServerError,
+            ),
             (StatusCode::TOO_MANY_REQUESTS, ErrorCode::RateLimited),
             (StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized),
         ];
