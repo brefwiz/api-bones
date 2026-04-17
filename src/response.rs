@@ -263,6 +263,18 @@ pub struct ApiResponse<T> {
 /// Builder for [`ApiResponse`].
 ///
 /// Obtain one via [`ApiResponse::builder`].
+///
+/// # Design note — simple builder, not typestate
+///
+/// [`HealthCheckBuilder`](crate::health::HealthCheckBuilder) and
+/// [`ReadinessResponseBuilder`](crate::health::ReadinessResponseBuilder) use a
+/// typestate pattern because they have *multiple required fields* that must all
+/// be provided before the type is valid to construct.  `ApiResponseBuilder` is
+/// different: the only required field is `data`, which is supplied at
+/// construction time via [`ApiResponse::builder`].  Everything else (`meta`,
+/// `links`) is optional and has a sensible default, so there are no remaining
+/// required fields for the typestate machinery to enforce.  A plain builder is
+/// therefore appropriate here.
 pub struct ApiResponseBuilder<T> {
     data: T,
     meta: ResponseMeta,
