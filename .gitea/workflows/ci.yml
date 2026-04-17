@@ -172,7 +172,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build
-        run: cargo build --lib --release
+        run: cargo build --lib --release --workspace
 
       - name: Debug token
         env:
