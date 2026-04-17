@@ -176,18 +176,18 @@ jobs:
 
       - name: Debug token
         env:
-          CARGO_REGISTRIES_SALINGUE_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
+          CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
         run: |
-          if [ -z "$CARGO_REGISTRIES_SALINGUE_TOKEN" ]; then
+          if [ -z "$CARGO_REGISTRIES_BREFWIZ_TOKEN" ]; then
             echo "❌ PACKAGE_PUBLISHER_TOKEN secret is EMPTY or not set"
             exit 1
           else
-            echo "✅ Token is present (length: ${#CARGO_REGISTRIES_SALINGUE_TOKEN})"
+            echo "✅ Token is present (length: ${#CARGO_REGISTRIES_BREFWIZ_TOKEN})"
           fi
 
       - name: Publish crates
         env:
-          CARGO_REGISTRIES_SALINGUE_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
+          CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
         run: |
           REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
           publish_one() {
