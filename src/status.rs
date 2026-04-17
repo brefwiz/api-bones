@@ -499,10 +499,7 @@ impl FromStr for StatusCode {
     type Err = UnknownStatusCode;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let n: u16 = s
-            .trim()
-            .parse()
-            .map_err(|_| UnknownStatusCode(0))?;
+        let n: u16 = s.trim().parse().map_err(|_| UnknownStatusCode(0))?;
         Self::try_from(n)
     }
 }
@@ -577,7 +574,9 @@ mod tests {
 
     #[test]
     fn numeric_round_trip() {
-        let codes: &[u16] = &[100, 101, 200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 429, 500, 503];
+        let codes: &[u16] = &[
+            100, 101, 200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 429, 500, 503,
+        ];
         for &code in codes {
             let sc = StatusCode::try_from(code).expect("should be known");
             assert_eq!(sc.as_u16(), code, "round-trip failed for {code}");
@@ -618,9 +617,18 @@ mod tests {
 
     #[test]
     fn from_error_code() {
-        assert_eq!(StatusCode::from(ErrorCode::ResourceNotFound), StatusCode::NotFound);
-        assert_eq!(StatusCode::from(ErrorCode::RateLimited), StatusCode::TooManyRequests);
-        assert_eq!(StatusCode::from(ErrorCode::InternalServerError), StatusCode::InternalServerError);
+        assert_eq!(
+            StatusCode::from(ErrorCode::ResourceNotFound),
+            StatusCode::NotFound
+        );
+        assert_eq!(
+            StatusCode::from(ErrorCode::RateLimited),
+            StatusCode::TooManyRequests
+        );
+        assert_eq!(
+            StatusCode::from(ErrorCode::InternalServerError),
+            StatusCode::InternalServerError
+        );
     }
 
     #[cfg(feature = "serde")]
