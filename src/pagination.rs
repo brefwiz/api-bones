@@ -102,18 +102,6 @@ impl<T> PaginatedResponse<T> {
     }
 }
 
-#[cfg(feature = "serde")]
-#[allow(clippy::unnecessary_wraps)] // required by serde(default) which must return the field type
-fn default_limit() -> Option<u64> {
-    Some(20)
-}
-
-#[cfg(feature = "serde")]
-#[allow(clippy::unnecessary_wraps)] // required by serde(default) which must return the field type
-fn default_offset() -> Option<u64> {
-    Some(0)
-}
-
 /// Query parameters for offset-based list endpoints.
 ///
 /// `limit` must be between 1 and 100 (inclusive) and defaults to 20.
@@ -139,7 +127,7 @@ fn default_offset() -> Option<u64> {
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct PaginationParams {
     /// Maximum number of items to return (1–100). Defaults to 20.
-    #[cfg_attr(feature = "serde", serde(default = "default_limit"))]
+    #[cfg_attr(feature = "serde", serde(default))]
     #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
     #[cfg_attr(
         feature = "proptest",
@@ -147,7 +135,7 @@ pub struct PaginationParams {
     )]
     pub limit: Option<u64>,
     /// Number of items to skip. Defaults to 0.
-    #[cfg_attr(feature = "serde", serde(default = "default_offset"))]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub offset: Option<u64>,
 }
 

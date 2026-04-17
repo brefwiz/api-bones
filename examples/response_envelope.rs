@@ -6,8 +6,9 @@
 //! Run: `cargo run --example response_envelope`
 
 use api_bones::{
-    ApiResponse, PaginatedResponse, PaginationParams, ResponseMeta, new_resource_id,
-    response::Links,
+    ApiResponse, PaginatedResponse, PaginationParams, ResponseMeta,
+    links::{Link, Links},
+    new_resource_id,
 };
 
 fn main() {
@@ -30,9 +31,9 @@ fn main() {
     )
     .links(
         Links::new()
-            .self_link("/rooms/42")
-            .next("/rooms?after=42")
-            .prev("/rooms?before=42"),
+            .push(Link::self_link("/rooms/42"))
+            .push(Link::next("/rooms?after=42"))
+            .push(Link::prev("/rooms?before=42")),
     )
     .build();
     println!("\nFull ApiResponse with meta + links:");

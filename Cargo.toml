@@ -16,7 +16,7 @@ default = ["std", "serde", "uuid", "chrono", "validator"]
 std = ["alloc", "thiserror/std"]
 ## Enables heap-allocated types (`String`, `Vec`, `Arc`) in `no_std` contexts.
 alloc = []
-serde = ["dep:serde", "dep:serde_json", "dep:serde_with", "uuid?/serde", "chrono?/serde"]
+serde = ["dep:serde", "dep:serde_json", "uuid?/serde", "chrono?/serde"]
 ## Enables `serde::base64_bytes` — `Vec<u8>` ↔ Base64 string serde helpers.
 ## Requires `alloc`.
 base64 = ["alloc", "dep:base64"]
@@ -46,7 +46,6 @@ hmac = ["base64", "alloc", "dep:hmac", "dep:sha2"]
 thiserror = { version = "2", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-serde_with = { version = "3.8", optional = true }
 uuid = { version = "1.8", features = ["v4"], optional = true }
 chrono = { version = "0.4", optional = true }
 arbitrary = { version = "1", features = ["derive"], optional = true }
@@ -116,9 +115,6 @@ name = "audit"
 name = "bulk_operations"
 
 [[example]]
-name = "common_types"
-
-[[example]]
 name = "error_handling"
 
 [[example]]
@@ -144,3 +140,17 @@ name = "response_envelope"
 
 [[example]]
 name = "slug"
+
+[[example]]
+name = "error_construction"
+
+[[example]]
+name = "bulk_envelope"
+
+[[example]]
+name = "cursor_hmac"
+required-features = ["base64"]
+
+[[example]]
+name = "auth_flow"
+required-features = ["auth"]
