@@ -672,6 +672,52 @@ impl fmt::Display for ValidationError {
 impl core::error::Error for ValidationError {}
 
 // ---------------------------------------------------------------------------
+// HttpError trait — blanket From<E: HttpError> for ApiError
+// ---------------------------------------------------------------------------
+
+/// Implement this trait on domain error types to get a blanket
+/// [`From`] implementation into [`ApiError`] for free.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::{ApiError, ErrorCode, HttpError};
+///
+/// #[derive(Debug)]
+/// struct BookingNotFound(u64);
+///
+/// impl HttpError for BookingNotFound {
+///     fn status_code(&self) -> u16 { 404 }
+///     fn error_code(&self) -> ErrorCode { ErrorCode::ResourceNotFound }
+///     fn detail(&self) -> String { format!("Booking {} not found", self.0) }
+/// }
+///
+/// let err: ApiError = BookingNotFound(42).into();
+/// assert_eq!(err.status, 404);
+/// assert_eq!(err.detail, "Booking 42 not found");
+/// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub trait HttpError: core::fmt::Debug {
+    /// HTTP status code (e.g. `404`).
+    fn status_code(&self) -> u16;
+    /// Machine-readable [`ErrorCode`] for this error.
+    fn error_code(&self) -> ErrorCode;
+    /// Human-readable detail string (RFC 9457 §3.1.4 `detail`).
+    fn detail(&self) -> String;
+}
+
+/// Blanket conversion: any `HttpError` implementor becomes an [`ApiError`].
+///
+/// This is a blanket impl over a sealed trait parameter so it does not
+/// conflict with other `From` impls on `ApiError`.
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl<E: HttpError> From<E> for ApiError {
+    fn from(e: E) -> Self {
+        Self::new(e.error_code(), e.detail())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // API error — RFC 9457 Problem Details
 // ---------------------------------------------------------------------------
 
@@ -759,6 +805,29 @@ pub struct ApiError {
     #[cfg_attr(all(feature = "std", feature = "serde"), serde(skip))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub source: Option<Arc<dyn core::error::Error + Send + Sync + 'static>>,
+    /// Nested cause chain serialized as RFC 9457 extension member `"causes"`.
+    ///
+    /// Each entry is a nested Problem Details object. Omitted when empty.
+    /// Preserved through [`From`] conversions.
+    #[cfg_attr(
+        all(feature = "std", feature = "serde"),
+        serde(default, skip_serializing_if = "Vec::is_empty")
+    )]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    pub causes: Vec<ApiError>,
+    /// Arbitrary RFC 9457 extension members attached by the caller.
+    ///
+    /// Serialized **inline** at the top level of the JSON object (flattened).
+    /// Keys must not collide with the standard Problem Details fields.
+    ///
+    /// Use [`ApiError::with_extension`] to attach values.
+    #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+    #[cfg_attr(
+        all(feature = "std", feature = "serde"),
+        serde(flatten)
+    )]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    pub extensions: BTreeMap<String, serde_json::Value>,
 }
 
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -772,6 +841,14 @@ impl PartialEq for ApiError {
             && self.detail == other.detail
             && self.errors == other.errors
             && self.rate_limit == other.rate_limit
+            && self.causes == other.causes
+            // extensions only exist when serde is on
+            && {
+                #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+                { self.extensions == other.extensions }
+                #[cfg(not(all(any(feature = "std", feature = "alloc"), feature = "serde")))]
+                true
+            }
             // request_id only exists when the `uuid` feature is on
             && {
                 #[cfg(feature = "uuid")]
@@ -846,6 +923,9 @@ impl ApiError {
             errors: Vec::new(),
             rate_limit: None,
             source: None,
+            causes: Vec::new(),
+            #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+            extensions: BTreeMap::new(),
         }
     }
 
@@ -898,6 +978,51 @@ impl ApiError {
     #[must_use]
     pub fn with_source(mut self, source: impl core::error::Error + Send + Sync + 'static) -> Self {
         self.source = Some(Arc::new(source));
+        self
+    }
+
+    /// Attach a chain of nested cause errors, serialized as `"causes"` in
+    /// Problem Details output.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode};
+    ///
+    /// let cause = ApiError::not_found("upstream resource missing");
+    /// let err = ApiError::internal("pipeline failed")
+    ///     .with_causes(vec![cause]);
+    /// assert_eq!(err.causes.len(), 1);
+    /// ```
+    #[must_use]
+    pub fn with_causes(mut self, causes: Vec<Self>) -> Self {
+        self.causes = causes;
+        self
+    }
+
+    /// Attach a single arbitrary RFC 9457 extension member.
+    ///
+    /// The value is serialized **inline** (flattened) in the Problem Details
+    /// object. Requires the `serde` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ApiError;
+    ///
+    /// let err = ApiError::internal("boom")
+    ///     .with_extension("trace_id", "abc-123");
+    /// # #[cfg(feature = "serde")]
+    /// assert_eq!(err.extensions["trace_id"], "abc-123");
+    /// ```
+    #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+    #[must_use]
+    pub fn with_extension(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<serde_json::Value>,
+    ) -> Self {
+        self.extensions.insert(key.into(), value.into());
         self
     }
 
@@ -1083,6 +1208,112 @@ impl ApiError {
         Self::new(ErrorCode::ServiceUnavailable, msg)
     }
 
+    /// Extract an [`ApiError`] from a [`reqwest::Response`].
+    ///
+    /// - If the response has `Content-Type: application/problem+json`, the
+    ///   body is deserialized as a [`ProblemJson`] and converted into an
+    ///   `ApiError`.
+    /// - Otherwise a generic `ApiError` is constructed from the HTTP status
+    ///   code (5xx → `InternalServerError`, 4xx → `BadRequest`, etc.) with
+    ///   the raw body text as the `detail`.
+    ///
+    /// Requires the `reqwest` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use api_bones::error::ApiError;
+    ///
+    /// async fn call_service(client: &reqwest::Client) -> Result<(), ApiError> {
+    ///     let resp = client.get("https://example.com/api/resource").send().await
+    ///         .map_err(|e| ApiError::internal(e.to_string()))?;
+    ///     if resp.status().is_success() {
+    ///         Ok(())
+    ///     } else {
+    ///         Err(ApiError::from_response(resp).await)
+    ///     }
+    /// }
+    /// ```
+    #[cfg(feature = "reqwest")]
+    pub async fn from_response(resp: reqwest::Response) -> Self {
+        use crate::error::ProblemJson;
+
+        let http_status = resp.status().as_u16();
+
+        // Check Content-Type before consuming the body.
+        let is_problem_json = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|ct| ct.contains("application/problem+json"))
+            .unwrap_or(false);
+
+        if is_problem_json {
+            match resp.json::<ProblemJson>().await {
+                Ok(p) => {
+                    // Best-effort: map the type URI back to an ErrorCode.
+                    let code = ErrorCode::from_type_uri(&p.r#type)
+                        .unwrap_or_else(|| Self::status_to_error_code(http_status));
+                    let mut err = Self::new(code, p.detail);
+                    err.title = p.title;
+                    err.status = p.status;
+                    if let Some(inst) = p.instance {
+                        #[cfg(feature = "uuid")]
+                        if let Some(hex) = inst.strip_prefix("urn:uuid:") {
+                            if let Ok(id) = hex.parse::<uuid::Uuid>() {
+                                err.request_id = Some(id);
+                            }
+                        }
+                        #[cfg(not(feature = "uuid"))]
+                        let _ = inst;
+                    }
+                    // Carry extension members through.
+                    err.extensions = p.extensions;
+                    err
+                }
+                Err(_) => Self::new(
+                    Self::status_to_error_code(http_status),
+                    "failed to parse problem+json response",
+                ),
+            }
+        } else {
+            let detail = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "upstream error".to_owned());
+            Self::new(Self::status_to_error_code(http_status), detail)
+        }
+    }
+
+    /// Map an HTTP status code to the closest [`ErrorCode`].
+    #[cfg(feature = "reqwest")]
+    fn status_to_error_code(status: u16) -> ErrorCode {
+        match status {
+            400 => ErrorCode::BadRequest,
+            401 => ErrorCode::Unauthorized,
+            403 => ErrorCode::Forbidden,
+            404 => ErrorCode::ResourceNotFound,
+            405 => ErrorCode::MethodNotAllowed,
+            406 => ErrorCode::NotAcceptable,
+            408 => ErrorCode::RequestTimeout,
+            409 => ErrorCode::Conflict,
+            410 => ErrorCode::Gone,
+            412 => ErrorCode::PreconditionFailed,
+            413 => ErrorCode::PayloadTooLarge,
+            415 => ErrorCode::UnsupportedMediaType,
+            422 => ErrorCode::UnprocessableEntity,
+            428 => ErrorCode::PreconditionRequired,
+            429 => ErrorCode::RateLimited,
+            431 => ErrorCode::RequestHeaderFieldsTooLarge,
+            501 => ErrorCode::NotImplemented,
+            502 => ErrorCode::BadGateway,
+            503 => ErrorCode::ServiceUnavailable,
+            504 => ErrorCode::GatewayTimeout,
+            s if s >= 500 => ErrorCode::InternalServerError,
+            _ => ErrorCode::BadRequest,
+        }
+    }
+
     /// Return a typed builder for constructing an `ApiError`.
     ///
     /// Required fields (`code` and `detail`) must be set before calling
@@ -1106,6 +1337,7 @@ impl ApiError {
             #[cfg(feature = "uuid")]
             request_id: None,
             errors: Vec::new(),
+            causes: Vec::new(),
         }
     }
 
@@ -1141,6 +1373,7 @@ pub struct ApiErrorBuilder<C, D> {
     #[cfg(feature = "uuid")]
     request_id: Option<uuid::Uuid>,
     errors: Vec<ValidationError>,
+    causes: Vec<ApiError>,
 }
 
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -1153,6 +1386,7 @@ impl<D> ApiErrorBuilder<(), D> {
             #[cfg(feature = "uuid")]
             request_id: self.request_id,
             errors: self.errors,
+            causes: self.causes,
         }
     }
 }
@@ -1167,6 +1401,7 @@ impl<C> ApiErrorBuilder<C, ()> {
             #[cfg(feature = "uuid")]
             request_id: self.request_id,
             errors: self.errors,
+            causes: self.causes,
         }
     }
 }
@@ -1187,6 +1422,13 @@ impl<C, D> ApiErrorBuilder<C, D> {
         self.errors = errors;
         self
     }
+
+    /// Attach a chain of nested cause errors (serialized as `"causes"`).
+    #[must_use]
+    pub fn causes(mut self, causes: Vec<ApiError>) -> Self {
+        self.causes = causes;
+        self
+    }
 }
 
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -1200,7 +1442,7 @@ impl ApiErrorBuilder<ErrorCode, String> {
         let built = ApiError::new(self.code, self.detail).with_request_id_opt(self.request_id);
         #[cfg(not(feature = "uuid"))]
         let built = ApiError::new(self.code, self.detail).with_request_id_opt(None::<()>);
-        built.with_errors(self.errors)
+        built.with_errors(self.errors).with_causes(self.causes)
     }
 }
 
@@ -1255,6 +1497,9 @@ impl proptest::arbitrary::Arbitrary for ApiError {
                 errors,
                 rate_limit: None,
                 source: None,
+                causes: Vec::new(),
+                #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+                extensions: BTreeMap::new(),
             })
             .boxed()
     }
@@ -2152,6 +2397,137 @@ mod tests {
         let json = serde_json::to_value(&schema).expect("schema serializable");
         assert!(json.is_object());
     }
+
+    // -----------------------------------------------------------------------
+    // #108 — HttpError trait
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn http_error_blanket_from() {
+        #[derive(Debug)]
+        struct NotFound(u64);
+
+        impl HttpError for NotFound {
+            fn status_code(&self) -> u16 {
+                404
+            }
+            fn error_code(&self) -> ErrorCode {
+                ErrorCode::ResourceNotFound
+            }
+            fn detail(&self) -> String {
+                format!("item {} not found", self.0)
+            }
+        }
+
+        let err: ApiError = NotFound(99).into();
+        assert_eq!(err.status, 404);
+        assert_eq!(err.code, ErrorCode::ResourceNotFound);
+        assert_eq!(err.detail, "item 99 not found");
+    }
+
+    // -----------------------------------------------------------------------
+    // #110 — nested causes
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn with_causes_roundtrip() {
+        let cause = ApiError::not_found("upstream missing");
+        let err = ApiError::internal("pipeline failed").with_causes(vec![cause.clone()]);
+        assert_eq!(err.causes.len(), 1);
+        assert_eq!(err.causes[0].detail, cause.detail);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn causes_serialized_as_extension() {
+        let _g = lock_and_reset_mode();
+        let cause = ApiError::not_found("db row missing");
+        let err = ApiError::internal("handler failed").with_causes(vec![cause]);
+        let json = serde_json::to_value(&err).unwrap();
+        let causes = json["causes"].as_array().expect("causes must be array");
+        assert_eq!(causes.len(), 1);
+        assert_eq!(causes[0]["status"], 404);
+        assert_eq!(causes[0]["detail"], "db row missing");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn causes_omitted_when_empty() {
+        let _g = lock_and_reset_mode();
+        let err = ApiError::internal("oops");
+        let json = serde_json::to_value(&err).unwrap();
+        assert!(json.get("causes").is_none());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn causes_propagated_through_problem_json() {
+        use crate::error::ProblemJson;
+        let _g = lock_and_reset_mode();
+        let cause = ApiError::not_found("missing row");
+        let err = ApiError::internal("failed").with_causes(vec![cause]);
+        let p = ProblemJson::from(err);
+        assert!(p.extensions.contains_key("causes"));
+        let causes = p.extensions["causes"].as_array().unwrap();
+        assert_eq!(causes.len(), 1);
+        assert_eq!(causes[0]["status"], 404);
+    }
+
+    #[test]
+    fn builder_with_causes() {
+        let cause = ApiError::bad_request("bad input");
+        let err = ApiError::builder()
+            .code(ErrorCode::UnprocessableEntity)
+            .detail("entity failed")
+            .causes(vec![cause.clone()])
+            .build();
+        assert_eq!(err.causes.len(), 1);
+        assert_eq!(err.causes[0].detail, cause.detail);
+    }
+
+    // -----------------------------------------------------------------------
+    // #111 — custom extension members
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn with_extension_roundtrip() {
+        let _g = lock_and_reset_mode();
+        let err = ApiError::internal("boom").with_extension("trace_id", "abc-123");
+        assert_eq!(err.extensions["trace_id"], "abc-123");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn extension_flattened_in_wire_format() {
+        let _g = lock_and_reset_mode();
+        let err = ApiError::not_found("gone").with_extension("tenant", "acme");
+        let json = serde_json::to_value(&err).unwrap();
+        // Extension must appear at the top level alongside standard fields.
+        assert_eq!(json["tenant"], "acme");
+        // Standard fields still present.
+        assert_eq!(json["status"], 404);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn extension_roundtrip_ser_de() {
+        let _g = lock_and_reset_mode();
+        let err = ApiError::bad_request("bad").with_extension("request_num", 42_u64);
+        let json = serde_json::to_value(&err).unwrap();
+        let back: ApiError = serde_json::from_value(json).unwrap();
+        assert_eq!(back.extensions["request_num"], 42_u64);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn extension_propagated_through_problem_json() {
+        use crate::error::ProblemJson;
+        let _g = lock_and_reset_mode();
+        let err = ApiError::forbidden("denied").with_extension("policy", "read-only");
+        let p = ProblemJson::from(err);
+        assert_eq!(p.extensions["policy"], "read-only");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2351,6 +2727,25 @@ impl From<ApiError> for ProblemJson {
             && let Ok(v) = serde_json::to_value(&info)
         {
             p.extensions.insert("rate_limit".into(), v);
+        }
+
+        if !err.causes.is_empty() {
+            let causes: Vec<serde_json::Value> = err
+                .causes
+                .into_iter()
+                .map(|c| {
+                    let cp = Self::from(c);
+                    serde_json::to_value(cp).unwrap_or(serde_json::Value::Null)
+                })
+                .collect();
+            p.extensions
+                .insert("causes".into(), serde_json::Value::Array(causes));
+        }
+
+        // Merge caller-provided extensions last (they may intentionally
+        // override the generated members above).
+        for (k, v) in err.extensions {
+            p.extensions.insert(k, v);
         }
 
         p
