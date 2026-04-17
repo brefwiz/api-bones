@@ -99,8 +99,6 @@ pub mod idempotency;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod links;
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub mod models;
-#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod range;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub mod request_id;
