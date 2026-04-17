@@ -44,6 +44,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[allow(clippy::struct_excessive_bools)]
 #[non_exhaustive]
 pub struct CacheControl {
     // -----------------------------------------------------------------------
@@ -300,14 +301,12 @@ impl fmt::Display for CacheControl {
         ];
 
         let mut need_sep = !parts.is_empty();
-        for entry in &numeric {
-            if let Some((name, v)) = entry {
-                if need_sep {
-                    f.write_str(", ")?;
-                }
-                write!(f, "{name}={v}")?;
-                need_sep = true;
+        for (name, v) in numeric.iter().flatten() {
+            if need_sep {
+                f.write_str(", ")?;
             }
+            write!(f, "{name}={v}")?;
+            need_sep = true;
         }
 
         Ok(())

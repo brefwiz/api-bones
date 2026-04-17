@@ -86,6 +86,7 @@ impl de::Visitor<'_> for TimestampVisitor {
     }
 
     fn visit_f64<E: de::Error>(self, v: f64) -> Result<Self::Value, E> {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let secs = v.floor() as i64;
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let nanos = ((v - v.floor()) * 1_000_000_000.0).round() as u32;

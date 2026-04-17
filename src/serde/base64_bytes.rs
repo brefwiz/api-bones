@@ -65,7 +65,7 @@ pub mod standard {
     /// # Errors
     ///
     /// Returns a serialization error if the serializer rejects the string.
-    pub fn serialize<S: Serializer>(value: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(value: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
         ser(value, serializer, &STANDARD)
     }
 
@@ -93,7 +93,7 @@ pub mod standard_no_pad {
     /// # Errors
     ///
     /// Returns a serialization error if the serializer rejects the string.
-    pub fn serialize<S: Serializer>(value: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(value: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
         ser(value, serializer, &STANDARD_NO_PAD)
     }
 
@@ -121,7 +121,7 @@ pub mod url_safe {
     /// # Errors
     ///
     /// Returns a serialization error if the serializer rejects the string.
-    pub fn serialize<S: Serializer>(value: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(value: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
         ser(value, serializer, &URL_SAFE)
     }
 
@@ -149,7 +149,7 @@ pub mod url_safe_no_pad {
     /// # Errors
     ///
     /// Returns a serialization error if the serializer rejects the string.
-    pub fn serialize<S: Serializer>(value: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(value: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
         ser(value, serializer, &URL_SAFE_NO_PAD)
     }
 
