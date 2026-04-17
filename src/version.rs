@@ -22,8 +22,13 @@
 //! ```
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::string::{String, ToString};
-use core::{fmt, str::FromStr};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
+#[cfg(any(feature = "std", feature = "alloc"))]
+use core::str::FromStr;
+use core::fmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -98,6 +103,7 @@ impl fmt::Display for ApiVersionParseError {
 #[cfg(feature = "std")]
 impl std::error::Error for ApiVersionParseError {}
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl FromStr for ApiVersion {
     type Err = ApiVersionParseError;
 

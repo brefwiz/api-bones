@@ -25,7 +25,7 @@
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{
     format,
-    string::{String, ToString},
+    string::String,
     vec::Vec,
 };
 use core::{fmt, str::FromStr};

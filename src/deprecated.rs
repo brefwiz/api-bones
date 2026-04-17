@@ -16,7 +16,7 @@
 //! ```
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use core::fmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
