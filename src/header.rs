@@ -13,7 +13,7 @@
 //! use api_bones::header::{HeaderName, HeaderValue};
 //!
 //! let name = HeaderName::from_static("content-type");
-//! let value = HeaderValue::from_str("application/json").unwrap();
+//! let value = HeaderValue::parse("application/json").unwrap();
 //! assert_eq!(name.as_str(), "content-type");
 //! assert_eq!(value.to_str().unwrap(), "application/json");
 //! ```
@@ -56,7 +56,7 @@ impl HeaderName {
     ///
     /// Returns [`InvalidHeaderName`] if the string contains characters that
     /// are not valid in an HTTP header name.
-    pub fn from_str(s: &str) -> Result<Self, InvalidHeaderName> {
+    pub fn parse(s: &str) -> Result<Self, InvalidHeaderName> {
         s.parse::<HttpHeaderName>().map(Self)
     }
 
@@ -96,7 +96,7 @@ impl core::str::FromStr for HeaderName {
     type Err = InvalidHeaderName;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s)
+        Self::parse(s)
     }
 }
 
@@ -132,7 +132,7 @@ impl HeaderValue {
     ///
     /// Returns [`InvalidHeaderValue`] if the string contains characters that
     /// are not valid in an HTTP header value (e.g. non-visible ASCII or NUL).
-    pub fn from_str(s: &str) -> Result<Self, InvalidHeaderValue> {
+    pub fn parse(s: &str) -> Result<Self, InvalidHeaderValue> {
         s.parse::<HttpHeaderValue>().map(Self)
     }
 
@@ -195,7 +195,7 @@ impl core::str::FromStr for HeaderValue {
     type Err = InvalidHeaderValue;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_str(s)
+        Self::parse(s)
     }
 }
 
@@ -240,13 +240,13 @@ mod tests {
 
     #[test]
     fn header_name_from_str_valid() {
-        let n = HeaderName::from_str("x-request-id").unwrap();
+        let n = HeaderName::parse("x-request-id").unwrap();
         assert_eq!(n.as_str(), "x-request-id");
     }
 
     #[test]
     fn header_name_from_str_invalid() {
-        assert!(HeaderName::from_str("bad header!").is_err());
+        assert!(HeaderName::parse("bad header!").is_err());
     }
 
     #[test]
@@ -266,7 +266,7 @@ mod tests {
 
     #[test]
     fn header_value_from_str_valid() {
-        let v = HeaderValue::from_str("application/json").unwrap();
+        let v = HeaderValue::parse("application/json").unwrap();
         assert_eq!(v.to_str().unwrap(), "application/json");
     }
 
@@ -279,7 +279,7 @@ mod tests {
     #[test]
     fn header_value_from_str_invalid() {
         // NUL byte is not a valid header value character.
-        assert!(HeaderValue::from_str("\0invalid").is_err());
+        assert!(HeaderValue::parse("\0invalid").is_err());
     }
 
     #[test]

@@ -45,7 +45,7 @@ pub enum StatusCode {
     Continue,
     /// 101 Switching Protocols
     SwitchingProtocols,
-    /// 102 Processing (WebDAV)
+    /// 102 Processing (`WebDAV`)
     Processing,
     /// 103 Early Hints
     EarlyHints,
@@ -65,9 +65,9 @@ pub enum StatusCode {
     ResetContent,
     /// 206 Partial Content
     PartialContent,
-    /// 207 Multi-Status (WebDAV)
+    /// 207 Multi-Status (`WebDAV`)
     MultiStatus,
-    /// 208 Already Reported (WebDAV)
+    /// 208 Already Reported (`WebDAV`)
     AlreadyReported,
     /// 226 IM Used
     ImUsed,
@@ -133,9 +133,9 @@ pub enum StatusCode {
     MisdirectedRequest,
     /// 422 Unprocessable Content
     UnprocessableContent,
-    /// 423 Locked (WebDAV)
+    /// 423 Locked (`WebDAV`)
     Locked,
-    /// 424 Failed Dependency (WebDAV)
+    /// 424 Failed Dependency (`WebDAV`)
     FailedDependency,
     /// 425 Too Early
     TooEarly,
@@ -165,9 +165,9 @@ pub enum StatusCode {
     HttpVersionNotSupported,
     /// 506 Variant Also Negotiates
     VariantAlsoNegotiates,
-    /// 507 Insufficient Storage (WebDAV)
+    /// 507 Insufficient Storage (`WebDAV`)
     InsufficientStorage,
-    /// 508 Loop Detected (WebDAV)
+    /// 508 Loop Detected (`WebDAV`)
     LoopDetected,
     /// 510 Not Extended
     NotExtended,

@@ -278,7 +278,7 @@ mod tests {
             (HttpMethod::Patch, http::Method::PATCH),
         ];
         for (our, theirs) in pairs {
-            let converted: http::Method = our.clone().into();
+            let converted: http::Method = our.into();
             assert_eq!(converted, theirs);
             let back: HttpMethod = converted.try_into().unwrap();
             assert_eq!(back, our);
