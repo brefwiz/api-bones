@@ -19,7 +19,7 @@
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "serde"))]
 use alloc::collections::BTreeMap;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{borrow::ToOwned, format, string::String, sync::Arc, vec::Vec};
+use alloc::{borrow::ToOwned, format, string::String, string::ToString, sync::Arc, vec::Vec};
 use core::fmt;
 #[cfg(feature = "std")]
 use std::{collections::BTreeMap, sync::Arc};
@@ -663,6 +663,16 @@ pub struct ApiError {
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     pub errors: Vec<ValidationError>,
+    /// Structured rate-limit metadata (extension). Present on 429 responses
+    /// when built via [`ApiError::rate_limited_with`] or
+    /// [`ApiError::with_rate_limit`]. Serialized as the top-level
+    /// `rate_limit` member.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    pub rate_limit: Option<crate::ratelimit::RateLimitInfo>,
     /// Upstream error that caused this `ApiError`, if any.
     ///
     /// Not serialized — for in-process error chaining only. Exposed via
@@ -686,6 +696,7 @@ impl PartialEq for ApiError {
             && self.status == other.status
             && self.detail == other.detail
             && self.errors == other.errors
+            && self.rate_limit == other.rate_limit
             // request_id only exists when the `uuid` feature is on
             && {
                 #[cfg(feature = "uuid")]
@@ -758,6 +769,7 @@ impl ApiError {
             #[cfg(feature = "uuid")]
             request_id: None,
             errors: Vec::new(),
+            rate_limit: None,
             source: None,
         }
     }
@@ -940,6 +952,52 @@ impl ApiError {
         )
     }
 
+    /// Attach structured [`RateLimitInfo`](crate::ratelimit::RateLimitInfo)
+    /// metadata. Serialized as the top-level `rate_limit` member and
+    /// propagated to [`ProblemJson`] as an extension of the same name.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ApiError;
+    /// use api_bones::ratelimit::RateLimitInfo;
+    ///
+    /// let info = RateLimitInfo::new(100, 0, 1_700_000_000).retry_after(60);
+    /// let err = ApiError::rate_limited(60).with_rate_limit(info.clone());
+    /// assert_eq!(err.rate_limit.as_ref(), Some(&info));
+    /// ```
+    #[must_use]
+    pub fn with_rate_limit(mut self, info: crate::ratelimit::RateLimitInfo) -> Self {
+        self.rate_limit = Some(info);
+        self
+    }
+
+    /// 429 Rate Limited with structured quota metadata.
+    ///
+    /// Convenience over [`ApiError::rate_limited`] +
+    /// [`ApiError::with_rate_limit`]. The `detail` string is derived from
+    /// `info.retry_after` when set.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ApiError;
+    /// use api_bones::ratelimit::RateLimitInfo;
+    ///
+    /// let info = RateLimitInfo::new(100, 0, 1_700_000_000).retry_after(30);
+    /// let err = ApiError::rate_limited_with(info);
+    /// assert_eq!(err.status, 429);
+    /// assert!(err.rate_limit.is_some());
+    /// ```
+    #[must_use]
+    pub fn rate_limited_with(info: crate::ratelimit::RateLimitInfo) -> Self {
+        let detail = match info.retry_after {
+            Some(secs) => format!("Rate limited, retry after {secs}s"),
+            None => "Rate limited".to_string(),
+        };
+        Self::new(ErrorCode::RateLimited, detail).with_rate_limit(info)
+    }
+
     /// 500 Internal Server Error. **Never expose internal details in `msg`.**
     pub fn internal(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::InternalServerError, msg)
@@ -1120,6 +1178,7 @@ impl proptest::arbitrary::Arbitrary for ApiError {
                 #[cfg(feature = "uuid")]
                 request_id,
                 errors,
+                rate_limit: None,
                 source: None,
             })
             .boxed()
@@ -2150,6 +2209,12 @@ impl From<ApiError> for ProblemJson {
             p.extensions.insert("errors".into(), errs);
         }
 
+        if let Some(info) = err.rate_limit
+            && let Ok(v) = serde_json::to_value(&info)
+        {
+            p.extensions.insert("rate_limit".into(), v);
+        }
+
         p
     }
 }
@@ -2200,6 +2265,37 @@ mod problem_json_tests {
         assert_eq!(p.status, 403);
         assert_eq!(p.title, "Forbidden");
         assert_eq!(p.detail, "not allowed");
+    }
+
+    #[test]
+    fn from_api_error_maps_rate_limit_to_extension() {
+        use crate::ratelimit::RateLimitInfo;
+        let info = RateLimitInfo::new(100, 0, 1_700_000_000).retry_after(30);
+        let err = ApiError::rate_limited_with(info);
+        let p = ProblemJson::from(err);
+        assert!(p.extensions.contains_key("rate_limit"));
+        let rl = &p.extensions["rate_limit"];
+        assert_eq!(rl["limit"], 100);
+        assert_eq!(rl["remaining"], 0);
+        assert_eq!(rl["reset"], 1_700_000_000_u64);
+        assert_eq!(rl["retry_after"], 30);
+    }
+
+    #[test]
+    fn api_error_rate_limit_serializes_inline() {
+        use crate::ratelimit::RateLimitInfo;
+        let err = ApiError::rate_limited(60)
+            .with_rate_limit(RateLimitInfo::new(100, 0, 1_700_000_000).retry_after(60));
+        let json = serde_json::to_value(&err).unwrap();
+        assert_eq!(json["rate_limit"]["limit"], 100);
+        assert_eq!(json["rate_limit"]["retry_after"], 60);
+    }
+
+    #[test]
+    fn api_error_rate_limit_omitted_when_none() {
+        let err = ApiError::bad_request("x");
+        let json = serde_json::to_value(&err).unwrap();
+        assert!(json.get("rate_limit").is_none());
     }
 
     #[test]

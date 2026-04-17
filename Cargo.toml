@@ -1,6 +1,6 @@
 [package]
 name = "api-bones"
-version = "1.8.0"
+version = "1.9.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "LicenseRef-Proprietary"
@@ -79,6 +79,10 @@ required-features = ["axum"]
 
 [[example]]
 name = "problem_json"
+required-features = ["axum"]
+
+[[example]]
+name = "axum_extractors_and_ratelimit"
 required-features = ["axum"]
 
 [[example]]
