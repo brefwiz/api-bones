@@ -51,7 +51,10 @@ pub struct ContentType {
 #[cfg(feature = "serde")]
 impl Serialize for ContentType {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&self.to_string())
+        use core::fmt::Write;
+        let mut s = String::new();
+        let _ = write!(s, "{self}");
+        serializer.serialize_str(&s)
     }
 }
 
