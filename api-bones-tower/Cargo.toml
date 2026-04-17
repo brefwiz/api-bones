@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-tower"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "LicenseRef-Proprietary"
@@ -9,7 +9,7 @@ repository = "https://git.brefwiz.com/gsalingu/api-bones"
 publish = ["brefwiz"]
 
 [dependencies]
-api-bones = { version = "2.0", path = "..", default-features = false, features = ["std", "serde"] }
+api-bones = { version = "2.0", path = "..", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
 tower = { version = "0.5", features = ["util"] }
 http = { version = "1.0" }
 http-body = { version = "1.0" }
