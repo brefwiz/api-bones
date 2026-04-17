@@ -36,8 +36,8 @@
 use alloc::string::String;
 
 use axum::extract::FromRequestParts;
-use axum::http::request::Parts;
 use axum::http::HeaderMap;
+use axum::http::request::Parts;
 
 use crate::error::ApiError;
 
@@ -46,6 +46,7 @@ use crate::error::ApiError;
 // ---------------------------------------------------------------------------
 
 /// Extract a header value as a UTF-8 string, or return a 400 `ApiError`.
+#[allow(clippy::result_large_err)]
 fn required_header(headers: &HeaderMap, name: &'static str) -> Result<String, ApiError> {
     headers
         .get(name)
@@ -247,6 +248,7 @@ impl Authorization {
     /// # Errors
     ///
     /// Returns `ApiError` with status 401 if the scheme does not match.
+    #[allow(clippy::result_large_err)]
     pub fn require_scheme(&self, expected: &str) -> Result<(), ApiError> {
         if self.scheme.eq_ignore_ascii_case(expected) {
             Ok(())
@@ -268,9 +270,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Authorization {
             .get("authorization")
             .ok_or_else(|| ApiError::unauthorized("missing Authorization header"))?
             .to_str()
-            .map_err(|_| {
-                ApiError::unauthorized("Authorization header contains non-UTF-8 bytes")
-            })?;
+            .map_err(|_| ApiError::unauthorized("Authorization header contains non-UTF-8 bytes"))?;
 
         let mut iter = raw.splitn(2, ' ');
         let scheme = iter
@@ -278,11 +278,7 @@ impl<S: Send + Sync> FromRequestParts<S> for Authorization {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| ApiError::unauthorized("malformed Authorization header"))?
             .to_owned();
-        let credentials = iter
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_owned();
+        let credentials = iter.next().unwrap_or_default().trim().to_owned();
 
         Ok(Self {
             scheme,
@@ -342,7 +338,9 @@ mod tests {
 
     #[tokio::test]
     async fn request_id_present() {
-        let rid = extract_request_id(&[("x-request-id", "abc-123")]).await.unwrap();
+        let rid = extract_request_id(&[("x-request-id", "abc-123")])
+            .await
+            .unwrap();
         assert_eq!(&*rid, "abc-123");
     }
 
@@ -354,7 +352,9 @@ mod tests {
 
     #[tokio::test]
     async fn idempotency_key_present() {
-        let key = extract_idempotency(&[("idempotency-key", "key-xyz")]).await.unwrap();
+        let key = extract_idempotency(&[("idempotency-key", "key-xyz")])
+            .await
+            .unwrap();
         assert_eq!(&*key, "key-xyz");
     }
 
@@ -366,7 +366,9 @@ mod tests {
 
     #[tokio::test]
     async fn api_version_from_header() {
-        let v = extract_version("/", &[("x-api-version", "v2")]).await.unwrap();
+        let v = extract_version("/", &[("x-api-version", "v2")])
+            .await
+            .unwrap();
         assert_eq!(&*v, "v2");
     }
 
@@ -378,7 +380,9 @@ mod tests {
 
     #[tokio::test]
     async fn api_version_header_takes_precedence() {
-        let v = extract_version("/?v=v3", &[("x-api-version", "v2")]).await.unwrap();
+        let v = extract_version("/?v=v3", &[("x-api-version", "v2")])
+            .await
+            .unwrap();
         assert_eq!(&*v, "v2");
     }
 
@@ -412,5 +416,110 @@ mod tests {
         let auth = extract_auth(Some("Basic dXNlcjpwYXNz")).await.unwrap();
         let err = auth.require_scheme("Bearer").unwrap_err();
         assert_eq!(err.status, 401);
+    }
+
+    #[tokio::test]
+    async fn request_id_display() {
+        let rid = extract_request_id(&[("x-request-id", "disp-001")])
+            .await
+            .unwrap();
+        assert_eq!(rid.to_string(), "disp-001");
+    }
+
+    #[tokio::test]
+    async fn request_id_deref() {
+        let rid = extract_request_id(&[("x-request-id", "deref-test")])
+            .await
+            .unwrap();
+        let s: &str = &rid;
+        assert_eq!(s, "deref-test");
+    }
+
+    #[tokio::test]
+    async fn idempotency_key_display() {
+        let key = extract_idempotency(&[("idempotency-key", "disp-key")])
+            .await
+            .unwrap();
+        assert_eq!(key.to_string(), "disp-key");
+    }
+
+    #[tokio::test]
+    async fn idempotency_key_deref() {
+        let key = extract_idempotency(&[("idempotency-key", "deref-key")])
+            .await
+            .unwrap();
+        let s: &str = &key;
+        assert_eq!(s, "deref-key");
+    }
+
+    #[tokio::test]
+    async fn api_version_display() {
+        let v = extract_version("/", &[("x-api-version", "v99")])
+            .await
+            .unwrap();
+        assert_eq!(v.to_string(), "v99");
+    }
+
+    #[tokio::test]
+    async fn api_version_deref() {
+        let v = extract_version("/", &[("x-api-version", "v88")])
+            .await
+            .unwrap();
+        let s: &str = &v;
+        assert_eq!(s, "v88");
+    }
+
+    #[test]
+    fn required_header_non_utf8_bytes() {
+        // Build a HeaderMap with a non-UTF-8 value by inserting raw bytes.
+        use axum::http::header::HeaderValue;
+        let mut headers = axum::http::HeaderMap::new();
+        // 0xff is not valid UTF-8.
+        let bad_val = HeaderValue::from_bytes(b"\xff\xfe").unwrap();
+        headers.insert("x-request-id", bad_val);
+        let result = required_header(&headers, "x-request-id");
+        let err = result.unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    #[tokio::test]
+    async fn api_version_from_query_with_preceding_params() {
+        // Query has a non-matching pair before v=, exercising the strip_prefix None branch.
+        let v = extract_version("/?other=foo&v=v5", &[]).await.unwrap();
+        assert_eq!(&*v, "v5");
+    }
+
+    #[tokio::test]
+    async fn authorization_non_utf8_header_rejects_401() {
+        use axum::http::{Request, header::HeaderValue};
+        let bad_val = HeaderValue::from_bytes(b"\xff\xfe").unwrap();
+        let req = Request::builder().uri("/").body(()).unwrap();
+        let (mut parts, ()) = req.into_parts();
+        parts.headers.insert("authorization", bad_val);
+        let err = Authorization::from_request_parts(&mut parts, &())
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 401);
+    }
+
+    #[tokio::test]
+    async fn authorization_empty_scheme_rejects_401() {
+        // A header value with no scheme (just a space and credentials) triggers
+        // the `.filter(|s| !s.is_empty())` branch.
+        let err = extract_auth(Some(" token-only")).await.unwrap_err();
+        assert_eq!(err.status, 401);
+    }
+
+    #[tokio::test]
+    async fn api_version_non_utf8_header_rejects_400() {
+        use axum::http::{Request, header::HeaderValue};
+        let bad_val = HeaderValue::from_bytes(b"\xff").unwrap();
+        let req = Request::builder().uri("/").body(()).unwrap();
+        let (mut parts, ()) = req.into_parts();
+        parts.headers.insert("x-api-version", bad_val);
+        let err = ApiVersion::from_request_parts(&mut parts, &())
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400);
     }
 }

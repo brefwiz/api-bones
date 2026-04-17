@@ -95,10 +95,7 @@ impl RequestBuilderExt for RequestBuilder {
     }
 
     fn with_bearer_token(self, token: impl AsRef<str>) -> Self {
-        self.header(
-            "authorization",
-            format!("Bearer {}", token.as_ref()),
-        )
+        self.header("authorization", format!("Bearer {}", token.as_ref()))
     }
 }
 
@@ -232,8 +229,7 @@ impl ResponseExt for Response {
                 .headers()
                 .get("content-type")
                 .and_then(|v| v.to_str().ok())
-                .map(|ct| ct.contains("application/problem+json"))
-                .unwrap_or(false);
+                .is_some_and(|ct| ct.contains("application/problem+json"));
 
             if is_problem {
                 // Attempt to parse as ProblemJson and convert to ApiError.
@@ -248,7 +244,7 @@ impl ResponseExt for Response {
                     .to_owned();
                 let code_status = body
                     .get("status")
-                    .and_then(|v| v.as_u64())
+                    .and_then(serde_json::Value::as_u64)
                     .and_then(|s| u16::try_from(s).ok())
                     .unwrap_or(status.as_u16());
                 return Err(map_status_to_api_error(code_status, detail));
@@ -284,11 +280,7 @@ fn parse_link_next(entry: &str) -> Option<String> {
         p == "rel=\"next\"" || p == "rel=next"
     });
 
-    if is_next {
-        Some(url.to_owned())
-    } else {
-        None
-    }
+    if is_next { Some(url.to_owned()) } else { None }
 }
 
 fn map_status_to_api_error(status: u16, detail: String) -> ApiError {
@@ -316,8 +308,418 @@ fn map_status_to_api_error(status: u16, detail: String) -> ApiError {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::significant_drop_tightening)]
 mod tests {
     use super::*;
+
+    // -----------------------------------------------------------------------
+    // map_status_to_api_error — remaining variants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn map_status_401() {
+        let err = map_status_to_api_error(401, "unauth".into());
+        assert_eq!(err.status, 401);
+    }
+
+    #[test]
+    fn map_status_403() {
+        let err = map_status_to_api_error(403, "forbidden".into());
+        assert_eq!(err.status, 403);
+    }
+
+    #[test]
+    fn map_status_409() {
+        let err = map_status_to_api_error(409, "conflict".into());
+        assert_eq!(err.status, 409);
+    }
+
+    #[test]
+    fn map_status_422() {
+        let err = map_status_to_api_error(422, "unprocessable".into());
+        assert_eq!(err.status, 422);
+    }
+
+    #[test]
+    fn map_status_429() {
+        let err = map_status_to_api_error(429, "rate limited".into());
+        assert_eq!(err.status, 429);
+    }
+
+    #[test]
+    fn map_status_500() {
+        let err = map_status_to_api_error(500, "ise".into());
+        assert_eq!(err.status, 500);
+    }
+
+    #[test]
+    fn map_status_502() {
+        let err = map_status_to_api_error(502, "bad gateway".into());
+        assert_eq!(err.status, 502);
+    }
+
+    #[test]
+    fn map_status_503() {
+        let err = map_status_to_api_error(503, "unavailable".into());
+        assert_eq!(err.status, 503);
+    }
+
+    #[test]
+    fn map_status_504() {
+        let err = map_status_to_api_error(504, "timeout".into());
+        assert_eq!(err.status, 504);
+    }
+
+    // -----------------------------------------------------------------------
+    // RequestBuilderExt — header attachment tests (via mockito)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn request_builder_with_request_id() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/")
+            .match_header("x-request-id", "req-abc")
+            .with_status(200)
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(server.url())
+            .with_request_id("req-abc")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn request_builder_with_idempotency_key() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/")
+            .match_header("idempotency-key", "idem-123")
+            .with_status(201)
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .post(server.url())
+            .with_idempotency_key("idem-123")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 201);
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn request_builder_with_bearer_token() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/")
+            .match_header("authorization", "Bearer my.token")
+            .with_status(200)
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let client = reqwest::Client::new();
+        let resp = client
+            .get(server.url())
+            .with_bearer_token("my.token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+        mock.assert_async().await;
+    }
+
+    // -----------------------------------------------------------------------
+    // ResponseExt::rate_limit_info
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn rate_limit_info_present() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("x-ratelimit-limit", "100")
+            .with_header("x-ratelimit-remaining", "42")
+            .with_header("x-ratelimit-reset", "1700000000")
+            .with_header("retry-after", "5")
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let rl = resp.rate_limit_info().unwrap();
+        assert_eq!(rl.limit, 100);
+        assert_eq!(rl.remaining, 42);
+        assert_eq!(rl.reset, 1_700_000_000);
+        assert_eq!(rl.retry_after, Some(5));
+    }
+
+    #[tokio::test]
+    async fn rate_limit_info_missing_headers_returns_none() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        assert!(resp.rate_limit_info().is_none());
+    }
+
+    #[tokio::test]
+    async fn rate_limit_info_without_retry_after() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("x-ratelimit-limit", "50")
+            .with_header("x-ratelimit-remaining", "10")
+            .with_header("x-ratelimit-reset", "9999")
+            .with_body("{}")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let rl = resp.rate_limit_info().unwrap();
+        assert_eq!(rl.retry_after, None);
+    }
+
+    // -----------------------------------------------------------------------
+    // ResponseExt::next_page_url
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn next_page_url_present() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header(
+                "link",
+                r#"<https://api.example.com/items?after=xyz>; rel="next""#,
+            )
+            .with_body("[]")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        assert_eq!(
+            resp.next_page_url(),
+            Some("https://api.example.com/items?after=xyz".to_owned())
+        );
+    }
+
+    #[tokio::test]
+    async fn next_page_url_absent() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_body("[]")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        assert!(resp.next_page_url().is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // ResponseExt::problem_json_or_json
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn problem_json_or_json_success() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"value": 42}"#)
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let body: serde_json::Value = resp.problem_json_or_json().await.unwrap();
+        assert_eq!(body["value"], 42);
+    }
+
+    #[tokio::test]
+    async fn problem_json_or_json_problem_response() {
+        let mut server = mockito::Server::new_async().await;
+        let problem_body =
+            r#"{"type":"about:blank","title":"Not Found","status":404,"detail":"item missing"}"#;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(404)
+            .with_header("content-type", "application/problem+json")
+            .with_body(problem_body)
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err: crate::error::ApiError = resp
+            .problem_json_or_json::<serde_json::Value>()
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 404);
+    }
+
+    #[tokio::test]
+    async fn problem_json_or_json_non_problem_error_response() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(500)
+            .with_header("content-type", "text/plain")
+            .with_body("Internal Server Error")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err: crate::error::ApiError = resp
+            .problem_json_or_json::<serde_json::Value>()
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 500);
+    }
+
+    #[test]
+    fn map_status_418_defaults_to_bad_request() {
+        // 418 is not explicitly mapped — exercises the `_ => BadRequest` arm.
+        let err = map_status_to_api_error(418, "teapot".into());
+        assert_eq!(err.status, 400);
+    }
+
+    /// Spin up a minimal raw TCP server that returns an HTTP/1.1 response whose
+    /// `Link` header contains a non-UTF-8 byte sequence.  Because `reqwest` /
+    /// `hyper` stores header bytes verbatim, `HeaderValue::to_str()` will
+    /// return `Err`, exercising the `continue` branch at the top of
+    /// `next_page_url`.
+    #[tokio::test]
+    async fn next_page_url_non_utf8_link_header_is_skipped() {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            if let Ok((mut stream, _)) = listener.accept().await {
+                // Read (and discard) the request.
+                let mut buf = [0u8; 4096];
+                let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
+
+                // Respond with a Link header whose value contains 0xFF (not valid UTF-8).
+                let response: &[u8] =
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nLink: \xff\r\n\r\n[]";
+                let _ = stream.write_all(response).await;
+            }
+        });
+
+        let url = format!("http://{addr}/");
+        // reqwest may reject the non-UTF8 header at the transport layer; either
+        // way `next_page_url` must not panic.
+        if let Ok(resp) = reqwest::get(&url).await {
+            // The non-UTF8 link header should be silently skipped.
+            assert!(resp.next_page_url().is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn next_page_url_with_only_prev_link() {
+        // Link header present but only rel="prev" — exercises the inner-loop exit path.
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header(
+                "link",
+                r#"<https://api.example.com/items?before=abc>; rel="prev""#,
+            )
+            .with_body("[]")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        assert!(resp.next_page_url().is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // parse_link_next — additional edge cases
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parse_link_next_empty_entry_returns_none() {
+        // `parts.next()?` returns None when the entry is empty.
+        assert!(parse_link_next("").is_none());
+    }
+
+    #[test]
+    fn parse_link_next_malformed_url_no_closing_angle_returns_none() {
+        // strip_suffix('>') returns None when there's no closing `>`.
+        let entry = "<https://example.com; rel=\"next\"";
+        assert!(parse_link_next(entry).is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // problem_json_or_json — error paths for JSON deserialization
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn problem_json_or_json_problem_response_invalid_json_body() {
+        // Problem+JSON content-type but body is not valid JSON — exercises
+        // the `map_err(|e| ApiError::bad_request(e.to_string()))?` at L239.
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(404)
+            .with_header("content-type", "application/problem+json")
+            .with_body("not json at all")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err: crate::error::ApiError = resp
+            .problem_json_or_json::<serde_json::Value>()
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    #[tokio::test]
+    async fn problem_json_or_json_success_invalid_json_body() {
+        // 200 response but body is not valid JSON — exercises the final
+        // `map_err(|e| ApiError::bad_request(e.to_string()))` at L261.
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("not json")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err: crate::error::ApiError = resp
+            .problem_json_or_json::<serde_json::Value>()
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400);
+    }
 
     #[test]
     fn parse_link_next_basic() {

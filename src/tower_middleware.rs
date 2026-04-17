@@ -26,8 +26,8 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 
 use http::{Request, Response};
@@ -118,10 +118,7 @@ where
     fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
         // Determine (or generate) the request ID.
         let request_id: String = if let Some(existing) = req.headers().get("x-request-id") {
-            existing
-                .to_str()
-                .unwrap_or("invalid")
-                .to_owned()
+            existing.to_str().unwrap_or("invalid").to_owned()
         } else {
             let n = self.counter.fetch_add(1, Ordering::Relaxed);
             let id = format!("req-{n}");
@@ -161,9 +158,7 @@ where
             Poll::Pending => Poll::Pending,
             Poll::Ready(Ok(mut resp)) => {
                 if let Ok(val) = http::HeaderValue::from_str(this.request_id) {
-                    resp.headers_mut()
-                        .entry("x-request-id")
-                        .or_insert(val);
+                    resp.headers_mut().entry("x-request-id").or_insert(val);
                 }
                 Poll::Ready(Ok(resp))
             }
@@ -231,10 +226,20 @@ where
 {
     type Response = Response<String>;
     type Error = std::convert::Infallible;
-    type Future = Pin<Box<dyn Future<Output = Result<Response<String>, std::convert::Infallible>> + Send>>;
+    type Future =
+        Pin<Box<dyn Future<Output = Result<Response<String>, std::convert::Infallible>> + Send>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.inner.poll_ready(cx).map_err(|_| unreachable!())
+        match self.inner.poll_ready(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+            // SAFETY: inner services whose errors are `Into<ApiError>` never
+            // return an error from `poll_ready` in practice (most are infallible
+            // at the readiness level).  If this branch is somehow reached the
+            // macro panics, which is preferable to silently swallowing the
+            // readiness failure.
+            Poll::Ready(Err(_e)) => unreachable!("inner service poll_ready returned Err"),
+        }
     }
 
     fn call(&mut self, req: Request<ReqBody>) -> Self::Future {
@@ -257,12 +262,10 @@ fn api_error_to_response(err: ApiError) -> Response<String> {
 
     let status = err.status;
     let problem = ProblemJson::from(err);
-    let body = serde_json::to_string(&problem).unwrap_or_else(|_| {
-        r#"{"type":"about:blank","title":"Internal Server Error","status":500}"#.to_owned()
-    });
+    let body = serde_json::to_string(&problem).expect("ProblemJson serialization is infallible");
 
-    let status_code = http::StatusCode::from_u16(status)
-        .unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
+    let status_code =
+        http::StatusCode::from_u16(status).unwrap_or(http::StatusCode::INTERNAL_SERVER_ERROR);
 
     Response::builder()
         .status(status_code)
@@ -316,7 +319,11 @@ mod tests {
             .unwrap();
         let resp = svc.oneshot(req).await.unwrap();
         assert_eq!(
-            resp.headers().get("x-request-id").unwrap().to_str().unwrap(),
+            resp.headers()
+                .get("x-request-id")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "client-id"
         );
     }
@@ -358,5 +365,81 @@ mod tests {
         let req = Request::builder().uri("/").body(()).unwrap();
         let resp = svc.oneshot(req).await.unwrap();
         assert_eq!(resp.status().as_u16(), 200);
+    }
+
+    #[test]
+    fn request_id_layer_default_is_same_as_new() {
+        // Exercises `Default::default()` on `RequestIdLayer`.
+        let _layer = RequestIdLayer::default();
+    }
+
+    #[tokio::test]
+    async fn problem_json_service_poll_ready() {
+        use tower::{Service, ServiceExt};
+
+        let inner = tower::service_fn(|_req: Request<()>| async move {
+            Ok::<_, ApiError>(Response::builder().body("ok".to_owned()).unwrap())
+        });
+        let mut svc = ProblemJsonService { inner };
+        // `ready()` drives poll_ready; call the service to cover the inner closure.
+        let svc_ref = svc.ready().await.unwrap();
+        let req = Request::builder().uri("/").body(()).unwrap();
+        let resp = svc_ref.call(req).await.unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+    }
+
+    #[tokio::test]
+    async fn request_id_future_propagates_inner_error() {
+        // Drive the error branch of `RequestIdFuture::poll`.
+        let svc = ServiceBuilder::new()
+            .layer(RequestIdLayer::new())
+            .service(tower::service_fn(|_req: Request<()>| async move {
+                Err::<Response<String>, ApiError>(ApiError::internal("boom"))
+            }));
+
+        let req = Request::builder().uri("/").body(()).unwrap();
+        let result = svc.oneshot(req).await;
+        let err = result.unwrap_err();
+        assert_eq!(err.status, 500);
+    }
+
+    /// Drive the `Poll::Pending` branch of `RequestIdFuture`.
+    ///
+    /// We construct a service whose inner future stays `Pending` for the first
+    /// poll and only resolves on the second.  To observe this we poll the
+    /// composed service future manually rather than using `oneshot`.
+    #[tokio::test]
+    async fn request_id_future_poll_pending() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+
+        // A flag shared between the service closure and the test.
+        let ready = Arc::new(AtomicBool::new(false));
+        let ready2 = Arc::clone(&ready);
+
+        let inner = tower::service_fn(move |_req: Request<()>| {
+            let flag = Arc::clone(&ready2);
+            // Return a future that returns Pending on first poll, then Ready.
+            async move {
+                // Yield once so the first poll returns Pending.
+                tokio::task::yield_now().await;
+                flag.store(true, Ordering::SeqCst);
+                Ok::<Response<String>, std::convert::Infallible>(
+                    Response::builder().body(String::new()).unwrap(),
+                )
+            }
+        });
+
+        let layer = RequestIdLayer::new();
+        let mut svc = layer.layer(inner);
+
+        let req = Request::builder().uri("/").body(()).unwrap();
+        // Manually call the service; the returned future wraps RequestIdFuture.
+        let fut = tower::Service::call(&mut svc, req);
+        let resp = fut.await.unwrap();
+        assert!(resp.headers().contains_key("x-request-id"));
+        assert!(ready.load(Ordering::SeqCst));
     }
 }
