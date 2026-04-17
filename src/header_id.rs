@@ -125,22 +125,28 @@ mod tests {
         assert_eq!(TraceContext::HEADER_NAME, "traceparent");
     }
 
+    // Use a generic helper to force dispatch through the HeaderId trait,
+    // bypassing any inherent as_str() methods that would otherwise shadow it.
+    fn trait_as_str<T: HeaderId>(v: &T) -> Cow<'_, str> {
+        v.as_str()
+    }
+
     #[test]
     fn as_str_request_id() {
         let id = RequestId::from_uuid(uuid::Uuid::nil());
-        assert_eq!(id.as_str(), "00000000-0000-0000-0000-000000000000");
+        assert_eq!(trait_as_str(&id), "00000000-0000-0000-0000-000000000000");
     }
 
     #[test]
     fn as_str_correlation_id() {
         let id = CorrelationId::new("corr-abc").unwrap();
-        assert_eq!(id.as_str(), "corr-abc");
+        assert_eq!(trait_as_str(&id), "corr-abc");
     }
 
     #[test]
     fn as_str_idempotency_key() {
         let key = IdempotencyKey::new("my-key").unwrap();
-        assert_eq!(key.as_str(), "my-key");
+        assert_eq!(trait_as_str(&key), "my-key");
     }
 
     #[test]
@@ -149,9 +155,17 @@ mod tests {
             .parse()
             .unwrap();
         assert_eq!(
-            tc.as_str(),
+            trait_as_str(&tc),
             "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
         );
+    }
+
+    #[test]
+    fn header_name_instance_methods() {
+        let key = IdempotencyKey::new("x").unwrap();
+        assert_eq!(key.header_name(), "Idempotency-Key");
+        let tc = TraceContext::new();
+        assert_eq!(tc.header_name(), "traceparent");
     }
 
     #[test]
