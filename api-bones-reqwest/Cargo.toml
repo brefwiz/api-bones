@@ -18,6 +18,9 @@ serde_json = { version = "1.0" }
 mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
 
+[[example]]
+name = "client_extensions"
+
 [lints.rust]
 unsafe_code = { level = "deny", priority = -1 }
 unsafe_op_in_unsafe_fn = { level = "deny", priority = -1 }
