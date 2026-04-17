@@ -81,6 +81,7 @@ derive_partial_eq_without_eq = "allow" # nursery: serde types are rarely fully E
 option_if_let_else = "allow"         # nursery: map_or_else is less readable in match-heavy code
 
 [dev-dependencies]
+mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
 
 [[example]]

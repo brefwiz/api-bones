@@ -1,9 +1,9 @@
-//! OpenAPI schema helpers: [`Example`] wrapper and [`DeprecatedField`] marker.
+//! `OpenAPI` schema helpers: [`Example`] wrapper and [`DeprecatedField`] marker.
 //!
 //! ## `Example<T>`
 //!
 //! A transparent newtype that carries a typed value alongside schema metadata
-//! so OpenAPI generators can surface inline examples.
+//! so `OpenAPI` generators can surface inline examples.
 //!
 //! ```rust
 //! use api_bones::openapi::Example;
@@ -15,7 +15,7 @@
 //! ## `DeprecatedField`
 //!
 //! A transparent newtype that marks a schema field as deprecated in the
-//! generated OpenAPI output and optionally carries a replacement hint.
+//! generated `OpenAPI` output and optionally carries a replacement hint.
 //!
 //! ```rust
 //! use api_bones::openapi::DeprecatedField;
@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 // Example<T>
 // ---------------------------------------------------------------------------
 
-/// A transparent wrapper that carries a typed value for OpenAPI `example`.
+/// A transparent wrapper that carries a typed value for `OpenAPI` `example`.
 ///
 /// Serializes/deserializes identically to `T` (transparent serde).
 ///
@@ -119,7 +119,7 @@ impl<T> From<T> for Example<T> {
 // ---------------------------------------------------------------------------
 
 /// A transparent wrapper that marks a schema field as deprecated in the
-/// generated OpenAPI output.
+/// generated `OpenAPI` output.
 ///
 /// The inner value is the **field name** (a string) that is being deprecated.
 /// Optionally carries a replacement hint shown in documentation.
