@@ -822,10 +822,7 @@ pub struct ApiError {
     ///
     /// Use [`ApiError::with_extension`] to attach values.
     #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
-    #[cfg_attr(
-        all(feature = "std", feature = "serde"),
-        serde(flatten)
-    )]
+    #[cfg_attr(all(feature = "std", feature = "serde"), serde(flatten))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
     pub extensions: BTreeMap<String, serde_json::Value>,
 }
