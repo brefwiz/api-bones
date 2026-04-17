@@ -126,6 +126,8 @@ pub use common::parse_timestamp;
 // or String when chrono is off (needs alloc or std).
 #[cfg(any(feature = "chrono", feature = "std", feature = "alloc"))]
 pub use common::Timestamp;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use content_type::ContentType;
 pub use error::ErrorCode;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use error::ErrorTypeMode;
@@ -137,6 +139,8 @@ pub use error::{ApiError, ValidationError};
 pub use error::{error_type_mode, set_error_type_mode, urn_namespace};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use etag::{ETag, IfMatch, IfNoneMatch};
+#[cfg(feature = "http")]
+pub use header::{HeaderName, HeaderValue};
 pub use health::HealthStatus;
 #[cfg(feature = "std")]
 pub use health::ReadinessResponse;
@@ -144,6 +148,7 @@ pub use health::ReadinessResponse;
 pub use health::{HealthCheck, LivenessResponse};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use links::{Link, Links};
+pub use method::HttpMethod;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use models::ErrorResponse;
 pub use pagination::PaginationParams;
@@ -160,9 +165,4 @@ pub use ratelimit::RateLimitInfo;
 pub use response::{ApiResponse, ApiResponseBuilder, ResponseMeta};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use slug::{Slug, SlugError};
-pub use method::HttpMethod;
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use content_type::ContentType;
 pub use status::StatusCode;
-#[cfg(feature = "http")]
-pub use header::{HeaderName, HeaderValue};

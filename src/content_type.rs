@@ -260,7 +260,10 @@ mod tests {
 
     #[test]
     fn display_no_params() {
-        assert_eq!(ContentType::application_json().to_string(), "application/json");
+        assert_eq!(
+            ContentType::application_json().to_string(),
+            "application/json"
+        );
         assert_eq!(
             ContentType::application_problem_json().to_string(),
             "application/problem+json"
@@ -321,7 +324,10 @@ mod tests {
 
     #[test]
     fn parse_invalid_no_slash() {
-        assert_eq!("application".parse::<ContentType>(), Err(ParseContentTypeError));
+        assert_eq!(
+            "application".parse::<ContentType>(),
+            Err(ParseContentTypeError)
+        );
     }
 
     #[test]
