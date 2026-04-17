@@ -139,10 +139,6 @@ fn fake_links() {
 // models module
 // ---------------------------------------------------------------------------
 
-#[test]
-fn fake_error_response() {
-    smoke::<api_bones::models::ErrorResponse, _>(200, |_| {});
-}
 
 // ---------------------------------------------------------------------------
 // pagination module
@@ -269,7 +265,7 @@ fn fake_response_meta() {
 
 #[test]
 fn fake_response_links() {
-    smoke::<api_bones::response::Links, _>(200, |_| {});
+    smoke::<api_bones::links::Links, _>(200, |_| {});
 }
 
 #[test]

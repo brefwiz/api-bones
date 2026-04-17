@@ -92,10 +92,6 @@ mod arbitrary_tests {
         smoke::<api_bones::links::Links>(1000);
     }
 
-    #[test]
-    fn smoke_error_response() {
-        smoke::<api_bones::models::ErrorResponse>(1000);
-    }
 
     #[test]
     fn smoke_paginated_response() {
@@ -209,7 +205,7 @@ mod arbitrary_tests {
 
     #[test]
     fn smoke_response_links() {
-        smoke::<api_bones::response::Links>(1000);
+        smoke::<api_bones::links::Links>(1000);
     }
 
     #[test]
