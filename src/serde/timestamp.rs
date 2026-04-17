@@ -99,3 +99,138 @@ impl de::Visitor<'_> for TimestampVisitor {
         v.parse::<DateTime<Utc>>().map_err(E::custom)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::{DateTime, TimeZone, Utc};
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Event {
+        #[serde(with = "super")]
+        ts: DateTime<Utc>,
+    }
+
+    fn epoch() -> DateTime<Utc> {
+        Utc.timestamp_opt(0, 0).unwrap()
+    }
+
+    // --- serialize ---
+
+    #[test]
+    fn serialize_as_rfc3339() {
+        let e = Event { ts: epoch() };
+        let json = serde_json::to_string(&e).unwrap();
+        assert_eq!(json, r#"{"ts":"1970-01-01T00:00:00+00:00"}"#);
+    }
+
+    #[test]
+    fn serialize_non_epoch() {
+        let ts = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let e = Event { ts };
+        let json = serde_json::to_string(&e).unwrap();
+        assert!(json.contains("2023-"));
+    }
+
+    // --- deserialize: visit_i64 (negative or positive integer) ---
+
+    #[test]
+    fn deserialize_from_i64_zero() {
+        let e: Event = serde_json::from_str(r#"{"ts":0}"#).unwrap();
+        assert_eq!(e.ts, epoch());
+    }
+
+    #[test]
+    fn deserialize_from_i64_positive() {
+        let e: Event = serde_json::from_str(r#"{"ts":1700000000}"#).unwrap();
+        assert_eq!(e.ts, Utc.timestamp_opt(1_700_000_000, 0).unwrap());
+    }
+
+    #[test]
+    fn deserialize_from_i64_negative() {
+        let e: Event = serde_json::from_str(r#"{"ts":-1}"#).unwrap();
+        assert_eq!(e.ts, Utc.timestamp_opt(-1, 0).unwrap());
+    }
+
+    // --- deserialize: visit_u64 (large positive integer) ---
+
+    #[test]
+    fn deserialize_from_u64() {
+        // serde_json sends positive integers that fit u64 as u64
+        let e: Event =
+            serde_json::from_value(serde_json::json!({"ts": 1_700_000_000_u64})).unwrap();
+        assert_eq!(e.ts, Utc.timestamp_opt(1_700_000_000, 0).unwrap());
+    }
+
+    // --- deserialize: visit_f64 (fractional epoch) ---
+
+    #[test]
+    fn deserialize_from_f64_with_fraction() {
+        let e: Event = serde_json::from_str(r#"{"ts":1700000000.5}"#).unwrap();
+        let expected = Utc.timestamp_opt(1_700_000_000, 500_000_000).unwrap();
+        assert_eq!(e.ts, expected);
+    }
+
+    #[test]
+    fn deserialize_from_f64_whole() {
+        let e: Event = serde_json::from_str(r#"{"ts":0.0}"#).unwrap();
+        assert_eq!(e.ts, epoch());
+    }
+
+    // --- deserialize: visit_str (RFC 3339 string) ---
+
+    #[test]
+    fn deserialize_from_rfc3339_utc() {
+        let e: Event = serde_json::from_str(r#"{"ts":"1970-01-01T00:00:00+00:00"}"#).unwrap();
+        assert_eq!(e.ts, epoch());
+    }
+
+    #[test]
+    fn deserialize_from_rfc3339_z_suffix() {
+        let e: Event = serde_json::from_str(r#"{"ts":"1970-01-01T00:00:00Z"}"#).unwrap();
+        assert_eq!(e.ts, epoch());
+    }
+
+    #[test]
+    fn deserialize_from_rfc3339_non_epoch() {
+        let e: Event = serde_json::from_str(r#"{"ts":"2023-11-14T22:13:20+00:00"}"#).unwrap();
+        assert_eq!(e.ts, Utc.timestamp_opt(1_700_000_000, 0).unwrap());
+    }
+
+    // --- error paths ---
+
+    #[test]
+    fn deserialize_invalid_string() {
+        let result: Result<Event, _> = serde_json::from_str(r#"{"ts":"not-a-date"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn deserialize_u64_out_of_i64_range() {
+        // u64::MAX cannot fit in i64 → visit_u64 error branch
+        let val = serde_json::json!({"ts": u64::MAX});
+        let result: Result<Event, _> = serde_json::from_value(val);
+        assert!(result.is_err());
+    }
+
+    // --- roundtrip ---
+
+    #[test]
+    fn roundtrip() {
+        let original = Event {
+            ts: Utc.timestamp_opt(1_234_567_890, 0).unwrap(),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let back: Event = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, original);
+    }
+
+    // --- expecting: exercise error message path ---
+
+    #[test]
+    fn deserialize_invalid_type_triggers_expecting() {
+        // Passing a boolean to a timestamp field exercises the `expecting` path in the error
+        let result: Result<Event, _> = serde_json::from_str(r#"{"ts":true}"#);
+        assert!(result.is_err());
+    }
+}

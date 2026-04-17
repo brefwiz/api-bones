@@ -68,3 +68,87 @@ where
     let s = String::deserialize(deserializer)?;
     serde_json::from_str(&s).map_err(serde::de::Error::custom)
 }
+
+#[cfg(test)]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Inner {
+        key: String,
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct Outer {
+        #[serde(with = "super")]
+        payload: Inner,
+    }
+
+    #[derive(Debug, PartialEq, Serialize, Deserialize)]
+    struct NumWrapper {
+        #[serde(with = "super")]
+        value: u32,
+    }
+
+    #[test]
+    fn serialize_struct() {
+        let outer = Outer {
+            payload: Inner {
+                key: "value".to_string(),
+            },
+        };
+        let json = serde_json::to_string(&outer).unwrap();
+        assert_eq!(json, r#"{"payload":"{\"key\":\"value\"}"}"#);
+    }
+
+    #[test]
+    fn deserialize_struct() {
+        let json = r#"{"payload":"{\"key\":\"value\"}"}"#;
+        let outer: Outer = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            outer.payload,
+            Inner {
+                key: "value".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn roundtrip() {
+        let original = Outer {
+            payload: Inner {
+                key: "hello world".to_string(),
+            },
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let back: Outer = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, original);
+    }
+
+    #[test]
+    fn serialize_number() {
+        let w = NumWrapper { value: 42 };
+        let json = serde_json::to_string(&w).unwrap();
+        assert_eq!(json, r#"{"value":"42"}"#);
+    }
+
+    #[test]
+    fn deserialize_number() {
+        let w: NumWrapper = serde_json::from_str(r#"{"value":"42"}"#).unwrap();
+        assert_eq!(w.value, 42);
+    }
+
+    #[test]
+    fn deserialize_invalid_json_string() {
+        // The outer string is valid, but its content is not valid JSON for Inner
+        let result: Result<Outer, _> = serde_json::from_str(r#"{"payload":"not json"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn deserialize_non_string_field() {
+        // The field must be a JSON string, not a raw object
+        let result: Result<Outer, _> = serde_json::from_str(r#"{"payload":{"key":"value"}}"#);
+        assert!(result.is_err());
+    }
+}

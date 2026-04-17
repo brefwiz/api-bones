@@ -26,9 +26,9 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
+use core::fmt;
 #[cfg(any(feature = "std", feature = "alloc"))]
 use core::str::FromStr;
-use core::fmt;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
@@ -297,5 +297,87 @@ mod tests {
         let s = serde_json::to_value(&v).unwrap();
         let back: ApiVersion = serde_json::from_value(s).unwrap();
         assert_eq!(back, v);
+    }
+
+    #[test]
+    fn semver_triple_display() {
+        let t = SemverTriple(2, 10, 0);
+        assert_eq!(t.to_string(), "2.10.0");
+    }
+
+    #[test]
+    fn api_version_parse_error_display() {
+        let err = ApiVersionParseError("bad".into());
+        let s = err.to_string();
+        assert!(s.contains("invalid API version"));
+        assert!(s.contains("bad"));
+    }
+
+    #[test]
+    fn ordering_cross_variant() {
+        // Simple < Semver < Date by discriminant ordering
+        let simple: ApiVersion = "v1".parse().unwrap();
+        let semver: ApiVersion = "1.0.0".parse().unwrap();
+        let date: ApiVersion = "2024-01-01".parse().unwrap();
+        assert!(simple < semver);
+        assert!(semver < date);
+    }
+
+    #[cfg(any(feature = "std", feature = "alloc"))]
+    #[test]
+    fn header_value_simple() {
+        let v = ApiVersion::Simple(5);
+        assert_eq!(v.header_value(), "v5");
+    }
+
+    #[cfg(any(feature = "std", feature = "alloc"))]
+    #[test]
+    fn header_value_semver() {
+        let v = ApiVersion::Semver(SemverTriple(1, 2, 3));
+        assert_eq!(v.header_value(), "1.2.3");
+    }
+
+    #[test]
+    fn parse_date_invalid_day_zero() {
+        assert!("2024-01-00".parse::<ApiVersion>().is_err());
+    }
+
+    #[test]
+    fn parse_date_invalid_month_zero() {
+        assert!("2024-00-01".parse::<ApiVersion>().is_err());
+    }
+
+    #[test]
+    fn parse_semver_bad_component() {
+        assert!("1.x.3".parse::<ApiVersion>().is_err());
+    }
+
+    #[test]
+    fn parse_simple_bad_number() {
+        assert!("vabc".parse::<ApiVersion>().is_err());
+    }
+
+    #[test]
+    fn display_date_pads_correctly() {
+        let v = ApiVersion::Date(2024, 1, 5);
+        assert_eq!(v.to_string(), "2024-01-05");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_date_serializes_as_array() {
+        let v = ApiVersion::Date(2024, 6, 1);
+        let json = serde_json::to_value(&v).unwrap();
+        // Date(u16, u8, u8) with untagged enum serialises as a JSON array [2024, 6, 1]
+        assert_eq!(json, serde_json::json!([2024, 6, 1]));
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn inject_content_version_header() {
+        let v = ApiVersion::Simple(3);
+        let mut headers = http::HeaderMap::new();
+        v.inject_content_version(&mut headers).unwrap();
+        assert_eq!(headers["content-version"], "v3");
     }
 }

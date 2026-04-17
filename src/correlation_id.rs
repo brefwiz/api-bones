@@ -352,4 +352,36 @@ mod tests {
         let result: Result<CorrelationId, _> = serde_json::from_str(r#""""#);
         assert!(result.is_err());
     }
+
+    // -----------------------------------------------------------------------
+    // Coverage gaps: new_random, new_id, AsRef<str>
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn new_random_produces_valid_id() {
+        let id = CorrelationId::new_random();
+        assert!(!id.as_str().is_empty());
+        assert!(CorrelationId::new(id.as_str()).is_ok());
+    }
+
+    #[test]
+    fn new_id_produces_valid_id() {
+        let id = CorrelationId::new_id();
+        assert_eq!(id.as_str().len(), 36);
+    }
+
+    #[test]
+    fn as_ref_str() {
+        let id = CorrelationId::new("corr-ref").unwrap();
+        let s: &str = id.as_ref();
+        assert_eq!(s, "corr-ref");
+    }
+
+    // Coverage gap: CorrelationIdError Display variants
+    #[test]
+    fn error_display_all_variants() {
+        assert!(!CorrelationIdError::Empty.to_string().is_empty());
+        assert!(!CorrelationIdError::TooLong.to_string().is_empty());
+        assert!(!CorrelationIdError::InvalidChars.to_string().is_empty());
+    }
 }

@@ -594,4 +594,31 @@ mod tests {
         let req = GetItems;
         require_idempotent(&req);
     }
+
+    // -----------------------------------------------------------------------
+    // RetryAfterParseError – Display
+    // -----------------------------------------------------------------------
+
+    #[cfg(all(any(feature = "std", feature = "alloc"), feature = "chrono"))]
+    #[test]
+    fn retry_after_parse_error_display() {
+        let err: Result<RetryAfter, _> = "not-a-valid-date-or-number".parse();
+        let e = err.unwrap_err();
+        let s = e.to_string();
+        assert!(s.contains("invalid Retry-After"));
+    }
+
+    // -----------------------------------------------------------------------
+    // std::error::Error::source for RetryAfterParseError
+    // -----------------------------------------------------------------------
+
+    #[cfg(all(feature = "std", feature = "chrono"))]
+    #[test]
+    fn retry_after_parse_error_source() {
+        use std::error::Error;
+        let err: Result<RetryAfter, _> = "not-a-date".parse();
+        let e = err.unwrap_err();
+        // source() should return the underlying chrono parse error
+        assert!(e.source().is_some());
+    }
 }

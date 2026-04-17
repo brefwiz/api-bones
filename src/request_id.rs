@@ -250,4 +250,36 @@ mod tests {
         let result: Result<RequestId, _> = serde_json::from_str(r#""not-a-uuid""#);
         assert!(result.is_err());
     }
+
+    // -----------------------------------------------------------------------
+    // Coverage gaps: RequestIdParseError Display, source, RequestId::as_str
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn request_id_as_str() {
+        let id = RequestId::from_uuid(uuid::Uuid::nil());
+        assert_eq!(id.as_str(), "00000000-0000-0000-0000-000000000000");
+    }
+
+    #[test]
+    fn parse_error_display() {
+        let err = "not-a-uuid".parse::<RequestId>().unwrap_err();
+        let s = err.to_string();
+        assert!(s.contains("invalid request ID"));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn parse_error_source() {
+        use std::error::Error as _;
+        let err = "not-a-uuid".parse::<RequestId>().unwrap_err();
+        assert!(err.source().is_some());
+    }
+
+    #[test]
+    fn try_from_string_valid() {
+        let s = "550e8400-e29b-41d4-a716-446655440000".to_owned();
+        let id = RequestId::try_from(s).unwrap();
+        assert_eq!(id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+    }
 }
