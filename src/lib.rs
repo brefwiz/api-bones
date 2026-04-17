@@ -213,8 +213,6 @@ pub use idempotency::{IdempotencyKey, IdempotencyKeyError};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use links::{Link, Links};
 pub use method::HttpMethod;
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use models::ErrorResponse;
 pub use pagination::PaginationParams;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use pagination::{

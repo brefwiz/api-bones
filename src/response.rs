@@ -11,7 +11,7 @@
 //!     "timestamp": "2026-04-06T19:00:00Z",
 //!     "version": "1.4.0"
 //!   },
-//!   "links": { "self": "/resources/abc" }
+//!   "links": [{ "rel": "self", "href": "/resources/abc" }]
 //! }
 //! ```
 //!
@@ -33,6 +33,7 @@ use alloc::string::String;
 use serde::{Deserialize, Serialize};
 
 use crate::common::Timestamp;
+use crate::links::Links;
 
 // ---------------------------------------------------------------------------
 // ResponseMeta
@@ -214,92 +215,6 @@ impl proptest::arbitrary::Arbitrary for ResponseMeta {
 }
 
 // ---------------------------------------------------------------------------
-// Links
-// ---------------------------------------------------------------------------
-
-/// Hypermedia links included in an [`ApiResponse`].
-///
-/// Inspired by the [JSON:API `links` object](https://jsonapi.org/format/#document-links).
-/// All fields are optional — include only the links that are meaningful for
-/// the specific resource.
-#[derive(Debug, Clone, PartialEq, Default)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
-#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
-pub struct Links {
-    /// The canonical URL for this resource.
-    #[cfg_attr(
-        feature = "serde",
-        serde(rename = "self", default, skip_serializing_if = "Option::is_none")
-    )]
-    pub self_link: Option<String>,
-
-    /// URL to the next page (for paginated responses).
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    pub next: Option<String>,
-
-    /// URL to the previous page (for paginated responses).
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    pub prev: Option<String>,
-}
-
-impl Links {
-    /// Create an empty `Links`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use api_bones::response::Links;
-    ///
-    /// let links = Links::new();
-    /// assert!(links.self_link.is_none());
-    /// assert!(links.next.is_none());
-    /// ```
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set the `self` link (builder-style).
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use api_bones::response::Links;
-    ///
-    /// let links = Links::new().self_link("/resources/1");
-    /// assert_eq!(links.self_link.as_deref(), Some("/resources/1"));
-    /// ```
-    #[must_use]
-    pub fn self_link(mut self, url: impl Into<String>) -> Self {
-        self.self_link = Some(url.into());
-        self
-    }
-
-    /// Set the `next` link (builder-style).
-    #[must_use]
-    pub fn next(mut self, url: impl Into<String>) -> Self {
-        self.next = Some(url.into());
-        self
-    }
-
-    /// Set the `prev` link (builder-style).
-    #[must_use]
-    pub fn prev(mut self, url: impl Into<String>) -> Self {
-        self.prev = Some(url.into());
-        self
-    }
-}
-
-// ---------------------------------------------------------------------------
 // ApiResponse
 // ---------------------------------------------------------------------------
 
@@ -378,10 +293,11 @@ impl<T> ApiResponseBuilder<T> {
     /// # Examples
     ///
     /// ```rust
-    /// use api_bones::response::{ApiResponse, Links};
+    /// use api_bones::response::ApiResponse;
+    /// use api_bones::links::{Link, Links};
     ///
     /// let response: ApiResponse<&str> = ApiResponse::builder("hi")
-    ///     .links(Links::new().self_link("/items/1"))
+    ///     .links(Links::new().push(Link::self_link("/items/1")))
     ///     .build();
     /// assert!(response.links.is_some());
     /// ```
@@ -461,29 +377,6 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Links construction
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn links_new_is_empty() {
-        let l = Links::new();
-        assert!(l.self_link.is_none());
-        assert!(l.next.is_none());
-        assert!(l.prev.is_none());
-    }
-
-    #[test]
-    fn links_builder_chain() {
-        let l = Links::new()
-            .self_link("/resources/1")
-            .next("/resources?page=2")
-            .prev("/resources?page=0");
-        assert_eq!(l.self_link.as_deref(), Some("/resources/1"));
-        assert_eq!(l.next.as_deref(), Some("/resources?page=2"));
-        assert_eq!(l.prev.as_deref(), Some("/resources?page=0"));
-    }
-
-    // -----------------------------------------------------------------------
     // ApiResponse construction
     // -----------------------------------------------------------------------
 
@@ -497,8 +390,9 @@ mod tests {
 
     #[test]
     fn api_response_builder_with_meta_and_links() {
+        use crate::links::{Link, Links};
         let meta = ResponseMeta::new().request_id("r1").version("2.0");
-        let links = Links::new().self_link("/items/1");
+        let links = Links::new().push(Link::self_link("/items/1"));
         let r: ApiResponse<&str> = ApiResponse::builder("payload")
             .meta(meta)
             .links(links)
@@ -507,7 +401,11 @@ mod tests {
         assert_eq!(r.meta.request_id.as_deref(), Some("r1"));
         assert_eq!(r.meta.version.as_deref(), Some("2.0"));
         assert_eq!(
-            r.links.as_ref().unwrap().self_link.as_deref(),
+            r.links
+                .as_ref()
+                .unwrap()
+                .find("self")
+                .map(|l| l.href.as_str()),
             Some("/items/1")
         );
     }
@@ -540,8 +438,9 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn api_response_serde_round_trip_full() {
+        use crate::links::{Link, Links};
         let meta = ResponseMeta::new().request_id("abc").version("1.0");
-        let links = Links::new().self_link("/x");
+        let links = Links::new().push(Link::self_link("/x"));
         let r: ApiResponse<String> = ApiResponse::builder("hello".to_string())
             .meta(meta)
             .links(links)
@@ -549,7 +448,8 @@ mod tests {
         let json = serde_json::to_value(&r).unwrap();
         assert_eq!(json["data"], "hello");
         assert_eq!(json["meta"]["request_id"], "abc");
-        assert_eq!(json["links"]["self"], "/x");
+        // links::Links serializes as a transparent array
+        assert!(json["links"].is_array());
         let back: ApiResponse<String> = serde_json::from_value(json).unwrap();
         assert_eq!(back, r);
     }
@@ -562,33 +462,5 @@ mod tests {
         assert!(json.get("timestamp").is_none());
         assert!(json.get("version").is_none());
         assert_eq!(json["request_id"], "id1");
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn links_omits_none_fields() {
-        let l = Links::new().self_link("/a");
-        let json = serde_json::to_value(&l).unwrap();
-        assert!(json.get("next").is_none());
-        assert!(json.get("prev").is_none());
-        assert_eq!(json["self"], "/a");
-    }
-
-    #[cfg(feature = "serde")]
-    #[test]
-    fn snapshot_api_response_full() {
-        let meta = ResponseMeta::new().request_id("req-xyz").version("1.4.0");
-        let links = Links::new().self_link("/items/1").next("/items?after=1");
-        let r: ApiResponse<serde_json::Value> = ApiResponse::builder(serde_json::json!({"id": 1}))
-            .meta(meta)
-            .links(links)
-            .build();
-        let json = serde_json::to_value(&r).unwrap();
-        let expected = serde_json::json!({
-            "data": {"id": 1},
-            "meta": {"request_id": "req-xyz", "version": "1.4.0"},
-            "links": {"self": "/items/1", "next": "/items?after=1"}
-        });
-        assert_eq!(json, expected);
     }
 }
