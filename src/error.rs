@@ -3121,5 +3121,4 @@ mod axum_tests {
         assert_eq!(err.detail, "Rate limited");
         assert!(err.rate_limit.is_some());
     }
-
 }
