@@ -27,6 +27,8 @@
 //!   `Some(1..=100)`, consistent with the domain constraints.
 //! - `SearchParams::query` is a non-empty string of at most 500 bytes.
 
+use std::collections::BTreeMap;
+
 use fake::{Dummy, Fake, Faker};
 use rand::Rng;
 
@@ -132,7 +134,7 @@ impl Dummy<Faker> for crate::error::ApiError {
             rate_limit: None,
             source: None,
             causes: vec![],
-            extensions: Default::default(),
+            extensions: BTreeMap::default(),
         }
     }
 }

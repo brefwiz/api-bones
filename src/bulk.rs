@@ -14,7 +14,7 @@
 //!
 //! let results: Vec<BulkItemResult<String>> = vec![
 //!     BulkItemResult::Success { data: "ok".to_string() },
-//!     BulkItemResult::Failure { index: 1, error: ApiError::not_found("item 2 not found") },
+//!     BulkItemResult::Failure { index: 1, error: Box::new(ApiError::not_found("item 2 not found")) },
 //! ];
 //! let response: BulkResponse<String> = BulkResponse { results };
 //! assert_eq!(response.succeeded_count(), 1);
@@ -81,7 +81,7 @@ pub enum BulkItemResult<T> {
         /// Zero-based index of the item in the original [`BulkRequest::items`] slice.
         index: usize,
         /// The error describing why processing failed.
-        error: ApiError,
+        error: Box<ApiError>,
     },
 }
 
@@ -111,7 +111,7 @@ impl<T> BulkItemResult<T> {
     ///
     /// let result: BulkItemResult<i32> = BulkItemResult::Failure {
     ///     index: 0,
-    ///     error: ApiError::not_found("missing"),
+    ///     error: Box::new(ApiError::not_found("missing")),
     /// };
     /// assert!(result.is_failure());
     /// ```
@@ -169,7 +169,7 @@ impl<T> BulkResponse<T> {
     ///
     /// let response: BulkResponse<i32> = BulkResponse {
     ///     results: vec![
-    ///         BulkItemResult::Failure { index: 0, error: ApiError::not_found("gone") },
+    ///         BulkItemResult::Failure { index: 0, error: Box::new(ApiError::not_found("gone")) },
     ///     ],
     /// };
     /// assert_eq!(response.failed_count(), 1);
@@ -190,7 +190,7 @@ impl<T> BulkResponse<T> {
     /// let response: BulkResponse<i32> = BulkResponse {
     ///     results: vec![
     ///         BulkItemResult::Success { data: 1 },
-    ///         BulkItemResult::Failure { index: 1, error: ApiError::not_found("nope") },
+    ///         BulkItemResult::Failure { index: 1, error: Box::new(ApiError::not_found("nope")) },
     ///     ],
     /// };
     /// assert!(response.has_failures());
@@ -247,7 +247,7 @@ mod tests {
     fn bulk_item_result_failure_is_failure() {
         let r: BulkItemResult<i32> = BulkItemResult::Failure {
             index: 0,
-            error: make_error(),
+            error: Box::new(make_error()),
         };
         assert!(r.is_failure());
         assert!(!r.is_success());
@@ -276,11 +276,11 @@ mod tests {
             results: vec![
                 BulkItemResult::Failure {
                     index: 0,
-                    error: make_error(),
+                    error: Box::new(make_error()),
                 },
                 BulkItemResult::Failure {
                     index: 1,
-                    error: make_error(),
+                    error: Box::new(make_error()),
                 },
             ],
         };
@@ -298,7 +298,7 @@ mod tests {
                 },
                 BulkItemResult::Failure {
                     index: 1,
-                    error: make_error(),
+                    error: Box::new(make_error()),
                 },
                 BulkItemResult::Success {
                     data: "also ok".to_string(),
@@ -352,7 +352,7 @@ mod tests {
     fn bulk_item_result_failure_serde_round_trip() {
         let r: BulkItemResult<i32> = BulkItemResult::Failure {
             index: 3,
-            error: make_error(),
+            error: Box::new(make_error()),
         };
         let json = serde_json::to_value(&r).unwrap();
         assert_eq!(json["status"], "failure");
@@ -371,7 +371,7 @@ mod tests {
                 },
                 BulkItemResult::Failure {
                     index: 1,
-                    error: make_error(),
+                    error: Box::new(make_error()),
                 },
             ],
         };
@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn bulk_item_result_failure_uses_api_error() {
         let error = ApiError::new(ErrorCode::ValidationFailed, "bad input");
-        let r: BulkItemResult<()> = BulkItemResult::Failure { index: 0, error };
+        let r: BulkItemResult<()> = BulkItemResult::Failure { index: 0, error: Box::new(error) };
         if let BulkItemResult::Failure { error, .. } = &r {
             assert_eq!(error.code, ErrorCode::ValidationFailed);
         } else {
