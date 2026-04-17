@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-04-08
+
+### Added
+
+- `ProblemJson` — RFC 7807 / 9457 wire-format response type with flat extension members
+  - Fields: `type`, `title`, `status`, `detail`, `instance`, `extensions` (flattened `HashMap`)
+  - `ProblemJson::new(type, title, status, detail)` constructor
+  - `ProblemJson::with_instance(uri)` builder method
+  - `ProblemJson::extend(key, value)` for inserting extension members (e.g. `trace_id`)
+  - `From<ApiError> for ProblemJson` — converts `request_id` → `instance`, `errors` → extension
+  - `IntoResponse` for `ProblemJson` (requires `axum` feature) with `application/problem+json` Content-Type
+  - `utoipa::ToSchema` and `schemars::JsonSchema` derives (requires respective features)
+  - `problem_json` runnable example
+
 ## [1.7.0] - 2026-04-08
 
 ### Fixed

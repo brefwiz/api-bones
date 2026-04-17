@@ -1,6 +1,6 @@
 [package]
 name = "api-bones"
-version = "1.7.0"
+version = "1.8.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "LicenseRef-Proprietary"
@@ -75,6 +75,10 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
 
 [[example]]
 name = "axum_error_handling"
+required-features = ["axum"]
+
+[[example]]
+name = "problem_json"
 required-features = ["axum"]
 
 [[example]]

@@ -16,11 +16,13 @@
 //!
 //! Content-Type: `application/problem+json`
 
+#[cfg(all(not(feature = "std"), feature = "alloc", feature = "serde"))]
+use alloc::collections::BTreeMap;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{borrow::ToOwned, format, string::String, sync::Arc, vec::Vec};
 use core::fmt;
 #[cfg(feature = "std")]
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -1956,6 +1958,299 @@ mod tests {
 }
 
 // ---------------------------------------------------------------------------
+// ProblemJson — RFC 7807 / 9457 wire-format response type
+// ---------------------------------------------------------------------------
+
+/// RFC 7807 / 9457 Problem Details response body with optional extension members.
+///
+/// Unlike [`ApiError`] (which carries in-process state such as `source` and
+/// `Arc`), `ProblemJson` is a pure serialization type — every field maps
+/// directly to the wire format.
+///
+/// The `extensions` map serializes **flat** into the JSON object, so arbitrary
+/// key-value members (e.g. `trace_id`, `request_id`) appear at the top level
+/// alongside the standard fields:
+///
+/// ```json
+/// {
+///   "type":     "urn:api-bones:error:resource-not-found",
+///   "title":    "Resource Not Found",
+///   "status":   404,
+///   "detail":   "Booking 42 not found",
+///   "instance": "urn:uuid:01234567-89ab-cdef-0123-456789abcdef",
+///   "trace_id": "abc123"
+/// }
+/// ```
+///
+/// Content-Type is `application/problem+json`.
+///
+/// # `no_std` support
+///
+/// Available when either `std` or `alloc` is enabled together with `serde`
+/// (required for `serde_json::Value` and `BTreeMap`).
+/// Uses [`BTreeMap`](alloc::collections::BTreeMap) internally so heap
+/// allocation is the only requirement — `std` is not needed.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::{ApiError, ErrorCode, ProblemJson};
+///
+/// let err = ApiError::not_found("booking 42 not found");
+/// let problem = ProblemJson::from(err);
+/// assert_eq!(problem.status, 404);
+/// assert_eq!(problem.title, "Resource Not Found");
+/// ```
+///
+/// Adding extension members:
+///
+/// ```rust
+/// use api_bones::error::{ApiError, ProblemJson};
+///
+/// let mut problem = ProblemJson::from(ApiError::internal("db timeout"));
+/// problem.extensions.insert("trace_id".into(), "abc123".into());
+/// assert_eq!(problem.extensions["trace_id"], "abc123");
+/// ```
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
+pub struct ProblemJson {
+    /// Machine-readable error type URI (RFC 9457 §3.1.1 `type`).
+    #[cfg_attr(feature = "serde", serde(rename = "type"))]
+    pub r#type: String,
+    /// Human-friendly summary (RFC 9457 §3.1.2 `title`).
+    pub title: String,
+    /// HTTP status code (RFC 9457 §3.1.3 `status`).
+    pub status: u16,
+    /// Human-readable specifics (RFC 9457 §3.1.4 `detail`).
+    pub detail: String,
+    /// URI identifying this occurrence (RFC 9457 §3.1.5 `instance`).
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub instance: Option<String>,
+    /// Flat extension members (e.g. `trace_id`, `request_id`).
+    ///
+    /// Serialized **inline** at the top level of the JSON object via
+    /// `#[serde(flatten)]`. Keys must not collide with the standard fields.
+    /// Uses [`BTreeMap`](alloc::collections::BTreeMap) for `no_std` compatibility.
+    #[cfg_attr(feature = "serde", serde(flatten))]
+    #[cfg_attr(feature = "schemars", schemars(skip))]
+    #[cfg_attr(feature = "arbitrary", arbitrary(default))]
+    #[cfg_attr(
+        feature = "proptest",
+        proptest(strategy = "proptest::strategy::Just(BTreeMap::new())")
+    )]
+    pub extensions: BTreeMap<String, serde_json::Value>,
+}
+
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+impl ProblemJson {
+    /// Build a `ProblemJson` directly from its components.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ProblemJson;
+    ///
+    /// let p = ProblemJson::new(
+    ///     "urn:api-bones:error:bad-request",
+    ///     "Bad Request",
+    ///     400,
+    ///     "missing field `email`",
+    /// );
+    /// assert_eq!(p.status, 400);
+    /// assert!(p.extensions.is_empty());
+    /// ```
+    #[must_use]
+    pub fn new(
+        r#type: impl Into<String>,
+        title: impl Into<String>,
+        status: u16,
+        detail: impl Into<String>,
+    ) -> Self {
+        Self {
+            r#type: r#type.into(),
+            title: title.into(),
+            status,
+            detail: detail.into(),
+            instance: None,
+            extensions: BTreeMap::new(),
+        }
+    }
+
+    /// Set the `instance` field (RFC 9457 §3.1.5).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ProblemJson;
+    ///
+    /// let p = ProblemJson::new("urn:api-bones:error:bad-request", "Bad Request", 400, "oops")
+    ///     .with_instance("urn:uuid:00000000-0000-0000-0000-000000000000");
+    /// assert!(p.instance.is_some());
+    /// ```
+    #[must_use]
+    pub fn with_instance(mut self, instance: impl Into<String>) -> Self {
+        self.instance = Some(instance.into());
+        self
+    }
+
+    /// Insert an extension member.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::ProblemJson;
+    ///
+    /// let mut p = ProblemJson::new("urn:api-bones:error:bad-request", "Bad Request", 400, "oops");
+    /// p.extend("trace_id", "abc123");
+    /// assert_eq!(p.extensions["trace_id"], "abc123");
+    /// ```
+    pub fn extend(&mut self, key: impl Into<String>, value: impl Into<serde_json::Value>) {
+        self.extensions.insert(key.into(), value.into());
+    }
+}
+
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+impl From<ApiError> for ProblemJson {
+    /// Convert an [`ApiError`] into a `ProblemJson`.
+    ///
+    /// - `code` → `type` via [`ErrorCode::urn`]
+    /// - `request_id` (UUID) → `instance` as `"urn:uuid:<id>"`
+    /// - `errors` (validation) → `"errors"` extension member
+    /// - `source` is dropped (not part of the wire format)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode, ProblemJson};
+    ///
+    /// let err = ApiError::new(ErrorCode::Forbidden, "not allowed");
+    /// let p = ProblemJson::from(err);
+    /// assert_eq!(p.status, 403);
+    /// assert_eq!(p.title, "Forbidden");
+    /// ```
+    fn from(err: ApiError) -> Self {
+        let mut p = Self::new(err.code.urn(), err.title, err.status, err.detail);
+
+        #[cfg(feature = "uuid")]
+        if let Some(id) = err.request_id {
+            p.instance = Some(format!("urn:uuid:{id}"));
+        }
+
+        if !err.errors.is_empty() {
+            let errs =
+                serde_json::to_value(&err.errors).unwrap_or(serde_json::Value::Array(vec![]));
+            p.extensions.insert("errors".into(), errs);
+        }
+
+        p
+    }
+}
+
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde", test))]
+mod problem_json_tests {
+    use super::*;
+
+    #[test]
+    fn new_sets_fields_and_empty_extensions() {
+        let p = ProblemJson::new(
+            "urn:api-bones:error:bad-request",
+            "Bad Request",
+            400,
+            "missing email",
+        );
+        assert_eq!(p.r#type, "urn:api-bones:error:bad-request");
+        assert_eq!(p.title, "Bad Request");
+        assert_eq!(p.status, 400);
+        assert_eq!(p.detail, "missing email");
+        assert!(p.instance.is_none());
+        assert!(p.extensions.is_empty());
+    }
+
+    #[test]
+    fn with_instance_sets_instance() {
+        let p = ProblemJson::new("urn:t", "T", 400, "d")
+            .with_instance("urn:uuid:00000000-0000-0000-0000-000000000000");
+        assert_eq!(
+            p.instance.as_deref(),
+            Some("urn:uuid:00000000-0000-0000-0000-000000000000")
+        );
+    }
+
+    #[test]
+    fn extend_inserts_entry() {
+        let mut p = ProblemJson::new("urn:t", "T", 400, "d");
+        p.extend("trace_id", "abc123");
+        assert_eq!(p.extensions["trace_id"], "abc123");
+    }
+
+    #[test]
+    fn from_api_error_maps_standard_fields() {
+        #[cfg(feature = "std")]
+        let _ = super::super::error_type_mode(); // ensure mode initialised
+        let err = ApiError::new(ErrorCode::Forbidden, "not allowed");
+        let p = ProblemJson::from(err);
+        assert_eq!(p.status, 403);
+        assert_eq!(p.title, "Forbidden");
+        assert_eq!(p.detail, "not allowed");
+    }
+
+    #[test]
+    fn from_api_error_maps_validation_errors_to_extension() {
+        let err = ApiError::new(ErrorCode::ValidationFailed, "bad input").with_errors(vec![
+            ValidationError {
+                field: "/email".into(),
+                message: "invalid".into(),
+                rule: None,
+            },
+        ]);
+        let p = ProblemJson::from(err);
+        assert!(p.extensions.contains_key("errors"));
+        let errs = p.extensions["errors"].as_array().unwrap();
+        assert_eq!(errs.len(), 1);
+        assert_eq!(errs[0]["field"], "/email");
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn from_api_error_maps_request_id_to_instance() {
+        let id = uuid::Uuid::nil();
+        let err = ApiError::new(ErrorCode::BadRequest, "x").with_request_id(id);
+        let p = ProblemJson::from(err);
+        assert_eq!(
+            p.instance.as_deref(),
+            Some("urn:uuid:00000000-0000-0000-0000-000000000000")
+        );
+    }
+
+    #[test]
+    fn serializes_extensions_flat() {
+        let mut p = ProblemJson::new("urn:t", "T", 400, "d");
+        p.extend("trace_id", "xyz");
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        // extension must appear at top level, not nested
+        assert_eq!(json["trace_id"], "xyz");
+        assert!(json.get("extensions").is_none());
+    }
+
+    #[test]
+    fn instance_omitted_when_none() {
+        let p = ProblemJson::new("urn:t", "T", 400, "d");
+        let json: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
+        assert!(json.get("instance").is_none());
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Axum IntoResponse integration
 // ---------------------------------------------------------------------------
 
@@ -1973,6 +2268,22 @@ mod axum_impl {
             // cannot fail, so expect() is safe here and avoids a dead branch.
             let body = serde_json::to_string(&self).expect("ApiError serialization is infallible");
 
+            let mut response = (status, body).into_response();
+            response.headers_mut().insert(
+                http::header::CONTENT_TYPE,
+                HeaderValue::from_static("application/problem+json"),
+            );
+            response
+        }
+    }
+
+    #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
+    impl IntoResponse for super::ProblemJson {
+        fn into_response(self) -> Response {
+            let status =
+                StatusCode::from_u16(self.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            let body =
+                serde_json::to_string(&self).expect("ProblemJson serialization is infallible");
             let mut response = (status, body).into_response();
             response.headers_mut().insert(
                 http::header::CONTENT_TYPE,
@@ -2037,5 +2348,53 @@ mod axum_tests {
     fn error_code_schema_name() {
         use utoipa::ToSchema as _;
         assert_eq!(ErrorCode::name(), "ErrorCode");
+    }
+
+    #[cfg(feature = "serde")]
+    #[tokio::test]
+    async fn problem_json_into_response_status_and_content_type() {
+        use super::ProblemJson;
+        let p = ProblemJson::new("urn:api-bones:error:not-found", "Not Found", 404, "gone");
+        let response = p.into_response();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/problem+json"
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[tokio::test]
+    async fn problem_json_into_response_body_with_extension() {
+        use super::ProblemJson;
+        let mut p = ProblemJson::new(
+            "urn:api-bones:error:bad-request",
+            "Bad Request",
+            400,
+            "missing field",
+        );
+        p.extend("trace_id", "abc123");
+        let response = p.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["type"], "urn:api-bones:error:bad-request");
+        assert_eq!(json["status"], 400);
+        assert_eq!(json["trace_id"], "abc123");
+        assert!(json.get("extensions").is_none());
+    }
+
+    #[cfg(feature = "serde")]
+    #[tokio::test]
+    async fn problem_json_instance_omitted_when_none() {
+        use super::ProblemJson;
+        let p = ProblemJson::new("urn:t", "T", 500, "d");
+        let response = p.into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json.get("instance").is_none());
     }
 }
