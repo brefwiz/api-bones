@@ -28,6 +28,9 @@ arbitrary = ["dep:arbitrary", "uuid?/arbitrary"]
 proptest = ["dep:proptest", "dep:proptest-derive"]
 fake = ["dep:fake", "dep:rand"]
 schemars = ["dep:schemars", "schemars/uuid1", "schemars/chrono"]
+## Enables `ApiError::from_response` to extract RFC 9457 Problem Details from
+## a `reqwest::Response`. Requires `std` and `serde`.
+reqwest = ["dep:reqwest", "std", "serde"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
@@ -47,6 +50,7 @@ validator = { version = "0.19", features = ["derive"], optional = true }
 fake = { version = "2", optional = true }
 rand = { version = "0.8", optional = true }
 schemars = { version = "0.8", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
 
 [lints.rust]
 # PLATFORM-008: Zero-Tolerance Security Linting

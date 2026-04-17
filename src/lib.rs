@@ -131,6 +131,8 @@ pub use content_type::ContentType;
 pub use error::ErrorCode;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use error::ErrorTypeMode;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use error::HttpError;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
 pub use error::ProblemJson;
 #[cfg(any(feature = "std", feature = "alloc"))]
