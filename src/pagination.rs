@@ -148,6 +148,7 @@ impl Default for PaginationParams {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl PaginationParams {
     /// Create validated pagination params.
     ///
@@ -178,7 +179,9 @@ impl PaginationParams {
             offset: Some(offset),
         })
     }
+}
 
+impl PaginationParams {
     /// Resolved limit value (falls back to the default of 20).
     ///
     /// # Examples
