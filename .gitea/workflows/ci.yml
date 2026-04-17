@@ -43,16 +43,10 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Cache Rust registry + target
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}-v1
-          restore-keys: ${{ runner.os }}-cargo-clippy-
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run Clippy
         run: make ci-lint
 
@@ -66,16 +60,10 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Cache Rust registry + target
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-cargo-no-std-${{ hashFiles('**/Cargo.lock') }}-v1
-          restore-keys: ${{ runner.os }}-cargo-no-std-
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check no_std (core types only)
         run: cargo check --no-default-features
       - name: Check no_std + alloc
@@ -91,15 +79,10 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Cache Rust registry
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}-v1
-          restore-keys: ${{ runner.os }}-cargo-registry-
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests
         run: make ci-test
 
@@ -113,15 +96,10 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Cache Rust registry
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}-v1
-          restore-keys: ${{ runner.os }}-cargo-registry-
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check coverage
         run: make ci-coverage
 
@@ -163,16 +141,10 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Cache Rust registry + target
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: ${{ runner.os }}-cargo-publish-${{ hashFiles('**/Cargo.lock') }}-v1
-          restore-keys: ${{ runner.os }}-cargo-publish-
+          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build
         run: cargo build --lib --release
