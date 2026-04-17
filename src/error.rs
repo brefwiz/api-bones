@@ -609,6 +609,87 @@ impl utoipa::ToSchema for ErrorCode {
 }
 
 // ---------------------------------------------------------------------------
+// TryFrom<u16> / TryFrom<http::StatusCode> for ErrorCode
+// ---------------------------------------------------------------------------
+
+/// Attempt to convert an HTTP status code (as `u16`) to its canonical
+/// [`ErrorCode`] variant.
+///
+/// Only 4xx and 5xx codes that have a direct mapping return `Ok`; all other
+/// codes (1xx, 2xx, 3xx, or unmapped 4xx/5xx) return `Err(())`.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::ErrorCode;
+///
+/// assert_eq!(ErrorCode::try_from(404_u16), Ok(ErrorCode::ResourceNotFound));
+/// assert_eq!(ErrorCode::try_from(500_u16), Ok(ErrorCode::InternalServerError));
+/// assert!(ErrorCode::try_from(200_u16).is_err());
+/// assert!(ErrorCode::try_from(301_u16).is_err());
+/// ```
+impl TryFrom<u16> for ErrorCode {
+    type Error = ();
+
+    fn try_from(status: u16) -> Result<Self, Self::Error> {
+        match status {
+            400 => Ok(Self::BadRequest),
+            401 => Ok(Self::Unauthorized),
+            403 => Ok(Self::Forbidden),
+            404 => Ok(Self::ResourceNotFound),
+            405 => Ok(Self::MethodNotAllowed),
+            406 => Ok(Self::NotAcceptable),
+            408 => Ok(Self::RequestTimeout),
+            409 => Ok(Self::Conflict),
+            410 => Ok(Self::Gone),
+            412 => Ok(Self::PreconditionFailed),
+            413 => Ok(Self::PayloadTooLarge),
+            415 => Ok(Self::UnsupportedMediaType),
+            422 => Ok(Self::UnprocessableEntity),
+            428 => Ok(Self::PreconditionRequired),
+            429 => Ok(Self::RateLimited),
+            431 => Ok(Self::RequestHeaderFieldsTooLarge),
+            500 => Ok(Self::InternalServerError),
+            501 => Ok(Self::NotImplemented),
+            502 => Ok(Self::BadGateway),
+            503 => Ok(Self::ServiceUnavailable),
+            504 => Ok(Self::GatewayTimeout),
+            _ => Err(()),
+        }
+    }
+}
+
+/// Attempt to convert an [`http::StatusCode`] to its canonical [`ErrorCode`]
+/// variant.
+///
+/// Delegates to [`TryFrom<u16>`] for [`ErrorCode`]; see that impl for the
+/// full mapping. Non-error status codes (1xx, 2xx, 3xx) and unmapped 4xx/5xx
+/// codes return `Err(())`.
+///
+/// Requires the `http` feature.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::ErrorCode;
+/// use http::StatusCode;
+///
+/// assert_eq!(
+///     ErrorCode::try_from(StatusCode::NOT_FOUND),
+///     Ok(ErrorCode::ResourceNotFound),
+/// );
+/// assert!(ErrorCode::try_from(StatusCode::OK).is_err());
+/// ```
+#[cfg(feature = "http")]
+impl TryFrom<http::StatusCode> for ErrorCode {
+    type Error = ();
+
+    fn try_from(status: http::StatusCode) -> Result<Self, Self::Error> {
+        Self::try_from(status.as_u16())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Validation error
 // ---------------------------------------------------------------------------
 
@@ -1528,6 +1609,93 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_error_type_mode();
         ModeGuard(guard)
+    }
+
+    // -----------------------------------------------------------------------
+    // TryFrom<u16> for ErrorCode — issue #152
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn error_code_try_from_u16_non_error_returns_err() {
+        for code in [100_u16, 200, 204, 301, 302, 304] {
+            assert!(
+                ErrorCode::try_from(code).is_err(),
+                "expected Err for status {code}"
+            );
+        }
+    }
+
+    #[test]
+    fn error_code_try_from_u16_unmapped_4xx_returns_err() {
+        // e.g. 418 I'm a Teapot — no canonical ErrorCode variant
+        assert!(ErrorCode::try_from(418_u16).is_err());
+    }
+
+    #[test]
+    fn error_code_try_from_u16_roundtrip() {
+        // For every variant whose status_code() maps back uniquely, the
+        // roundtrip ErrorCode -> u16 -> ErrorCode must succeed and match.
+        // Variants that share a status code (e.g. BadRequest/ValidationFailed)
+        // only roundtrip to the canonical (first-matched) variant.
+        let canonical_variants = [
+            ErrorCode::BadRequest,
+            ErrorCode::Unauthorized,
+            ErrorCode::Forbidden,
+            ErrorCode::ResourceNotFound,
+            ErrorCode::MethodNotAllowed,
+            ErrorCode::NotAcceptable,
+            ErrorCode::RequestTimeout,
+            ErrorCode::Conflict,
+            ErrorCode::Gone,
+            ErrorCode::PreconditionFailed,
+            ErrorCode::PayloadTooLarge,
+            ErrorCode::UnsupportedMediaType,
+            ErrorCode::UnprocessableEntity,
+            ErrorCode::PreconditionRequired,
+            ErrorCode::RateLimited,
+            ErrorCode::RequestHeaderFieldsTooLarge,
+            ErrorCode::InternalServerError,
+            ErrorCode::NotImplemented,
+            ErrorCode::BadGateway,
+            ErrorCode::ServiceUnavailable,
+            ErrorCode::GatewayTimeout,
+        ];
+        for variant in &canonical_variants {
+            let status = variant.status_code();
+            let roundtripped =
+                ErrorCode::try_from(status).expect("canonical variant should round-trip");
+            assert_eq!(
+                roundtripped, *variant,
+                "roundtrip failed for {variant:?} (status {status})"
+            );
+        }
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn error_code_try_from_status_code_non_error_returns_err() {
+        use http::StatusCode;
+        assert!(ErrorCode::try_from(StatusCode::OK).is_err());
+        assert!(ErrorCode::try_from(StatusCode::MOVED_PERMANENTLY).is_err());
+    }
+
+    #[cfg(feature = "http")]
+    #[test]
+    fn error_code_try_from_status_code_roundtrip() {
+        use http::StatusCode;
+        let pairs = [
+            (StatusCode::NOT_FOUND, ErrorCode::ResourceNotFound),
+            (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::InternalServerError),
+            (StatusCode::TOO_MANY_REQUESTS, ErrorCode::RateLimited),
+            (StatusCode::UNAUTHORIZED, ErrorCode::Unauthorized),
+        ];
+        for (sc, expected) in &pairs {
+            assert_eq!(
+                ErrorCode::try_from(*sc),
+                Ok(expected.clone()),
+                "failed for {sc}"
+            );
+        }
     }
 
     #[test]
