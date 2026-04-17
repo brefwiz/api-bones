@@ -216,7 +216,9 @@ mod tests {
         for i in 0u8..=255 {
             let encoded = Cursor::encode(&[i]);
             assert!(
-                encoded.chars().all(|ch| ch.is_alphanumeric() || ch == '-' || ch == '_'),
+                encoded
+                    .chars()
+                    .all(|ch| ch.is_alphanumeric() || ch == '-' || ch == '_'),
                 "non-url-safe character in {encoded}"
             );
         }

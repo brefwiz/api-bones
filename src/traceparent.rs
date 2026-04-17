@@ -617,7 +617,11 @@ mod tests {
 
     #[test]
     fn parse_rejects_too_few_fields() {
-        assert!("00-4bf92f3577b34da6a3ce929d0e0e4736".parse::<TraceContext>().is_err());
+        assert!(
+            "00-4bf92f3577b34da6a3ce929d0e0e4736"
+                .parse::<TraceContext>()
+                .is_err()
+        );
     }
 
     #[test]

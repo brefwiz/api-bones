@@ -365,9 +365,7 @@ impl core::str::FromStr for RetryAfter {
         {
             chrono::DateTime::parse_from_rfc2822(trimmed)
                 .map(Self::Date)
-                .map_err(|e| {
-                    RetryAfterParseError(RetryAfterParseErrorInner::InvalidDate(e))
-                })
+                .map_err(|e| RetryAfterParseError(RetryAfterParseErrorInner::InvalidDate(e)))
         }
 
         #[cfg(not(feature = "chrono"))]

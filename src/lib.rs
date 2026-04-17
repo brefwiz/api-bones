@@ -84,12 +84,12 @@ pub mod audit;
 pub mod bulk;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod cache;
-#[cfg(feature = "base64")]
-pub mod cursor;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub mod correlation_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod cors;
+#[cfg(feature = "base64")]
+pub mod cursor;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod deprecated;
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -100,10 +100,10 @@ pub mod idempotency;
 pub mod links;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod models;
-#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub mod request_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod range;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub mod request_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod response;
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -112,9 +112,9 @@ pub mod slug;
 pub mod traceparent;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod url;
-pub mod version;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod vary;
+pub mod version;
 
 // Modules available in all configurations; individual types inside are gated
 // where they require `alloc` or `std`.
@@ -125,8 +125,8 @@ pub mod method;
 pub mod pagination;
 pub mod query;
 pub mod ratelimit;
-pub mod status;
 pub mod retry;
+pub mod status;
 
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod content_type;
@@ -157,15 +157,13 @@ pub mod reqwest_ext;
 // Tower middleware (issue #123).
 #[cfg(feature = "tower")]
 pub mod tower_middleware;
-
-#[cfg(feature = "auth")]
-pub use auth::{
-    ApiKeyCredentials, AuthScheme, AuthorizationHeader, BasicCredentials, BearerToken,
-    OAuth2Token, ParseAuthorizationError, ParsePermissionError, ParseScopeError, Permission,
-    Scope,
-};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use audit::AuditInfo;
+#[cfg(feature = "auth")]
+pub use auth::{
+    ApiKeyCredentials, AuthScheme, AuthorizationHeader, BasicCredentials, BearerToken, OAuth2Token,
+    ParseAuthorizationError, ParsePermissionError, ParseScopeError, Permission, Scope,
+};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use bulk::{BulkItemResult, BulkRequest, BulkResponse};
 #[cfg(feature = "uuid")]
@@ -176,10 +174,20 @@ pub use common::new_resource_id;
 pub use common::parse_timestamp;
 // Timestamp is chrono::DateTime when chrono is on (no alloc needed),
 // or String when chrono is off (needs alloc or std).
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use cache::CacheControl;
 #[cfg(any(feature = "chrono", feature = "std", feature = "alloc"))]
 pub use common::Timestamp;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use content_type::ContentType;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use correlation_id::{CorrelationId, CorrelationIdError};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use cors::{CorsHeaders, CorsOrigin};
+#[cfg(feature = "base64")]
+pub use cursor::{Cursor, CursorError};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use deprecated::Deprecated;
 pub use error::ErrorCode;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use error::ErrorTypeMode;
@@ -200,6 +208,8 @@ pub use health::HealthStatus;
 pub use health::ReadinessResponse;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use health::{HealthCheck, LivenessResponse};
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use idempotency::{IdempotencyKey, IdempotencyKeyError};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use links::{Link, Links};
 pub use method::HttpMethod;
@@ -210,41 +220,29 @@ pub use pagination::PaginationParams;
 pub use pagination::{
     CursorPaginatedResponse, CursorPagination, CursorPaginationParams, PaginatedResponse,
 };
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use pagination::{KeysetPaginatedResponse, KeysetPaginationParams};
 pub use query::SortDirection;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use query::{FilterEntry, FilterParams, SearchParams, SortParams};
 #[cfg(any(feature = "std", feature = "alloc"))]
+pub use range::{ByteRange, ContentRange, ParseRangeError, RangeHeader};
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub use ratelimit::RateLimitInfo;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use request_id::{RequestId, RequestIdParseError};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use response::{ApiResponse, ApiResponseBuilder, ResponseMeta};
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use slug::{Slug, SlugError};
-pub use status::StatusCode;
 pub use retry::{BackoffStrategy, Idempotent, RetryPolicy};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use retry::{RetryAfter, RetryAfterParseError};
-#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub use correlation_id::{CorrelationId, CorrelationIdError};
-#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub use idempotency::{IdempotencyKey, IdempotencyKeyError};
-#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub use request_id::{RequestId, RequestIdParseError};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use slug::{Slug, SlugError};
+pub use status::StatusCode;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub use traceparent::{SamplingFlags, SpanId, TraceContext, TraceContextError, TraceId};
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub use cache::CacheControl;
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use cors::{CorsHeaders, CorsOrigin};
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use range::{ByteRange, ContentRange, ParseRangeError, RangeHeader};
+pub use url::{QueryBuilder, UrlBuilder};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use vary::Vary;
-#[cfg(feature = "base64")]
-pub use cursor::{Cursor, CursorError};
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use deprecated::Deprecated;
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use pagination::{KeysetPaginatedResponse, KeysetPaginationParams};
-#[cfg(any(feature = "std", feature = "alloc"))]
-pub use url::{QueryBuilder, UrlBuilder};
 pub use version::{ApiVersion, ApiVersionParseError, SemverTriple};
