@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-04-10
+
+### Fixed
+
+- CI: publish pipeline now correctly publishes all workspace crates (`api-bones-tower`, `api-bones-reqwest`)
+- `api-bones-tower` version aligned to `2.0.1` (was incorrectly left at `0.1.0`)
+
 ## [2.0.0] - 2026-04-09
 
 ### Breaking Changes
