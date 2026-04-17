@@ -253,6 +253,7 @@ impl RetryPolicy {
 /// let date: RetryAfter = "Wed, 21 Oct 2015 07:28:00 GMT".parse().unwrap();
 /// matches!(date, RetryAfter::Date(_));
 /// ```
+#[cfg(any(feature = "chrono", feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RetryAfter {

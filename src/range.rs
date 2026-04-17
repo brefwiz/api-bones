@@ -26,7 +26,6 @@
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{
-    format,
     string::{String, ToString},
     vec::Vec,
 };

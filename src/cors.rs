@@ -30,7 +30,7 @@
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{
-    string::{String, ToString},
+    string::String,
     vec::Vec,
 };
 use core::fmt;
