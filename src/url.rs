@@ -427,6 +427,112 @@ impl QueryBuilder {
         out
     }
 
+    /// Append a key=value pair — alias for [`param`](Self::param).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::url::QueryBuilder;
+    ///
+    /// let qs = QueryBuilder::new().set("limit", 10u32).set("sort", "asc").build();
+    /// assert_eq!(qs, "limit=10&sort=asc");
+    /// ```
+    #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn set(self, key: impl Into<String>, value: impl ToString) -> Self {
+        self.param(key, value)
+    }
+
+    /// Append an optional key=value pair — skipped when `value` is `None`.
+    ///
+    /// Alias for [`maybe_param`](Self::maybe_param).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::url::QueryBuilder;
+    ///
+    /// let qs = QueryBuilder::new()
+    ///     .set("a", 1u32)
+    ///     .set_opt("b", None::<&str>)
+    ///     .set_opt("c", Some("yes"))
+    ///     .build();
+    /// assert_eq!(qs, "a=1&c=yes");
+    /// ```
+    #[must_use]
+    pub fn set_opt(self, key: impl Into<String>, value: Option<impl ToString>) -> Self {
+        self.maybe_param(key, value)
+    }
+
+    /// Flatten a serializable struct's top-level fields as query parameters.
+    ///
+    /// The struct is serialized to a JSON object; each field whose value is not
+    /// `null` is appended as a `key=value` pair. Nested objects and arrays are
+    /// serialized as their JSON representation.
+    ///
+    /// Returns an error when `value` cannot be serialized or is not a JSON object.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::url::QueryBuilder;
+    /// use serde::Serialize;
+    ///
+    /// #[derive(Serialize)]
+    /// struct Params {
+    ///     page: u32,
+    ///     sort: &'static str,
+    ///     filter: Option<&'static str>,
+    /// }
+    ///
+    /// let params = Params { page: 2, sort: "desc", filter: None };
+    /// let qs = QueryBuilder::new()
+    ///     .extend_from_struct(&params)
+    ///     .unwrap()
+    ///     .build();
+    /// assert_eq!(qs, "page=2&sort=desc");
+    /// ```
+    #[cfg(feature = "serde")]
+    pub fn extend_from_struct<T: serde::Serialize>(
+        mut self,
+        value: &T,
+    ) -> Result<Self, serde_json::Error> {
+        let json = serde_json::to_value(value)?;
+        if let serde_json::Value::Object(map) = json {
+            for (k, v) in map {
+                match v {
+                    serde_json::Value::Null => {}
+                    serde_json::Value::String(s) => {
+                        self.params.push((k, s));
+                    }
+                    other => {
+                        self.params.push((k, other.to_string()));
+                    }
+                }
+            }
+        }
+        Ok(self)
+    }
+
+    /// Append the query string to `url` — alias for [`merge_into`](Self::merge_into).
+    ///
+    /// Uses `?` if the URL has no existing query string, or `&` otherwise.
+    /// Returns `url` unchanged when there are no params.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::url::QueryBuilder;
+    ///
+    /// let qs = QueryBuilder::new().set("page", 3u32);
+    /// assert_eq!(qs.merge_into_url("https://api.example.com/items"), "https://api.example.com/items?page=3");
+    /// assert_eq!(qs.merge_into_url("https://api.example.com/items?limit=10"), "https://api.example.com/items?limit=10&page=3");
+    /// ```
+    #[must_use]
+    pub fn merge_into_url(&self, url: &str) -> String {
+        self.merge_into(url)
+    }
+
     /// Return `true` when no parameters have been added.
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -640,5 +746,101 @@ mod tests {
             qb.merge_into("https://example.com/path"),
             "https://example.com/path"
         );
+    }
+
+    // --- set / set_opt / merge_into_url ---
+
+    #[test]
+    fn set_appends_param() {
+        let qs = QueryBuilder::new()
+            .set("limit", 5u32)
+            .set("sort", "asc")
+            .build();
+        assert_eq!(qs, "limit=5&sort=asc");
+    }
+
+    #[test]
+    fn set_opt_skips_none() {
+        let qs = QueryBuilder::new()
+            .set("a", 1u32)
+            .set_opt("b", None::<&str>)
+            .set_opt("c", Some("yes"))
+            .build();
+        assert_eq!(qs, "a=1&c=yes");
+    }
+
+    #[test]
+    fn merge_into_url_no_existing_query() {
+        let qs = QueryBuilder::new().set("page", 3u32);
+        assert_eq!(
+            qs.merge_into_url("https://example.com"),
+            "https://example.com?page=3"
+        );
+    }
+
+    #[test]
+    fn merge_into_url_with_existing_query() {
+        let qs = QueryBuilder::new().set("page", 3u32);
+        assert_eq!(
+            qs.merge_into_url("https://example.com?limit=10"),
+            "https://example.com?limit=10&page=3"
+        );
+    }
+
+    #[test]
+    fn merge_into_url_empty_unchanged() {
+        let qs = QueryBuilder::new();
+        assert_eq!(
+            qs.merge_into_url("https://example.com"),
+            "https://example.com"
+        );
+    }
+
+    // --- extend_from_struct ---
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn extend_from_struct_basic() {
+        use serde::Serialize;
+
+        #[derive(Serialize)]
+        struct Params {
+            page: u32,
+            sort: &'static str,
+            filter: Option<&'static str>,
+        }
+
+        let params = Params {
+            page: 2,
+            sort: "desc",
+            filter: None,
+        };
+        let qs = QueryBuilder::new()
+            .extend_from_struct(&params)
+            .unwrap()
+            .build();
+        // page and sort should appear; filter (None) should be omitted
+        assert!(qs.contains("page=2"), "expected page=2 in {qs}");
+        assert!(qs.contains("sort=desc"), "expected sort=desc in {qs}");
+        assert!(!qs.contains("filter"), "filter should be omitted from {qs}");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn extend_from_struct_preserves_existing_params() {
+        use serde::Serialize;
+
+        #[derive(Serialize)]
+        struct Extra {
+            q: &'static str,
+        }
+
+        let qs = QueryBuilder::new()
+            .set("limit", 10u32)
+            .extend_from_struct(&Extra { q: "rust" })
+            .unwrap()
+            .build();
+        assert!(qs.starts_with("limit=10"), "existing param first: {qs}");
+        assert!(qs.contains("q=rust"), "struct field present: {qs}");
     }
 }
