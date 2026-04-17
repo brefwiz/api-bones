@@ -185,28 +185,36 @@ jobs:
             echo "✅ Token is present (length: ${#CARGO_REGISTRIES_SALINGUE_TOKEN})"
           fi
 
-      - name: Publish crate
+      - name: Publish crates
         env:
           CARGO_REGISTRIES_SALINGUE_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
         run: |
           REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
-          if ! cargo publish --registry "$REGISTRY" --allow-dirty 2>&1 | tee /tmp/publish.log; then
-            if grep -q "already uploaded\|already exists" /tmp/publish.log; then
-              echo "⚠️ Crate already published at this version (expected)"
-              exit 0
-            else
-              echo "❌ Publish failed"
-              cat /tmp/publish.log
-              exit 1
+          publish_one() {
+            PKG=$1
+            if ! cargo publish --registry "$REGISTRY" --allow-dirty --package "$PKG" 2>&1 | tee /tmp/publish.log; then
+              if grep -q "already uploaded\|already exists" /tmp/publish.log; then
+                echo "⚠️ $PKG already published at this version (expected)"
+              else
+                echo "❌ Publish failed for $PKG"
+                cat /tmp/publish.log
+                exit 1
+              fi
             fi
-          fi
+          }
+          publish_one api-bones
+          # Give the registry a moment to index api-bones before dependents are published
+          sleep 10
+          publish_one api-bones-tower
+          publish_one api-bones-reqwest
 
       - name: Summary
         if: success()
         run: |
-          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
           REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
-          echo "## 📦 Crate Published" >> $GITHUB_STEP_SUMMARY
-          echo "**Package:** \`api-bones\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Version:** \`$VERSION\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Registry:** \`$REGISTRY\`" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Crates Published" >> $GITHUB_STEP_SUMMARY
+          for PKG in api-bones api-bones-tower api-bones-reqwest; do
+            DIR=$([ "$PKG" = "api-bones" ] && echo "." || echo "$PKG")
+            VERSION=$(grep '^version' "$DIR/Cargo.toml" | head -1 | cut -d'"' -f2)
+            echo "- \`$PKG\` v\`$VERSION\` → \`$REGISTRY\`" >> $GITHUB_STEP_SUMMARY
+          done
