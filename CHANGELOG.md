@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-04-09
+
+### Added
+
+- 12 new `ErrorCode` variants rounding out common HTTP error codes (#82):
+  - `MethodNotAllowed` (405), `NotAcceptable` (406), `RequestTimeout` (408)
+  - `Gone` (410), `PreconditionFailed` (412), `PayloadTooLarge` (413)
+  - `UnsupportedMediaType` (415), `PreconditionRequired` (428)
+  - `RequestHeaderFieldsTooLarge` (431), `NotImplemented` (501)
+  - `BadGateway` (502), `GatewayTimeout` (504)
+- Each variant wired through `status_code()`, `title()`, `urn_slug()`, and `from_type_uri()` roundtrip
+
 ## [1.9.0] - 2026-04-09
 
 ### Added
