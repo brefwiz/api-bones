@@ -128,22 +128,19 @@ mod tests {
     #[test]
     fn as_str_request_id() {
         let id = RequestId::from_uuid(uuid::Uuid::nil());
-        assert_eq!(
-            id.as_str().as_ref() as &str,
-            "00000000-0000-0000-0000-000000000000"
-        );
+        assert_eq!(id.as_str(), "00000000-0000-0000-0000-000000000000");
     }
 
     #[test]
     fn as_str_correlation_id() {
         let id = CorrelationId::new("corr-abc").unwrap();
-        assert_eq!(id.as_str().as_ref() as &str, "corr-abc");
+        assert_eq!(id.as_str(), "corr-abc");
     }
 
     #[test]
     fn as_str_idempotency_key() {
         let key = IdempotencyKey::new("my-key").unwrap();
-        assert_eq!(key.as_str().as_ref() as &str, "my-key");
+        assert_eq!(key.as_str(), "my-key");
     }
 
     #[test]
@@ -152,7 +149,7 @@ mod tests {
             .parse()
             .unwrap();
         assert_eq!(
-            tc.as_str().as_ref() as &str,
+            tc.as_str(),
             "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
         );
     }
