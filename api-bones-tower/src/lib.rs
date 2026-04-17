@@ -8,6 +8,16 @@
 //! | [`RequestIdLayer`]   | Generates / propagates `X-Request-Id` on every req  |
 //! | [`ProblemJsonLayer`] | Maps non-`ApiError` inner-service errors to Problem+JSON |
 //!
+//! ## Feature flags
+//!
+//! By default this crate enables `std` and `serde` on `api-bones`.
+//! Additional `api-bones` features can be opted into:
+//!
+//! | Feature  | What it enables                              |
+//! |----------|----------------------------------------------|
+//! | `uuid`   | UUID-based request IDs (`api-bones/uuid`)    |
+//! | `chrono` | Chrono timestamp types (`api-bones/chrono`)  |
+//!
 //! # Example
 //!
 //! ```rust,no_run

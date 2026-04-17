@@ -8,7 +8,16 @@ description = "Reqwest client extensions for api-bones types (ErrorResponseExt, 
 repository = "https://git.brefwiz.com/gsalingu/api-bones"
 publish = ["brefwiz"]
 
+## Feature flags
+##
+## By default this crate enables `std` and `serde` on `api-bones`.
+## Use optional features to pass through additional `api-bones` features:
+##
+## ```toml
+## api-bones-reqwest = { version = "2", features = ["uuid"] }
+## ```
 [features]
+## Enables UUID-typed request/correlation IDs via api-bones/uuid.
 uuid = ["dep:uuid", "api-bones/uuid"]
 
 [dependencies]
