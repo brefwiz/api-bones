@@ -25,7 +25,7 @@
 //! ```
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{borrow::ToOwned, string::String};
+use alloc::{borrow::ToOwned, string::String, string::ToString};
 use core::{fmt, ops::Deref};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize};
