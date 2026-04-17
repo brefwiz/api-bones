@@ -8,7 +8,7 @@ Add the dependency:
 
 ```toml
 [dependencies]
-api-bones = "1.6"
+api-bones = "1.9"
 ```
 
 ## Types
