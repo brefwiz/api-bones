@@ -73,21 +73,48 @@
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
 
+// Auth module: requires the `auth` feature (implies alloc + base64 + zeroize).
+#[cfg(feature = "auth")]
+pub mod auth;
+
 // Modules that require heap allocation (String / Vec / Arc).
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod audit;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod bulk;
 #[cfg(any(feature = "std", feature = "alloc"))]
+pub mod cache;
+#[cfg(feature = "base64")]
+pub mod cursor;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub mod correlation_id;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub mod cors;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub mod deprecated;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod etag;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub mod idempotency;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod links;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod models;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub mod request_id;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub mod range;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod response;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod slug;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub mod traceparent;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub mod url;
+pub mod version;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub mod vary;
 
 // Modules available in all configurations; individual types inside are gated
 // where they require `alloc` or `std`.
@@ -99,12 +126,16 @@ pub mod pagination;
 pub mod query;
 pub mod ratelimit;
 pub mod status;
+pub mod retry;
 
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod content_type;
 
 #[cfg(feature = "http")]
 pub mod header;
+
+#[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
+pub mod serde;
 
 #[cfg(feature = "fake")]
 mod fake_impls;
@@ -127,6 +158,12 @@ pub mod reqwest_ext;
 #[cfg(feature = "tower")]
 pub mod tower_middleware;
 
+#[cfg(feature = "auth")]
+pub use auth::{
+    ApiKeyCredentials, AuthScheme, AuthorizationHeader, BasicCredentials, BearerToken,
+    OAuth2Token, ParseAuthorizationError, ParsePermissionError, ParseScopeError, Permission,
+    Scope,
+};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use audit::AuditInfo;
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -183,3 +220,31 @@ pub use response::{ApiResponse, ApiResponseBuilder, ResponseMeta};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use slug::{Slug, SlugError};
 pub use status::StatusCode;
+pub use retry::{BackoffStrategy, Idempotent, RetryPolicy};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use retry::{RetryAfter, RetryAfterParseError};
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use correlation_id::{CorrelationId, CorrelationIdError};
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use idempotency::{IdempotencyKey, IdempotencyKeyError};
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use request_id::{RequestId, RequestIdParseError};
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use traceparent::{SamplingFlags, SpanId, TraceContext, TraceContextError, TraceId};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use cache::CacheControl;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use cors::{CorsHeaders, CorsOrigin};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use range::{ByteRange, ContentRange, ParseRangeError, RangeHeader};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use vary::Vary;
+#[cfg(feature = "base64")]
+pub use cursor::{Cursor, CursorError};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use deprecated::Deprecated;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use pagination::{KeysetPaginatedResponse, KeysetPaginationParams};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use url::{QueryBuilder, UrlBuilder};
+pub use version::{ApiVersion, ApiVersionParseError, SemverTriple};
