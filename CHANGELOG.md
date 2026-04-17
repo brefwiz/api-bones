@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-04-10
+
+### Added
+
+- `api-bones-tower`: optional `uuid` and `chrono` feature passthroughs for parity with `api-bones-reqwest`
+- `api-bones-tower`, `api-bones-reqwest`: rustdoc feature tables documenting default and optional `api-bones` features
+
+### Changed
+
+- `api-bones-tower`, `api-bones-reqwest`: versions aligned to `2.0.3`
+
 ## [2.0.2] - 2026-04-10
 
 ### Fixed
