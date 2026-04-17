@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-04-10
+
+### Fixed
+
+- `ApiError::causes` annotated with `#[schema(value_type = Vec<Object>)]` to prevent infinite recursion in utoipa schema generation (`causes: Vec<Self>` caused a stack overflow when any crate called `OpenApi::openapi()` with `ApiError` in its components)
+
 ## [2.0.1] - 2026-04-10
 
 ### Fixed
