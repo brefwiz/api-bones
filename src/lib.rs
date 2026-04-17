@@ -112,6 +112,21 @@ mod fake_impls;
 #[cfg(feature = "icalendar")]
 pub mod calendar;
 
+// OpenAPI helpers: Example<T> and DeprecatedField (issues #119, #120).
+pub mod openapi;
+
+// Axum extractors beyond IntoResponse (issue #121).
+#[cfg(feature = "axum")]
+pub mod axum_extractors;
+
+// Reqwest client adapter (issue #122).
+#[cfg(feature = "reqwest")]
+pub mod reqwest_ext;
+
+// Tower middleware (issue #123).
+#[cfg(feature = "tower")]
+pub mod tower_middleware;
+
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use audit::AuditInfo;
 #[cfg(any(feature = "std", feature = "alloc"))]
