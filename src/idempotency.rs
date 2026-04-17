@@ -134,6 +134,41 @@ impl IdempotencyKey {
     pub fn into_string(self) -> String {
         self.0
     }
+
+    /// The canonical HTTP header name: `Idempotency-Key`.
+    ///
+    /// ```rust
+    /// use api_bones::idempotency::IdempotencyKey;
+    ///
+    /// let key = IdempotencyKey::new("abc").unwrap();
+    /// assert_eq!(key.header_name(), "Idempotency-Key");
+    /// ```
+    #[must_use]
+    pub fn header_name(&self) -> &'static str {
+        "Idempotency-Key"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HeaderId trait impl
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "std")]
+impl crate::header_id::HeaderId for IdempotencyKey {
+    const HEADER_NAME: &'static str = "Idempotency-Key";
+
+    fn as_str(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Borrowed(&self.0)
+    }
+}
+
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+impl crate::header_id::HeaderId for IdempotencyKey {
+    const HEADER_NAME: &'static str = "Idempotency-Key";
+
+    fn as_str(&self) -> alloc::borrow::Cow<'_, str> {
+        alloc::borrow::Cow::Borrowed(&self.0)
+    }
 }
 
 // ---------------------------------------------------------------------------

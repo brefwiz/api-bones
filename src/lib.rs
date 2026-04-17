@@ -87,6 +87,8 @@ pub mod cache;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub mod correlation_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
+pub mod header_id;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod cors;
 #[cfg(feature = "base64")]
 pub mod cursor;
@@ -173,6 +175,8 @@ pub use common::Timestamp;
 pub use content_type::ContentType;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub use correlation_id::{CorrelationId, CorrelationIdError};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use header_id::HeaderId;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use cors::{CorsHeaders, CorsOrigin};
 #[cfg(feature = "base64")]
