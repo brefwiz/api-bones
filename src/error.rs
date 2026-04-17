@@ -46,7 +46,6 @@ use serde::{Deserialize, Serialize};
 /// assert_eq!(code.urn_slug(), "resource-not-found");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
@@ -512,6 +511,26 @@ impl<'de> Deserialize<'de> for ErrorCode {
         let s = String::deserialize(d)?;
         Self::from_type_uri(&s)
             .ok_or_else(|| serde::de::Error::custom(format!("unknown error type URI: {s}")))
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for ErrorCode {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{ObjectBuilder, SchemaType, Type};
+        utoipa::openapi::RefOr::T(utoipa::openapi::schema::Schema::Object(
+            ObjectBuilder::new()
+                .schema_type(SchemaType::new(Type::String))
+                .examples(["urn:api-bones:error:resource-not-found"])
+                .build(),
+        ))
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for ErrorCode {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ErrorCode")
     }
 }
 
@@ -1994,5 +2013,29 @@ mod axum_tests {
         assert_eq!(json["type"], "urn:api-bones:error:unauthorized");
         assert_eq!(json["status"], 401);
         assert_eq!(json["detail"], "bad token");
+    }
+
+    #[cfg(feature = "utoipa")]
+    #[test]
+    fn error_code_schema_is_string_type() {
+        use utoipa::PartialSchema as _;
+        use utoipa::openapi::schema::Schema;
+
+        let schema_ref = ErrorCode::schema();
+        let schema = match schema_ref {
+            utoipa::openapi::RefOr::T(s) => s,
+            utoipa::openapi::RefOr::Ref(_) => panic!("expected inline schema"),
+        };
+        assert!(
+            matches!(schema, Schema::Object(_)),
+            "ErrorCode schema should be an object (string type)"
+        );
+    }
+
+    #[cfg(feature = "utoipa")]
+    #[test]
+    fn error_code_schema_name() {
+        use utoipa::ToSchema as _;
+        assert_eq!(ErrorCode::name(), "ErrorCode");
     }
 }
