@@ -1,0 +1,38 @@
+[package]
+name = "api-bones-reqwest"
+version = "0.1.0"
+edition = "2024"
+authors = ["Gregoire Salingue"]
+license = "LicenseRef-Proprietary"
+description = "Reqwest client extensions for api-bones types (ErrorResponseExt, retry logic)"
+repository = "https://git.brefwiz.com/gsalingu/api-bones"
+publish = ["brefwiz"]
+
+[dependencies]
+api-bones = { path = "..", version = "1.11.0", default-features = false, features = ["std", "serde"] }
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }
+
+[dev-dependencies]
+mockito = "1.7.2"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
+
+[lints.rust]
+unsafe_code = { level = "deny", priority = -1 }
+unsafe_op_in_unsafe_fn = { level = "deny", priority = -1 }
+warnings = { level = "deny", priority = -1 }
+unused_imports = { level = "deny", priority = -1 }
+unused_variables = { level = "deny", priority = -1 }
+dead_code = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+missing_const_for_fn = "allow"
+derive_partial_eq_without_eq = "allow"
+option_if_let_else = "allow"
