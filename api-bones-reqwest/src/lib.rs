@@ -639,13 +639,11 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         tokio::spawn(async move {
-            if let Ok((mut stream, _)) = listener.accept().await {
-                let mut buf = [0u8; 4096];
-                let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
-                let response: &[u8] =
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nLink: \xff\r\n\r\n[]";
-                let _ = stream.write_all(response).await;
-            }
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await;
+            let response: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nLink: \xff\r\n\r\n[]";
+            let _ = stream.write_all(response).await;
         });
 
         let url = format!("http://{addr}/");
@@ -761,5 +759,126 @@ mod tests {
     fn map_status_unknown_5xx() {
         let err = map_status_to_api_error(599, "oops".into());
         assert_eq!(err.status, 500);
+    }
+
+    // -----------------------------------------------------------------------
+    // from_response tests (issue #167)
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn from_response_parses_problem_json() {
+        let mut server = mockito::Server::new_async().await;
+        let body = r#"{"type":"urn:api-bones:error:resource-not-found","title":"Not Found","status":404,"detail":"gone","extensions":{}}"#;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(404)
+            .with_header("content-type", "application/problem+json")
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err = from_response(resp).await;
+        assert_eq!(err.status, 404);
+        assert_eq!(err.detail, "gone");
+    }
+
+    #[tokio::test]
+    async fn from_response_plain_text_fallback() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(503)
+            .with_header("content-type", "text/plain")
+            .with_body("service down")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err = from_response(resp).await;
+        assert_eq!(err.status, 503);
+        assert_eq!(err.detail, "service down");
+    }
+
+    #[tokio::test]
+    async fn from_response_unknown_type_uri_falls_back_to_status_code() {
+        // Exercises the `unwrap_or_else` in from_response when from_type_uri returns None.
+        let body = r#"{"type":"urn:unknown:error:whatever","title":"Oops","status":422,"detail":"bad input","extensions":{}}"#;
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(422)
+            .with_header("content-type", "application/problem+json")
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err = from_response(resp).await;
+        assert_eq!(err.status, 422);
+        assert_eq!(err.detail, "bad input");
+    }
+
+    #[tokio::test]
+    async fn from_response_problem_json_parse_error_fallback() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(400)
+            .with_header("content-type", "application/problem+json")
+            .with_body("not valid json")
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err = from_response(resp).await;
+        assert_eq!(err.status, 400);
+        assert_eq!(err.detail, "failed to parse problem+json response");
+    }
+
+    #[cfg(feature = "uuid")]
+    #[tokio::test]
+    async fn from_response_extracts_uuid_instance() {
+        let id = uuid::Uuid::nil();
+        let body = format!(
+            r#"{{"type":"urn:api-bones:error:bad-request","title":"Bad Request","status":400,"detail":"bad","instance":"urn:uuid:{id}","extensions":{{}}}}"#
+        );
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", "/")
+            .with_status(400)
+            .with_header("content-type", "application/problem+json")
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let resp = reqwest::get(server.url()).await.unwrap();
+        let err = from_response(resp).await;
+        assert_eq!(err.request_id, Some(id));
+    }
+
+    #[tokio::test]
+    async fn from_response_text_read_error_falls_back_to_upstream_error() {
+        use std::io::Write as _;
+        use std::net::TcpListener as StdTcpListener;
+
+        let std_listener = StdTcpListener::bind("127.0.0.1:0").unwrap();
+        std_listener.set_nonblocking(false).unwrap();
+        let addr = std_listener.local_addr().unwrap();
+
+        std::thread::spawn(move || {
+            use std::io::Read as _;
+            let (mut stream, _) = std_listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            stream
+                .write_all(b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 100\r\n\r\n")
+                .unwrap();
+        });
+
+        let resp = reqwest::get(format!("http://{addr}/")).await.unwrap();
+        let err = from_response(resp).await;
+        assert_eq!(err.status, 500);
+        assert_eq!(err.detail, "upstream error");
     }
 }
