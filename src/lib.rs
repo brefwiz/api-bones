@@ -87,8 +87,6 @@ pub mod cache;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub mod correlation_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub mod header_id;
-#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod cors;
 #[cfg(feature = "base64")]
 pub mod cursor;
@@ -96,6 +94,8 @@ pub mod cursor;
 pub mod deprecated;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod etag;
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub mod header_id;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub mod idempotency;
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -176,8 +176,6 @@ pub use content_type::ContentType;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub use correlation_id::{CorrelationId, CorrelationIdError};
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub use header_id::HeaderId;
-#[cfg(any(feature = "std", feature = "alloc"))]
 pub use cors::{CorsHeaders, CorsOrigin};
 #[cfg(feature = "base64")]
 pub use cursor::{Cursor, CursorError};
@@ -198,6 +196,8 @@ pub use error::{error_type_mode, set_error_type_mode, urn_namespace};
 pub use etag::{ETag, IfMatch, IfNoneMatch};
 #[cfg(feature = "http")]
 pub use header::{HeaderName, HeaderValue};
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub use header_id::HeaderId;
 pub use health::HealthStatus;
 #[cfg(feature = "std")]
 pub use health::ReadinessResponse;
