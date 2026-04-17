@@ -23,7 +23,7 @@ fn main() {
             },
             BulkItemResult::Failure {
                 index: 1,
-                error: ApiError::bad_request("duplicate name"),
+                error: Box::new(ApiError::bad_request("duplicate name")),
             },
             BulkItemResult::Success {
                 data: "created-c".into(),
