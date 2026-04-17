@@ -65,17 +65,41 @@ pub enum ErrorCode {
     InsufficientPermissions,
     // 404
     ResourceNotFound,
+    // 405
+    MethodNotAllowed,
+    // 406
+    NotAcceptable,
+    // 408
+    RequestTimeout,
     // 409
     Conflict,
     ResourceAlreadyExists,
+    // 410
+    Gone,
+    // 412
+    PreconditionFailed,
+    // 413
+    PayloadTooLarge,
+    // 415
+    UnsupportedMediaType,
     // 422
     UnprocessableEntity,
+    // 428
+    PreconditionRequired,
     // 429
     RateLimited,
+    // 431
+    RequestHeaderFieldsTooLarge,
     // 500
     InternalServerError,
+    // 501
+    NotImplemented,
+    // 502
+    BadGateway,
     // 503
     ServiceUnavailable,
+    // 504
+    GatewayTimeout,
 }
 
 /// How the RFC 9457 `type` field is rendered for [`ErrorCode`].
@@ -339,11 +363,23 @@ impl ErrorCode {
             | Self::TokenInvalid => 401,
             Self::Forbidden | Self::InsufficientPermissions => 403,
             Self::ResourceNotFound => 404,
+            Self::MethodNotAllowed => 405,
+            Self::NotAcceptable => 406,
+            Self::RequestTimeout => 408,
             Self::Conflict | Self::ResourceAlreadyExists => 409,
+            Self::Gone => 410,
+            Self::PreconditionFailed => 412,
+            Self::PayloadTooLarge => 413,
+            Self::UnsupportedMediaType => 415,
             Self::UnprocessableEntity => 422,
+            Self::PreconditionRequired => 428,
             Self::RateLimited => 429,
+            Self::RequestHeaderFieldsTooLarge => 431,
             Self::InternalServerError => 500,
+            Self::NotImplemented => 501,
+            Self::BadGateway => 502,
             Self::ServiceUnavailable => 503,
+            Self::GatewayTimeout => 504,
         }
     }
 
@@ -369,12 +405,24 @@ impl ErrorCode {
             Self::Forbidden => "Forbidden",
             Self::InsufficientPermissions => "Insufficient Permissions",
             Self::ResourceNotFound => "Resource Not Found",
+            Self::MethodNotAllowed => "Method Not Allowed",
+            Self::NotAcceptable => "Not Acceptable",
+            Self::RequestTimeout => "Request Timeout",
             Self::Conflict => "Conflict",
             Self::ResourceAlreadyExists => "Resource Already Exists",
+            Self::Gone => "Gone",
+            Self::PreconditionFailed => "Precondition Failed",
+            Self::PayloadTooLarge => "Payload Too Large",
+            Self::UnsupportedMediaType => "Unsupported Media Type",
             Self::UnprocessableEntity => "Unprocessable Entity",
+            Self::PreconditionRequired => "Precondition Required",
             Self::RateLimited => "Rate Limited",
+            Self::RequestHeaderFieldsTooLarge => "Request Header Fields Too Large",
             Self::InternalServerError => "Internal Server Error",
+            Self::NotImplemented => "Not Implemented",
+            Self::BadGateway => "Bad Gateway",
             Self::ServiceUnavailable => "Service Unavailable",
+            Self::GatewayTimeout => "Gateway Timeout",
         }
     }
 
@@ -400,12 +448,24 @@ impl ErrorCode {
             Self::Forbidden => "forbidden",
             Self::InsufficientPermissions => "insufficient-permissions",
             Self::ResourceNotFound => "resource-not-found",
+            Self::MethodNotAllowed => "method-not-allowed",
+            Self::NotAcceptable => "not-acceptable",
+            Self::RequestTimeout => "request-timeout",
             Self::Conflict => "conflict",
             Self::ResourceAlreadyExists => "resource-already-exists",
+            Self::Gone => "gone",
+            Self::PreconditionFailed => "precondition-failed",
+            Self::PayloadTooLarge => "payload-too-large",
+            Self::UnsupportedMediaType => "unsupported-media-type",
             Self::UnprocessableEntity => "unprocessable-entity",
+            Self::PreconditionRequired => "precondition-required",
             Self::RateLimited => "rate-limited",
+            Self::RequestHeaderFieldsTooLarge => "request-header-fields-too-large",
             Self::InternalServerError => "internal-server-error",
+            Self::NotImplemented => "not-implemented",
+            Self::BadGateway => "bad-gateway",
             Self::ServiceUnavailable => "service-unavailable",
+            Self::GatewayTimeout => "gateway-timeout",
         }
     }
 
@@ -473,12 +533,24 @@ impl ErrorCode {
             "forbidden" => Self::Forbidden,
             "insufficient-permissions" => Self::InsufficientPermissions,
             "resource-not-found" => Self::ResourceNotFound,
+            "method-not-allowed" => Self::MethodNotAllowed,
+            "not-acceptable" => Self::NotAcceptable,
+            "request-timeout" => Self::RequestTimeout,
             "conflict" => Self::Conflict,
             "resource-already-exists" => Self::ResourceAlreadyExists,
+            "gone" => Self::Gone,
+            "precondition-failed" => Self::PreconditionFailed,
+            "payload-too-large" => Self::PayloadTooLarge,
+            "unsupported-media-type" => Self::UnsupportedMediaType,
             "unprocessable-entity" => Self::UnprocessableEntity,
+            "precondition-required" => Self::PreconditionRequired,
             "rate-limited" => Self::RateLimited,
+            "request-header-fields-too-large" => Self::RequestHeaderFieldsTooLarge,
             "internal-server-error" => Self::InternalServerError,
+            "not-implemented" => Self::NotImplemented,
+            "bad-gateway" => Self::BadGateway,
             "service-unavailable" => Self::ServiceUnavailable,
+            "gateway-timeout" => Self::GatewayTimeout,
             _ => return None,
         })
     }
@@ -1562,11 +1634,12 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Complete coverage of all 15 ErrorCode variants:
+    // Complete coverage of all 27 ErrorCode variants:
     //   title(), urn_slug(), status_code(), from_type_uri() roundtrip
     // -----------------------------------------------------------------------
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn all_error_code_variants_title_slug_status() {
         let _g = lock_and_reset_mode();
         let cases: &[(ErrorCode, &str, &str, u16)] = &[
@@ -1609,6 +1682,24 @@ mod tests {
                 "resource-not-found",
                 404,
             ),
+            (
+                ErrorCode::MethodNotAllowed,
+                "Method Not Allowed",
+                "method-not-allowed",
+                405,
+            ),
+            (
+                ErrorCode::NotAcceptable,
+                "Not Acceptable",
+                "not-acceptable",
+                406,
+            ),
+            (
+                ErrorCode::RequestTimeout,
+                "Request Timeout",
+                "request-timeout",
+                408,
+            ),
             (ErrorCode::Conflict, "Conflict", "conflict", 409),
             (
                 ErrorCode::ResourceAlreadyExists,
@@ -1616,13 +1707,44 @@ mod tests {
                 "resource-already-exists",
                 409,
             ),
+            (ErrorCode::Gone, "Gone", "gone", 410),
+            (
+                ErrorCode::PreconditionFailed,
+                "Precondition Failed",
+                "precondition-failed",
+                412,
+            ),
+            (
+                ErrorCode::PayloadTooLarge,
+                "Payload Too Large",
+                "payload-too-large",
+                413,
+            ),
+            (
+                ErrorCode::UnsupportedMediaType,
+                "Unsupported Media Type",
+                "unsupported-media-type",
+                415,
+            ),
             (
                 ErrorCode::UnprocessableEntity,
                 "Unprocessable Entity",
                 "unprocessable-entity",
                 422,
             ),
+            (
+                ErrorCode::PreconditionRequired,
+                "Precondition Required",
+                "precondition-required",
+                428,
+            ),
             (ErrorCode::RateLimited, "Rate Limited", "rate-limited", 429),
+            (
+                ErrorCode::RequestHeaderFieldsTooLarge,
+                "Request Header Fields Too Large",
+                "request-header-fields-too-large",
+                431,
+            ),
             (
                 ErrorCode::InternalServerError,
                 "Internal Server Error",
@@ -1630,10 +1752,23 @@ mod tests {
                 500,
             ),
             (
+                ErrorCode::NotImplemented,
+                "Not Implemented",
+                "not-implemented",
+                501,
+            ),
+            (ErrorCode::BadGateway, "Bad Gateway", "bad-gateway", 502),
+            (
                 ErrorCode::ServiceUnavailable,
                 "Service Unavailable",
                 "service-unavailable",
                 503,
+            ),
+            (
+                ErrorCode::GatewayTimeout,
+                "Gateway Timeout",
+                "gateway-timeout",
+                504,
             ),
         ];
         for (code, title, slug, status) in cases {
