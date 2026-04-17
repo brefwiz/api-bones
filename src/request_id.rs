@@ -169,6 +169,33 @@ impl<'de> Deserialize<'de> for RequestId {
 }
 
 // ---------------------------------------------------------------------------
+// Axum extractor
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "axum")]
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for RequestId {
+    type Rejection = crate::error::ApiError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let raw = parts
+            .headers
+            .get("x-request-id")
+            .ok_or_else(|| {
+                crate::error::ApiError::bad_request("missing required header: x-request-id")
+            })?
+            .to_str()
+            .map_err(|_| {
+                crate::error::ApiError::bad_request("header x-request-id contains non-UTF-8 bytes")
+            })?;
+        raw.parse::<Self>()
+            .map_err(|e| crate::error::ApiError::bad_request(format!("invalid X-Request-Id: {e}")))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
