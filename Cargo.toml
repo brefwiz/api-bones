@@ -53,6 +53,8 @@ schemars = { version = "0.8", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
 
 [lints.rust]
+# Allow cfg(coverage) set by cargo-llvm-cov
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(coverage)'] }
 # PLATFORM-008: Zero-Tolerance Security Linting
 unsafe_code = { level = "deny", priority = -1 }
 unsafe_op_in_unsafe_fn = { level = "deny", priority = -1 }
