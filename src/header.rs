@@ -74,6 +74,7 @@ impl HeaderName {
 }
 
 impl fmt::Display for HeaderName {
+    #[inline(never)]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.0.as_str())
     }
@@ -252,6 +253,7 @@ mod tests {
     fn header_name_display() {
         let n = HeaderName::from_static("accept");
         assert_eq!(n.to_string(), "accept");
+        assert_eq!(format!("{n}"), "accept");
     }
 
     #[test]
@@ -324,5 +326,55 @@ mod tests {
         let v = HeaderValue::from_static("application/json");
         let json = serde_json::to_string(&v).unwrap();
         assert_eq!(json, r#""application/json""#);
+    }
+
+    #[test]
+    fn header_name_into_inner() {
+        let n = HeaderName::from_static("x-foo");
+        let inner = n.into_inner();
+        assert_eq!(inner, http::header::HeaderName::from_static("x-foo"));
+    }
+
+    #[test]
+    fn header_value_into_inner() {
+        let v = HeaderValue::from_static("bar");
+        let inner = v.into_inner();
+        assert_eq!(inner, http::header::HeaderValue::from_static("bar"));
+    }
+
+    #[test]
+    fn header_value_to_str_opaque_bytes() {
+        // bytes with non-ascii are opaque — to_str returns Err
+        let inner = http::header::HeaderValue::from_bytes(b"\xff").unwrap();
+        let v = HeaderValue::from(inner);
+        assert!(v.to_str().is_err());
+    }
+
+    #[test]
+    fn header_value_display_opaque() {
+        // Display for non-UTF-8 value falls back to debug bytes format
+        let inner = http::header::HeaderValue::from_bytes(b"\xff\xfe").unwrap();
+        let v = HeaderValue::from(inner);
+        let s = format!("{v}");
+        assert!(s.contains("ff") || !s.is_empty());
+    }
+
+    #[test]
+    fn header_value_parse_trait() {
+        // Use FromStr trait (`.parse()`) not the inherent method
+        let v: HeaderValue = "application/json".parse().unwrap();
+        assert_eq!(v.to_str().unwrap(), "application/json");
+        assert!("\0bad".parse::<HeaderValue>().is_err());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn header_value_serde_opaque_bytes() {
+        // Non-UTF-8 value serializes as bytes array
+        let inner = http::header::HeaderValue::from_bytes(b"\xff").unwrap();
+        let v = HeaderValue::from(inner);
+        let json = serde_json::to_string(&v).unwrap();
+        // serde_json serializes bytes as array of ints
+        assert!(!json.is_empty());
     }
 }

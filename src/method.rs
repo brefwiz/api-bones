@@ -266,10 +266,28 @@ mod tests {
     #[cfg(feature = "http")]
     #[test]
     fn http_crate_round_trip() {
-        let m = HttpMethod::Post;
-        let hm: http::Method = m.into();
-        assert_eq!(hm, http::Method::POST);
-        let back: HttpMethod = hm.try_into().unwrap();
-        assert_eq!(back, HttpMethod::Post);
+        let pairs = [
+            (HttpMethod::Get, http::Method::GET),
+            (HttpMethod::Head, http::Method::HEAD),
+            (HttpMethod::Post, http::Method::POST),
+            (HttpMethod::Put, http::Method::PUT),
+            (HttpMethod::Delete, http::Method::DELETE),
+            (HttpMethod::Connect, http::Method::CONNECT),
+            (HttpMethod::Options, http::Method::OPTIONS),
+            (HttpMethod::Trace, http::Method::TRACE),
+            (HttpMethod::Patch, http::Method::PATCH),
+        ];
+        for (our, theirs) in pairs {
+            let converted: http::Method = our.clone().into();
+            assert_eq!(converted, theirs);
+            let back: HttpMethod = converted.try_into().unwrap();
+            assert_eq!(back, our);
+        }
+    }
+
+    #[test]
+    fn parse_error_display() {
+        let err = "BREW".parse::<HttpMethod>().unwrap_err();
+        assert_eq!(err.to_string(), "unknown HTTP method");
     }
 }

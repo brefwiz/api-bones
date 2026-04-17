@@ -575,7 +575,10 @@ mod tests {
     #[test]
     fn numeric_round_trip() {
         let codes: &[u16] = &[
-            100, 101, 200, 201, 204, 301, 302, 304, 400, 401, 403, 404, 429, 500, 503,
+            100, 101, 102, 103, 200, 201, 202, 203, 204, 205, 206, 207, 208, 226, 300, 301, 302,
+            303, 304, 305, 307, 308, 400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411,
+            412, 413, 414, 415, 416, 417, 418, 421, 422, 423, 424, 425, 426, 428, 429, 431, 451,
+            500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511,
         ];
         for &code in codes {
             let sc = StatusCode::try_from(code).expect("should be known");
@@ -587,6 +590,41 @@ mod tests {
     fn unknown_status_errors() {
         assert!(StatusCode::try_from(0u16).is_err());
         assert!(StatusCode::try_from(600u16).is_err());
+        let err = StatusCode::try_from(999u16).unwrap_err();
+        assert_eq!(err.0, 999);
+        assert!(err.to_string().contains("999"));
+    }
+
+    #[test]
+    fn from_str_round_trip() {
+        assert_eq!("200".parse::<StatusCode>().unwrap(), StatusCode::Ok);
+        assert_eq!(" 404 ".parse::<StatusCode>().unwrap(), StatusCode::NotFound);
+        assert!("abc".parse::<StatusCode>().is_err());
+        assert!("999".parse::<StatusCode>().is_err());
+    }
+
+    #[test]
+    fn reason_phrases_spot_check() {
+        assert_eq!(StatusCode::Continue.reason_phrase(), "Continue");
+        assert_eq!(StatusCode::ImUsed.reason_phrase(), "IM Used");
+        assert_eq!(StatusCode::ImATeapot.reason_phrase(), "I'm a teapot");
+        assert_eq!(
+            StatusCode::NetworkAuthenticationRequired.reason_phrase(),
+            "Network Authentication Required"
+        );
+    }
+
+    #[test]
+    fn category_predicates_all_ranges() {
+        assert!(StatusCode::Processing.is_informational());
+        assert!(StatusCode::EarlyHints.is_informational());
+        assert!(StatusCode::Accepted.is_success());
+        assert!(StatusCode::ImUsed.is_success());
+        assert!(StatusCode::PermanentRedirect.is_redirection());
+        assert!(StatusCode::Gone.is_client_error());
+        assert!(StatusCode::UnavailableForLegalReasons.is_client_error());
+        assert!(StatusCode::GatewayTimeout.is_server_error());
+        assert!(StatusCode::NetworkAuthenticationRequired.is_server_error());
     }
 
     #[test]

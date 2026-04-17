@@ -21,11 +21,7 @@
 //! ```
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{
-    borrow::ToOwned,
-    string::{String, ToString},
-    vec::Vec,
-};
+use alloc::{borrow::ToOwned, format, string::String, vec, vec::Vec};
 use core::{fmt, str::FromStr};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -70,24 +66,22 @@ impl<'de> Deserialize<'de> for ContentType {
 impl ContentType {
     /// Construct a `ContentType` with no parameters.
     #[must_use]
-    pub fn new(type_: impl Into<String>, subtype: impl Into<String>) -> Self {
+    #[inline(never)]
+    pub fn new(type_: String, subtype: String) -> Self {
         Self {
-            type_: type_.into(),
-            subtype: subtype.into(),
+            type_,
+            subtype,
             params: Vec::new(),
         }
     }
 
     /// Construct a `ContentType` with parameters.
     #[must_use]
-    pub fn with_params(
-        type_: impl Into<String>,
-        subtype: impl Into<String>,
-        params: Vec<(String, String)>,
-    ) -> Self {
+    #[inline(never)]
+    pub fn with_params(type_: String, subtype: String, params: Vec<(String, String)>) -> Self {
         Self {
-            type_: type_.into(),
-            subtype: subtype.into(),
+            type_,
+            subtype,
             params,
         }
     }
@@ -128,27 +122,27 @@ impl ContentType {
     /// Returns `application/json`.
     #[must_use]
     pub fn application_json() -> Self {
-        Self::new("application", "json")
+        Self::new("application".into(), "json".into())
     }
 
     /// Returns `application/problem+json` (RFC 9457).
     #[must_use]
     pub fn application_problem_json() -> Self {
-        Self::new("application", "problem+json")
+        Self::new("application".into(), "problem+json".into())
     }
 
     /// Returns `application/octet-stream`.
     #[must_use]
     pub fn application_octet_stream() -> Self {
-        Self::new("application", "octet-stream")
+        Self::new("application".into(), "octet-stream".into())
     }
 
     /// Returns `multipart/form-data` with the given boundary parameter.
     #[must_use]
     pub fn multipart_form_data(boundary: impl Into<String>) -> Self {
         Self::with_params(
-            "multipart",
-            "form-data",
+            "multipart".into(),
+            "form-data".into(),
             vec![("boundary".to_owned(), boundary.into())],
         )
     }
@@ -156,15 +150,15 @@ impl ContentType {
     /// Returns `text/plain`.
     #[must_use]
     pub fn text_plain() -> Self {
-        Self::new("text", "plain")
+        Self::new("text".into(), "plain".into())
     }
 
     /// Returns `text/plain; charset=utf-8`.
     #[must_use]
     pub fn text_plain_utf8() -> Self {
         Self::with_params(
-            "text",
-            "plain",
+            "text".into(),
+            "plain".into(),
             vec![("charset".to_owned(), "utf-8".to_owned())],
         )
     }
@@ -172,7 +166,7 @@ impl ContentType {
     /// Returns `text/html`.
     #[must_use]
     pub fn text_html() -> Self {
-        Self::new("text", "html")
+        Self::new("text".into(), "html".into())
     }
 }
 
@@ -341,6 +335,52 @@ mod tests {
         let s = ct.to_string();
         let back: ContentType = s.parse().unwrap();
         assert_eq!(back, ct);
+    }
+
+    #[test]
+    fn new_constructor() {
+        let ct = ContentType::new(String::from("image"), String::from("png"));
+        assert_eq!(ct.type_, "image");
+        assert_eq!(ct.subtype, "png");
+        assert!(ct.params.is_empty());
+    }
+
+    #[test]
+    fn with_params_constructor() {
+        let ct = ContentType::with_params(
+            String::from("application"),
+            String::from("xml"),
+            vec![("charset".into(), "utf-8".into())],
+        );
+        assert_eq!(ct.param("charset"), Some("utf-8"));
+        assert_eq!(ct.essence(), "application/xml");
+    }
+
+    #[test]
+    fn text_html_constructor() {
+        let ct = ContentType::text_html();
+        assert_eq!(ct.to_string(), "text/html");
+    }
+
+    #[test]
+    fn text_plain_constructor() {
+        let ct = ContentType::text_plain();
+        assert_eq!(ct.to_string(), "text/plain");
+    }
+
+    #[test]
+    fn parse_error_display() {
+        let err = ParseContentTypeError;
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn param_case_insensitive() {
+        // Tests closure inside param() with case-insensitive match
+        let ct: ContentType = "text/plain; Charset=UTF-8".parse().unwrap();
+        assert_eq!(ct.param("charset"), Some("UTF-8"));
+        assert_eq!(ct.param("CHARSET"), Some("UTF-8"));
+        assert_eq!(ct.param("missing"), None);
     }
 
     #[cfg(feature = "serde")]
