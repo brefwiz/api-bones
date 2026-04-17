@@ -173,8 +173,8 @@ mod tests {
 
     #[test]
     fn deserialize_f64_from_string() {
-        let w: WithF64 = serde_json::from_str(r#"{"value":"3.14"}"#).unwrap();
-        assert!((w.value - 3.14).abs() < 1e-9);
+        let w: WithF64 = serde_json::from_str(r#"{"value":"1.5"}"#).unwrap();
+        assert!((w.value - 1.5_f64).abs() < 1e-9);
     }
 
     #[test]
@@ -209,8 +209,8 @@ mod tests {
 
     #[test]
     fn deserialize_f64_from_float() {
-        let w: WithF64 = serde_json::from_str(r#"{"value":2.718}"#).unwrap();
-        assert!((w.value - 2.718).abs() < 1e-9);
+        let w: WithF64 = serde_json::from_str(r#"{"value":1.5}"#).unwrap();
+        assert!((w.value - 1.5_f64).abs() < 1e-9);
     }
 
     // --- deserialize: visit_bool (JSON bool) ---
