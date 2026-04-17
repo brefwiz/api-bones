@@ -814,7 +814,7 @@ pub struct ApiError {
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]
-    pub causes: Vec<ApiError>,
+    pub causes: Vec<Self>,
     /// Arbitrary RFC 9457 extension members attached by the caller.
     ///
     /// Serialized **inline** at the top level of the JSON object (flattened).
@@ -1242,8 +1242,7 @@ impl ApiError {
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
-            .map(|ct| ct.contains("application/problem+json"))
-            .unwrap_or(false);
+            .is_some_and(|ct| ct.contains("application/problem+json"));
 
         if is_problem_json {
             match resp.json::<ProblemJson>().await {
@@ -1256,10 +1255,9 @@ impl ApiError {
                     err.status = p.status;
                     if let Some(inst) = p.instance {
                         #[cfg(feature = "uuid")]
-                        if let Some(hex) = inst.strip_prefix("urn:uuid:") {
-                            if let Ok(id) = hex.parse::<uuid::Uuid>() {
-                                err.request_id = Some(id);
-                            }
+                        if let Some(hex) = inst.strip_prefix("urn:uuid:")
+                            && let Ok(id) = hex.parse::<uuid::Uuid>() {
+                            err.request_id = Some(id);
                         }
                         #[cfg(not(feature = "uuid"))]
                         let _ = inst;
