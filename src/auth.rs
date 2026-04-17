@@ -1091,7 +1091,7 @@ mod tests {
     #[test]
     fn scope_iter() {
         let s: Scope = "a b c".parse().unwrap();
-        let tokens: Vec<&str> = s.iter().map(|p| p.as_str()).collect();
+        let tokens: Vec<&str> = s.iter().map(Permission::as_str).collect();
         assert_eq!(tokens, vec!["a", "b", "c"]);
     }
 
