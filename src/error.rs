@@ -15,6 +15,17 @@
 //! ```
 //!
 //! Content-Type: `application/problem+json`
+//!
+//! # `no_std` + `alloc` limitations
+//!
+//! [`ErrorTypeMode`] is available under the `alloc` feature (its fields use
+//! `String`), but the global accessors [`error_type_mode`] and
+//! [`set_error_type_mode`] require the `std` feature because they rely on
+//! [`std::sync::RwLock`] and [`std::env::var`].
+//!
+//! In a `no_std + alloc` environment you can still construct an
+//! [`ErrorTypeMode`] value and call [`ErrorTypeMode::render`] directly, but
+//! the automatic environment-variable resolution is unavailable.
 
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "serde"))]
 use alloc::collections::BTreeMap;
@@ -109,6 +120,13 @@ pub enum ErrorCode {
 /// choose the format that fits your deployment.
 ///
 /// Requires `std` or `alloc` (fields contain `String`).
+///
+/// # `no_std` note
+///
+/// This type is available with `alloc` alone, but the global accessors
+/// [`error_type_mode`] and [`set_error_type_mode`] require the `std` feature
+/// (`RwLock` + env-var access). In a `no_std + alloc` context, construct the
+/// variant you need and call [`ErrorTypeMode::render`] directly.
 ///
 /// # Configuration
 ///
