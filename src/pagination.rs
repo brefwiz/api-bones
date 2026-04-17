@@ -1083,4 +1083,144 @@ mod tests {
         let json = serde_json::to_value(&schema).expect("schema serializable");
         assert!(json.is_object());
     }
+
+    // -----------------------------------------------------------------------
+    // KeysetPaginationParams
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn keyset_params_default() {
+        let p = KeysetPaginationParams::<String>::default();
+        assert_eq!(p.limit(), 20);
+        assert!(p.after.is_none());
+        assert!(p.before.is_none());
+    }
+
+    #[test]
+    fn keyset_params_limit_none_falls_back() {
+        let p = KeysetPaginationParams::<u64> {
+            after: None,
+            before: None,
+            limit: None,
+        };
+        assert_eq!(p.limit(), 20);
+    }
+
+    #[test]
+    fn keyset_params_custom_values() {
+        let p = KeysetPaginationParams::<u64> {
+            after: Some(10),
+            before: Some(1),
+            limit: Some(50),
+        };
+        assert_eq!(p.limit(), 50);
+        assert_eq!(p.after, Some(10));
+        assert_eq!(p.before, Some(1));
+    }
+
+    // -----------------------------------------------------------------------
+    // KeysetPaginatedResponse
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn keyset_paginated_response_new() {
+        let resp = KeysetPaginatedResponse::new(
+            vec![1i32, 2, 3],
+            true,
+            false,
+            None,
+            Some("cursor_after_3".to_string()),
+        );
+        assert_eq!(resp.items, vec![1, 2, 3]);
+        assert!(resp.has_next);
+        assert!(!resp.has_prev);
+        assert!(resp.prev_cursor.is_none());
+        assert_eq!(resp.next_cursor.as_deref(), Some("cursor_after_3"));
+    }
+
+    #[test]
+    fn keyset_paginated_response_first_page() {
+        let resp = KeysetPaginatedResponse::first_page(
+            vec!["a", "b"],
+            true,
+            Some("cursor_after_b".to_string()),
+        );
+        assert!(!resp.has_prev);
+        assert!(resp.has_next);
+        assert!(resp.prev_cursor.is_none());
+        assert_eq!(resp.next_cursor.as_deref(), Some("cursor_after_b"));
+    }
+
+    #[test]
+    fn keyset_paginated_response_last_page() {
+        let resp = KeysetPaginatedResponse::first_page(vec![1i32], false, None);
+        assert!(!resp.has_next);
+        assert!(!resp.has_prev);
+        assert!(resp.next_cursor.is_none());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn keyset_params_serde_round_trip() {
+        let json = serde_json::json!({"after": 5, "limit": 10});
+        let p: KeysetPaginationParams<u64> = serde_json::from_value(json).unwrap();
+        assert_eq!(p.after, Some(5));
+        assert_eq!(p.limit(), 10);
+        assert!(p.before.is_none());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn keyset_params_serde_defaults() {
+        let json = serde_json::json!({});
+        let p: KeysetPaginationParams<u64> = serde_json::from_value(json).unwrap();
+        assert_eq!(p.limit(), 20);
+        assert!(p.after.is_none());
+    }
+
+    #[cfg(feature = "arbitrary")]
+    #[test]
+    fn arbitrary_pagination_params() {
+        use arbitrary::{Arbitrary, Unstructured};
+        // Use all-zeros data: bool::arbitrary returns false → limit=None branch
+        let data = [0u8; 64];
+        let mut u = Unstructured::new(&data);
+        let p = PaginationParams::arbitrary(&mut u).unwrap();
+        assert!(p.limit.is_none());
+    }
+
+    #[cfg(feature = "arbitrary")]
+    #[test]
+    fn arbitrary_pagination_params_with_limit() {
+        use arbitrary::{Arbitrary, Unstructured};
+        // 0xFF makes bool::arbitrary return true → limit=Some(...) branch (line 613)
+        let mut data = [0xFFu8; 64];
+        // The limit value bytes need to be in range — use small values
+        data[1..9].copy_from_slice(&50u64.to_le_bytes());
+        let mut u = Unstructured::new(&data);
+        let p = PaginationParams::arbitrary(&mut u).unwrap();
+        assert!(p.limit.is_some_and(|l| (1..=100).contains(&l)));
+    }
+
+    #[cfg(all(feature = "arbitrary", any(feature = "std", feature = "alloc")))]
+    #[test]
+    fn arbitrary_cursor_pagination_params() {
+        use arbitrary::{Arbitrary, Unstructured};
+        let data = [0u8; 128];
+        let mut u = Unstructured::new(&data);
+        let p = CursorPaginationParams::arbitrary(&mut u).unwrap();
+        assert!(p.limit.is_none());
+    }
+
+    #[cfg(all(feature = "arbitrary", any(feature = "std", feature = "alloc")))]
+    #[test]
+    fn arbitrary_cursor_pagination_params_with_limit() {
+        use arbitrary::{Arbitrary, Unstructured};
+        // 0xFF makes bool::arbitrary return true → limit=Some(...) branch (line 629)
+        let mut data = [0xFFu8; 128];
+        data[1..9].copy_from_slice(&50u64.to_le_bytes());
+        let mut u = Unstructured::new(&data);
+        let p = CursorPaginationParams::arbitrary(&mut u).unwrap();
+        assert!(p.limit.is_some_and(|l| (1..=100).contains(&l)));
+    }
 }

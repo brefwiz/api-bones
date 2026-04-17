@@ -233,4 +233,25 @@ mod tests {
         let result: Result<Event, _> = serde_json::from_str(r#"{"ts":true}"#);
         assert!(result.is_err());
     }
+
+    // --- error paths: visit_i64 out-of-range ---
+
+    #[test]
+    fn deserialize_i64_out_of_range() {
+        // i64::MAX is far beyond any valid Unix timestamp that chrono accepts,
+        // exercising the `ok_or_else` branch in visit_i64.
+        let val = serde_json::json!({"ts": i64::MAX});
+        let result: Result<Event, _> = serde_json::from_value(val);
+        assert!(result.is_err());
+    }
+
+    // --- error paths: visit_f64 out-of-range ---
+
+    #[test]
+    fn deserialize_f64_out_of_range() {
+        // A very large float maps to seconds beyond what chrono can represent.
+        let val = serde_json::json!({"ts": 1.0e18_f64});
+        let result: Result<Event, _> = serde_json::from_value(val);
+        assert!(result.is_err());
+    }
 }
