@@ -413,7 +413,44 @@ impl TraceContext {
     pub fn header_value(&self) -> String {
         self.to_string()
     }
+
+    /// The canonical HTTP header name: `traceparent`.
+    ///
+    /// ```rust
+    /// use api_bones::traceparent::TraceContext;
+    ///
+    /// let tc = TraceContext::new();
+    /// assert_eq!(tc.header_name(), "traceparent");
+    /// ```
+    #[must_use]
+    pub fn header_name(&self) -> &'static str {
+        "traceparent"
+    }
 }
+
+// ---------------------------------------------------------------------------
+// HeaderId trait impl
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "std")]
+impl crate::header_id::HeaderId for TraceContext {
+    const HEADER_NAME: &'static str = "traceparent";
+
+    fn as_str(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Owned(self.to_string())
+    }
+}
+
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+impl crate::header_id::HeaderId for TraceContext {
+    const HEADER_NAME: &'static str = "traceparent";
+
+    fn as_str(&self) -> alloc::borrow::Cow<'_, str> {
+        alloc::borrow::Cow::Owned(self.to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 impl Default for TraceContext {
     fn default() -> Self {

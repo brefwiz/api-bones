@@ -151,6 +151,28 @@ impl CorrelationId {
 }
 
 // ---------------------------------------------------------------------------
+// HeaderId trait impl
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "std")]
+impl crate::header_id::HeaderId for CorrelationId {
+    const HEADER_NAME: &'static str = "X-Correlation-Id";
+
+    fn as_str(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Borrowed(&self.0)
+    }
+}
+
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+impl crate::header_id::HeaderId for CorrelationId {
+    const HEADER_NAME: &'static str = "X-Correlation-Id";
+
+    fn as_str(&self) -> alloc::borrow::Cow<'_, str> {
+        alloc::borrow::Cow::Borrowed(&self.0)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Standard trait impls
 // ---------------------------------------------------------------------------
 

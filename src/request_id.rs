@@ -116,6 +116,30 @@ impl RequestId {
     }
 }
 
+// ---------------------------------------------------------------------------
+// HeaderId trait impl
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "std")]
+impl crate::header_id::HeaderId for RequestId {
+    const HEADER_NAME: &'static str = "X-Request-Id";
+
+    fn as_str(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Owned(self.0.to_string())
+    }
+}
+
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+impl crate::header_id::HeaderId for RequestId {
+    const HEADER_NAME: &'static str = "X-Request-Id";
+
+    fn as_str(&self) -> alloc::borrow::Cow<'_, str> {
+        alloc::borrow::Cow::Owned(self.0.to_string())
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 impl Default for RequestId {
     fn default() -> Self {
         Self::new()
