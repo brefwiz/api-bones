@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   release:
+    runs-on: brefwiz
     uses: brefwiz/ci-workflows/.gitea/workflows/rust-release.yml@main
     with:
       publish-mode: multi
