@@ -7,214 +7,22 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 permissions:
   contents: write
 
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-  CARGO_INCREMENTAL: 0
-  # Multi-threaded zstd for Swatinem/rust-cache post-step.
-  # 0 = use all available cores; typically 4-6× faster cache save on main.
-  ZSTD_NBTHREADS: "0"
-  # Workaround rustc SIGSEGV when compiling icalendar under the feature-powerset
-  # matrix on toolchain 1.94. Safe globally; only grows the main-thread stack
-  # guard above rustc's default.
-  RUST_MIN_STACK: "16777216"
-
 jobs:
-  # ============================================================================
-  # All checks run in parallel
-  # ============================================================================
-
-  fmt:
-    name: Code Formatting
-    runs-on: brefwiz
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check formatting
-        run: make ci-format
-
-  clippy:
-    name: Clippy Lints
-    runs-on: brefwiz
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Run Clippy
-        run: make ci-lint
-
-  no-std:
-    name: no_std Compilation
-    runs-on: brefwiz
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check no_std (core types only)
-        run: cargo check --no-default-features
-      - name: Check no_std + alloc
-        run: cargo check --no-default-features --features alloc
-      - name: Check no_std + alloc + serde (regression guard for issue 80)
-        run: cargo check --no-default-features --features alloc,serde
-
-  feature-powerset:
-    name: Feature Powerset (cargo-hack)
-    runs-on: brefwiz
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Install cargo-hack
-        run: cargo hack --version 2>/dev/null || cargo install cargo-hack --locked
-      - name: Test feature powerset (main crate)
-        run: cargo hack check --feature-powerset --depth 2 --package api-bones
-      - name: Test feature powerset (api-bones-tower)
-        run: cargo hack check --feature-powerset --package api-bones-tower
-      - name: Test feature powerset (api-bones-reqwest)
-        run: cargo hack check --feature-powerset --package api-bones-reqwest
-
-  test:
-    name: Tests
-    runs-on: brefwiz
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Run tests
-        run: make ci-test
-
-  coverage:
-    name: Test Coverage (100%)
-    runs-on: brefwiz
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Check coverage
-        run: make ci-coverage
-
-  deny:
-    name: Dependency License Audit
-    runs-on: brefwiz
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run cargo-deny license check
-        env:
-          CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
-        run: make ci-deny
-
-  audit:
-    name: Security Audit
-    runs-on: brefwiz
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Cache cargo-audit binary + advisory DB
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/cargo-audit
-            ~/.cargo/advisory-db
-          key: ${{ runner.os }}-cargo-audit-v2
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-      - name: Run security audit
-        run: cargo audit --db ~/.cargo/advisory-db
-
-  # ============================================================================
-  # Auto-tag — main only, after all checks pass. Reads root Cargo.toml version
-  # and tags the commit if no matching tag exists. Tag push triggers release.yml.
-  # ============================================================================
-
-  auto-tag:
-    name: Auto-tag release
-    runs-on: brefwiz
-    needs: [fmt, clippy, no-std, feature-powerset, test, coverage, audit, deny]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    permissions:
-      contents: write
-    container:
-      image: harbor.brefwiz.com/brefwiz/ci:latest
-      credentials:
-        username: ${{ secrets.HARBOR_USER }}
-        password: ${{ secrets.HARBOR_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Tag if version is untagged
-        env:
-          GITEA_TOKEN: ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}
-        run: |
-          VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
-          if [ -z "$VERSION" ]; then
-            echo "::error::Could not read version from root Cargo.toml"
-            exit 1
-          fi
-          git config user.name  "ci-bot"
-          git config user.email "ci@brefwiz.com"
-          git remote set-url origin "https://x-oauth-basic:${GITEA_TOKEN}@git.brefwiz.com/brefwiz/api-bones.git"
-          if git ls-remote --tags origin | grep -q "refs/tags/${VERSION}$"; then
-            echo "Tag ${VERSION} already exists — skipping."
-          else
-            echo "New version detected — tagging ${VERSION}"
-            git tag -a "${VERSION}" -m "Release ${VERSION}"
-            git push origin "${VERSION}"
-            echo "Tag ${VERSION} pushed — dispatching release workflow."
-            curl -s -X POST \
-              -H "Authorization: token ${GITEA_TOKEN}" \
-              -H "Content-Type: application/json" \
-              "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
-              -d "{\"ref\":\"${VERSION}\"}"
-          fi
+  ci:
+    uses: brefwiz/ci-workflows/.gitea/workflows/rust-ci.yml@main
+    with:
+      enable-no-std: true
+      enable-feature-powerset: true
+      feature-powerset-packages: "api-bones api-bones-tower api-bones-reqwest"
+      feature-powerset-depth: "2"
+      rust-min-stack: "16777216"
+      enable-deny: true
+      enable-auto-tag: true
+    secrets: inherit
