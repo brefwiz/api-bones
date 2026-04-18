@@ -1,17 +1,161 @@
 //! Audit metadata for API resources.
 //!
 //! Provides [`AuditInfo`], an embeddable struct that tracks when a resource
-//! was created and last updated, and optionally by whom.
+//! was created and last updated, and by whom, plus [`Principal`] — the
+//! canonical actor-identity newtype threaded through audit events across the
+//! brefwiz ecosystem.
 //!
 //! # Standards
 //! - Timestamps: [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339)
 
 use crate::common::Timestamp;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::borrow::Cow;
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::string::String;
+
+#[cfg(feature = "std")]
+use std::borrow::Cow;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Principal
+// ---------------------------------------------------------------------------
+
+/// Canonical actor-identity newtype for audit events.
+///
+/// Thread the *same* `Principal` through every downstream audit-emitting
+/// crate — sealwiz, batchwiz, itinerwiz, etc. — instead of forking local
+/// newtypes.
+///
+/// # Construction
+///
+/// - [`Principal::new`] — for end-user / operator IDs pulled from request
+///   context (allocates).
+/// - [`Principal::system`] — for autonomous or system actors. Infallible
+///   and `const`, so it can be used in static/const initializers.
+///
+/// # Semantics
+///
+/// Identity-only. `Principal` carries **no authorization semantics**: it
+/// names an actor, nothing more. JWT/OIDC parsing, scope checks, and
+/// permission resolution all belong in caller layers.
+///
+/// Principals are **not secrets** — `Debug` is *not* redacted, to preserve
+/// visibility in audit logs and tracing output.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::Principal;
+///
+/// // End-user principal
+/// let alice = Principal::new("alice");
+/// assert_eq!(alice.as_str(), "alice");
+///
+/// // System principal — const-constructible
+/// const ROTATION: Principal = Principal::system("sealwiz.rotation-engine");
+/// assert_eq!(ROTATION.as_str(), "sealwiz.rotation-engine");
+///
+/// // Owned and borrowed principals compare and hash equal when their
+/// // string contents match.
+/// assert_eq!(Principal::new("sealwiz.bootstrap"), Principal::system("sealwiz.bootstrap"));
+/// ```
+#[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "utoipa", schema(value_type = String))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(transparent))]
+pub struct Principal(Cow<'static, str>);
+
+impl Principal {
+    /// Construct a principal from an owned or borrowed string.
+    ///
+    /// Use this for end-user / operator identities pulled from a request
+    /// (headers, JWT subject, session context). Always allocates.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::Principal;
+    ///
+    /// let p = Principal::new("alice");
+    /// assert_eq!(p.as_str(), "alice");
+    /// ```
+    #[must_use]
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(Cow::Owned(id.into()))
+    }
+
+    /// Construct a system principal from a `'static` string.
+    ///
+    /// Infallible and `const`, so it can appear in `const` / `static`
+    /// initializers for autonomous actors (rotation engines, bootstrap
+    /// workers, cron jobs).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::Principal;
+    ///
+    /// const BOOTSTRAP: Principal = Principal::system("sealwiz.bootstrap");
+    /// assert_eq!(BOOTSTRAP.as_str(), "sealwiz.bootstrap");
+    /// ```
+    #[must_use]
+    pub const fn system(id: &'static str) -> Self {
+        Self(Cow::Borrowed(id))
+    }
+
+    /// Borrow the principal as a `&str`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::Principal;
+    ///
+    /// assert_eq!(Principal::new("bob").as_str(), "bob");
+    /// ```
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl core::fmt::Display for Principal {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl core::fmt::Debug for Principal {
+    // Intentionally NOT redacted — principals are identities, not secrets,
+    // and must remain visible in audit logs and tracing output.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("Principal").field(&self.as_str()).finish()
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for Principal {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let s = <String as arbitrary::Arbitrary>::arbitrary(u)?;
+        Ok(Self::new(s))
+    }
+}
+
+#[cfg(feature = "proptest")]
+impl proptest::arbitrary::Arbitrary for Principal {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        use proptest::prelude::*;
+        any::<String>().prop_map(Self::new).boxed()
+    }
+}
 
 // ---------------------------------------------------------------------------
 // AuditInfo
@@ -19,17 +163,19 @@ use serde::{Deserialize, Serialize};
 
 /// Audit metadata embedded in API resource structs.
 ///
-/// Tracks creation and last-update times (RFC 3339) and optional actor
-/// references for `created_by` and `updated_by`.
+/// Tracks creation and last-update times (RFC 3339) and the [`Principal`]
+/// that performed each action. Both actor fields are **non-optional** —
+/// system processes are still actors and must declare themselves via
+/// [`Principal::system`].
 ///
 /// # Example
 ///
 /// ```rust
 /// # #[cfg(feature = "chrono")] {
-/// use api_bones::AuditInfo;
+/// use api_bones::{AuditInfo, Principal};
 ///
-/// let mut info = AuditInfo::now(Some("alice".to_string()));
-/// info.touch(Some("bob".to_string()));
+/// let mut info = AuditInfo::now(Principal::new("alice"));
+/// info.touch(Principal::system("sealwiz.rotation-engine"));
 /// # }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,42 +204,38 @@ pub struct AuditInfo {
         schema(value_type = String, format = DateTime)
     )]
     pub updated_at: Timestamp,
-    /// Identity of the actor who created the resource, if known.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    pub created_by: Option<String>,
-    /// Identity of the actor who last updated the resource, if known.
-    #[cfg_attr(
-        feature = "serde",
-        serde(default, skip_serializing_if = "Option::is_none")
-    )]
-    pub updated_by: Option<String>,
+    /// Identity of the actor who created the resource.
+    pub created_by: Principal,
+    /// Identity of the actor who last updated the resource.
+    pub updated_by: Principal,
 }
 
 impl AuditInfo {
-    /// Construct an `AuditInfo` with explicit timestamps.
+    /// Construct an `AuditInfo` with explicit timestamps and principals.
     ///
     /// # Examples
     ///
     /// ```rust
     /// # #[cfg(feature = "chrono")] {
-    /// use api_bones::AuditInfo;
+    /// use api_bones::{AuditInfo, Principal};
     /// use chrono::Utc;
     ///
     /// let now = Utc::now();
-    /// let info = AuditInfo::new(now, now, Some("alice".to_string()), None);
-    /// assert_eq!(info.created_by.as_deref(), Some("alice"));
-    /// assert!(info.updated_by.is_none());
+    /// let info = AuditInfo::new(
+    ///     now,
+    ///     now,
+    ///     Principal::new("alice"),
+    ///     Principal::new("alice"),
+    /// );
+    /// assert_eq!(info.created_by.as_str(), "alice");
     /// # }
     /// ```
     #[must_use]
     pub fn new(
         created_at: Timestamp,
         updated_at: Timestamp,
-        created_by: Option<String>,
-        updated_by: Option<String>,
+        created_by: Principal,
+        updated_by: Principal,
     ) -> Self {
         Self {
             created_at,
@@ -103,8 +245,9 @@ impl AuditInfo {
         }
     }
 
-    /// Construct an `AuditInfo` with `created_at` and `updated_at` set to the
-    /// current UTC time.
+    /// Construct an `AuditInfo` with `created_at` and `updated_at` set to
+    /// the current UTC time. `updated_by` is initialized to a clone of
+    /// `created_by`.
     ///
     /// Requires the `chrono` feature.
     ///
@@ -112,22 +255,23 @@ impl AuditInfo {
     ///
     /// ```rust
     /// # #[cfg(feature = "chrono")] {
-    /// use api_bones::AuditInfo;
+    /// use api_bones::{AuditInfo, Principal};
     ///
-    /// let info = AuditInfo::now(Some("alice".to_string()));
-    /// assert_eq!(info.created_by.as_deref(), Some("alice"));
-    /// assert!(info.updated_by.is_none());
+    /// let info = AuditInfo::now(Principal::new("alice"));
+    /// assert_eq!(info.created_by.as_str(), "alice");
+    /// assert_eq!(info.updated_by.as_str(), "alice");
     /// # }
     /// ```
     #[cfg(feature = "chrono")]
     #[must_use]
-    pub fn now(created_by: Option<String>) -> Self {
+    pub fn now(created_by: Principal) -> Self {
         let now = chrono::Utc::now();
+        let updated_by = created_by.clone();
         Self {
             created_at: now,
             updated_at: now,
             created_by,
-            updated_by: None,
+            updated_by,
         }
     }
 
@@ -139,15 +283,15 @@ impl AuditInfo {
     ///
     /// ```rust
     /// # #[cfg(feature = "chrono")] {
-    /// use api_bones::AuditInfo;
+    /// use api_bones::{AuditInfo, Principal};
     ///
-    /// let mut info = AuditInfo::now(Some("alice".to_string()));
-    /// info.touch(Some("bob".to_string()));
-    /// assert_eq!(info.updated_by.as_deref(), Some("bob"));
+    /// let mut info = AuditInfo::now(Principal::new("alice"));
+    /// info.touch(Principal::system("sealwiz.rotation-engine"));
+    /// assert_eq!(info.updated_by.as_str(), "sealwiz.rotation-engine");
     /// # }
     /// ```
     #[cfg(feature = "chrono")]
-    pub fn touch(&mut self, updated_by: Option<String>) {
+    pub fn touch(&mut self, updated_by: Principal) {
         self.updated_at = chrono::Utc::now();
         self.updated_by = updated_by;
     }
@@ -162,10 +306,9 @@ impl AuditInfo {
 #[cfg(all(feature = "arbitrary", feature = "chrono"))]
 impl<'a> arbitrary::Arbitrary<'a> for AuditInfo {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        use arbitrary::Arbitrary;
         // Generate timestamps as i64 seconds in a sane range (year 2000–3000).
-        let created_secs = i64::arbitrary(u)? % 32_503_680_000i64;
-        let updated_secs = i64::arbitrary(u)? % 32_503_680_000i64;
+        let created_secs = <i64 as arbitrary::Arbitrary>::arbitrary(u)? % 32_503_680_000i64;
+        let updated_secs = <i64 as arbitrary::Arbitrary>::arbitrary(u)? % 32_503_680_000i64;
         let created_at = chrono::DateTime::from_timestamp(created_secs.abs(), 0)
             .unwrap_or_else(chrono::Utc::now);
         let updated_at = chrono::DateTime::from_timestamp(updated_secs.abs(), 0)
@@ -173,8 +316,8 @@ impl<'a> arbitrary::Arbitrary<'a> for AuditInfo {
         Ok(Self {
             created_at,
             updated_at,
-            created_by: Arbitrary::arbitrary(u)?,
-            updated_by: Arbitrary::arbitrary(u)?,
+            created_by: Principal::arbitrary(u)?,
+            updated_by: Principal::arbitrary(u)?,
         })
     }
 }
@@ -189,8 +332,8 @@ impl proptest::arbitrary::Arbitrary for AuditInfo {
         (
             0i64..=32_503_680_000i64,
             0i64..=32_503_680_000i64,
-            proptest::option::of(any::<String>()),
-            proptest::option::of(any::<String>()),
+            any::<Principal>(),
+            any::<Principal>(),
         )
             .prop_map(|(cs, us, cb, ub)| Self {
                 created_at: chrono::DateTime::from_timestamp(cs, 0)
@@ -212,83 +355,149 @@ impl proptest::arbitrary::Arbitrary for AuditInfo {
 mod tests {
     use super::*;
 
+    // -- Principal --------------------------------------------------------
+
+    #[test]
+    fn principal_new_stores_owned_string() {
+        let p = Principal::new("alice");
+        assert_eq!(p.as_str(), "alice");
+    }
+
+    #[test]
+    fn principal_system_is_const_and_borrowed() {
+        const P: Principal = Principal::system("sealwiz.bootstrap");
+        assert_eq!(P.as_str(), "sealwiz.bootstrap");
+    }
+
+    #[test]
+    fn principal_display_forwards_to_as_str() {
+        let s = format!("{}", Principal::new("bob"));
+        assert_eq!(s, "bob");
+    }
+
+    #[test]
+    fn principal_debug_is_not_redacted() {
+        let s = format!("{:?}", Principal::new("alice"));
+        assert!(s.contains("alice"), "debug must not redact: {s}");
+        assert!(s.contains("Principal"), "debug must name the type: {s}");
+    }
+
+    #[test]
+    fn principal_equality_and_hash_across_owned_and_borrowed() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let owned = Principal::new("sealwiz.bootstrap");
+        let borrowed = Principal::system("sealwiz.bootstrap");
+        assert_eq!(owned, borrowed);
+
+        let mut h1 = DefaultHasher::new();
+        owned.hash(&mut h1);
+        let mut h2 = DefaultHasher::new();
+        borrowed.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+    }
+
+    #[test]
+    fn principal_clone_roundtrip() {
+        let p = Principal::new("carol");
+        let q = p.clone();
+        assert_eq!(p, q);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn principal_serde_transparent_string() {
+        let p = Principal::new("alice");
+        let json = serde_json::to_value(&p).unwrap();
+        assert_eq!(json, serde_json::json!("alice"));
+        let back: Principal = serde_json::from_value(json).unwrap();
+        assert_eq!(back, p);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn principal_serde_round_trip_system() {
+        let p = Principal::system("sealwiz.rotation-engine");
+        let json = serde_json::to_value(&p).unwrap();
+        let back: Principal = serde_json::from_value(json).unwrap();
+        assert_eq!(back, p);
+    }
+
+    // -- AuditInfo --------------------------------------------------------
+
     #[cfg(feature = "chrono")]
     #[test]
     fn now_sets_created_at_and_updated_at() {
         let before = chrono::Utc::now();
-        let info = AuditInfo::now(Some("alice".to_string()));
+        let info = AuditInfo::now(Principal::new("alice"));
         let after = chrono::Utc::now();
 
         assert!(info.created_at >= before && info.created_at <= after);
         assert!(info.updated_at >= before && info.updated_at <= after);
-        assert_eq!(info.created_by.as_deref(), Some("alice"));
-        assert!(info.updated_by.is_none());
+        assert_eq!(info.created_by.as_str(), "alice");
+        assert_eq!(info.updated_by.as_str(), "alice");
     }
 
-    #[cfg(feature = "chrono")]
+    #[cfg(all(feature = "chrono", feature = "serde"))]
     #[test]
-    fn now_without_actor() {
-        let info = AuditInfo::now(None);
-        assert!(info.created_by.is_none());
-        assert!(info.updated_by.is_none());
+    fn now_with_system_principal() {
+        let info = AuditInfo::now(Principal::system("sealwiz.rotation-engine"));
+        let json = serde_json::to_value(&info).unwrap();
+        let back: AuditInfo = serde_json::from_value(json).unwrap();
+        assert_eq!(back, info);
     }
 
     #[cfg(feature = "chrono")]
     #[test]
     fn touch_updates_updated_at_and_updated_by() {
-        let mut info = AuditInfo::now(Some("alice".to_string()));
+        let mut info = AuditInfo::now(Principal::new("alice"));
         let before_touch = chrono::Utc::now();
-        info.touch(Some("bob".to_string()));
+        info.touch(Principal::new("bob"));
         let after_touch = chrono::Utc::now();
 
         assert!(info.updated_at >= before_touch && info.updated_at <= after_touch);
-        assert_eq!(info.updated_by.as_deref(), Some("bob"));
-    }
-
-    #[cfg(feature = "chrono")]
-    #[test]
-    fn touch_without_actor_clears_updated_by() {
-        let mut info = AuditInfo::now(Some("alice".to_string()));
-        info.touch(Some("bob".to_string()));
-        info.touch(None);
-        assert!(info.updated_by.is_none());
-    }
-
-    #[cfg(all(feature = "chrono", feature = "serde"))]
-    #[test]
-    fn serde_round_trip_with_actors() {
-        let info = AuditInfo::now(Some("alice".to_string()));
-        let json = serde_json::to_value(&info).unwrap();
-        let back: AuditInfo = serde_json::from_value(json).unwrap();
-        assert_eq!(back, info);
-    }
-
-    #[cfg(all(feature = "chrono", feature = "serde"))]
-    #[test]
-    fn serde_omits_none_optional_fields() {
-        let info = AuditInfo::now(None);
-        let json = serde_json::to_value(&info).unwrap();
-        assert!(json.get("created_by").is_none());
-        assert!(json.get("updated_by").is_none());
-    }
-
-    #[cfg(all(feature = "chrono", feature = "serde"))]
-    #[test]
-    fn serde_round_trip_without_actors() {
-        let info = AuditInfo::now(None);
-        let json = serde_json::to_value(&info).unwrap();
-        let back: AuditInfo = serde_json::from_value(json).unwrap();
-        assert_eq!(back, info);
+        assert_eq!(info.updated_by.as_str(), "bob");
     }
 
     #[cfg(feature = "chrono")]
     #[test]
     fn new_constructor() {
         let now = chrono::Utc::now();
-        let info = AuditInfo::new(now, now, Some("alice".to_string()), None);
+        let info = AuditInfo::new(
+            now,
+            now,
+            Principal::new("alice"),
+            Principal::system("sealwiz.rotation-engine"),
+        );
         assert_eq!(info.created_at, now);
         assert_eq!(info.updated_at, now);
-        assert_eq!(info.created_by.as_deref(), Some("alice"));
-        assert!(info.updated_by.is_none());
+        assert_eq!(info.created_by.as_str(), "alice");
+        assert_eq!(info.updated_by.as_str(), "sealwiz.rotation-engine");
+    }
+
+    #[cfg(all(feature = "chrono", feature = "serde"))]
+    #[test]
+    fn serde_round_trip_with_system_actor() {
+        let info = AuditInfo::now(Principal::system("sealwiz.bootstrap"));
+        let json = serde_json::to_value(&info).unwrap();
+        let back: AuditInfo = serde_json::from_value(json).unwrap();
+        assert_eq!(back, info);
+    }
+
+    #[cfg(all(feature = "chrono", feature = "serde"))]
+    #[test]
+    fn serde_actor_fields_are_always_present() {
+        let info = AuditInfo::now(Principal::system("sealwiz.bootstrap"));
+        let json = serde_json::to_value(&info).unwrap();
+        assert!(
+            json.get("created_by").is_some(),
+            "created_by must always serialize"
+        );
+        assert!(
+            json.get("updated_by").is_some(),
+            "updated_by must always serialize"
+        );
+        assert_eq!(json["created_by"], serde_json::json!("sealwiz.bootstrap"));
     }
 }

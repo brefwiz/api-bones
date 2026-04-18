@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-04-16
+
+### Added
+
+- `audit::Principal` — canonical actor-identity newtype (`Cow<'static, str>`-backed).
+  - `Principal::new(impl Into<String>)` for end-user/operator IDs.
+  - `Principal::system(&'static str)` — `const`, infallible, zero-alloc for autonomous actors.
+  - `as_str`, `Display`, non-redacting `Debug`, `Eq`, `Hash`, `Clone`.
+  - Feature-gated integrations: `serde` (transparent string), `utoipa`, `schemars`,
+    `arbitrary`, `proptest`.
+- Re-export: `api_bones::Principal`.
+
+### Changed (BREAKING)
+
+- `AuditInfo::created_by` and `AuditInfo::updated_by` are now non-optional
+  `Principal` fields (previously `Option<String>`). System processes are still
+  actors and must declare themselves via `Principal::system`.
+- `AuditInfo::new(created_at, updated_at, created_by: Principal, updated_by: Principal)`.
+- `AuditInfo::now(created_by: Principal)` — `updated_by` now initialized to a
+  clone of `created_by` rather than `None`.
+- `AuditInfo::touch(&mut self, updated_by: Principal)` — no longer accepts
+  `Option`.
+
+### Migration
+
+Downstream crates that previously passed `Option<String>` must migrate to
+`Principal`:
+
+```rust
+// Before
+AuditInfo::now(Some("alice".to_string()));
+audit.touch(None);
+
+// After
+use api_bones::Principal;
+AuditInfo::now(Principal::new("alice"));
+audit.touch(Principal::system("my-service.cleanup"));
+```
+
 ## [2.0.3] - 2026-04-10
 
 ### Added

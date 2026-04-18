@@ -1,6 +1,6 @@
 # Makefile for my-service-types
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit build clean
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean
 
 .DEFAULT_GOAL := help
 
@@ -31,6 +31,9 @@ build: ## Build the crate
 
 ci-audit: ## Run cargo audit (PLATFORM-008 — strict, no default ignores)
 	cargo audit
+
+ci-deny: ## CI: dependency license audit
+	cargo deny check licenses
 
 clean: ## Clean build artifacts
 	cargo clean
