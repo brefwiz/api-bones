@@ -16,6 +16,9 @@ permissions:
 
 jobs:
   ci:
+    # Forgejo Actions scheduler requires runs-on on reusable-workflow callers,
+    # even though the caller job itself is virtual.
+    runs-on: brefwiz
     uses: brefwiz/ci-workflows/.gitea/workflows/rust-ci.yml@main
     with:
       enable-no-std: true
