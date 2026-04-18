@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-04-18
+
+### Added
+
+- `Principal::human(uuid: Uuid) -> Principal` — UUID-typed constructor for human/operator
+  actors. Requires the `uuid` feature (default). Prevents PII (emails, display names) from
+  entering audit logs and OTEL spans.
+- `Principal::try_parse(&str) -> Result<Principal, PrincipalParseError>` — parses any
+  valid UUID text form; rejects arbitrary strings, emails, and empty input.
+- `PrincipalParseError` — error type returned by `try_parse`; exposes the offending input
+  string. Implements `Display` and `std::error::Error`.
+- `ResolvedPrincipal { id: Principal, display_name: Option<String> }` — read-path display
+  helper that pairs an opaque `Principal` with an optional name resolved at read time by
+  the identity service. Never persisted. Implements `Display` fallback to UUID, serde
+  (skips `display_name` when `None`), and `From<Principal>`.
+
+### Changed (BREAKING)
+
+- `Principal::new(impl Into<String>)` **removed**. Passing arbitrary strings is a
+  GDPR/PII violation (see issue #204). Migrate:
+  - Human actors: `Principal::human(uuid)` or `Principal::try_parse(uuid_str)?`
+  - System actors: `Principal::system("my-service.worker")` (unchanged)
+- `fake` / `arbitrary` / `proptest` impls for `Principal` now generate UUID-backed values
+  instead of random strings.
+
+### Changed
+
+- CI: enrolled in canonical `brefwiz/ci-workflows/.gitea/workflows/ci.yml@main`
+  (previously called deprecated `rust-ci.yml` alias).
+
 ## [2.1.0] - 2026-04-16
 
 ### Added

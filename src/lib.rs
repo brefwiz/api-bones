@@ -151,7 +151,7 @@ pub mod openapi;
 pub mod axum_extractors;
 
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub use audit::{AuditInfo, Principal};
+pub use audit::{AuditInfo, Principal, PrincipalParseError, ResolvedPrincipal};
 #[cfg(feature = "auth")]
 pub use auth::{
     ApiKeyCredentials, AuthScheme, AuthorizationHeader, BasicCredentials, BearerToken, OAuth2Token,

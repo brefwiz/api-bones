@@ -1,3 +1,12 @@
+# CI — consumes brefwiz/ci-workflows composite actions via local checkout.
+#
+# Why the double-checkout: this Gitea instance has "require sign-in to view"
+# enabled, so the runner's auto-issued job token can't git-fetch the
+# ci-workflows repo even though it's public. Each job pre-checks-out
+# ci-workflows with PACKAGE_READER_TOKEN, then `uses: ./.ci-workflows/...`
+# by local path. Composites accept `checkout: false` to avoid re-running
+# checkout on top of our manual one.
+
 name: CI
 
 on:
@@ -8,24 +17,272 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: write
+  pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  CARGO_INCREMENTAL: "0"
+  ZSTD_NBTHREADS: "0"
+  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
 jobs:
-  ci:
-    # Forgejo Actions scheduler requires runs-on on reusable-workflow callers,
-    # even though the caller job itself is virtual.
+  # ==========================================================================
+  # format
+  # ==========================================================================
+  format:
+    name: Code Formatting
     runs-on: brefwiz
-    uses: brefwiz/ci-workflows/.gitea/workflows/rust-ci.yml@main
-    with:
-      enable-no-std: true
-      enable-feature-powerset: true
-      feature-powerset-packages: "api-bones api-bones-tower api-bones-reqwest"
-      feature-powerset-depth: "2"
-      rust-min-stack: "16777216"
-      enable-deny: true
-      enable-auto-tag: true
-    secrets: inherit
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/fmt
+        with:
+          checkout: "false"
+
+  # ==========================================================================
+  # clippy
+  # ==========================================================================
+  clippy:
+    name: Lint
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root -v /var/cache/sccache:/var/cache/sccache
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/clippy
+        with:
+          checkout: "false"
+
+  # ==========================================================================
+  # audit
+  # ==========================================================================
+  audit:
+    name: Security Audit
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/audit
+        with:
+          checkout: "false"
+          policies-token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+
+  # ==========================================================================
+  # deny
+  # ==========================================================================
+  deny:
+    name: Dependency License Audit
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/deny
+        with:
+          checkout: "false"
+          policies-token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+
+  # ==========================================================================
+  # no-std
+  # ==========================================================================
+  no-std:
+    name: no_std Check
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root -v /var/cache/sccache:/var/cache/sccache
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/no-std
+        with:
+          checkout: "false"
+
+  # ==========================================================================
+  # feature-powerset
+  # ==========================================================================
+  feature-powerset:
+    name: Feature Powerset
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root -v /var/cache/sccache:/var/cache/sccache
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}"
+      RUST_MIN_STACK: "16777216"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/feature-powerset
+        with:
+          checkout: "false"
+          packages: "api-bones api-bones-tower api-bones-reqwest"
+          depth: "2"
+
+  # ==========================================================================
+  # test
+  # ==========================================================================
+  test:
+    name: Tests
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root -v /var/cache/sccache:/var/cache/sccache
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/test
+        with:
+          checkout: "false"
+
+  # ==========================================================================
+  # coverage
+  # ==========================================================================
+  coverage:
+    name: Test Coverage
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root -v /var/cache/sccache:/var/cache/sccache
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    env:
+      RUSTC_WRAPPER: sccache
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/coverage
+        with:
+          checkout: "false"
+
+  # ==========================================================================
+  # auto-tag — push tag on green main, dispatch release.yml
+  # ==========================================================================
+  auto-tag:
+    name: Auto-tag release
+    needs: [format, clippy, audit, deny, no-std, feature-powerset, test, coverage]
+    if: >-
+      ${{
+        always() &&
+        !contains(needs.*.result, 'failure') &&
+        !contains(needs.*.result, 'cancelled') &&
+        github.event_name == 'push' &&
+        github.ref == 'refs/heads/main'
+      }}
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      options: --user root
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: brefwiz/ci-workflows
+          ref: main
+          path: .ci-workflows
+          token: ${{ secrets.PACKAGE_READER_TOKEN || secrets.PACKAGE_PUBLISHER_TOKEN }}
+      - uses: ./.ci-workflows/.gitea/actions/auto-tag
+        with:
+          checkout: "false"
+          gitea-token: ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}

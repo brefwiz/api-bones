@@ -443,7 +443,7 @@ impl Dummy<Faker> for crate::ratelimit::RateLimitInfo {
 
 impl Dummy<Faker> for crate::audit::Principal {
     fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
-        Self::new(gen_str(rng))
+        Self::human(uuid::Uuid::from_bytes(Rng::r#gen(rng)))
     }
 }
 
@@ -463,8 +463,8 @@ impl Dummy<Faker> for crate::audit::AuditInfo {
         Self {
             created_at: rfc3339(rng),
             updated_at: rfc3339(rng),
-            created_by: crate::audit::Principal::new(gen_str(rng)),
-            updated_by: crate::audit::Principal::new(gen_str(rng)),
+            created_by: crate::audit::Principal::human(uuid::Uuid::from_bytes(Rng::r#gen(rng))),
+            updated_by: crate::audit::Principal::human(uuid::Uuid::from_bytes(Rng::r#gen(rng))),
         }
     }
 }
@@ -482,8 +482,8 @@ impl Dummy<Faker> for crate::audit::AuditInfo {
         Self {
             created_at,
             updated_at,
-            created_by: crate::audit::Principal::new(gen_str(rng)),
-            updated_by: crate::audit::Principal::new(gen_str(rng)),
+            created_by: crate::audit::Principal::human(uuid::Uuid::from_bytes(Rng::r#gen(rng))),
+            updated_by: crate::audit::Principal::human(uuid::Uuid::from_bytes(Rng::r#gen(rng))),
         }
     }
 }

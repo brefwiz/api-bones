@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "api-bones"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "LicenseRef-Proprietary"
@@ -33,7 +33,7 @@ icalendar = ["dep:icalendar", "std"]
 validator = ["dep:validator", "std"]
 arbitrary = ["dep:arbitrary", "uuid?/arbitrary", "std"]
 proptest = ["dep:proptest", "dep:proptest-derive", "std"]
-fake = ["dep:fake", "dep:rand", "std"]
+fake = ["dep:fake", "dep:rand", "std", "uuid"]
 schemars = ["dep:schemars", "schemars/uuid1", "schemars/chrono04", "std"]
 ## Enables `AuthScheme`, `AuthorizationHeader`, credential types, `Scope`, and `Permission`.
 ## Requires `alloc`. Enables Base64 decode for Basic auth.
