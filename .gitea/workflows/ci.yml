@@ -14,6 +14,9 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   CARGO_INCREMENTAL: 0
+  # Multi-threaded zstd for Swatinem/rust-cache post-step.
+  # 0 = use all available cores; typically 4-6× faster cache save on main.
+  ZSTD_NBTHREADS: "0"
 
 jobs:
   # ============================================================================
