@@ -441,6 +441,12 @@ impl Dummy<Faker> for crate::ratelimit::RateLimitInfo {
 // audit module
 // ---------------------------------------------------------------------------
 
+impl Dummy<Faker> for crate::audit::Principal {
+    fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
+        Self::new(gen_str(rng))
+    }
+}
+
 #[cfg(not(feature = "chrono"))]
 impl Dummy<Faker> for crate::audit::AuditInfo {
     fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
@@ -457,16 +463,8 @@ impl Dummy<Faker> for crate::audit::AuditInfo {
         Self {
             created_at: rfc3339(rng),
             updated_at: rfc3339(rng),
-            created_by: if rng.gen_bool(0.5) {
-                Some(gen_str(rng))
-            } else {
-                None
-            },
-            updated_by: if rng.gen_bool(0.5) {
-                Some(gen_str(rng))
-            } else {
-                None
-            },
+            created_by: crate::audit::Principal::new(gen_str(rng)),
+            updated_by: crate::audit::Principal::new(gen_str(rng)),
         }
     }
 }
@@ -484,16 +482,8 @@ impl Dummy<Faker> for crate::audit::AuditInfo {
         Self {
             created_at,
             updated_at,
-            created_by: if rng.gen_bool(0.5) {
-                Some(gen_str(rng))
-            } else {
-                None
-            },
-            updated_by: if rng.gen_bool(0.5) {
-                Some(gen_str(rng))
-            } else {
-                None
-            },
+            created_by: crate::audit::Principal::new(gen_str(rng)),
+            updated_by: crate::audit::Principal::new(gen_str(rng)),
         }
     }
 }

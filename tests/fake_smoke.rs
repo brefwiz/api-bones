@@ -239,6 +239,14 @@ fn fake_ratelimit_info() {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn fake_principal() {
+    smoke::<api_bones::Principal, _>(200, |v| {
+        // as_str must never panic and must round-trip through Display.
+        assert_eq!(format!("{v}"), v.as_str());
+    });
+}
+
+#[test]
 fn fake_audit_info() {
     smoke::<api_bones::AuditInfo, _>(200, |_| {});
 }

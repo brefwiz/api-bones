@@ -188,6 +188,11 @@ mod arbitrary_tests {
     }
 
     #[test]
+    fn smoke_principal() {
+        smoke::<api_bones::Principal>(1000);
+    }
+
+    #[test]
     fn smoke_audit_info() {
         smoke::<api_bones::AuditInfo>(1000);
     }
@@ -285,6 +290,11 @@ mod proptest_tests {
                 "SearchParams.query length out of range: {}",
                 p.query.len()
             );
+        }
+
+        #[test]
+        fn proptest_principal(v in any::<api_bones::Principal>()) {
+            let _ = v;
         }
 
         #[test]

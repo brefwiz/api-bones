@@ -17,6 +17,10 @@ env:
   # Multi-threaded zstd for Swatinem/rust-cache post-step.
   # 0 = use all available cores; typically 4-6× faster cache save on main.
   ZSTD_NBTHREADS: "0"
+  # Workaround rustc SIGSEGV when compiling icalendar under the feature-powerset
+  # matrix on toolchain 1.94. Safe globally; only grows the main-thread stack
+  # guard above rustc's default.
+  RUST_MIN_STACK: "16777216"
 
 jobs:
   # ============================================================================
@@ -131,6 +135,21 @@ jobs:
       - name: Check coverage
         run: make ci-coverage
 
+  deny:
+    name: Dependency License Audit
+    runs-on: brefwiz
+    container:
+      image: harbor.brefwiz.com/brefwiz/ci:latest
+      credentials:
+        username: ${{ secrets.HARBOR_USER }}
+        password: ${{ secrets.HARBOR_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run cargo-deny license check
+        env:
+          CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
+        run: make ci-deny
+
   audit:
     name: Security Audit
     runs-on: brefwiz
@@ -154,14 +173,17 @@ jobs:
         run: cargo audit --db ~/.cargo/advisory-db
 
   # ============================================================================
-  # Publish — waits for all checks, main branch only
+  # Auto-tag — main only, after all checks pass. Reads root Cargo.toml version
+  # and tags the commit if no matching tag exists. Tag push triggers release.yml.
   # ============================================================================
 
-  publish-crate:
-    name: Publish Crate to Forgejo Registry
+  auto-tag:
+    name: Auto-tag release
     runs-on: brefwiz
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [fmt, clippy, no-std, feature-powerset, test, coverage, audit]
+    needs: [fmt, clippy, no-std, feature-powerset, test, coverage, audit, deny]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
     container:
       image: harbor.brefwiz.com/brefwiz/ci:latest
       credentials:
@@ -169,55 +191,30 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
         with:
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-
-      - name: Build
-        run: cargo build --lib --release --workspace
-
-      - name: Debug token
+          fetch-depth: 0
+      - name: Tag if version is untagged
         env:
-          CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
+          GITEA_TOKEN: ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}
         run: |
-          if [ -z "$CARGO_REGISTRIES_BREFWIZ_TOKEN" ]; then
-            echo "❌ PACKAGE_PUBLISHER_TOKEN secret is EMPTY or not set"
+          VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ -z "$VERSION" ]; then
+            echo "::error::Could not read version from root Cargo.toml"
             exit 1
-          else
-            echo "✅ Token is present (length: ${#CARGO_REGISTRIES_BREFWIZ_TOKEN})"
           fi
-
-      - name: Publish crates
-        env:
-          CARGO_REGISTRIES_BREFWIZ_TOKEN: "Bearer ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}"
-        run: |
-          REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
-          publish_one() {
-            PKG=$1
-            if ! cargo publish --registry "$REGISTRY" --allow-dirty --package "$PKG" 2>&1 | tee /tmp/publish.log; then
-              if grep -q "already uploaded\|already exists" /tmp/publish.log; then
-                echo "⚠️ $PKG already published at this version (expected)"
-              else
-                echo "❌ Publish failed for $PKG"
-                cat /tmp/publish.log
-                exit 1
-              fi
-            fi
-          }
-          publish_one api-bones
-          # Give the registry a moment to index api-bones before dependents are published
-          sleep 10
-          publish_one api-bones-tower
-          publish_one api-bones-reqwest
-
-      - name: Summary
-        if: success()
-        run: |
-          REGISTRY=$(grep -m1 '^\[registries' .cargo/config.toml | tr -d '[]' | cut -d. -f2)
-          echo "## 📦 Crates Published" >> $GITHUB_STEP_SUMMARY
-          for PKG in api-bones api-bones-tower api-bones-reqwest; do
-            DIR=$([ "$PKG" = "api-bones" ] && echo "." || echo "$PKG")
-            VERSION=$(grep '^version' "$DIR/Cargo.toml" | head -1 | cut -d'"' -f2)
-            echo "- \`$PKG\` v\`$VERSION\` → \`$REGISTRY\`" >> $GITHUB_STEP_SUMMARY
-          done
+          git config user.name  "ci-bot"
+          git config user.email "ci@brefwiz.com"
+          git remote set-url origin "https://x-oauth-basic:${GITEA_TOKEN}@git.brefwiz.com/brefwiz/api-bones.git"
+          if git ls-remote --tags origin | grep -q "refs/tags/${VERSION}$"; then
+            echo "Tag ${VERSION} already exists — skipping."
+          else
+            echo "New version detected — tagging ${VERSION}"
+            git tag -a "${VERSION}" -m "Release ${VERSION}"
+            git push origin "${VERSION}"
+            echo "Tag ${VERSION} pushed — dispatching release workflow."
+            curl -s -X POST \
+              -H "Authorization: token ${GITEA_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/dispatches" \
+              -d "{\"ref\":\"${VERSION}\"}"
+          fi
