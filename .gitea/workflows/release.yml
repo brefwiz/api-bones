@@ -132,8 +132,9 @@ jobs:
         password: ${{ secrets.HARBOR_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Fetch full history and tags
+        run: |
+          git fetch --unshallow --tags
       - name: Create release
         env:
           GITEA_TOKEN: ${{ secrets.PACKAGE_PUBLISHER_TOKEN }}
@@ -147,10 +148,21 @@ jobs:
             CHANGELOG=$(git log --pretty=format:"- %s" --no-merges | head -20)
           fi
           CHANGELOG_JSON=$(printf '%s' "${CHANGELOG}" | python3 -c "import sys,json; print(json.dumps(sys.stdin.read()))")
-          printf '{"tag_name":"%s","name":"v%s","body":%s,"draft":false,"prerelease":false}' \
-            "${TAG_NAME}" "${VERSION}" "${CHANGELOG_JSON}" | \
-          curl -s -X POST \
+          PAYLOAD=$(printf '{"tag_name":"%s","name":"v%s","body":%s,"draft":false,"prerelease":false}' \
+            "${TAG_NAME}" "${VERSION}" "${CHANGELOG_JSON}")
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
             -H "Authorization: token ${GITEA_TOKEN}" \
             -H "Content-Type: application/json" \
             "${GITHUB_SERVER_URL}/api/v1/repos/${GITHUB_REPOSITORY}/releases" \
-            -d @-
+            -d "${PAYLOAD}")
+          HTTP_CODE=$(echo "${RESPONSE}" | tail -1)
+          BODY=$(echo "${RESPONSE}" | head -n -1)
+          echo "HTTP ${HTTP_CODE}: ${BODY}"
+          if [ "${HTTP_CODE}" = "201" ]; then
+            echo "✅ Release v${VERSION} created"
+          elif echo "${BODY}" | grep -q "already exists\|Release already exists"; then
+            echo "⚠️ Release v${VERSION} already exists (expected on re-run)"
+          else
+            echo "❌ Failed to create release (HTTP ${HTTP_CODE})"
+            exit 1
+          fi
