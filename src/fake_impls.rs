@@ -597,6 +597,37 @@ impl<T: Dummy<Faker>> Dummy<Faker> for crate::bulk::BulkResponse<T> {
 // slug module
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// org_id module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "uuid")]
+impl Dummy<Faker> for crate::org_id::OrgId {
+    fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, _rng: &mut R) -> Self {
+        Self::generate()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// time_window module
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "chrono")]
+impl Dummy<Faker> for crate::time_window::TimeWindow {
+    fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
+        let from_secs: i64 = rng.gen_range(946_684_800i64..=4_102_444_800i64);
+        let duration_secs: i64 = rng.gen_range(0i64..=86_400i64);
+        let from = chrono::DateTime::from_timestamp(from_secs, 0).unwrap_or_else(chrono::Utc::now);
+        let to = chrono::DateTime::from_timestamp(from_secs + duration_secs, 0)
+            .unwrap_or_else(chrono::Utc::now);
+        Self::new(from, to).expect("generated window is valid")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// slug module
+// ---------------------------------------------------------------------------
+
 impl Dummy<Faker> for crate::slug::Slug {
     fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
         const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";

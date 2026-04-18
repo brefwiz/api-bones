@@ -100,6 +100,8 @@ pub mod header_id;
 pub mod idempotency;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod links;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub mod org_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod range;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
@@ -108,6 +110,8 @@ pub mod request_id;
 pub mod response;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod slug;
+#[cfg(feature = "chrono")]
+pub mod time_window;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub mod traceparent;
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -208,6 +212,8 @@ pub use idempotency::{IdempotencyKey, IdempotencyKeyError};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use links::{Link, Links};
 pub use method::HttpMethod;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use org_id::{OrgId, OrgIdError};
 pub use pagination::PaginationParams;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use pagination::{
@@ -232,6 +238,8 @@ pub use retry::{RetryAfter, RetryAfterParseError};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use slug::{Slug, SlugError};
 pub use status::StatusCode;
+#[cfg(feature = "chrono")]
+pub use time_window::{TimeWindow, TimeWindowError};
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub use traceparent::{SamplingFlags, SpanId, TraceContext, TraceContextError, TraceId};
 #[cfg(any(feature = "std", feature = "alloc"))]
