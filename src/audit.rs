@@ -319,11 +319,14 @@ impl Principal {
     /// Intended for use as an OTEL span attribute value (`enduser.org_path`).
     ///
     /// ```
-    /// use api_bones::{Principal, OrgId};
+    /// # #[cfg(feature = "uuid")] {
+    /// use api_bones::Principal;
     ///
     /// let p = Principal::system("svc");
     /// assert_eq!(p.org_path_display(), "");
+    /// # }
     /// ```
+    #[cfg(feature = "uuid")]
     #[must_use]
     pub fn org_path_display(&self) -> String {
         self.org_path
@@ -820,6 +823,7 @@ mod tests {
         assert_eq!(p.org_path[0], org_id);
     }
 
+    #[cfg(feature = "uuid")]
     #[test]
     fn org_path_display_empty_for_system_principal() {
         let p = Principal::system("svc");
