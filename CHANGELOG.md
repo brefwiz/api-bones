@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-04-18
+
+### Added
+
+- `OrgId` — UUID v4 tenant identifier newtype, propagated via the `X-Org-Id` HTTP header.
+  Implements `HeaderId`, `FromStr`, `Display`, `From<Uuid>`, axum `FromRequestParts`
+  (behind the `axum` feature), and serde. Requires the `uuid` feature.
+- `OrganizationContext` — cross-cutting platform context bundle carrying `OrgId`,
+  `Principal`, `RequestId`, `Vec<Role>`, and `Option<Attestation>` in a single
+  cheap-to-clone struct. Constructor: `OrganizationContext::new(org_id, principal,
+  request_id)`. Builder methods: `with_roles`, `with_attestation`. Serde derives gated on
+  the `serde` feature.
+- `Role(Arc<str>)` — token-neutral role label newtype. No permission semantics in
+  api-bones; quorumauth owns permission evaluation.
+- `Attestation { kind: AttestationKind, raw: Vec<u8> }` — opaque credential payload with
+  kind tag. Downstream auth crates decode the raw bytes per kind.
+- `AttestationKind` — `#[non_exhaustive]` enum: `Biscuit`, `Jwt`, `ApiKey`, `Mtls`.
+
+## [2.2.1] - 2026-04-18
+
+### Added
+
+- `Principal::from_stored(String) -> Principal` — reconstruct a `Principal` from a
+  previously persisted string (database column, serialised message). Accepts both UUID
+  and system-name formats without validation, since the value was already validated at
+  write time. Use on read paths only; prefer `human` or `system` for new principals.
+
 ## [2.2.0] - 2026-04-18
 
 ### Added
