@@ -516,7 +516,11 @@ impl From<ErrorCode> for StatusCode {
             | ErrorCode::InvalidCredentials
             | ErrorCode::TokenExpired
             | ErrorCode::TokenInvalid => Self::Unauthorized,
-            ErrorCode::Forbidden | ErrorCode::InsufficientPermissions => Self::Forbidden,
+            ErrorCode::Forbidden
+            | ErrorCode::InsufficientPermissions
+            | ErrorCode::OrgOutsideSubtree
+            | ErrorCode::AncestorRequired
+            | ErrorCode::CrossSubtreeAccess => Self::Forbidden,
             ErrorCode::ResourceNotFound => Self::NotFound,
             ErrorCode::MethodNotAllowed => Self::MethodNotAllowed,
             ErrorCode::NotAcceptable => Self::NotAcceptable,

@@ -155,7 +155,9 @@ pub mod openapi;
 pub mod axum_extractors;
 
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub use audit::{AuditInfo, Principal, PrincipalParseError, ResolvedPrincipal};
+pub use audit::{
+    AuditInfo, Principal, PrincipalId, PrincipalKind, PrincipalParseError, ResolvedPrincipal,
+};
 #[cfg(feature = "auth")]
 pub use auth::{
     ApiKeyCredentials, AuthScheme, AuthorizationHeader, BasicCredentials, BearerToken, OAuth2Token,
@@ -213,9 +215,11 @@ pub use idempotency::{IdempotencyKey, IdempotencyKeyError};
 pub use links::{Link, Links};
 pub use method::HttpMethod;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub use org_context::{Attestation, AttestationKind, OrganizationContext, Role};
+pub use org_context::{
+    Attestation, AttestationKind, OrganizationContext, Role, RoleBinding, RoleScope,
+};
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub use org_id::{OrgId, OrgIdError};
+pub use org_id::{OrgId, OrgIdError, OrgPath};
 pub use pagination::PaginationParams;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use pagination::{

@@ -9,6 +9,8 @@
 //! - Timestamps: [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339)
 
 use crate::common::Timestamp;
+#[cfg(feature = "uuid")]
+use crate::org_id::OrgId;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::borrow::Cow;
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "uuid"))]
@@ -17,6 +19,8 @@ use alloc::borrow::ToOwned;
 use alloc::string::String;
 #[cfg(all(not(feature = "std"), feature = "alloc", feature = "uuid"))]
 use alloc::string::ToString;
+#[cfg(all(not(feature = "std"), feature = "alloc", feature = "uuid"))]
+use alloc::vec::Vec;
 
 #[cfg(feature = "std")]
 use std::borrow::Cow;
@@ -26,6 +30,74 @@ use uuid::Uuid;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// PrincipalId
+// ---------------------------------------------------------------------------
+
+/// Opaque principal identifier. Flexible string storage:
+/// UUID strings for User principals, static service names for System/Service.
+#[derive(Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "utoipa", schema(value_type = String))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(transparent))]
+pub struct PrincipalId(Cow<'static, str>);
+
+impl PrincipalId {
+    /// Wrap a `&'static str` — for compile-time system/service names.
+    #[must_use]
+    pub const fn static_str(s: &'static str) -> Self {
+        Self(Cow::Borrowed(s))
+    }
+
+    /// Wrap an owned String — for DB round-trips and dynamic construction.
+    #[must_use]
+    pub fn from_owned(s: String) -> Self {
+        Self(Cow::Owned(s))
+    }
+
+    /// Borrow the id as `&str`.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Construct from a UUID (stores as hyphenated string).
+    #[cfg(feature = "uuid")]
+    #[must_use]
+    pub fn from_uuid(uuid: Uuid) -> Self {
+        Self(Cow::Owned(uuid.to_string()))
+    }
+}
+
+impl core::fmt::Debug for PrincipalId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("PrincipalId").field(&self.as_str()).finish()
+    }
+}
+
+impl core::fmt::Display for PrincipalId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Discriminator for the kind of actor a Principal represents.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum PrincipalKind {
+    /// Human or end-user identity (id is a UUID string).
+    User,
+    /// Autonomous service-to-service identity (id is a service name).
+    Service,
+    /// Platform-level system actor (id is a static name, may be outside any org).
+    System,
+}
 
 // ---------------------------------------------------------------------------
 // PrincipalParseError
@@ -60,11 +132,14 @@ impl std::error::Error for PrincipalParseError {}
 // Principal
 // ---------------------------------------------------------------------------
 
-/// Canonical actor-identity newtype for audit events.
+/// Canonical actor identity. Carries id, kind, and org-tree position.
 ///
 /// Thread the *same* `Principal` through every downstream audit-emitting
 /// crate — sealwiz, batchwiz, itinerwiz, etc. — instead of forking local
 /// newtypes.
+///
+/// `org_path` is root-to-self inclusive. Platform-internal actors outside
+/// any org tree use `org_path: vec![]`.
 ///
 /// # Construction
 ///
@@ -73,8 +148,8 @@ impl std::error::Error for PrincipalParseError {}
 ///   audit logs. Requires the `uuid` feature.
 /// - [`Principal::try_parse`] — parse a UUID string into a `Principal`.
 ///   Returns [`PrincipalParseError`] for non-UUID input. Requires `uuid`.
-/// - [`Principal::system`] — for autonomous or system actors. Infallible and
-///   `const`, so it can be used in static/const initializers.
+/// - [`Principal::system`] — for autonomous or system actors. Infallible but
+///   no longer `const` due to `Vec` in `org_path`.
 ///
 /// # Semantics
 ///
@@ -97,18 +172,26 @@ impl std::error::Error for PrincipalParseError {}
 /// let alice = Principal::human(id);
 /// assert_eq!(alice.as_str(), id.to_string().as_str());
 ///
-/// // System principal — const-constructible
-/// const ROTATION: Principal = Principal::system("sealwiz.rotation-engine");
-/// assert_eq!(ROTATION.as_str(), "sealwiz.rotation-engine");
+/// // System principal
+/// let rotation = Principal::system("sealwiz.rotation-engine");
+/// assert_eq!(rotation.as_str(), "sealwiz.rotation-engine");
 /// # }
 /// ```
-#[derive(Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
-#[cfg_attr(feature = "utoipa", schema(value_type = String))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "schemars", schemars(transparent))]
-pub struct Principal(Cow<'static, str>);
+pub struct Principal {
+    /// The opaque principal identifier.
+    pub id: PrincipalId,
+    /// The kind of actor this principal represents.
+    pub kind: PrincipalKind,
+    /// Org path from root to the acting org (inclusive). Empty = platform scope.
+    /// Only present when the `uuid` feature is enabled.
+    #[cfg(feature = "uuid")]
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub org_path: Vec<OrgId>,
+}
 
 impl Principal {
     /// Construct a principal for a human actor from a [`uuid::Uuid`].
@@ -133,7 +216,12 @@ impl Principal {
     #[cfg(feature = "uuid")]
     #[must_use]
     pub fn human(uuid: Uuid) -> Self {
-        Self(Cow::Owned(uuid.to_string()))
+        Self {
+            id: PrincipalId::from_uuid(uuid),
+            kind: PrincipalKind::User,
+            #[cfg(feature = "uuid")]
+            org_path: Vec::new(),
+        }
     }
 
     /// Parse a UUID string into a `Principal`.
@@ -167,46 +255,26 @@ impl Principal {
             })
     }
 
-    /// Construct a system principal from a `'static` string.
+    /// Construct a system principal from a `&'static` string.
     ///
-    /// Infallible and `const`, so it can appear in `const` / `static`
-    /// initializers for autonomous actors (rotation engines, bootstrap
-    /// workers, cron jobs).
+    /// Infallible but no longer `const` since `org_path` is a `Vec`.
     ///
     /// # Examples
     ///
     /// ```rust
     /// use api_bones::Principal;
     ///
-    /// const BOOTSTRAP: Principal = Principal::system("sealwiz.bootstrap");
-    /// assert_eq!(BOOTSTRAP.as_str(), "sealwiz.bootstrap");
+    /// let bootstrap = Principal::system("sealwiz.bootstrap");
+    /// assert_eq!(bootstrap.as_str(), "sealwiz.bootstrap");
     /// ```
     #[must_use]
-    pub const fn system(id: &'static str) -> Self {
-        Self(Cow::Borrowed(id))
-    }
-
-    /// Construct a principal from an owned [`String`] for persistence round-trips.
-    ///
-    /// Use this when reading a stored principal back from a database or serialized
-    /// format where you have an owned `String` rather than a `&'static str`.
-    /// The value is accepted as-is; no UUID validation is performed.
-    ///
-    /// Prefer [`Principal::human`] for new human actors and [`Principal::system`]
-    /// for compile-time system actors. Reserve `from_owned` for deserialization only.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use api_bones::Principal;
-    ///
-    /// let stored = String::from("sealwiz.rotation-engine");
-    /// let p = Principal::from_owned(stored);
-    /// assert_eq!(p.as_str(), "sealwiz.rotation-engine");
-    /// ```
-    #[must_use]
-    pub fn from_owned(s: String) -> Self {
-        Self(Cow::Owned(s))
+    pub fn system(id: &'static str) -> Self {
+        Self {
+            id: PrincipalId::static_str(id),
+            kind: PrincipalKind::System,
+            #[cfg(feature = "uuid")]
+            org_path: Vec::new(),
+        }
     }
 
     /// Borrow the principal as a `&str`.
@@ -220,21 +288,34 @@ impl Principal {
     /// ```
     #[must_use]
     pub fn as_str(&self) -> &str {
-        &self.0
+        self.id.as_str()
+    }
+
+    /// Set the org path on this principal (builder-style).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "uuid")] {
+    /// use api_bones::{Principal, OrgId};
+    /// use uuid::Uuid;
+    ///
+    /// let p = Principal::human(Uuid::nil())
+    ///     .with_org_path(vec![OrgId::generate()]);
+    /// assert!(!p.org_path.is_empty());
+    /// # }
+    /// ```
+    #[cfg(feature = "uuid")]
+    #[must_use]
+    pub fn with_org_path(mut self, org_path: Vec<OrgId>) -> Self {
+        self.org_path = org_path;
+        self
     }
 }
 
 impl core::fmt::Display for Principal {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-impl core::fmt::Debug for Principal {
-    // Intentionally NOT redacted — principals are identities, not secrets,
-    // and must remain visible in audit logs and tracing output.
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("Principal").field(&self.as_str()).finish()
     }
 }
 
@@ -248,14 +329,48 @@ impl<'a> arbitrary::Arbitrary<'a> for Principal {
     }
 }
 
-/// Fallback when `uuid` feature is disabled: generate an arbitrary string.
+/// Fallback when `uuid` feature is disabled: generate an arbitrary system principal.
 /// This path should rarely be reached in practice since `uuid` is in the
 /// default feature set.
 #[cfg(all(feature = "arbitrary", not(feature = "uuid")))]
 impl<'a> arbitrary::Arbitrary<'a> for Principal {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let s = <String as arbitrary::Arbitrary>::arbitrary(u)?;
-        Ok(Self(Cow::Owned(s)))
+        Ok(Self {
+            id: PrincipalId::from_owned(s),
+            kind: PrincipalKind::System,
+            #[cfg(feature = "uuid")]
+            org_path: Vec::new(),
+        })
+    }
+}
+
+/// arbitrary impl for `PrincipalId`
+#[cfg(all(feature = "arbitrary", feature = "uuid"))]
+impl<'a> arbitrary::Arbitrary<'a> for PrincipalId {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let bytes = <[u8; 16] as arbitrary::Arbitrary>::arbitrary(u)?;
+        Ok(Self::from_uuid(Uuid::from_bytes(bytes)))
+    }
+}
+
+#[cfg(all(feature = "arbitrary", not(feature = "uuid")))]
+impl<'a> arbitrary::Arbitrary<'a> for PrincipalId {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let s = <String as arbitrary::Arbitrary>::arbitrary(u)?;
+        Ok(Self::from_owned(s))
+    }
+}
+
+/// arbitrary impl for `PrincipalKind`
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for PrincipalKind {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        match <u8 as arbitrary::Arbitrary>::arbitrary(u)? % 3 {
+            0 => Ok(Self::User),
+            1 => Ok(Self::Service),
+            _ => Ok(Self::System),
+        }
     }
 }
 
@@ -282,7 +397,51 @@ impl proptest::arbitrary::Arbitrary for Principal {
 
     fn arbitrary_with((): ()) -> Self::Strategy {
         use proptest::prelude::*;
-        any::<String>().prop_map(|s| Self(Cow::Owned(s))).boxed()
+        any::<String>()
+            .prop_map(|s| Self {
+                id: PrincipalId::from_owned(s),
+                kind: PrincipalKind::System,
+                #[cfg(feature = "uuid")]
+                org_path: Vec::new(),
+            })
+            .boxed()
+    }
+}
+
+/// proptest impl for `PrincipalId`
+#[cfg(all(feature = "proptest", feature = "uuid"))]
+impl proptest::arbitrary::Arbitrary for PrincipalId {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        use proptest::prelude::*;
+        any::<[u8; 16]>()
+            .prop_map(|b| Self::from_uuid(Uuid::from_bytes(b)))
+            .boxed()
+    }
+}
+
+#[cfg(all(feature = "proptest", not(feature = "uuid")))]
+impl proptest::arbitrary::Arbitrary for PrincipalId {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        use proptest::prelude::*;
+        any::<String>().prop_map(|s| Self::from_owned(s)).boxed()
+    }
+}
+
+/// proptest impl for `PrincipalKind`
+#[cfg(feature = "proptest")]
+impl proptest::arbitrary::Arbitrary for PrincipalKind {
+    type Parameters = ();
+    type Strategy = proptest::strategy::BoxedStrategy<Self>;
+
+    fn arbitrary_with((): ()) -> Self::Strategy {
+        use proptest::prelude::*;
+        prop_oneof![Just(Self::User), Just(Self::Service), Just(Self::System),].boxed()
     }
 }
 
@@ -551,25 +710,129 @@ mod tests {
     #[cfg(feature = "uuid")]
     use uuid::Uuid;
 
+    // -- PrincipalId --------------------------------------------------------
+
+    #[test]
+    fn principal_id_static_str() {
+        let id = PrincipalId::static_str("foo");
+        assert_eq!(id.as_str(), "foo");
+    }
+
+    #[test]
+    fn principal_id_from_owned() {
+        let id = PrincipalId::from_owned("bar".to_owned());
+        assert_eq!(id.as_str(), "bar");
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_id_from_uuid() {
+        let id = PrincipalId::from_uuid(Uuid::nil());
+        assert_eq!(id.as_str(), "00000000-0000-0000-0000-000000000000");
+    }
+
+    #[test]
+    fn principal_id_display() {
+        let id = PrincipalId::static_str("test");
+        assert_eq!(format!("{id}"), "test");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn principal_id_serde_transparent() {
+        let id = PrincipalId::static_str("myid");
+        let json = serde_json::to_value(&id).unwrap();
+        assert_eq!(json, serde_json::json!("myid"));
+        let back: PrincipalId = serde_json::from_value(json).unwrap();
+        assert_eq!(back, id);
+    }
+
+    // -- PrincipalKind -------------------------------------------------------
+
+    #[test]
+    fn principal_kind_copy_and_eq() {
+        let k1 = PrincipalKind::User;
+        let k2 = k1;
+        assert_eq!(k1, k2);
+    }
+
+    #[test]
+    fn principal_kind_all_variants() {
+        let _ = PrincipalKind::User;
+        let _ = PrincipalKind::Service;
+        let _ = PrincipalKind::System;
+    }
+
     // -- Principal --------------------------------------------------------
 
+    #[cfg(feature = "uuid")]
     #[test]
-    fn principal_from_owned_roundtrip() {
-        let stored = "sealwiz.bootstrap".to_owned();
-        let p = Principal::from_owned(stored.clone());
-        assert_eq!(p.as_str(), stored);
+    fn principal_human_has_user_kind() {
+        let p = Principal::human(Uuid::nil());
+        assert_eq!(p.kind, PrincipalKind::User);
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_human_has_empty_org_path() {
+        let p = Principal::human(Uuid::nil());
+        assert!(p.org_path.is_empty());
     }
 
     #[test]
-    fn principal_system_is_const_and_borrowed() {
-        const P: Principal = Principal::system("sealwiz.bootstrap");
-        assert_eq!(P.as_str(), "sealwiz.bootstrap");
+    fn principal_system_has_system_kind() {
+        let p = Principal::system("s");
+        assert_eq!(p.kind, PrincipalKind::System);
     }
 
     #[test]
-    fn principal_system_still_works() {
-        let p = Principal::system("sealwiz.rotation-engine");
-        assert_eq!(p.as_str(), "sealwiz.rotation-engine");
+    fn principal_system_has_empty_org_path() {
+        let p = Principal::system("s");
+        assert!(p.org_path.is_empty());
+    }
+
+    #[test]
+    fn principal_with_org_path_builder() {
+        let org_id = crate::org_id::OrgId::generate();
+        let p = Principal::system("test").with_org_path(vec![org_id]);
+        assert_eq!(p.org_path.len(), 1);
+        assert_eq!(p.org_path[0], org_id);
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_try_parse_accepts_valid_uuid() {
+        let s = "550e8400-e29b-41d4-a716-446655440000";
+        let p = Principal::try_parse(s).expect("valid UUID should parse");
+        assert_eq!(p.as_str(), s);
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_try_parse_sets_user_kind() {
+        let p = Principal::try_parse("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        assert_eq!(p.kind, PrincipalKind::User);
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_try_parse_rejects_email_string() {
+        let err = Principal::try_parse("alice@example.com").expect_err("email must be rejected");
+        assert_eq!(err.input, "alice@example.com");
+        assert!(err.to_string().contains("alice@example.com"));
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_try_parse_rejects_empty_string() {
+        let err = Principal::try_parse("").expect_err("empty string must be rejected");
+        assert_eq!(err.input, "");
+    }
+
+    #[test]
+    fn principal_as_str_returns_id_str() {
+        let p = Principal::system("x");
+        assert_eq!(p.as_str(), "x");
     }
 
     #[cfg(feature = "uuid")]
@@ -597,14 +860,14 @@ mod tests {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let borrowed = Principal::system("sealwiz.bootstrap");
-        let also_borrowed = Principal::system("sealwiz.bootstrap");
-        assert_eq!(borrowed, also_borrowed);
+        let p1 = Principal::system("sealwiz.bootstrap");
+        let p2 = Principal::system("sealwiz.bootstrap");
+        assert_eq!(p1, p2);
 
         let mut h1 = DefaultHasher::new();
-        borrowed.hash(&mut h1);
+        p1.hash(&mut h1);
         let mut h2 = DefaultHasher::new();
-        also_borrowed.hash(&mut h2);
+        p2.hash(&mut h2);
         assert_eq!(h1.finish(), h2.finish());
     }
 
@@ -618,69 +881,28 @@ mod tests {
 
     #[cfg(all(feature = "serde", feature = "uuid"))]
     #[test]
-    fn principal_serde_transparent_string() {
+    fn principal_serde_struct_roundtrip_human() {
         let p = Principal::human(Uuid::nil());
         let json = serde_json::to_value(&p).unwrap();
-        assert_eq!(json, serde_json::json!(Uuid::nil().to_string()));
         let back: Principal = serde_json::from_value(json).unwrap();
         assert_eq!(back, p);
     }
 
     #[cfg(feature = "serde")]
     #[test]
-    fn principal_serde_round_trip_system() {
+    fn principal_serde_struct_roundtrip_system() {
         let p = Principal::system("sealwiz.rotation-engine");
         let json = serde_json::to_value(&p).unwrap();
         let back: Principal = serde_json::from_value(json).unwrap();
         assert_eq!(back, p);
     }
 
-    // -- Principal::human and Principal::try_parse (uuid feature) ---------
-
-    #[cfg(feature = "uuid")]
+    #[cfg(feature = "serde")]
     #[test]
-    fn principal_human_stores_uuid_as_string() {
-        let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let p = Principal::human(id);
-        assert_eq!(p.as_str(), "550e8400-e29b-41d4-a716-446655440000");
-    }
-
-    #[cfg(all(feature = "uuid", feature = "serde"))]
-    #[test]
-    fn principal_human_round_trips_through_serde() {
-        let id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let p = Principal::human(id);
+    fn principal_serde_includes_org_path() {
+        let p = Principal::system("test");
         let json = serde_json::to_value(&p).unwrap();
-        assert_eq!(
-            json,
-            serde_json::json!("550e8400-e29b-41d4-a716-446655440000")
-        );
-        let back: Principal = serde_json::from_value(json).unwrap();
-        assert_eq!(back, p);
-    }
-
-    #[cfg(feature = "uuid")]
-    #[test]
-    fn principal_try_parse_accepts_valid_uuid_string() {
-        let s = "550e8400-e29b-41d4-a716-446655440000";
-        let p = Principal::try_parse(s).expect("valid UUID should parse");
-        assert_eq!(p.as_str(), s);
-    }
-
-    #[cfg(feature = "uuid")]
-    #[test]
-    fn principal_try_parse_rejects_email_string() {
-        let err = Principal::try_parse("alice@example.com").expect_err("email must be rejected");
-        assert_eq!(err.input, "alice@example.com");
-        // Error message must mention the offending input.
-        assert!(err.to_string().contains("alice@example.com"));
-    }
-
-    #[cfg(feature = "uuid")]
-    #[test]
-    fn principal_try_parse_rejects_empty_string() {
-        let err = Principal::try_parse("").expect_err("empty string must be rejected");
-        assert_eq!(err.input, "");
+        assert!(json.get("org_path").is_some());
     }
 
     // -- AuditInfo --------------------------------------------------------
@@ -756,7 +978,11 @@ mod tests {
             json.get("updated_by").is_some(),
             "updated_by must always serialize"
         );
-        assert_eq!(json["created_by"], serde_json::json!("sealwiz.bootstrap"));
+        // Principal is now a struct with id, kind, org_path fields
+        assert_eq!(
+            json["created_by"]["id"],
+            serde_json::json!("sealwiz.bootstrap")
+        );
     }
 
     // -- PrincipalParseError ----------------------------------------------

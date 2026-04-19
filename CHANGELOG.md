@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-04-19
+
+### Added
+
+- `PrincipalId(Cow<'static, str>)` — identity string newtype extracted from `Principal`.
+- `PrincipalKind` — `User | Service | System` enum on `Principal`.
+- `Principal.org_path: Vec<OrgId>` — org ancestry carried on the principal (requires `uuid` feature).
+- `RoleScope` — `Self_ | Subtree | Specific(OrgId)` scoping for role bindings.
+- `RoleBinding { role: Role, scope: RoleScope }` — scope-aware role assignment.
+- `OrgPath(Vec<OrgId>)` — `X-Org-Path` header newtype with `HeaderId`, `FromStr`, and axum extractor.
+- `OrganizationContext.org_path: Vec<OrgId>` + `with_org_path` builder.
+- `ErrorCode::OrgOutsideSubtree`, `AncestorRequired`, `CrossSubtreeAccess` — new 403 variants.
+
+### Changed
+
+- **BREAKING** `Principal` is now `struct { id: PrincipalId, kind: PrincipalKind, org_path: Vec<OrgId> }` (was a `Cow<str>` newtype). Serde wire format changed.
+- **BREAKING** `Principal::system()` is no longer `const` (contains `Vec`).
+- **BREAKING** `OrganizationContext.roles` is now `Vec<RoleBinding>` (was `Vec<Role>`).
+
+### Removed
+
+- **BREAKING** `Principal::from_owned(String)` moved to `PrincipalId::from_owned`.
+
 ## [2.3.1] - 2026-04-19
 
 ### Added

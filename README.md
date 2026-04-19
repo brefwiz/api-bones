@@ -6,7 +6,7 @@ Opinionated REST API types: errors (RFC 9457), pagination, health checks, and mo
 
 ```toml
 [dependencies]
-api-bones = "2.0"
+api-bones = "3.0"
 ```
 
 ## Satellite Crates
@@ -188,10 +188,10 @@ All implement the `HeaderId` trait (`as_str()`, `header_name()`).
 
 ```toml
 # no_std + alloc (WASM, embedded with allocator)
-api-bones = { version = "2", default-features = false, features = ["alloc"] }
+api-bones = { version = "3", default-features = false, features = ["alloc"] }
 
 # pure no_std (core types only)
-api-bones = { version = "2", default-features = false }
+api-bones = { version = "3", default-features = false }
 ```
 
 ## Example

@@ -7,7 +7,8 @@
 //! Run: `cargo run --example org_context`
 
 use api_bones::{
-    Attestation, AttestationKind, OrgId, OrganizationContext, Principal, RequestId, Role,
+    Attestation, AttestationKind, OrgId, OrgPath, OrganizationContext, Principal, RequestId, Role,
+    RoleBinding, RoleScope, header_id::HeaderId as _,
 };
 use uuid::Uuid;
 
@@ -27,16 +28,33 @@ fn main() {
 
     // Builder — add roles and a JWT attestation
     let ctx = OrganizationContext::new(org_id, principal, request_id)
-        .with_roles(vec![Role::from("admin"), Role::from("billing-viewer")])
+        .with_roles(vec![
+            RoleBinding {
+                role: Role::from("admin"),
+                scope: RoleScope::Self_,
+            },
+            RoleBinding {
+                role: Role::from("billing-viewer"),
+                scope: RoleScope::Subtree,
+            },
+        ])
         .with_attestation(Attestation {
             kind: AttestationKind::Jwt,
             raw: b"<opaque-jwt-bytes>".to_vec(),
         });
 
+    // OrgPath — ancestry chain propagated via X-Org-Path header
+    let parent = OrgId::new(Uuid::parse_str("c2c2c2c2-c2c2-4c2c-c2c2-c2c2c2c2c2c2").unwrap());
+    let path = OrgPath::new(vec![parent, org_id]);
+    println!("\nOrgPath header: {}", path.as_str());
+
     println!("\nWith roles and attestation:");
     println!(
         "roles:  {:?}",
-        ctx.roles.iter().map(Role::as_str).collect::<Vec<_>>()
+        ctx.roles
+            .iter()
+            .map(|rb| rb.role.as_str())
+            .collect::<Vec<_>>()
     );
     println!("kind:   {:?}", ctx.attestation.as_ref().unwrap().kind);
 }
