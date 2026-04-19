@@ -193,6 +193,16 @@ mod arbitrary_tests {
     }
 
     #[test]
+    fn smoke_principal_id() {
+        smoke::<api_bones::PrincipalId>(1000);
+    }
+
+    #[test]
+    fn smoke_principal_kind() {
+        smoke::<api_bones::PrincipalKind>(1000);
+    }
+
+    #[test]
     fn smoke_audit_info() {
         smoke::<api_bones::AuditInfo>(1000);
     }
@@ -294,6 +304,16 @@ mod proptest_tests {
 
         #[test]
         fn proptest_principal(v in any::<api_bones::Principal>()) {
+            let _ = v;
+        }
+
+        #[test]
+        fn proptest_principal_id(v in any::<api_bones::PrincipalId>()) {
+            let _ = v;
+        }
+
+        #[test]
+        fn proptest_principal_kind(v in any::<api_bones::PrincipalKind>()) {
             let _ = v;
         }
 

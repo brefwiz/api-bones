@@ -14,6 +14,8 @@
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::string::{String, ToString};
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+use alloc::vec::Vec;
 use core::fmt;
 use core::str::FromStr;
 #[cfg(feature = "serde")]
@@ -224,12 +226,112 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OrgId {
 }
 
 // ---------------------------------------------------------------------------
+// OrgPath — X-Org-Path header newtype
+// ---------------------------------------------------------------------------
+
+/// An ordered org-path (root to self, inclusive), transported via `X-Org-Path`.
+///
+/// Wire format: comma-separated UUID strings, e.g.
+/// `"550e8400-e29b-41d4-a716-446655440000,660e8400-e29b-41d4-a716-446655440001"`.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize), serde(transparent))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "utoipa", schema(value_type = String))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct OrgPath(Vec<OrgId>);
+
+impl OrgPath {
+    /// Construct from a vec of `OrgId`s.
+    #[must_use]
+    pub fn new(path: Vec<OrgId>) -> Self {
+        Self(path)
+    }
+
+    /// Borrow the path as a slice.
+    #[must_use]
+    pub fn as_slice(&self) -> &[OrgId] {
+        &self.0
+    }
+
+    /// Consume and return the inner Vec.
+    #[must_use]
+    pub fn into_inner(self) -> Vec<OrgId> {
+        self.0
+    }
+}
+
+#[cfg(feature = "std")]
+impl crate::header_id::HeaderId for OrgPath {
+    const HEADER_NAME: &'static str = "X-Org-Path";
+    fn as_str(&self) -> std::borrow::Cow<'_, str> {
+        std::borrow::Cow::Owned(
+            self.0
+                .iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+}
+
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
+impl crate::header_id::HeaderId for OrgPath {
+    const HEADER_NAME: &'static str = "X-Org-Path";
+    fn as_str(&self) -> alloc::borrow::Cow<'_, str> {
+        alloc::borrow::Cow::Owned(
+            self.0
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        )
+    }
+}
+
+/// Parse `OrgPath` from a comma-separated UUID header value.
+impl FromStr for OrgPath {
+    type Err = OrgIdError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.is_empty() {
+            return Ok(Self(Vec::new()));
+        }
+        s.split(',')
+            .map(|part| part.trim().parse::<OrgId>())
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self)
+    }
+}
+
+#[cfg(feature = "axum")]
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OrgPath {
+    type Rejection = crate::error::ApiError;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let raw = parts
+            .headers
+            .get("x-org-path")
+            .ok_or_else(|| {
+                crate::error::ApiError::bad_request("missing required header: x-org-path")
+            })?
+            .to_str()
+            .map_err(|_| {
+                crate::error::ApiError::bad_request("header x-org-path contains non-UTF-8 bytes")
+            })?;
+        raw.parse::<Self>()
+            .map_err(|e| crate::error::ApiError::bad_request(format!("invalid X-Org-Path: {e}")))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::header_id::HeaderId as _;
 
     #[test]
     fn new_wraps_uuid() {
@@ -389,6 +491,152 @@ mod tests {
             .unwrap();
         let (mut parts, ()) = req.into_parts();
         let result = OrgId::from_request_parts(&mut parts, &()).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    // -- OrgPath tests -------------------------------------------------------
+
+    #[test]
+    fn org_path_new_and_as_slice() {
+        let id1 = OrgId::generate();
+        let id2 = OrgId::generate();
+        let path = OrgPath::new(vec![id1, id2]);
+        assert_eq!(path.as_slice().len(), 2);
+        assert_eq!(path.as_slice()[0], id1);
+        assert_eq!(path.as_slice()[1], id2);
+    }
+
+    #[test]
+    fn org_path_into_inner() {
+        let id = OrgId::generate();
+        let path = OrgPath::new(vec![id]);
+        let inner = path.into_inner();
+        assert_eq!(inner.len(), 1);
+        assert_eq!(inner[0], id);
+    }
+
+    #[test]
+    fn org_path_header_name() {
+        use crate::header_id::HeaderId as _;
+        assert_eq!(OrgPath::HEADER_NAME, "X-Org-Path");
+    }
+
+    #[test]
+    fn org_path_header_as_str_empty() {
+        let path = OrgPath::new(Vec::new());
+        assert_eq!(path.as_str().as_ref(), "");
+    }
+
+    #[test]
+    fn org_path_header_as_str_single() {
+        let id = OrgId::new(uuid::Uuid::nil());
+        let path = OrgPath::new(vec![id]);
+        assert_eq!(
+            path.as_str().as_ref(),
+            "00000000-0000-0000-0000-000000000000"
+        );
+    }
+
+    #[test]
+    fn org_path_header_as_str_multiple() {
+        let id1 = OrgId::new(uuid::Uuid::nil());
+        let id2 = OrgId::generate();
+        let path = OrgPath::new(vec![id1, id2]);
+        let s = path.as_str();
+        assert!(s.as_ref().contains("00000000-0000-0000-0000-000000000000"));
+        assert!(s.as_ref().contains(','));
+    }
+
+    #[test]
+    fn org_path_from_str_empty() {
+        let path: OrgPath = "".parse().unwrap();
+        assert!(path.as_slice().is_empty());
+    }
+
+    #[test]
+    fn org_path_from_str_single() {
+        let s = "550e8400-e29b-41d4-a716-446655440000";
+        let path: OrgPath = s.parse().unwrap();
+        assert_eq!(path.as_slice().len(), 1);
+        assert_eq!(path.as_slice()[0].to_string(), s);
+    }
+
+    #[test]
+    fn org_path_from_str_multiple() {
+        let s = "550e8400-e29b-41d4-a716-446655440000,660e8400-e29b-41d4-a716-446655440001";
+        let path: OrgPath = s.parse().unwrap();
+        assert_eq!(path.as_slice().len(), 2);
+    }
+
+    #[test]
+    fn org_path_from_str_invalid() {
+        let result: Result<OrgPath, _> = "not-a-uuid".parse();
+        assert!(result.is_err());
+    }
+
+    #[cfg(feature = "axum")]
+    #[tokio::test]
+    async fn org_path_axum_extractor_valid() {
+        use axum::extract::FromRequestParts;
+        use axum::http::Request;
+
+        let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
+        let req = Request::builder()
+            .header("x-org-path", uuid_str)
+            .body(())
+            .unwrap();
+        let (mut parts, ()) = req.into_parts();
+        let path = OrgPath::from_request_parts(&mut parts, &()).await.unwrap();
+        assert_eq!(path.as_slice().len(), 1);
+        assert_eq!(path.as_slice()[0].to_string(), uuid_str);
+    }
+
+    #[cfg(feature = "axum")]
+    #[tokio::test]
+    async fn org_path_axum_extractor_missing_header() {
+        use axum::extract::FromRequestParts;
+        use axum::http::Request;
+
+        let req = Request::builder().body(()).unwrap();
+        let (mut parts, ()) = req.into_parts();
+        let result = OrgPath::from_request_parts(&mut parts, &()).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    #[cfg(feature = "axum")]
+    #[tokio::test]
+    async fn org_path_axum_extractor_invalid_uuid() {
+        use axum::extract::FromRequestParts;
+        use axum::http::Request;
+
+        let req = Request::builder()
+            .header("x-org-path", "not-a-uuid")
+            .body(())
+            .unwrap();
+        let (mut parts, ()) = req.into_parts();
+        let result = OrgPath::from_request_parts(&mut parts, &()).await;
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert_eq!(err.status, 400);
+    }
+
+    #[cfg(feature = "axum")]
+    #[tokio::test]
+    async fn org_path_axum_extractor_non_utf8_returns_400() {
+        use axum::extract::FromRequestParts;
+        use axum::http::{Request, header::HeaderValue};
+
+        let mut req = Request::builder().body(()).unwrap();
+        req.headers_mut().insert(
+            "x-org-path",
+            HeaderValue::from_bytes(&[0xFF, 0xFE]).unwrap(),
+        );
+        let (mut parts, ()) = req.into_parts();
+        let result = OrgPath::from_request_parts(&mut parts, &()).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.status, 400);

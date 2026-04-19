@@ -76,6 +76,9 @@ pub enum ErrorCode {
     // 403
     Forbidden,
     InsufficientPermissions,
+    OrgOutsideSubtree,
+    AncestorRequired,
+    CrossSubtreeAccess,
     // 404
     ResourceNotFound,
     // 405
@@ -381,7 +384,11 @@ impl ErrorCode {
             | Self::InvalidCredentials
             | Self::TokenExpired
             | Self::TokenInvalid => 401,
-            Self::Forbidden | Self::InsufficientPermissions => 403,
+            Self::Forbidden
+            | Self::InsufficientPermissions
+            | Self::OrgOutsideSubtree
+            | Self::AncestorRequired
+            | Self::CrossSubtreeAccess => 403,
             Self::ResourceNotFound => 404,
             Self::MethodNotAllowed => 405,
             Self::NotAcceptable => 406,
@@ -424,6 +431,9 @@ impl ErrorCode {
             Self::TokenInvalid => "Token Invalid",
             Self::Forbidden => "Forbidden",
             Self::InsufficientPermissions => "Insufficient Permissions",
+            Self::OrgOutsideSubtree => "Org Outside Subtree",
+            Self::AncestorRequired => "Ancestor Required",
+            Self::CrossSubtreeAccess => "Cross Subtree Access",
             Self::ResourceNotFound => "Resource Not Found",
             Self::MethodNotAllowed => "Method Not Allowed",
             Self::NotAcceptable => "Not Acceptable",
@@ -467,6 +477,9 @@ impl ErrorCode {
             Self::TokenInvalid => "token-invalid",
             Self::Forbidden => "forbidden",
             Self::InsufficientPermissions => "insufficient-permissions",
+            Self::OrgOutsideSubtree => "org-outside-subtree",
+            Self::AncestorRequired => "ancestor-required",
+            Self::CrossSubtreeAccess => "cross-subtree-access",
             Self::ResourceNotFound => "resource-not-found",
             Self::MethodNotAllowed => "method-not-allowed",
             Self::NotAcceptable => "not-acceptable",
@@ -552,6 +565,9 @@ impl ErrorCode {
             "token-invalid" => Self::TokenInvalid,
             "forbidden" => Self::Forbidden,
             "insufficient-permissions" => Self::InsufficientPermissions,
+            "org-outside-subtree" => Self::OrgOutsideSubtree,
+            "ancestor-required" => Self::AncestorRequired,
+            "cross-subtree-access" => Self::CrossSubtreeAccess,
             "resource-not-found" => Self::ResourceNotFound,
             "method-not-allowed" => Self::MethodNotAllowed,
             "not-acceptable" => Self::NotAcceptable,

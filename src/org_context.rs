@@ -35,6 +35,10 @@ use crate::request_id::RequestId;
 /// Roles are typically used in [`OrganizationContext`] to authorize
 /// operations on behalf of a principal.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "utoipa", schema(value_type = String))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schemars", schemars(transparent))]
 pub struct Role(Arc<str>);
 
 impl Role {
@@ -94,6 +98,41 @@ impl<'de> Deserialize<'de> for Role {
 }
 
 // ---------------------------------------------------------------------------
+// RoleScope
+// ---------------------------------------------------------------------------
+
+/// Scope at which a role binding applies.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum RoleScope {
+    /// Applies to exactly this org node only.
+    Self_,
+    /// Applies to this org and all its descendants.
+    Subtree,
+    /// Applies to exactly the named org (cross-org delegation).
+    Specific(OrgId),
+}
+
+// ---------------------------------------------------------------------------
+// RoleBinding
+// ---------------------------------------------------------------------------
+
+/// An authorization role paired with the scope at which it is valid.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct RoleBinding {
+    /// The role being granted.
+    pub role: Role,
+    /// The org scope over which this binding applies.
+    pub scope: RoleScope,
+}
+
+// ---------------------------------------------------------------------------
 // AttestationKind
 // ---------------------------------------------------------------------------
 
@@ -136,10 +175,10 @@ pub struct Attestation {
 // OrganizationContext
 // ---------------------------------------------------------------------------
 
-/// Platform context bundle — org, principal, request-id, roles, attestation.
+/// Platform context bundle — org, principal, request-id, roles, org-path, attestation.
 ///
 /// Carries the cross-cutting request context (tenant ID, actor identity,
-/// request tracing ID, authorization roles, and optional credential) in a
+/// request tracing ID, authorization roles, org-path, and optional credential) in a
 /// single, cheap-to-clone value. Avoids threading `(org_id, principal)`
 /// pairs separately through every function and middleware layer.
 ///
@@ -147,7 +186,7 @@ pub struct Attestation {
 ///
 /// ```rust
 /// # #[cfg(feature = "uuid")] {
-/// use api_bones::{OrganizationContext, OrgId, Principal, RequestId, Role, Attestation, AttestationKind};
+/// use api_bones::{OrganizationContext, OrgId, Principal, RequestId, Role, RoleBinding, RoleScope, Attestation, AttestationKind};
 /// use uuid::Uuid;
 ///
 /// let org_id = OrgId::generate();
@@ -155,7 +194,7 @@ pub struct Attestation {
 /// let request_id = RequestId::new();
 ///
 /// let ctx = OrganizationContext::new(org_id, principal, request_id)
-///     .with_roles(vec![Role::from("admin")])
+///     .with_roles(vec![RoleBinding { role: Role::from("admin"), scope: RoleScope::Self_ }])
 ///     .with_attestation(Attestation {
 ///         kind: AttestationKind::Jwt,
 ///         raw: vec![1, 2, 3],
@@ -175,7 +214,10 @@ pub struct OrganizationContext {
     /// Request tracing ID
     pub request_id: RequestId,
     /// Authorization roles
-    pub roles: Vec<Role>,
+    pub roles: Vec<RoleBinding>,
+    /// Org path from root to the acting org (inclusive). Empty = platform scope.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub org_path: Vec<OrgId>,
     /// Optional credential/attestation
     pub attestation: Option<Attestation>,
 }
@@ -183,7 +225,7 @@ pub struct OrganizationContext {
 impl OrganizationContext {
     /// Construct a new context with org, principal, and request-id.
     ///
-    /// Roles default to an empty vec, attestation to `None`.
+    /// Roles default to an empty vec, `org_path` to empty, attestation to `None`.
     ///
     /// # Examples
     ///
@@ -199,6 +241,7 @@ impl OrganizationContext {
     /// );
     ///
     /// assert!(ctx.roles.is_empty());
+    /// assert!(ctx.org_path.is_empty());
     /// assert!(ctx.attestation.is_none());
     /// # }
     /// ```
@@ -209,6 +252,7 @@ impl OrganizationContext {
             principal,
             request_id,
             roles: Vec::new(),
+            org_path: Vec::new(),
             attestation: None,
         }
     }
@@ -219,21 +263,46 @@ impl OrganizationContext {
     ///
     /// ```rust
     /// # #[cfg(feature = "uuid")] {
-    /// use api_bones::{OrganizationContext, OrgId, Principal, RequestId, Role};
+    /// use api_bones::{OrganizationContext, OrgId, Principal, RequestId, Role, RoleBinding, RoleScope};
     /// use uuid::Uuid;
     ///
     /// let ctx = OrganizationContext::new(
     ///     OrgId::generate(),
     ///     Principal::human(Uuid::new_v4()),
     ///     RequestId::new(),
-    /// ).with_roles(vec![Role::from("editor")]);
+    /// ).with_roles(vec![RoleBinding { role: Role::from("editor"), scope: RoleScope::Self_ }]);
     ///
     /// assert_eq!(ctx.roles.len(), 1);
     /// # }
     /// ```
     #[must_use]
-    pub fn with_roles(mut self, roles: Vec<Role>) -> Self {
+    pub fn with_roles(mut self, roles: Vec<RoleBinding>) -> Self {
         self.roles = roles;
+        self
+    }
+
+    /// Set the org path on this context (builder-style).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "uuid")] {
+    /// use api_bones::{OrganizationContext, OrgId, Principal, RequestId};
+    /// use uuid::Uuid;
+    ///
+    /// let org_id = OrgId::generate();
+    /// let ctx = OrganizationContext::new(
+    ///     org_id,
+    ///     Principal::human(Uuid::new_v4()),
+    ///     RequestId::new(),
+    /// ).with_org_path(vec![org_id]);
+    ///
+    /// assert!(!ctx.org_path.is_empty());
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_org_path(mut self, org_path: Vec<OrgId>) -> Self {
+        self.org_path = org_path;
         self
     }
 
@@ -274,6 +343,80 @@ mod tests {
     use super::*;
     use core::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
+
+    // RoleScope tests
+    #[test]
+    fn role_scope_self_clone_eq() {
+        let s1 = RoleScope::Self_;
+        let s2 = s1.clone();
+        assert_eq!(s1, s2);
+    }
+
+    #[test]
+    fn role_scope_subtree_clone_eq() {
+        let s1 = RoleScope::Subtree;
+        let s2 = s1.clone();
+        assert_eq!(s1, s2);
+    }
+
+    #[test]
+    fn role_scope_specific_eq() {
+        let id = OrgId::generate();
+        let s1 = RoleScope::Specific(id);
+        let s2 = RoleScope::Specific(id);
+        assert_eq!(s1, s2);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn role_scope_serde_roundtrip_self() {
+        let scope = RoleScope::Self_;
+        let json = serde_json::to_string(&scope).unwrap();
+        let back: RoleScope = serde_json::from_str(&json).unwrap();
+        assert_eq!(scope, back);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn role_scope_serde_roundtrip_subtree() {
+        let scope = RoleScope::Subtree;
+        let json = serde_json::to_string(&scope).unwrap();
+        let back: RoleScope = serde_json::from_str(&json).unwrap();
+        assert_eq!(scope, back);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn role_scope_serde_roundtrip_specific() {
+        let id = OrgId::generate();
+        let scope = RoleScope::Specific(id);
+        let json = serde_json::to_string(&scope).unwrap();
+        let back: RoleScope = serde_json::from_str(&json).unwrap();
+        assert_eq!(scope, back);
+    }
+
+    // RoleBinding tests
+    #[test]
+    fn role_binding_construction() {
+        let binding = RoleBinding {
+            role: Role::from("admin"),
+            scope: RoleScope::Self_,
+        };
+        assert_eq!(binding.role, Role::from("admin"));
+        assert_eq!(binding.scope, RoleScope::Self_);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn role_binding_serde_roundtrip() {
+        let binding = RoleBinding {
+            role: Role::from("editor"),
+            scope: RoleScope::Subtree,
+        };
+        let json = serde_json::to_string(&binding).unwrap();
+        let back: RoleBinding = serde_json::from_str(&json).unwrap();
+        assert_eq!(binding, back);
+    }
 
     // Role tests
     #[test]
@@ -400,17 +543,50 @@ mod tests {
     }
 
     #[test]
-    fn org_context_with_roles() {
+    fn org_context_with_role_bindings() {
         let org_id = OrgId::generate();
         let principal = Principal::system("test");
         let request_id = RequestId::new();
-        let roles = vec![Role::from("admin"), Role::from("editor")];
+        let roles = vec![
+            RoleBinding {
+                role: Role::from("admin"),
+                scope: RoleScope::Self_,
+            },
+            RoleBinding {
+                role: Role::from("editor"),
+                scope: RoleScope::Subtree,
+            },
+        ];
 
         let ctx = OrganizationContext::new(org_id, principal, request_id).with_roles(roles);
 
         assert_eq!(ctx.roles.len(), 2);
-        assert_eq!(ctx.roles[0], Role::from("admin"));
-        assert_eq!(ctx.roles[1], Role::from("editor"));
+        assert_eq!(ctx.roles[0].role, Role::from("admin"));
+        assert_eq!(ctx.roles[1].role, Role::from("editor"));
+    }
+
+    #[test]
+    fn org_context_default_empty_org_path() {
+        let org_id = OrgId::generate();
+        let principal = Principal::system("test");
+        let request_id = RequestId::new();
+
+        let ctx = OrganizationContext::new(org_id, principal, request_id);
+
+        assert!(ctx.org_path.is_empty());
+    }
+
+    #[test]
+    fn org_context_with_org_path() {
+        let org_id = OrgId::generate();
+        let principal = Principal::system("test");
+        let request_id = RequestId::new();
+
+        let ctx =
+            OrganizationContext::new(org_id, principal, request_id).with_org_path(vec![org_id]);
+
+        assert_eq!(ctx.org_path.len(), 1);
+        assert_eq!(ctx.org_path[0], org_id);
     }
 
     #[test]
@@ -436,8 +612,11 @@ mod tests {
         let principal = Principal::system("test");
         let request_id = RequestId::new();
 
-        let ctx1 = OrganizationContext::new(org_id, principal, request_id)
-            .with_roles(vec![Role::from("viewer")]);
+        let ctx1 =
+            OrganizationContext::new(org_id, principal, request_id).with_roles(vec![RoleBinding {
+                role: Role::from("viewer"),
+                scope: RoleScope::Self_,
+            }]);
         let ctx2 = ctx1.clone();
 
         assert_eq!(ctx1, ctx2);
@@ -504,7 +683,11 @@ mod tests {
         let request_id = RequestId::new();
 
         let ctx = OrganizationContext::new(org_id, principal, request_id)
-            .with_roles(vec![Role::from("admin")])
+            .with_roles(vec![RoleBinding {
+                role: Role::from("admin"),
+                scope: RoleScope::Self_,
+            }])
+            .with_org_path(vec![org_id])
             .with_attestation(Attestation {
                 kind: AttestationKind::Jwt,
                 raw: vec![42],
