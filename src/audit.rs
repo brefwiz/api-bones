@@ -186,6 +186,29 @@ impl Principal {
         Self(Cow::Borrowed(id))
     }
 
+    /// Construct a principal from an owned [`String`] for persistence round-trips.
+    ///
+    /// Use this when reading a stored principal back from a database or serialized
+    /// format where you have an owned `String` rather than a `&'static str`.
+    /// The value is accepted as-is; no UUID validation is performed.
+    ///
+    /// Prefer [`Principal::human`] for new human actors and [`Principal::system`]
+    /// for compile-time system actors. Reserve `from_owned` for deserialization only.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::Principal;
+    ///
+    /// let stored = String::from("sealwiz.rotation-engine");
+    /// let p = Principal::from_owned(stored);
+    /// assert_eq!(p.as_str(), "sealwiz.rotation-engine");
+    /// ```
+    #[must_use]
+    pub fn from_owned(s: String) -> Self {
+        Self(Cow::Owned(s))
+    }
+
     /// Borrow the principal as a `&str`.
     ///
     /// # Examples
@@ -529,6 +552,13 @@ mod tests {
     use uuid::Uuid;
 
     // -- Principal --------------------------------------------------------
+
+    #[test]
+    fn principal_from_owned_roundtrip() {
+        let stored = "sealwiz.bootstrap".to_owned();
+        let p = Principal::from_owned(stored.clone());
+        assert_eq!(p.as_str(), stored);
+    }
 
     #[test]
     fn principal_system_is_const_and_borrowed() {

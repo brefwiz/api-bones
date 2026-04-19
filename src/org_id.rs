@@ -5,6 +5,7 @@
 //!
 //! ```rust
 //! use api_bones::org_id::OrgId;
+//! use api_bones::header_id::HeaderId;
 //!
 //! let id = OrgId::generate();
 //! assert_eq!(id.inner().get_version_num(), 4);

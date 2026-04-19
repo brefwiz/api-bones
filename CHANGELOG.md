@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-04-19
+
+### Added
+
+- `Principal::from_owned(String) -> Self` — construct a principal from a runtime-owned
+  string for database round-trips. Accepts any string without UUID validation. Use only for
+  deserialization; prefer `Principal::human` / `Principal::system` for new actors.
+
 ## [2.3.0] - 2026-04-18
 
 ### Added
