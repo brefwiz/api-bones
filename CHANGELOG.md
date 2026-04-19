@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-04-19
+
+### Added
+
+- `Principal::org_path_display() -> String` — returns the org ancestry path as a
+  comma-separated UUID string (`""` for platform-internal actors). Gated behind the
+  `uuid` feature. Canonical formatter for the `enduser.org_path` OTEL span attribute
+  (platform/0010).
+
 ## [3.0.0] - 2026-04-19
 
 ### Added
