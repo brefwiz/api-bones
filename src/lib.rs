@@ -100,6 +100,10 @@ pub mod header_id;
 pub mod idempotency;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod links;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub mod org_context;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub mod org_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod range;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
@@ -208,6 +212,10 @@ pub use idempotency::{IdempotencyKey, IdempotencyKeyError};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use links::{Link, Links};
 pub use method::HttpMethod;
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use org_context::{Attestation, AttestationKind, OrganizationContext, Role};
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
+pub use org_id::{OrgId, OrgIdError};
 pub use pagination::PaginationParams;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use pagination::{
