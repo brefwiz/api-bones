@@ -311,6 +311,27 @@ impl Principal {
         self.org_path = org_path;
         self
     }
+
+    /// Returns the org ancestry path as a comma-separated UUID string.
+    ///
+    /// Produces `""` for platform-internal actors with no org affiliation,
+    /// and `"<uuid1>,<uuid2>,..."` (root-to-self) for org-scoped actors.
+    /// Intended for use as an OTEL span attribute value (`enduser.org_path`).
+    ///
+    /// ```
+    /// use api_bones::{Principal, OrgId};
+    ///
+    /// let p = Principal::system("svc");
+    /// assert_eq!(p.org_path_display(), "");
+    /// ```
+    #[must_use]
+    pub fn org_path_display(&self) -> String {
+        self.org_path
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
 }
 
 impl core::fmt::Display for Principal {
@@ -797,6 +818,29 @@ mod tests {
         let p = Principal::system("test").with_org_path(vec![org_id]);
         assert_eq!(p.org_path.len(), 1);
         assert_eq!(p.org_path[0], org_id);
+    }
+
+    #[test]
+    fn org_path_display_empty_for_system_principal() {
+        let p = Principal::system("svc");
+        assert_eq!(p.org_path_display(), "");
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn org_path_display_single_org() {
+        let org_id = crate::org_id::OrgId::generate();
+        let p = Principal::system("svc").with_org_path(vec![org_id]);
+        assert_eq!(p.org_path_display(), org_id.to_string());
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn org_path_display_multiple_orgs_comma_separated() {
+        let root = crate::org_id::OrgId::generate();
+        let child = crate::org_id::OrgId::generate();
+        let p = Principal::system("svc").with_org_path(vec![root, child]);
+        assert_eq!(p.org_path_display(), format!("{root},{child}"));
     }
 
     #[cfg(feature = "uuid")]
