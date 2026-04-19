@@ -13,7 +13,8 @@ use uuid::Uuid;
 
 fn main() {
     let org_id = OrgId::new(Uuid::parse_str("a0a0a0a0-a0a0-4a0a-a0a0-a0a0a0a0a0a0").unwrap());
-    let principal = Principal::human(Uuid::parse_str("b1b1b1b1-b1b1-4b1b-b1b1-b1b1b1b1b1b1").unwrap());
+    let principal =
+        Principal::human(Uuid::parse_str("b1b1b1b1-b1b1-4b1b-b1b1-b1b1b1b1b1b1").unwrap());
     let request_id = RequestId::new();
 
     // Basic construction — roles empty, no attestation
@@ -33,6 +34,9 @@ fn main() {
         });
 
     println!("\nWith roles and attestation:");
-    println!("roles:  {:?}", ctx.roles.iter().map(|r| r.as_str()).collect::<Vec<_>>());
+    println!(
+        "roles:  {:?}",
+        ctx.roles.iter().map(|r| r.as_str()).collect::<Vec<_>>()
+    );
     println!("kind:   {:?}", ctx.attestation.as_ref().unwrap().kind);
 }
