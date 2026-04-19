@@ -36,7 +36,7 @@ fn main() {
     println!("\nWith roles and attestation:");
     println!(
         "roles:  {:?}",
-        ctx.roles.iter().map(|r| r.as_str()).collect::<Vec<_>>()
+        ctx.roles.iter().map(Role::as_str).collect::<Vec<_>>()
     );
     println!("kind:   {:?}", ctx.attestation.as_ref().unwrap().kind);
 }
