@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: MIT
 //! Cross-cutting platform context bundle.
 //!
 //! Demonstrates constructing an [`OrganizationContext`] that combines

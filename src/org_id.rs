@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: MIT
 //! Tenant identifier newtype, transported via the `X-Org-Id` HTTP header.
 //!
 //! # Example
@@ -199,29 +199,80 @@ impl<'de> Deserialize<'de> for OrgId {
 }
 
 // ---------------------------------------------------------------------------
-// Axum extractor
+// Header parser (non-extractor; for callers without an AuthLayer)
 // ---------------------------------------------------------------------------
 
-#[cfg(feature = "axum")]
-impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OrgId {
-    type Rejection = crate::error::ApiError;
+/// Error returned by [`OrgId::try_from_headers`].
+#[cfg(feature = "http")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OrgIdHeaderError {
+    /// The `X-Org-Id` header was not present.
+    Missing,
+    /// The `X-Org-Id` header value was not valid UTF-8.
+    NotUtf8,
+    /// The `X-Org-Id` header value was not a valid UUID.
+    Invalid(OrgIdError),
+}
 
-    async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let raw = parts
-            .headers
+#[cfg(feature = "http")]
+impl fmt::Display for OrgIdHeaderError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Missing => write!(f, "missing required header: X-Org-Id"),
+            Self::NotUtf8 => write!(f, "header X-Org-Id contains non-UTF-8 bytes"),
+            Self::Invalid(e) => write!(f, "invalid X-Org-Id: {e}"),
+        }
+    }
+}
+
+#[cfg(all(feature = "http", feature = "std"))]
+impl std::error::Error for OrgIdHeaderError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Invalid(e) => Some(e),
+            Self::Missing | Self::NotUtf8 => None,
+        }
+    }
+}
+
+#[cfg(feature = "http")]
+impl OrgId {
+    /// Parse an [`OrgId`] from the `X-Org-Id` entry of an [`http::HeaderMap`].
+    ///
+    /// This parser is intended for callers that do **not** run behind an
+    /// `AuthLayer` — e.g. webhook-signature verifiers, out-of-band tooling —
+    /// and therefore cannot use [`OrganizationContext`]. Handlers served by
+    /// axum routers must consume `OrganizationContext` instead, per
+    /// ADR platform/0015.
+    ///
+    /// If the header carries multiple values, the first one wins (standard
+    /// [`http::HeaderMap::get`] semantics).
+    ///
+    /// # Errors
+    ///
+    /// - [`OrgIdHeaderError::Missing`] — no `X-Org-Id` header on the map
+    /// - [`OrgIdHeaderError::NotUtf8`] — header value contains bytes outside ASCII/UTF-8
+    /// - [`OrgIdHeaderError::Invalid`] — header value is not a well-formed UUID
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use api_bones::org_id::OrgId;
+    /// use http::HeaderMap;
+    ///
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert("x-org-id", "550e8400-e29b-41d4-a716-446655440000".parse().unwrap());
+    /// let id = OrgId::try_from_headers(&headers).unwrap();
+    /// assert_eq!(id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+    /// ```
+    pub fn try_from_headers(headers: &http::HeaderMap) -> Result<Self, OrgIdHeaderError> {
+        let raw = headers
             .get("x-org-id")
-            .ok_or_else(|| {
-                crate::error::ApiError::bad_request("missing required header: x-org-id")
-            })?
+            .ok_or(OrgIdHeaderError::Missing)?
             .to_str()
-            .map_err(|_| {
-                crate::error::ApiError::bad_request("header x-org-id contains non-UTF-8 bytes")
-            })?;
-        raw.parse::<Self>()
-            .map_err(|e| crate::error::ApiError::bad_request(format!("invalid X-Org-Id: {e}")))
+            .map_err(|_| OrgIdHeaderError::NotUtf8)?;
+        raw.parse::<Self>().map_err(OrgIdHeaderError::Invalid)
     }
 }
 
@@ -432,68 +483,118 @@ mod tests {
         assert_eq!(id.as_str().as_ref(), "00000000-0000-0000-0000-000000000000");
     }
 
-    #[cfg(feature = "axum")]
-    #[tokio::test]
-    async fn axum_extract_present() {
-        use axum::extract::FromRequestParts;
-        use axum::http::Request;
-
-        let uuid_str = "550e8400-e29b-41d4-a716-446655440000";
-        let req = Request::builder()
-            .header("x-org-id", uuid_str)
-            .body(())
-            .unwrap();
-        let (mut parts, ()) = req.into_parts();
-        let id = OrgId::from_request_parts(&mut parts, &()).await.unwrap();
-        assert_eq!(id.to_string(), uuid_str);
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_valid() {
+        use http::HeaderMap;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-org-id",
+            "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
+        );
+        let id = OrgId::try_from_headers(&headers).unwrap();
+        assert_eq!(id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
     }
 
-    #[cfg(feature = "axum")]
-    #[tokio::test]
-    async fn axum_extract_missing_returns_400() {
-        use axum::extract::FromRequestParts;
-        use axum::http::Request;
-
-        let req = Request::builder().body(()).unwrap();
-        let (mut parts, ()) = req.into_parts();
-        let result = OrgId::from_request_parts(&mut parts, &()).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.status, 400);
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_malformed() {
+        use http::HeaderMap;
+        let mut headers = HeaderMap::new();
+        headers.insert("x-org-id", "not-a-uuid".parse().unwrap());
+        let result = OrgId::try_from_headers(&headers);
+        assert!(matches!(result, Err(OrgIdHeaderError::Invalid(_))));
     }
 
-    #[cfg(feature = "axum")]
-    #[tokio::test]
-    async fn axum_extract_invalid_uuid_returns_400() {
-        use axum::extract::FromRequestParts;
-        use axum::http::Request;
-
-        let req = Request::builder()
-            .header("x-org-id", "not-a-uuid")
-            .body(())
-            .unwrap();
-        let (mut parts, ()) = req.into_parts();
-        let result = OrgId::from_request_parts(&mut parts, &()).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.status, 400);
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_missing() {
+        use http::HeaderMap;
+        let headers = HeaderMap::new();
+        let result = OrgId::try_from_headers(&headers);
+        assert_eq!(result, Err(OrgIdHeaderError::Missing));
     }
 
-    #[cfg(feature = "axum")]
-    #[tokio::test]
-    async fn axum_extract_non_utf8_returns_400() {
-        use axum::extract::FromRequestParts;
-        use axum::http::{HeaderValue, Request};
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_empty() {
+        use http::HeaderMap;
+        let mut headers = HeaderMap::new();
+        headers.insert("x-org-id", "".parse().unwrap());
+        let result = OrgId::try_from_headers(&headers);
+        assert!(matches!(result, Err(OrgIdHeaderError::Invalid(_))));
+    }
 
-        let req = Request::builder()
-            .header("x-org-id", HeaderValue::from_bytes(b"\xff\xfe").unwrap())
-            .body(())
-            .unwrap();
-        let (mut parts, ()) = req.into_parts();
-        let result = OrgId::from_request_parts(&mut parts, &()).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.status, 400);
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_multiple_values_uses_first() {
+        use http::HeaderMap;
+        let mut headers = HeaderMap::new();
+        headers.append(
+            "x-org-id",
+            "550e8400-e29b-41d4-a716-446655440000".parse().unwrap(),
+        );
+        headers.append(
+            "x-org-id",
+            "660e8400-e29b-41d4-a716-446655440001".parse().unwrap(),
+        );
+        let id = OrgId::try_from_headers(&headers).unwrap();
+        assert_eq!(id.to_string(), "550e8400-e29b-41d4-a716-446655440000");
+    }
+
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_non_utf8() {
+        use http::{HeaderMap, HeaderValue};
+        let mut headers = HeaderMap::new();
+        headers.insert("x-org-id", HeaderValue::from_bytes(&[0xFF, 0xFE]).unwrap());
+        let result = OrgId::try_from_headers(&headers);
+        assert_eq!(result, Err(OrgIdHeaderError::NotUtf8));
+    }
+
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_error_display_missing() {
+        let err = OrgIdHeaderError::Missing;
+        let s = err.to_string();
+        assert!(s.contains("missing"));
+        assert!(s.contains("X-Org-Id"));
+    }
+
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_error_display_not_utf8() {
+        let err = OrgIdHeaderError::NotUtf8;
+        let s = err.to_string();
+        assert!(s.contains("non-UTF-8"));
+    }
+
+    #[cfg(all(feature = "http", not(miri)))]
+    #[test]
+    fn try_from_headers_error_display_invalid() {
+        let err = OrgIdHeaderError::Invalid(OrgIdError::InvalidUuid(
+            uuid::Uuid::parse_str("not-a-uuid").unwrap_err(),
+        ));
+        let s = err.to_string();
+        assert!(s.contains("invalid"));
+    }
+
+    #[cfg(all(feature = "http", feature = "std", not(miri)))]
+    #[test]
+    fn try_from_headers_error_source_for_invalid() {
+        use std::error::Error as _;
+        let err = OrgIdHeaderError::Invalid(OrgIdError::InvalidUuid(
+            uuid::Uuid::parse_str("not-a-uuid").unwrap_err(),
+        ));
+        assert!(err.source().is_some());
+    }
+
+    #[cfg(all(feature = "http", feature = "std", not(miri)))]
+    #[test]
+    fn try_from_headers_error_source_for_missing() {
+        use std::error::Error as _;
+        let err = OrgIdHeaderError::Missing;
+        assert!(err.source().is_none());
     }
 
     // -- OrgPath tests -------------------------------------------------------
