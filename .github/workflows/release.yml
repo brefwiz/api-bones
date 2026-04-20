@@ -1,0 +1,17 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    uses: brefwiz/shared-ci-workflows/.github/workflows/release-rust.yml@main
+    with:
+      # Publish in dependency order: api-bones must land on crates.io before
+      # the satellite crates can resolve it.
+      crates: "api-bones api-bones-tower api-bones-reqwest"
+    secrets:
+      cargo-registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+    permissions:
+      contents: write

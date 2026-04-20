@@ -1,0 +1,11 @@
+name: Auto-tag
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  tag:
+    uses: brefwiz/shared-ci-workflows/.github/workflows/auto-tag.yml@main
+    permissions:
+      contents: write
