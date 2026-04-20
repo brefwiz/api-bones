@@ -1732,6 +1732,7 @@ mod tests {
         assert_eq!(e.title, "Resource Not Found");
     }
 
+    #[cfg(feature = "uuid")]
     #[test]
     fn with_request_id() {
         let id = uuid::Uuid::new_v4();
@@ -1768,7 +1769,7 @@ mod tests {
         assert!(json.get("errors").is_none());
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "uuid"))]
     #[test]
     fn wire_format_instance_is_urn_uuid() {
         let _g = lock_and_reset_mode();
@@ -2169,7 +2170,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "uuid"))]
     #[test]
     fn uuid_urn_option_serialize_none_produces_null() {
         // The None arm exists for the serde `with` protocol. Since
@@ -2182,7 +2183,7 @@ mod tests {
         assert_eq!(buf, b"null");
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "uuid"))]
     #[test]
     fn uuid_urn_option_deserialize_non_string_is_error() {
         let _g = lock_and_reset_mode();
@@ -2199,7 +2200,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "uuid"))]
     #[test]
     fn uuid_urn_option_deserialize_null_gives_none() {
         let _g = lock_and_reset_mode();
@@ -2215,7 +2216,7 @@ mod tests {
         assert!(e.request_id.is_none());
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "uuid"))]
     #[test]
     fn uuid_urn_option_deserialize_valid_urn_uuid() {
         let _g = lock_and_reset_mode();
@@ -2232,7 +2233,7 @@ mod tests {
         assert_eq!(e.request_id, Some(id));
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "uuid"))]
     #[test]
     fn uuid_urn_option_deserialize_bad_prefix_is_error() {
         let _g = lock_and_reset_mode();
@@ -2252,6 +2253,7 @@ mod tests {
     // ApiError builder tests
     // -----------------------------------------------------------------------
 
+    #[cfg(feature = "uuid")]
     #[test]
     fn builder_basic() {
         let err = ApiError::builder()
@@ -2275,6 +2277,7 @@ mod tests {
         assert_eq!(via_new, via_builder);
     }
 
+    #[cfg(feature = "uuid")]
     #[test]
     fn builder_chaining_all_optionals() {
         let id = uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();

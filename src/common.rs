@@ -79,7 +79,7 @@ pub fn new_resource_id() -> ResourceId {
     uuid::Uuid::new_v4()
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "uuid", feature = "chrono")))]
 mod tests {
     use super::*;
 
