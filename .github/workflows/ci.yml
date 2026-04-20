@@ -11,3 +11,4 @@ jobs:
     uses: brefwiz/shared-ci-workflows/.github/workflows/rust.yml@main
     with:
       run-coverage: true
+      run-no-std: true
