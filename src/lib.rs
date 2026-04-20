@@ -215,6 +215,12 @@ pub use method::HttpMethod;
 pub use org_context::{
     Attestation, AttestationKind, OrganizationContext, Role, RoleBinding, RoleScope,
 };
+#[cfg(all(
+    any(feature = "std", feature = "alloc"),
+    feature = "uuid",
+    feature = "http"
+))]
+pub use org_id::OrgIdHeaderError;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub use org_id::{OrgId, OrgIdError, OrgPath};
 pub use pagination::PaginationParams;
