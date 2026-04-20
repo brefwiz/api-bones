@@ -24,14 +24,14 @@ fn main() {
     );
 
     // -- Touch with a system principal (const, zero-alloc) --
-    audit.touch(Principal::system("sealwiz.rotation-engine"));
+    audit.touch(Principal::system("billing.rotation-engine"));
     println!(
         "After system touch: {} by {:?}",
         audit.updated_at, audit.updated_by
     );
 
     // -- Inspect PrincipalId and PrincipalKind directly --
-    let p = Principal::system("sealwiz.rotation-engine");
+    let p = Principal::system("billing.rotation-engine");
     let id: &PrincipalId = &p.id;
     let kind: &PrincipalKind = &p.kind;
     println!("\nPrincipalId: {id}  kind: {kind:?}");

@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-04-20
+
+### BREAKING CHANGE
+
+- Removed `impl FromRequestParts for OrgId`. The bare axum extractor allowed tenant-confusion — a client holding a valid token for org A could send `X-Org-Id: <org B>` and land at a handler that wrote to org B with org A's principal. Handlers must take `OrganizationContext` exclusively, which reconciles token claims, the `X-Org-Id` header, and any path parameter (see ADR platform/0015).
+
+### Added
+
+- `OrgId::try_from_headers(&http::HeaderMap) -> Result<OrgId, OrgIdHeaderError>` (feature `http`) — non-extractor parser for callers without an `AuthLayer` (webhook verifiers, out-of-band tooling).
+- `OrgIdHeaderError` with `Missing`, `NotUtf8`, `Invalid` variants.
+- `examples/header_parser.rs` demonstrating the sanctioned non-axum usage.
+
+### Migration
+
+```rust
+// Before (rejected — tenant-confusion loophole):
+async fn handler(org_id: OrgId) { /* writes to org_id without reconciling auth */ }
+
+// After:
+async fn handler(ctx: OrganizationContext) {
+    let org_id = ctx.org_id;
+    // ctx also carries the authenticated Principal, RequestId, roles, and attestation.
+}
+```
+
 ## [3.1.0] - 2026-04-19
 
 ### Added
@@ -60,7 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request_id)`. Builder methods: `with_roles`, `with_attestation`. Serde derives gated on
   the `serde` feature.
 - `Role(Arc<str>)` — token-neutral role label newtype. No permission semantics in
-  api-bones; quorumauth owns permission evaluation.
+  api-bones; permission evaluation belongs to consumer auth layers.
 - `Attestation { kind: AttestationKind, raw: Vec<u8> }` — opaque credential payload with
   kind tag. Downstream auth crates decode the raw bytes per kind.
 - `AttestationKind` — `#[non_exhaustive]` enum: `Biscuit`, `Jwt`, `ApiKey`, `Mtls`.
@@ -101,8 +126,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- CI: enrolled in canonical `brefwiz/ci-workflows/.gitea/workflows/ci.yml@main`
-  (previously called deprecated `rust-ci.yml` alias).
+- CI: migrated to reusable shared workflow.
 
 ## [2.1.0] - 2026-04-16
 
@@ -334,7 +358,8 @@ audit.touch(Principal::system("my-service.cleanup"));
 
 - Initial release with core API types: `ApiError`, `ValidationError`, `HealthCheck`, `ReadinessResponse`, `PaginationParams`
 
-[Unreleased]: https://github.com/brefwiz/api-bones/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/brefwiz/api-bones/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/brefwiz/api-bones/compare/v3.1.0...v4.0.0
 [3.1.0]: https://github.com/brefwiz/api-bones/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/brefwiz/api-bones/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/brefwiz/api-bones/compare/v1.10.0...v2.0.0

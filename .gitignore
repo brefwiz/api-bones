@@ -26,6 +26,10 @@ lcov*.info
 # Local MCP config (machine-specific paths)
 .mcp.json
 
+# Sub-crate lockfiles (shadowed by workspace Cargo.lock)
+api-bones-tower/Cargo.lock
+api-bones-reqwest/Cargo.lock
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

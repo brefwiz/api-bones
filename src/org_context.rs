@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: MIT
 //! Cross-cutting platform context bundle.
 //!
 //! [`OrganizationContext`] carries the tenant, principal, request-id, roles,
 //! and an optional opaque attestation in a single, cheap-to-clone bundle.
-//! Every downstream crate (service-kit, quorumauth, distributed-ratelimit,
-//! otel-bootstrap, sqlx-switchboard) consumes this type instead of threading
+//! Downstream services consume this type instead of threading
 //! `(org_id, principal)` pairs through every function.
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]

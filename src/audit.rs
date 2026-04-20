@@ -135,8 +135,7 @@ impl std::error::Error for PrincipalParseError {}
 /// Canonical actor identity. Carries id, kind, and org-tree position.
 ///
 /// Thread the *same* `Principal` through every downstream audit-emitting
-/// crate — sealwiz, batchwiz, itinerwiz, etc. — instead of forking local
-/// newtypes.
+/// service instead of forking local newtypes.
 ///
 /// `org_path` is root-to-self inclusive. Platform-internal actors outside
 /// any org tree use `org_path: vec![]`.
@@ -173,8 +172,8 @@ impl std::error::Error for PrincipalParseError {}
 /// assert_eq!(alice.as_str(), id.to_string().as_str());
 ///
 /// // System principal
-/// let rotation = Principal::system("sealwiz.rotation-engine");
-/// assert_eq!(rotation.as_str(), "sealwiz.rotation-engine");
+/// let rotation = Principal::system("billing.rotation-engine");
+/// assert_eq!(rotation.as_str(), "billing.rotation-engine");
 /// # }
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
@@ -264,8 +263,8 @@ impl Principal {
     /// ```rust
     /// use api_bones::Principal;
     ///
-    /// let bootstrap = Principal::system("sealwiz.bootstrap");
-    /// assert_eq!(bootstrap.as_str(), "sealwiz.bootstrap");
+    /// let bootstrap = Principal::system("orders.bootstrap");
+    /// assert_eq!(bootstrap.as_str(), "orders.bootstrap");
     /// ```
     #[must_use]
     pub fn system(id: &'static str) -> Self {
@@ -599,8 +598,8 @@ impl AuditInfo {
     ///
     /// # use uuid::Uuid;
     /// let mut info = AuditInfo::now(Principal::human(Uuid::nil()));
-    /// info.touch(Principal::system("sealwiz.rotation-engine"));
-    /// assert_eq!(info.updated_by.as_str(), "sealwiz.rotation-engine");
+    /// info.touch(Principal::system("billing.rotation-engine"));
+    /// assert_eq!(info.updated_by.as_str(), "billing.rotation-engine");
     /// # }
     /// ```
     #[cfg(feature = "chrono")]
@@ -908,8 +907,8 @@ mod tests {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
 
-        let p1 = Principal::system("sealwiz.bootstrap");
-        let p2 = Principal::system("sealwiz.bootstrap");
+        let p1 = Principal::system("orders.bootstrap");
+        let p2 = Principal::system("orders.bootstrap");
         assert_eq!(p1, p2);
 
         let mut h1 = DefaultHasher::new();
@@ -939,7 +938,7 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn principal_serde_struct_roundtrip_system() {
-        let p = Principal::system("sealwiz.rotation-engine");
+        let p = Principal::system("billing.rotation-engine");
         let json = serde_json::to_value(&p).unwrap();
         let back: Principal = serde_json::from_value(json).unwrap();
         assert_eq!(back, p);
@@ -972,7 +971,7 @@ mod tests {
     #[cfg(all(feature = "chrono", feature = "serde"))]
     #[test]
     fn now_with_system_principal() {
-        let info = AuditInfo::now(Principal::system("sealwiz.rotation-engine"));
+        let info = AuditInfo::now(Principal::system("billing.rotation-engine"));
         let json = serde_json::to_value(&info).unwrap();
         let back: AuditInfo = serde_json::from_value(json).unwrap();
         assert_eq!(back, info);
@@ -982,7 +981,7 @@ mod tests {
     #[test]
     fn touch_updates_updated_at_and_updated_by() {
         let mut info = AuditInfo::now(Principal::human(Uuid::nil()));
-        let engine = Principal::system("sealwiz.rotation-engine");
+        let engine = Principal::system("billing.rotation-engine");
         let before_touch = chrono::Utc::now();
         info.touch(engine.clone());
         let after_touch = chrono::Utc::now();
@@ -996,7 +995,7 @@ mod tests {
     fn new_constructor() {
         let now = chrono::Utc::now();
         let actor = Principal::human(Uuid::nil());
-        let engine = Principal::system("sealwiz.rotation-engine");
+        let engine = Principal::system("billing.rotation-engine");
         let info = AuditInfo::new(now, now, actor.clone(), engine.clone());
         assert_eq!(info.created_at, now);
         assert_eq!(info.updated_at, now);
@@ -1007,7 +1006,7 @@ mod tests {
     #[cfg(all(feature = "chrono", feature = "serde"))]
     #[test]
     fn serde_round_trip_with_system_actor() {
-        let info = AuditInfo::now(Principal::system("sealwiz.bootstrap"));
+        let info = AuditInfo::now(Principal::system("orders.bootstrap"));
         let json = serde_json::to_value(&info).unwrap();
         let back: AuditInfo = serde_json::from_value(json).unwrap();
         assert_eq!(back, info);
@@ -1016,7 +1015,7 @@ mod tests {
     #[cfg(all(feature = "chrono", feature = "serde"))]
     #[test]
     fn serde_actor_fields_are_always_present() {
-        let info = AuditInfo::now(Principal::system("sealwiz.bootstrap"));
+        let info = AuditInfo::now(Principal::system("orders.bootstrap"));
         let json = serde_json::to_value(&info).unwrap();
         assert!(
             json.get("created_by").is_some(),
@@ -1029,7 +1028,7 @@ mod tests {
         // Principal is now a struct with id, kind, org_path fields
         assert_eq!(
             json["created_by"]["id"],
-            serde_json::json!("sealwiz.bootstrap")
+            serde_json::json!("orders.bootstrap")
         );
     }
 
