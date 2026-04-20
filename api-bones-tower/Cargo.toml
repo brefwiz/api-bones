@@ -3,10 +3,15 @@ name = "api-bones-tower"
 version = "2.0.3"
 edition = "2024"
 authors = ["Gregoire Salingue"]
-license = "LicenseRef-Proprietary"
+license = "MIT"
 description = "Tower middleware for api-bones services (RequestIdLayer, ProblemJsonLayer)"
-repository = "https://git.brefwiz.com/gsalingu/api-bones"
-publish = ["brefwiz"]
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-tower"
+readme = "README.md"
+keywords = ["rest", "tower", "middleware", "http", "axum"]
+categories = ["web-programming::http-server", "api-bindings"]
+rust-version = "1.85"
 
 ## Feature flags
 ##
@@ -23,7 +28,7 @@ uuid = ["api-bones/uuid"]
 chrono = ["api-bones/chrono"]
 
 [dependencies]
-api-bones = { version = "3.0", path = "..", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
+api-bones = { version = "3.0", path = "..", default-features = false, features = ["std", "serde"] }
 tower = { version = "0.5", features = ["util"] }
 http = { version = "1.0" }
 http-body = { version = "1.0" }

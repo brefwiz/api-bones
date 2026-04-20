@@ -13,6 +13,13 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Coverage reports
+lcov*.info
+*.info
+
+# Logs
+*.log
+
 # Local agent worktrees (Claude Code)
 .claude/
 

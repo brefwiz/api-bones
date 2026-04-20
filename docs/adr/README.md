@@ -1,9 +1,7 @@
 # ADRs — moved
 
 Canonical Architecture Decision Records for the brefwiz ecosystem live in the
-unified architecture repository:
-
-  <https://git.brefwiz.com/brefwiz/brefwiz-architecture>
+unified architecture repository (private — brefwiz org members only).
 
 See [`docs/adr-manifest.toml`](../adr-manifest.toml) at the repo root for the
 pinned upstream commit and the list of platform ADRs that govern this codebase.

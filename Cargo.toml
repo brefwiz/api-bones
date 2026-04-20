@@ -7,10 +7,15 @@ name = "api-bones"
 version = "3.1.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
-license = "LicenseRef-Proprietary"
+license = "MIT"
 description = "Opinionated REST API types: errors (RFC 9457), pagination, health checks, and more"
-repository = "https://git.brefwiz.com/gsalingu/api-bones"
-publish = ["brefwiz"]
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones"
+readme = "README.md"
+keywords = ["rest", "http", "rfc9457", "api", "axum"]
+categories = ["web-programming::http-server", "api-bindings", "no-std", "data-structures"]
+rust-version = "1.85"
 
 [features]
 default = ["std", "serde", "uuid", "chrono", "validator"]

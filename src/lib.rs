@@ -58,11 +58,8 @@
 //! ## Add as dependency
 //!
 //! ```toml
-//! [registries.brefwiz]
-//! index = "sparse+https://git.brefwiz.com/api/packages/gsalingu/cargo/"
-//!
 //! [dependencies]
-//! api-bones = { version = "1.6", registry = "brefwiz" }
+//! api-bones = "3"
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]

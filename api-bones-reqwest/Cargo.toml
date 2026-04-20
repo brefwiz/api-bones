@@ -3,10 +3,15 @@ name = "api-bones-reqwest"
 version = "2.0.3"
 edition = "2024"
 authors = ["Gregoire Salingue"]
-license = "LicenseRef-Proprietary"
+license = "MIT"
 description = "Reqwest client extensions for api-bones types (ErrorResponseExt, retry logic)"
-repository = "https://git.brefwiz.com/gsalingu/api-bones"
-publish = ["brefwiz"]
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-reqwest"
+readme = "README.md"
+keywords = ["rest", "reqwest", "http", "client", "api"]
+categories = ["web-programming::http-client", "api-bindings"]
+rust-version = "1.85"
 
 ## Feature flags
 ##
@@ -21,7 +26,7 @@ publish = ["brefwiz"]
 uuid = ["dep:uuid", "api-bones/uuid"]
 
 [dependencies]
-api-bones = { path = "..", version = "3.1.0", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
+api-bones = { path = "..", version = "3.1.0", default-features = false, features = ["std", "serde"] }
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
 uuid = { version = "1.8", optional = true }
 serde = { version = "1.0", features = ["derive"] }

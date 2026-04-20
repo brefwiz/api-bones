@@ -1,0 +1,13 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: brefwiz/shared-ci-workflows/.github/workflows/rust.yml@main
+    with:
+      run-coverage: true
