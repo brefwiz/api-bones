@@ -276,6 +276,23 @@ impl OrgId {
     }
 }
 
+/// Compile-fail proof that the bare `OrgId` axum extractor has been removed
+/// (ADR platform/0015). Any reintroduction of the extractor will cause this
+/// doctest to start compiling, which fails the test.
+///
+/// ```compile_fail
+/// use api_bones::OrgId;
+/// use axum::extract::FromRequestParts;
+/// use axum::http::request::Parts;
+///
+/// async fn _proof(mut parts: Parts) {
+///     let _ = <OrgId as FromRequestParts<()>>::from_request_parts(&mut parts, &()).await;
+/// }
+/// ```
+#[cfg(feature = "axum")]
+#[doc(hidden)]
+pub fn __adr_platform_0015_proof() {}
+
 // ---------------------------------------------------------------------------
 // OrgPath — X-Org-Path header newtype
 // ---------------------------------------------------------------------------

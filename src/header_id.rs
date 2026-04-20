@@ -109,7 +109,7 @@ pub trait HeaderId {
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "uuid"))]
 mod tests {
     use super::*;
     use crate::correlation_id::CorrelationId;

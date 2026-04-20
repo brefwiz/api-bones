@@ -115,12 +115,14 @@ required-features = ["axum"]
 
 [[example]]
 name = "audit"
+required-features = ["uuid", "chrono"]
 
 [[example]]
 name = "bulk_operations"
 
 [[example]]
 name = "error_handling"
+required-features = ["uuid", "std", "serde"]
 
 [[example]]
 name = "etag"
@@ -142,12 +144,14 @@ name = "rate_limit"
 
 [[example]]
 name = "response_envelope"
+required-features = ["uuid", "serde"]
 
 [[example]]
 name = "slug"
 
 [[example]]
 name = "error_construction"
+required-features = ["uuid", "std", "serde"]
 
 [[example]]
 name = "bulk_envelope"

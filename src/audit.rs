@@ -808,12 +808,14 @@ mod tests {
         assert_eq!(p.kind, PrincipalKind::System);
     }
 
+    #[cfg(feature = "uuid")]
     #[test]
     fn principal_system_has_empty_org_path() {
         let p = Principal::system("s");
         assert!(p.org_path.is_empty());
     }
 
+    #[cfg(feature = "uuid")]
     #[test]
     fn principal_with_org_path_builder() {
         let org_id = crate::org_id::OrgId::generate();
@@ -944,7 +946,7 @@ mod tests {
         assert_eq!(back, p);
     }
 
-    #[cfg(feature = "serde")]
+    #[cfg(all(feature = "serde", feature = "uuid"))]
     #[test]
     fn principal_serde_includes_org_path() {
         let p = Principal::system("test");
