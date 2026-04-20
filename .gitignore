@@ -23,6 +23,9 @@ lcov*.info
 # Local agent worktrees (Claude Code)
 .claude/
 
+# Local MCP config (machine-specific paths)
+.mcp.json
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

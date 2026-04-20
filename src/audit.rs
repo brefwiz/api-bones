@@ -2,8 +2,8 @@
 //!
 //! Provides [`AuditInfo`], an embeddable struct that tracks when a resource
 //! was created and last updated, and by whom, plus [`Principal`] — the
-//! canonical actor-identity newtype threaded through audit events across the
-//! brefwiz ecosystem.
+//! canonical actor-identity newtype threaded through audit events across
+//! services.
 //!
 //! # Standards
 //! - Timestamps: [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339)

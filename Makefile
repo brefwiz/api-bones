@@ -5,7 +5,7 @@
 .DEFAULT_GOAL := help
 
 # Optional: path to a local advisory-db clone (used by ci-audit).
-# Shared CI workflow clones the internal mirror and passes ADVISORY_DB=/tmp/advisory-db.
+# CI may pass ADVISORY_DB=<path> to use a local advisory-db clone.
 ADVISORY_DB ?=
 
 help: ## Show this help

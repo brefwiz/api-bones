@@ -52,7 +52,7 @@
 //! Enable `schemars` in your `Cargo.toml`:
 //!
 //! ```toml
-//! api-bones = { version = "1.6", features = ["schemars"] }
+//! api-bones = { version = "3", features = ["schemars"] }
 //! ```
 //!
 //! ## Add as dependency

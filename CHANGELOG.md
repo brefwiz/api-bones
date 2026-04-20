@@ -322,10 +322,6 @@ audit.touch(Principal::system("my-service.cleanup"));
 
 ## [1.2.0] - 2026-03-25
 
-### Changed
-
-- Migrated cargo registry to git.brefwiz.com
-
 ## [1.1.0] - 2026-03-25
 
 ### Added
@@ -338,17 +334,19 @@ audit.touch(Principal::system("my-service.cleanup"));
 
 - Initial release with core API types: `ApiError`, `ValidationError`, `HealthCheck`, `ReadinessResponse`, `PaginationParams`
 
-[Unreleased]: https://git.brefwiz.com/brefwiz/api-bones/compare/v2.0.0...HEAD
-[2.0.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.10.0...v2.0.0
-[1.10.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.9.0...v1.10.0
-[1.9.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.8.0...v1.9.0
-[1.8.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.7.0...v1.8.0
-[1.7.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.6.0...v1.7.0
-[1.6.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.5.0...v1.6.0
-[1.5.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.4.0...v1.5.0
-[1.4.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.3.1...v1.4.0
-[1.3.1]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.3.0...v1.3.1
-[1.3.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.2.0...v1.3.0
-[1.2.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.1.0...v1.2.0
-[1.1.0]: https://git.brefwiz.com/brefwiz/api-bones/compare/v1.0.0...v1.1.0
-[1.0.0]: https://git.brefwiz.com/brefwiz/api-bones/releases/tag/v1.0.0
+[Unreleased]: https://github.com/brefwiz/api-bones/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/brefwiz/api-bones/compare/v3.0.0...v3.1.0
+[3.0.0]: https://github.com/brefwiz/api-bones/compare/v2.0.0...v3.0.0
+[2.0.0]: https://github.com/brefwiz/api-bones/compare/v1.10.0...v2.0.0
+[1.10.0]: https://github.com/brefwiz/api-bones/compare/v1.9.0...v1.10.0
+[1.9.0]: https://github.com/brefwiz/api-bones/compare/v1.8.0...v1.9.0
+[1.8.0]: https://github.com/brefwiz/api-bones/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/brefwiz/api-bones/compare/v1.6.0...v1.7.0
+[1.6.0]: https://github.com/brefwiz/api-bones/compare/v1.5.0...v1.6.0
+[1.5.0]: https://github.com/brefwiz/api-bones/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/brefwiz/api-bones/compare/v1.3.1...v1.4.0
+[1.3.1]: https://github.com/brefwiz/api-bones/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/brefwiz/api-bones/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/brefwiz/api-bones/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/brefwiz/api-bones/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/brefwiz/api-bones/releases/tag/v1.0.0
