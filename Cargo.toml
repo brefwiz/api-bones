@@ -61,7 +61,7 @@ http = { version = "1.0", optional = true }
 utoipa = { version = "5", optional = true, features = ["uuid", "chrono"] }
 icalendar = { version = "0.17", features = ["parser", "serde"], optional = true }
 validator = { version = "0.19", features = ["derive"], optional = true }
-fake = { version = "2", optional = true }
+fake = { version = "5", optional = true }
 rand = { version = "0.8", optional = true }
 schemars = { version = "1", optional = true }
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
