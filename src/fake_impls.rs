@@ -39,7 +39,10 @@ use rand::{Rng, RngExt};
 
 fn gen_alphanum<R: Rng + ?Sized>(rng: &mut R, len: usize) -> String {
     use rand::distr::Alphanumeric;
-    rng.sample_iter(Alphanumeric).take(len).map(|b| b as char).collect()
+    rng.sample_iter(Alphanumeric)
+        .take(len)
+        .map(|b| b as char)
+        .collect()
 }
 
 fn gen_str<R: Rng + ?Sized>(rng: &mut R) -> String {
