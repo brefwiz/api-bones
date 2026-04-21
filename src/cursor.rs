@@ -135,7 +135,7 @@ impl Cursor {
     #[cfg(feature = "hmac")]
     #[must_use]
     pub fn encode_signed(payload: &[u8], key: &[u8]) -> String {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
 
         let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC accepts any key length");
@@ -176,7 +176,7 @@ impl Cursor {
     /// ```
     #[cfg(feature = "hmac")]
     pub fn decode_signed(cursor: &str, key: &[u8]) -> Result<Vec<u8>, CursorError> {
-        use hmac::{Hmac, Mac};
+        use hmac::{Hmac, KeyInit, Mac};
         use sha2::Sha256;
 
         let combined = URL_SAFE_NO_PAD

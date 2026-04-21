@@ -1,0 +1,15 @@
+name: "api-bones CodeQL config"
+
+# Examples are demonstration code — exclude from all queries.
+paths-ignore:
+  - examples
+
+# These two queries fire only on test fixtures and example demo code in this
+# repo. Production crypto (cursor HMAC) uses dynamic key parameters, not
+# literals. Inline test suppression (// codeql[...]) is not supported for
+# Rust, so we disable the queries project-wide.
+query-filters:
+  - exclude:
+      id: rust/hard-coded-cryptographic-value
+  - exclude:
+      id: rust/cleartext-logging

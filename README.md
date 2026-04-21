@@ -1,5 +1,11 @@
 # api-bones
 
+[![CI](https://github.com/brefwiz/api-bones/actions/workflows/ci.yml/badge.svg)](https://github.com/brefwiz/api-bones/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/api-bones.svg)](https://crates.io/crates/api-bones)
+[![docs.rs](https://docs.rs/api-bones/badge.svg)](https://docs.rs/api-bones)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
+
 A small Rust crate with shared types for the surface every REST API re-invents — errors, pagination, health, identity propagation, auth headers, response envelopes — grounded in existing specs so you're not designing a house format:
 
 - **[RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457)** for errors

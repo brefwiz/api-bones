@@ -51,23 +51,23 @@ hmac = ["base64", "alloc", "dep:hmac", "dep:sha2"]
 thiserror = { version = "2", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-uuid = { version = "1.8", features = ["v4"], optional = true }
+uuid = { version = "1.23", features = ["v4"], optional = true }
 chrono = { version = "0.4", optional = true }
 arbitrary = { version = "1", features = ["derive"], optional = true }
 proptest = { version = "1", optional = true }
-proptest-derive = { version = "0.5", optional = true }
+proptest-derive = { version = "0.8", optional = true }
 axum = { version = "0.8", optional = true }
 http = { version = "1.0", optional = true }
 utoipa = { version = "5", optional = true, features = ["uuid", "chrono"] }
 icalendar = { version = "0.17", features = ["parser", "serde"], optional = true }
-validator = { version = "0.19", features = ["derive"], optional = true }
-fake = { version = "2", optional = true }
-rand = { version = "0.8", optional = true }
+validator = { version = "0.20", features = ["derive"], optional = true }
+fake = { version = "5", optional = true }
+rand = { version = "0.10", optional = true }
 schemars = { version = "1", optional = true }
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
 zeroize = { version = "1", features = ["derive"], optional = true }
-hmac = { version = "0.12", optional = true }
-sha2 = { version = "0.10", optional = true }
+hmac = { version = "0.13", optional = true }
+sha2 = { version = "0.11", optional = true }
 
 [lints.rust]
 # Allow cfg(coverage) set by cargo-llvm-cov
