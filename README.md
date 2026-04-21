@@ -1,8 +1,10 @@
 # api-bones
 
-When you're building a platform — not just one service, but a cohesive family of applications — every team eventually invents their own error format, their own pagination shape, their own health check response. They all look slightly different. Clients have to handle each variation. SDK generation becomes guesswork. And the moment you want to generate polyglot client libraries from your OpenAPI schemas, you discover there's no shared contract to generate *from*.
+When you're building a platform — not just one service, but a cohesive family of applications — every team (or AI agent) eventually invents their own error format, their own pagination shape, their own health check response. They all look slightly different. Clients have to handle each variation. SDK generation becomes guesswork. And the moment you want to generate polyglot client libraries from your OpenAPI schemas, you discover there's no shared contract to generate *from*.
 
-**api-bones is that contract.** RFC-grounded, dependency-light types for the full surface area of a REST API: errors, pagination, health checks, auth headers, identity propagation, response envelopes, and more. No HTTP client, no framework opinions, no business logic — just types that compose cleanly across every service in your stack.
+This problem is amplified in the AI era. An agent asked to scaffold a new service will invent its own conventions from scratch, every single time, unless there is a protocol to follow. The successful platform of this era is the one that gives agents and developers a unified language to build on — so inter-service communication is consistent whether the author is human or AI.
+
+**api-bones is that unified protocol.** RFC-grounded, dependency-light types for the full surface area of a REST API: errors, pagination, health checks, auth headers, identity propagation, response envelopes, and more. No HTTP client, no framework opinions, no business logic — just types that compose cleanly across every service in your stack, regardless of who or what wrote it.
 
 ## Who this is for
 
