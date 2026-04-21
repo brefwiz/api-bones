@@ -1,0 +1,5 @@
+name: "api-bones CodeQL config"
+
+# Examples are demonstration code, not production paths — exclude from all queries.
+paths-ignore:
+  - examples
