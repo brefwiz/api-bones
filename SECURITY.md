@@ -11,7 +11,7 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Please report security issues by email to **gregoire.salingue@pm.me**.
+Please report security issues by email to **security@brefwiz.com**.
 
 Include:
 - A description of the vulnerability
