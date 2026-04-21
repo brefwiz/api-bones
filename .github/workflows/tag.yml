@@ -7,5 +7,5 @@ on:
 jobs:
   tag:
     uses: brefwiz/shared-ci-workflows/.github/workflows/auto-tag.yml@main
-    permissions:
-      contents: write
+    secrets:
+      release-token: ${{ secrets.RELEASE_TOKEN }}
