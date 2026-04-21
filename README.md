@@ -1,13 +1,67 @@
 # api-bones
 
-Opinionated REST API types: errors (RFC 9457), pagination, health checks, and more. No HTTP client, no business logic — just types.
+When you're building a platform — not just one service, but a cohesive family of applications — every team (or AI agent) eventually invents their own error format, their own pagination shape, their own health check response. They all look slightly different. Clients have to handle each variation. SDK generation becomes guesswork. And the moment you want to generate polyglot client libraries from your OpenAPI schemas, you discover there's no shared contract to generate *from*.
+
+This problem is amplified in the AI era. An agent asked to scaffold a new service will invent its own conventions from scratch, every single time, unless there is a protocol to follow. The successful platform of this era is the one that gives agents and developers a unified language to build on — so inter-service communication is consistent whether the author is human or AI.
+
+**api-bones is that unified protocol.** RFC-grounded, dependency-light types for the full surface area of a REST API: errors, pagination, health checks, auth headers, identity propagation, response envelopes, and more. No HTTP client, no framework opinions, no business logic — just types that compose cleanly across every service in your stack, regardless of who or what wrote it.
+
+The entire brefwiz platform is built in Rust — not for idiomatic reasons, but because memory safety, zero-cost abstractions, and a type system that eliminates classes of bugs at compile time are non-negotiable properties at the infrastructure layer. Every crate enforces `unsafe_code = deny`, `warnings = deny`, and `clippy::pedantic = deny` at the workspace level. api-bones is no different.
+
+## Who this is for
+
+Any builder assembling a collection of services that need to speak the same language:
+
+- **Platform engineers** standardizing error and response shapes across a microservice estate
+- **Founding engineers** who don't want to invent these conventions from scratch on service #3
+- **SDK authors** who want a well-typed OpenAPI foundation to generate polyglot clients from
+- **WASM / embedded** targets — full `no_std` support, down to `core`-only if needed
 
 ## Usage
 
 ```toml
 [dependencies]
-api-bones = "3.0"
+api-bones = "4.0"
 ```
+
+## Use cases
+
+### Consistent errors across every service
+
+Instead of each service inventing its own 404 body, every handler returns `ApiError::not_found(…)` and clients always get [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) Problem Details:
+
+```rust
+use api_bones::{ApiError, ErrorCode};
+
+fn find_booking(id: u64) -> Result<(), ApiError> {
+    Err(ApiError::not_found(format!("booking {id} not found")))
+}
+```
+
+Wire format:
+
+```json
+{
+  "type": "urn:api-bones:error:resource-not-found",
+  "title": "Resource Not Found",
+  "status": 404,
+  "detail": "booking 42 not found"
+}
+```
+
+The same shape. Every service. Every client. Always.
+
+### Pagination that works the same everywhere
+
+Offset, cursor, or keyset — all three patterns share a consistent envelope. A consumer that knows how to page through one endpoint knows how to page through all of them.
+
+### Health checks your orchestrator already understands
+
+`LivenessResponse` and `ReadinessResponse` implement the [IETF Health Check Response Format](https://datatracker.ietf.org/doc/html/draft-inadarei-api-health-check). Kubernetes, Nomad, whatever you're running — it reads the content-type and knows what to do.
+
+### Polyglot SDK generation
+
+Every type ships with `utoipa` (OpenAPI schema) and `schemars` (JSON Schema) support. Generate your OpenAPI spec, run your SDK generator, and the TypeScript / Python / Go client gets the same precise shapes your Rust handlers produce.
 
 ## Satellite Crates
 
@@ -19,6 +73,8 @@ api-bones = "3.0"
 ## Types
 
 ### Errors (`error`)
+
+Implements [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457).
 
 | Type / Item | Description |
 |---|---|
@@ -64,7 +120,7 @@ api-bones = "3.0"
 
 ### Health (`health`)
 
-Implements the IETF Health Check Response Format. Content-Type: `application/health+json`.
+Implements the [IETF Health Check Response Format](https://datatracker.ietf.org/doc/html/draft-inadarei-api-health-check). Content-Type: `application/health+json`.
 
 | Type | Description |
 |---|---|
@@ -188,31 +244,10 @@ All implement the `HeaderId` trait (`as_str()`, `header_name()`).
 
 ```toml
 # no_std + alloc (WASM, embedded with allocator)
-api-bones = { version = "3", default-features = false, features = ["alloc"] }
+api-bones = { version = "4", default-features = false, features = ["alloc"] }
 
 # pure no_std (core types only)
-api-bones = { version = "3", default-features = false }
-```
-
-## Example
-
-```rust
-use api_bones::{ApiError, ErrorCode};
-
-fn find_booking(id: u64) -> Result<(), ApiError> {
-    Err(ApiError::not_found(format!("booking {id} not found")))
-}
-```
-
-Wire format (RFC 9457):
-
-```json
-{
-  "type": "urn:api-bones:error:resource-not-found",
-  "title": "Resource Not Found",
-  "status": 404,
-  "detail": "booking 42 not found"
-}
+api-bones = { version = "4", default-features = false }
 ```
 
 ## License
