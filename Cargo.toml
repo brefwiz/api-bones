@@ -66,7 +66,7 @@ rand = { version = "0.8", optional = true }
 schemars = { version = "1", optional = true }
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
 zeroize = { version = "1", features = ["derive"], optional = true }
-hmac = { version = "0.12", optional = true }
+hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.10", optional = true }
 
 [lints.rust]
