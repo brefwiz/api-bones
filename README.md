@@ -1,19 +1,25 @@
 # api-bones
 
-When you're building a platform — not just one service, but a cohesive family of applications — every team (or AI agent) eventually invents their own error format, their own pagination shape, their own health check response. They all look slightly different. Clients have to handle each variation. SDK generation becomes guesswork. And the moment you want to generate polyglot client libraries from your OpenAPI schemas, you discover there's no shared contract to generate *from*.
+A small Rust crate with shared types for the surface every REST API re-invents — errors, pagination, health, identity propagation, auth headers, response envelopes — grounded in existing specs so you're not designing a house format:
 
-This problem is amplified in the AI era. An agent asked to scaffold a new service will invent its own conventions from scratch, every single time, unless there is a protocol to follow. The successful platform of this era is the one that gives agents and developers a unified language to build on — so inter-service communication is consistent whether the author is human or AI.
+- **[RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457)** for errors
+- **[IETF Health Check Response Format](https://datatracker.ietf.org/doc/html/draft-inadarei-api-health-check)** for health
+- **W3C `traceparent`** for distributed tracing
+- Cursor pagination and a small set of response envelope helpers on top
 
-**api-bones is that unified protocol.** RFC-grounded, dependency-light types for the full surface area of a REST API: errors, pagination, health checks, auth headers, identity propagation, response envelopes, and more. No HTTP client, no framework opinions, no business logic — just types that compose cleanly across every service in your stack, regardless of who or what wrote it.
+It's not a framework. It's not a runtime. It's the types — so every service in a project can speak the same wire format without inventing one.
 
-## Who this is for
+Edition 2024, MSRV 1.85. MIT licensed. Full `no_std` support down to `core`-only.
 
-Any builder assembling a collection of services that need to speak the same language:
+## Prior art
 
-- **Platform engineers** standardizing error and response shapes across a microservice estate
-- **Founding engineers** who don't want to invent these conventions from scratch on service #3
-- **SDK authors** who want a well-typed OpenAPI foundation to generate polyglot clients from
-- **WASM / embedded** targets — full `no_std` support, down to `core`-only if needed
+api-bones isn't inventing a new spec. It leans on work that already exists:
+
+- [`problem-details`](https://crates.io/crates/problem-details) — a focused crate for RFC 9457. Does one thing well. api-bones includes Problem types but bundles them with the rest of the surface (pagination, health, identity headers) so a service can adopt one dep for everything.
+- [`utoipa`](https://crates.io/crates/utoipa) and [`apistos`](https://crates.io/crates/apistos) — OpenAPI schema generation. api-bones is complementary: if your errors use api-bones types, your generated spec has consistent error shapes across every endpoint.
+- **JSON:API** and **HAL** — older specs addressing overlapping problems. Great if they fit your world. If not, RFC 9457 is lighter and maps cleanly onto typical REST endpoints.
+
+What's specific to api-bones is the opinion: one crate, bundled surface, strict types, RFC-grounded on the wire. If that opinion doesn't match yours, one of the above probably does.
 
 ## Usage
 
