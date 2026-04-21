@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-04-21
+
+### Changed
+
+- Upgraded optional dependencies: `rand 0.9 → 0.10`, `hmac 0.12 → 0.13`, `fake 3 → 5`,
+  `sha2 0.10 → 0.11`, `validator 0.18 → 0.20`, `uuid 1.11 → 1.23`,
+  `reqwest 0.12 → 0.13` (in `api-bones-reqwest`). All are internal to optional feature
+  flags and not exposed in the public API.
+- CI: Dependabot enabled for Cargo and GitHub Actions.
+- CI: CodeQL scanning workflow added with false-positive suppression config.
+- CI: Workflow permissions hardened (`contents: read` default; `tag.yml` minimal grant).
+
+### Fixed
+
+- CI workflow permissions were overly broad (no explicit `permissions:` block). Now
+  locked to least privilege per job.
+
 ## [4.0.0] - 2026-04-20
 
 ### BREAKING CHANGE
