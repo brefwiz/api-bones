@@ -46,7 +46,9 @@ fn main() {
     // 3. BasicCredentials — construction + password redaction
     // -------------------------------------------------------------------------
     println!("\nBasicCredentials:");
-    let creds = BasicCredentials::new("alice", "s3cr3t");    println!("  username = {}", creds.username());    println!("  debug    = {creds:?}");
+    let creds = BasicCredentials::new("alice", "s3cr3t");
+    println!("  username = {}", creds.username());
+    println!("  debug    = {creds:?}");
     assert!(!format!("{creds:?}").contains("s3cr3t"));
 
     // -------------------------------------------------------------------------
@@ -55,7 +57,8 @@ fn main() {
     println!("\nOAuth2Token:");
     let oauth = OAuth2Token::new("access-token-value", Some("Bearer"));
     println!("  token_type = {:?}", oauth.token_type());
-    println!("  debug      = {oauth:?}");    assert!(!format!("{oauth:?}").contains("access-token-value"));
+    println!("  debug      = {oauth:?}");
+    assert!(!format!("{oauth:?}").contains("access-token-value"));
 
     // -------------------------------------------------------------------------
     // 5. AuthorizationHeader — parse Bearer
@@ -73,7 +76,8 @@ fn main() {
     println!("\nAuthorizationHeader (Basic):");
     let basic: AuthorizationHeader = "Basic dXNlcjpwYXNz".parse().unwrap();
     if let AuthorizationHeader::Basic(c) = &basic {
-        println!("  username = {}", c.username());        println!("  password = [REDACTED in debug]");
+        println!("  username = {}", c.username());
+        println!("  password = [REDACTED in debug]");
     }
     // Round-trip back to the same base64-encoded header value
     println!("  to_string = {basic}");
