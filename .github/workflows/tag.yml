@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
 
+permissions: {}
+
 jobs:
   tag:
     uses: brefwiz/shared-ci-workflows/.github/workflows/auto-tag.yml@main

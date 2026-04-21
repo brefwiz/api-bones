@@ -818,14 +818,14 @@ mod tests {
 
     #[test]
     fn basic_credentials_fields() {
-        let c = BasicCredentials::new("alice", "s3cr3t");
+        let c = BasicCredentials::new("alice", "s3cr3t"); // lgtm[rust/hard-coded-cryptographic-value]
         assert_eq!(c.username(), "alice");
         assert_eq!(c.password(), "s3cr3t");
     }
 
     #[test]
     fn basic_credentials_debug_redacts_password() {
-        let c = BasicCredentials::new("alice", "s3cr3t");
+        let c = BasicCredentials::new("alice", "s3cr3t"); // lgtm[rust/hard-coded-cryptographic-value]
         let dbg = format!("{c:?}");
         assert!(dbg.contains("alice"));
         assert!(dbg.contains("[REDACTED]"));
@@ -1128,9 +1128,9 @@ mod tests {
 
     #[test]
     fn basic_credentials_eq() {
-        let a = BasicCredentials::new("user", "pass");
-        let b = BasicCredentials::new("user", "pass");
-        let c = BasicCredentials::new("user", "wrong");
+        let a = BasicCredentials::new("user", "pass"); // lgtm[rust/hard-coded-cryptographic-value]
+        let b = BasicCredentials::new("user", "pass"); // lgtm[rust/hard-coded-cryptographic-value]
+        let c = BasicCredentials::new("user", "wrong"); // lgtm[rust/hard-coded-cryptographic-value]
         assert_eq!(a, b);
         assert_ne!(a, c);
     }

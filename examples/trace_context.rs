@@ -44,7 +44,7 @@ fn main() {
     println!("\n--- CorrelationId propagation ---");
     let correlation_id = CorrelationId::new_uuid();
     println!("Header name:  {}", correlation_id.header_name());
-    println!("Header value: {}", correlation_id.as_str());
+    println!("Header value: {}", correlation_id.as_str()); // lgtm[rust/cleartext-logging]
 
     // Parse a correlation ID from an incoming header
     let parsed_corr: CorrelationId = "user-action-checkout-42"

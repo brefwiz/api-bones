@@ -46,8 +46,8 @@ fn main() {
     // 3. BasicCredentials — construction + password redaction
     // -------------------------------------------------------------------------
     println!("\nBasicCredentials:");
-    let creds = BasicCredentials::new("alice", "s3cr3t");
-    println!("  username = {}", creds.username());
+    let creds = BasicCredentials::new("alice", "s3cr3t"); // lgtm[rust/hard-coded-cryptographic-value]
+    println!("  username = {}", creds.username()); // lgtm[rust/cleartext-logging]
     println!("  debug    = {creds:?}");
     assert!(!format!("{creds:?}").contains("s3cr3t"));
 
@@ -57,7 +57,7 @@ fn main() {
     println!("\nOAuth2Token:");
     let oauth = OAuth2Token::new("access-token-value", Some("Bearer"));
     println!("  token_type = {:?}", oauth.token_type());
-    println!("  debug      = {oauth:?}");
+    println!("  debug      = {oauth:?}"); // lgtm[rust/cleartext-logging]
     assert!(!format!("{oauth:?}").contains("access-token-value"));
 
     // -------------------------------------------------------------------------
@@ -76,7 +76,7 @@ fn main() {
     println!("\nAuthorizationHeader (Basic):");
     let basic: AuthorizationHeader = "Basic dXNlcjpwYXNz".parse().unwrap();
     if let AuthorizationHeader::Basic(c) = &basic {
-        println!("  username = {}", c.username());
+        println!("  username = {}", c.username()); // lgtm[rust/cleartext-logging]
         println!("  password = [REDACTED in debug]");
     }
     // Round-trip back to the same base64-encoded header value
