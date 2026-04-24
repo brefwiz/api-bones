@@ -1,0 +1,68 @@
+wing: api-bones
+
+  # --- Hexagonal architecture overlay (standard across Brefwiz services) ---
+  # Orthogonal to subsystem rooms — a file may match both a subsystem and a layer.
+  - name: domain-core
+    description: "Pure domain — entities, value objects, domain services, invariants, domain errors. No I/O, no frameworks."
+    keywords:
+      - domain
+      - entity
+      - value object
+      - aggregate
+      - invariant
+      - domain error
+      - policy
+      - lifecycle
+  - name: application
+    description: "Use-cases and orchestration. Defines port traits. Depends on domain-core, not on adapters."
+    keywords:
+      - use case
+      - use-case
+      - application
+      - orchestrat
+      - pub trait
+      - port
+      - command
+      - query
+      - handler
+  - name: adapters-inbound
+    description: "Driving adapters — HTTP/Axum handlers, gRPC servers, CLI entrypoints, queue consumers. Translate external input into use-case calls."
+    keywords:
+      - axum
+      - handler
+      - route
+      - router
+      - endpoint
+      - controller
+      - consumer
+      - grpc
+      - cli
+      - main.rs
+      - inbound
+  - name: adapters-outbound
+    description: "Driven adapters — Postgres (sqlx), HTTP clients, message publishers, external API clients. Implement port traits."
+    keywords:
+      - sqlx
+      - PgPool
+      - repository
+      - repo
+      - client
+      - publisher
+      - outbound
+      - impl
+      - adapter
+      - reqwest
+      - migration
+  - name: contracts
+    description: "Boundary contracts — OpenAPI specs, proto files, DTOs, request/response schemas, shared types crossing the hex boundary."
+    keywords:
+      - openapi
+      - proto
+      - schema
+      - dto
+      - request
+      - response
+      - serde
+      - Deserialize
+      - Serialize
+      - contract
