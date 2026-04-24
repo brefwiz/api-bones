@@ -5,11 +5,14 @@ use std::process::Command;
 
 const PROGENITOR_VERSION: &str = env!("CARGO_PKG_VERSION");
 const OPENAPI_GENERATOR_VERSION: &str = "7.12.0";
-const OPENAPI_GENERATOR_JAR_URL: &str =
-    "https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/7.12.0/openapi-generator-cli-7.12.0.jar";
+const OPENAPI_GENERATOR_JAR_URL: &str = "https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/7.12.0/openapi-generator-cli-7.12.0.jar";
 
 #[derive(Parser)]
-#[command(name = "api-bones-sdk-gen", version, about = "Generate Brefwiz Rust + TS SDKs")]
+#[command(
+    name = "api-bones-sdk-gen",
+    version,
+    about = "Generate Brefwiz Rust + TS SDKs"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,
@@ -77,14 +80,33 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Cmd::Schema { server_bin, out } => cmd_schema(&server_bin, &out),
-        Cmd::Rust { spec, out, crate_name, service_name } => {
-            cmd_rust(&spec, &out, &crate_name, &service_name)
-        }
-        Cmd::Ts { spec, out, pkg_name, jar } => cmd_ts(&spec, &out, &pkg_name, jar.as_deref()),
-        Cmd::All { server_bin, crate_name, pkg_name, schema, jar } => {
+        Cmd::Rust {
+            spec,
+            out,
+            crate_name,
+            service_name,
+        } => cmd_rust(&spec, &out, &crate_name, &service_name),
+        Cmd::Ts {
+            spec,
+            out,
+            pkg_name,
+            jar,
+        } => cmd_ts(&spec, &out, &pkg_name, jar.as_deref()),
+        Cmd::All {
+            server_bin,
+            crate_name,
+            pkg_name,
+            schema,
+            jar,
+        } => {
             cmd_schema(&server_bin, &schema)?;
             cmd_rust(&schema, Path::new("sdk/rust-api"), &crate_name, "")?;
-            cmd_ts(&schema, Path::new("sdk/typescript"), &pkg_name, jar.as_deref())
+            cmd_ts(
+                &schema,
+                Path::new("sdk/typescript"),
+                &pkg_name,
+                jar.as_deref(),
+            )
         }
         Cmd::Makefile => {
             print!("{}", MAKEFILE_FRAGMENT);
@@ -144,12 +166,18 @@ fn cmd_ts(spec: &Path, out: &Path, pkg_name: &str, jar: Option<&Path>) -> anyhow
     let jar_path = match jar {
         Some(p) => p.to_path_buf(),
         None => {
-            let tmp = std::env::temp_dir()
-                .join(format!("openapi-generator-cli-{OPENAPI_GENERATOR_VERSION}.jar"));
+            let tmp = std::env::temp_dir().join(format!(
+                "openapi-generator-cli-{OPENAPI_GENERATOR_VERSION}.jar"
+            ));
             if !tmp.exists() {
                 eprintln!("Downloading openapi-generator-cli {OPENAPI_GENERATOR_VERSION}…");
                 let status = Command::new("curl")
-                    .args(["-fsSL", "-o", tmp.to_str().unwrap(), OPENAPI_GENERATOR_JAR_URL])
+                    .args([
+                        "-fsSL",
+                        "-o",
+                        tmp.to_str().unwrap(),
+                        OPENAPI_GENERATOR_JAR_URL,
+                    ])
                     .status()
                     .context("curl download of openapi-generator-cli failed")?;
                 anyhow::ensure!(status.success(), "curl exited with {status}");
@@ -173,13 +201,14 @@ fn cmd_ts(spec: &Path, out: &Path, pkg_name: &str, jar: Option<&Path>) -> anyhow
             "-o",
             out.to_str().unwrap(),
             "--additional-properties",
-            &format!(
-                "npmName={pkg_name},npmVersion=0.1.0,supportsES6=true"
-            ),
+            &format!("npmName={pkg_name},npmVersion=0.1.0,supportsES6=true"),
         ])
         .status()
         .context("openapi-generator-cli failed")?;
-    anyhow::ensure!(status.success(), "openapi-generator-cli exited with {status}");
+    anyhow::ensure!(
+        status.success(),
+        "openapi-generator-cli exited with {status}"
+    );
 
     // Splice the @brefwiz/api-bones-axios interceptor wiring into the
     // generated index.ts and patch package.json.
