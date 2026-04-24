@@ -126,7 +126,18 @@ fn normalize_nullable(val: &mut serde_json::Value) {
 
 /// Replace every operation response body schema that matches the `ApiResponse`
 /// envelope shape with just the inner `data` sub-schema.
+///
+/// Handles both inline envelope schemas and `$ref` pointers to component schemas
+/// that have the envelope shape.
 fn unwrap_api_response_envelope(raw: &mut serde_json::Value) {
+    // Snapshot component schemas so we can resolve $refs without borrowing `raw` mutably.
+    let components: std::collections::HashMap<String, serde_json::Value> = raw
+        .get("components")
+        .and_then(|c| c.get("schemas"))
+        .and_then(|s| s.as_object())
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+
     let paths = match raw.get_mut("paths").and_then(|p| p.as_object_mut()) {
         Some(p) => p,
         None => return,
@@ -145,10 +156,23 @@ fn unwrap_api_response_envelope(raw: &mut serde_json::Value) {
                 None => continue,
             };
             for (_status, response) in responses.iter_mut() {
-                if let Some(schema) = response.pointer_mut("/content/application~1json/schema")
-                    && let Some(inner) = extract_envelope_data(schema)
-                {
-                    *schema = inner;
+                if let Some(schema) = response.pointer_mut("/content/application~1json/schema") {
+                    if let Some(inner) = extract_envelope_data(schema) {
+                        *schema = inner;
+                    } else if let Some(ref_str) = schema
+                        .get("$ref")
+                        .and_then(|r| r.as_str())
+                        .map(str::to_owned)
+                    {
+                        let component_name = ref_str
+                            .strip_prefix("#/components/schemas/")
+                            .unwrap_or(&ref_str);
+                        if let Some(component) = components.get(component_name)
+                            && let Some(inner) = extract_envelope_data(component)
+                        {
+                            *schema = inner;
+                        }
+                    }
                 }
             }
         }
@@ -248,6 +272,52 @@ mod tests {
         assert_eq!(
             schema, &plain,
             "non-envelope schema should pass through unchanged"
+        );
+    }
+
+    #[test]
+    fn envelope_unwrap_follows_ref_to_component() {
+        let inner = serde_json::json!({ "type": "string" });
+        let mut spec = serde_json::json!({
+            "openapi": "3.1.0",
+            "info": { "title": "test", "version": "0.0.1" },
+            "paths": {
+                "/items": {
+                    "get": {
+                        "operationId": "list_items",
+                        "responses": {
+                            "200": {
+                                "description": "ok",
+                                "content": {
+                                    "application/json": {
+                                        "schema": { "$ref": "#/components/schemas/ApiResponse_Item" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "components": {
+                "schemas": {
+                    "ApiResponse_Item": {
+                        "properties": {
+                            "data": inner,
+                            "meta": { "type": "object" }
+                        },
+                        "required": ["data", "meta"]
+                    }
+                }
+            }
+        });
+        unwrap_api_response_envelope(&mut spec);
+        let schema = spec
+            .pointer("/paths/~1items/get/responses/200/content/application~1json/schema")
+            .unwrap();
+        assert_eq!(
+            schema,
+            &serde_json::json!({ "type": "string" }),
+            "should unwrap $ref to envelope component"
         );
     }
 

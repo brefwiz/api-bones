@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.1] - 2026-04-24
+
+### Fixed
+
+- **`api-bones-progenitor`**: `unwrap_api_response_envelope` now follows `$ref` pointers to
+  component schemas when rewriting response schemas. Previously only inline envelope schemas
+  were unwrapped; services whose OpenAPI spec uses `$ref: "#/components/schemas/ApiResponse_*"`
+  (the common utoipa output) got no schema rewrite, causing progenitor to generate types that
+  still expected the full envelope while the HTTP hook sent only the stripped `data` payload —
+  resulting in deserialization failures at runtime.
+
 ## [4.2.0] - 2026-04-24
 
 ### Added
