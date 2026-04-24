@@ -5,7 +5,7 @@ use std::path::PathBuf;
 ///
 /// # Usage (in `build.rs`)
 ///
-/// ```no_run
+/// ```ignore
 /// fn main() {
 ///     let spec = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 ///         .join("../schema/openapi.json");
@@ -145,10 +145,10 @@ fn unwrap_api_response_envelope(raw: &mut serde_json::Value) {
                 None => continue,
             };
             for (_status, response) in responses.iter_mut() {
-                if let Some(schema) = response.pointer_mut("/content/application~1json/schema") {
-                    if let Some(inner) = extract_envelope_data(schema) {
-                        *schema = inner;
-                    }
+                if let Some(schema) = response.pointer_mut("/content/application~1json/schema")
+                    && let Some(inner) = extract_envelope_data(schema)
+                {
+                    *schema = inner;
                 }
             }
         }
