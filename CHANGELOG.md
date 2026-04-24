@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-04-24
+
+### Added
+
+- **`api-bones-progenitor`** (new crate, `0.1.0`): `SdkBuilder` build-time helper for
+  [progenitor](https://github.com/oxidecomputer/progenitor)-based Rust SDKs. Handles OpenAPI
+  3.1 → 3.0.3 downgrade, nullable-array normalisation, `ApiResponse<T>` envelope schema
+  unwrap, and transparent HTTP-level envelope stripping via an injected `ClientHooks::exec`
+  override. A service's entire `build.rs` collapses to five lines.
+- **`@brefwiz/api-bones-axios`** (new npm package, `0.1.0`): transport-agnostic Axios
+  interceptor for TypeScript SDKs. `addEnvelopeUnwrapInterceptor(instance)` strips the
+  `ApiResponse<T>` envelope and stashes `meta` / `links` on `response.config` for retrieval
+  via `getEnvelopeMeta()` / `getEnvelopeLinks()`. Published to GitHub Packages.
+- **`api-bones-sdk-gen`** (new binary crate, `0.1.0`): CLI that generates complete Rust +
+  TypeScript SDK trees with default-on envelope handling. Subcommands: `schema`, `rust`, `ts`,
+  `all`, `makefile`. Installed in the `shared-ci-workflows` CI image; services include
+  `api-bones-sdk.mk` to get `codegen-all` with zero per-service wiring.
+
 ## [4.1.0] - 2026-04-24
 
 ### Added
