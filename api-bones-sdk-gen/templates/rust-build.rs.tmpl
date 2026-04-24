@@ -1,0 +1,8 @@
+fn main() {
+    let spec = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../schema/openapi.json");
+    println!("cargo:rerun-if-changed={}", spec.display());
+    api_bones_progenitor::SdkBuilder::new(spec).build().unwrap_or_else(|e| {
+        panic!("sdk codegen failed — run `make openapi-generate` to refresh the spec: {e}");
+    });
+}
