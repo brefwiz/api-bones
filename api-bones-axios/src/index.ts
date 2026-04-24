@@ -29,7 +29,6 @@ export interface ApiResponseEnvelope<T = unknown> {
 export interface EnvelopeAxiosRequestConfig {
   _envelopeMeta?: ResponseMeta;
   _envelopeLinks?: Links | null;
-  [key: string]: unknown;
 }
 
 export interface EnvelopeAxiosResponse {
@@ -47,9 +46,13 @@ export interface AxiosInterceptorManager<V> {
   eject(id: number): void;
 }
 
+// Widened `V` to `any` so real axios instances (whose interceptor is typed for
+// `AxiosResponse`, not `EnvelopeAxiosResponse`) are structurally assignable.
+// The interceptor callback internally treats the value as `EnvelopeAxiosResponse`.
 export interface AxiosLikeInstance {
   interceptors: {
-    response: AxiosInterceptorManager<EnvelopeAxiosResponse>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    response: AxiosInterceptorManager<any>;
   };
 }
 
