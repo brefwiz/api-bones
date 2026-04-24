@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.2] - 2026-04-23
+
+### Security
+
+- Bumped transitive dependency `rand 0.9.2 → 0.9.4` (RUSTSEC-2026-0097 / GHSA-cq8v-f236-94qc):
+  unsound aliased mutable reference when a custom logger calls `rand::rng()` during reseeding.
+  This crate's own code was not affected (rand is only used via the optional `fake` feature and
+  dev-dependencies); the lock-file pin eliminates the vulnerable version entirely.
+
+### Changed
+
+- CI: weekly scheduled run added for security audit and Dependabot allowlist review.
+
 ## [4.0.1] - 2026-04-21
 
 ### Changed
