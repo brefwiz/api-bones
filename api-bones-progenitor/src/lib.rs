@@ -5,7 +5,7 @@ use std::path::PathBuf;
 ///
 /// # Usage (in `build.rs`)
 ///
-/// ```ignore
+/// ```no_run
 /// fn main() {
 ///     let spec = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 ///         .join("../schema/openapi.json");
@@ -19,9 +19,7 @@ pub struct SdkBuilder {
 
 impl SdkBuilder {
     pub fn new(spec_path: impl Into<PathBuf>) -> Self {
-        Self {
-            spec_path: spec_path.into(),
-        }
+        Self { spec_path: spec_path.into() }
     }
 
     /// Generate `$OUT_DIR/client.rs` from the OpenAPI spec.
@@ -145,10 +143,12 @@ fn unwrap_api_response_envelope(raw: &mut serde_json::Value) {
                 None => continue,
             };
             for (_status, response) in responses.iter_mut() {
-                if let Some(schema) = response.pointer_mut("/content/application~1json/schema")
-                    && let Some(inner) = extract_envelope_data(schema)
+                if let Some(schema) =
+                    response.pointer_mut("/content/application~1json/schema")
                 {
-                    *schema = inner;
+                    if let Some(inner) = extract_envelope_data(schema) {
+                        *schema = inner;
+                    }
                 }
             }
         }
@@ -216,16 +216,12 @@ mod tests {
         let schema = spec
             .pointer("/paths/~1items/get/responses/200/content/application~1json/schema")
             .unwrap();
-        assert_eq!(
-            schema, &inner,
-            "schema should be replaced with the data sub-schema"
-        );
+        assert_eq!(schema, &inner, "schema should be replaced with the data sub-schema");
     }
 
     #[test]
     fn envelope_unwrap_ignores_non_envelope() {
-        let plain =
-            serde_json::json!({ "type": "object", "properties": { "id": { "type": "string" } } });
+        let plain = serde_json::json!({ "type": "object", "properties": { "id": { "type": "string" } } });
         let mut spec = serde_json::json!({
             "paths": {
                 "/items": {
@@ -245,10 +241,7 @@ mod tests {
         let schema = spec
             .pointer("/paths/~1items/get/responses/200/content/application~1json/schema")
             .unwrap();
-        assert_eq!(
-            schema, &plain,
-            "non-envelope schema should pass through unchanged"
-        );
+        assert_eq!(schema, &plain, "non-envelope schema should pass through unchanged");
     }
 
     #[test]
