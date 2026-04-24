@@ -5,13 +5,21 @@ on:
     tags: ['v*']
 
 jobs:
-  release:
+  release-rust:
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-rust.yml@main
     with:
       # Publish in dependency order: api-bones must land on crates.io before
       # the satellite crates can resolve it.
-      crates: "api-bones api-bones-tower api-bones-reqwest"
+      crates: "api-bones api-bones-tower api-bones-reqwest api-bones-progenitor api-bones-sdk-gen"
     secrets:
       cargo-registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
     permissions:
       contents: write
+
+  release-npm:
+    uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
+    with:
+      packages: "api-bones-axios"
+    permissions:
+      contents: read
+      packages: write
