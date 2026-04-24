@@ -1,11 +1,18 @@
 name: Release
 
+# Rust crates release on `v*` tags (e.g. v4.3.0).
+# The `@brefwiz/api-bones-axios` npm package releases on `axios-v*` tags
+# (e.g. axios-v0.1.1) so its cadence is independent of the Rust workspace.
 on:
   push:
-    tags: ['v*']
+    tags:
+      - 'v*'
+      - 'axios-v*'
 
 jobs:
   release-rust:
+    # Only run on pure `v*` tags (not `axios-v*`, which starts with `a`).
+    if: startsWith(github.ref, 'refs/tags/v')
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-rust.yml@main
     with:
       # Publish in dependency order: api-bones must land on crates.io before
@@ -16,7 +23,26 @@ jobs:
     permissions:
       contents: write
 
+  validate-axios-tag:
+    # Guard against publishing a version that doesn't match the tag.
+    if: startsWith(github.ref, 'refs/tags/axios-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify axios-v<version> matches package.json
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/axios-v}"
+          PKG_VERSION="$(node -p "require('./api-bones-axios/package.json').version")"
+          echo "Tag version:     ${TAG_VERSION}"
+          echo "Package version: ${PKG_VERSION}"
+          if [ "${TAG_VERSION}" != "${PKG_VERSION}" ]; then
+            echo "::error::tag axios-v${TAG_VERSION} does not match api-bones-axios/package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+
   release-npm:
+    needs: validate-axios-tag
+    if: startsWith(github.ref, 'refs/tags/axios-v')
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
     with:
       packages: "api-bones-axios"
