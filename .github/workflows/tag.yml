@@ -7,7 +7,45 @@ on:
 permissions: {}
 
 jobs:
+  # Rust workspace version → v<X.Y.Z> tag
   tag:
     uses: brefwiz/shared-ci-workflows/.github/workflows/auto-tag.yml@main
     secrets:
       release-token: ${{ secrets.RELEASE_TOKEN }}
+
+  # api-bones-axios npm package version → axios-v<X.Y.Z> tag (independent cadence)
+  tag-axios:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Read axios package version
+        id: version
+        run: |
+          VERSION="$(node -p "require('./api-bones-axios/package.json').version")"
+          echo "tag=axios-v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Detected axios version: ${VERSION}"
+
+      - name: Check whether tag already exists
+        id: tag_check
+        run: |
+          if git tag --list "${{ steps.version.outputs.tag }}" | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${{ steps.version.outputs.tag }} already exists — skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+          echo "Pushed tag ${{ steps.version.outputs.tag }}"
