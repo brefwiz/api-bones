@@ -224,6 +224,42 @@ impl proptest::arbitrary::Arbitrary for ResponseMeta {
 /// same top-level JSON shape.  Use [`ApiResponse::builder`] for ergonomic
 /// construction.
 ///
+/// # Ergonomic access
+///
+/// `ApiResponse<T>` implements [`Deref<Target = T>`](std::ops::Deref) so method
+/// and field access on the payload works transparently without `.data`:
+///
+/// ```rust
+/// use api_bones::response::ApiResponse;
+///
+/// let r: ApiResponse<String> = ApiResponse::builder("hello".to_string()).build();
+/// assert_eq!(r.len(), 5);        // String::len via Deref
+/// assert_eq!(&*r, "hello");      // explicit deref
+/// ```
+///
+/// To move the payload out and discard the envelope:
+///
+/// ```rust
+/// use api_bones::response::ApiResponse;
+///
+/// let r: ApiResponse<i32> = ApiResponse::builder(42).build();
+/// let val: i32 = r.into_inner();
+/// assert_eq!(val, 42);
+/// ```
+///
+/// To access envelope metadata alongside the payload:
+///
+/// ```rust
+/// use api_bones::response::ApiResponse;
+///
+/// let r: ApiResponse<i32> = ApiResponse::builder(1).build();
+/// let _req_id = &r.meta.request_id;          // envelope field
+/// let ApiResponse { data, meta, .. } = r;    // destructure
+/// ```
+///
+/// [`DerefMut`](std::ops::DerefMut) is intentionally not implemented; mutate
+/// after calling `into_inner()`.
+///
 /// # Composing with `PaginatedResponse`
 ///
 /// ```rust
@@ -350,6 +386,29 @@ impl<T> ApiResponse<T> {
             links: None,
         }
     }
+
+    /// Consume the envelope and return the payload, discarding metadata.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::response::ApiResponse;
+    ///
+    /// let r: ApiResponse<i32> = ApiResponse::builder(42).build();
+    /// assert_eq!(r.into_inner(), 42);
+    /// ```
+    #[must_use]
+    pub fn into_inner(self) -> T {
+        self.data
+    }
+}
+
+impl<T> std::ops::Deref for ApiResponse<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -420,6 +479,23 @@ mod tests {
                 .map(|l| l.href.as_str()),
             Some("/items/1")
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Deref / into_inner / From
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn deref_gives_transparent_payload_access() {
+        let r: ApiResponse<String> = ApiResponse::builder("hello".to_string()).build();
+        assert_eq!(r.len(), 5); // String::len resolved via Deref
+        assert_eq!(&*r, "hello");
+    }
+
+    #[test]
+    fn into_inner_moves_payload() {
+        let r: ApiResponse<i32> = ApiResponse::builder(42).build();
+        assert_eq!(r.into_inner(), 42);
     }
 
     #[test]

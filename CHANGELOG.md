@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-04-24
+
+### Added
+
+- `ApiResponse<T>` now implements `Deref<Target = T>`, giving transparent method and
+  field access on the payload without going through `.data` (`response.len()`,
+  `response.name`, etc.).
+- `ApiResponse::into_inner(self) -> T` — consume the envelope and return the payload,
+  discarding metadata. Follows the std convention used by `Mutex`, `RefCell`, and
+  `BufReader`.
+
 ## [4.0.2] - 2026-04-23
 
 ### Security
