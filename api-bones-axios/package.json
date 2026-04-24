@@ -24,6 +24,7 @@
     "vitest": "^3.0.0"
   },
   "publishConfig": {
-    "registry": "https://npm.brefwiz.com"
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
   }
 }
