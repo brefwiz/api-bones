@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.0] — 2026-04-25
+
+### Added
+
+- **`api-bones-sdk-gen`** — new crate (CLI) for generating Brefwiz Rust + TypeScript SDKs
+  with default-on `ApiResponse` envelope handling.
+- **`api-bones-sdk-gen`: `rewrite_envelope_types`** post-processing step rewrites
+  `AxiosPromise<XxxResponse>` → `AxiosPromise<XxxResponseData>` in generated `api.ts` so
+  `resp.data` is statically typed as the unwrapped payload after the axios interceptor runs.
+- **`api-bones-progenitor`** — envelope-stripping `ClientHooks` for progenitor-generated
+  Rust SDKs.
+
+### Changed
+
+- All satellite crates (`api-bones-tower`, `api-bones-reqwest`, `api-bones-progenitor`,
+  `api-bones-sdk-gen`) aligned to the workspace version (`4.4.0`).
+
 ## [4.3.0] - 2026-04-24
 
 ### Added
