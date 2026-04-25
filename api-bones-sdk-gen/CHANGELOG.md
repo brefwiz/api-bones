@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.0] — 2026-04-25
+
+### Changed
+
+- Version aligned with the `api-bones` workspace (`4.4.0`). No functional changes.
+
 ## [0.2.0] — 2026-04-24
 
 ### Added
