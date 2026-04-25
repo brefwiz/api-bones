@@ -97,6 +97,16 @@ pub enum PrincipalKind {
     Service,
     /// Platform-level system actor (id is a static name, may be outside any org).
     System,
+    /// Hardware-bound identity for `IoT`, edge nodes, or TPM/Secure-Enclave-backed
+    /// devices (id is a UUID string, typically derived at provisioning).
+    /// Distinct from `Service` because identity is pinned to physical hardware,
+    /// not to a deployed software service.
+    Device,
+    /// Autonomous AI / automation principal with constrained scope (id is a
+    /// stable agent name, e.g. `"ops.triage-agent"`). Distinct from `Service`
+    /// because credential policy treats agents differently — typically shorter
+    /// credential TTLs and smaller default scope.
+    Agent,
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +264,61 @@ impl Principal {
             })
     }
 
+    /// Construct a principal for a hardware-bound device identity from a [`uuid::Uuid`].
+    ///
+    /// Use this for `IoT` devices, edge nodes, or TPM/Secure-Enclave-backed
+    /// identities. Like [`Self::human`], requires a [`uuid::Uuid`] so that
+    /// device labels and serial numbers cannot leak into audit logs.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # #[cfg(feature = "uuid")] {
+    /// use api_bones::{Principal, PrincipalKind};
+    /// use uuid::Uuid;
+    ///
+    /// let id = Uuid::new_v4();
+    /// let edge = Principal::device(id);
+    /// assert_eq!(edge.kind, PrincipalKind::Device);
+    /// # }
+    /// ```
+    #[cfg(feature = "uuid")]
+    #[must_use]
+    pub fn device(uuid: Uuid) -> Self {
+        Self {
+            id: PrincipalId::from_uuid(uuid),
+            kind: PrincipalKind::Device,
+            #[cfg(feature = "uuid")]
+            org_path: Vec::new(),
+        }
+    }
+
+    /// Construct an autonomous agent principal from a `&'static` string.
+    ///
+    /// Use this for AI / automation principals (LLM agents, scheduled bots)
+    /// whose identity is a stable, named role rather than a per-request UUID.
+    /// Mirrors [`Self::system`] in shape; differs in `kind` so credential
+    /// policy can apply agent-specific floors (shorter TTLs, smaller scope).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::{Principal, PrincipalKind};
+    ///
+    /// let triage = Principal::agent("ops.triage-agent");
+    /// assert_eq!(triage.as_str(), "ops.triage-agent");
+    /// assert_eq!(triage.kind, PrincipalKind::Agent);
+    /// ```
+    #[must_use]
+    pub fn agent(id: &'static str) -> Self {
+        Self {
+            id: PrincipalId::static_str(id),
+            kind: PrincipalKind::Agent,
+            #[cfg(feature = "uuid")]
+            org_path: Vec::new(),
+        }
+    }
+
     /// Construct a system principal from a `&'static` string.
     ///
     /// Infallible but no longer `const` since `org_path` is a `Vec`.
@@ -389,10 +454,12 @@ impl<'a> arbitrary::Arbitrary<'a> for PrincipalId {
 #[cfg(feature = "arbitrary")]
 impl<'a> arbitrary::Arbitrary<'a> for PrincipalKind {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        match <u8 as arbitrary::Arbitrary>::arbitrary(u)? % 3 {
+        match <u8 as arbitrary::Arbitrary>::arbitrary(u)? % 5 {
             0 => Ok(Self::User),
             1 => Ok(Self::Service),
-            _ => Ok(Self::System),
+            2 => Ok(Self::System),
+            3 => Ok(Self::Device),
+            _ => Ok(Self::Agent),
         }
     }
 }
@@ -464,7 +531,14 @@ impl proptest::arbitrary::Arbitrary for PrincipalKind {
 
     fn arbitrary_with((): ()) -> Self::Strategy {
         use proptest::prelude::*;
-        prop_oneof![Just(Self::User), Just(Self::Service), Just(Self::System),].boxed()
+        prop_oneof![
+            Just(Self::User),
+            Just(Self::Service),
+            Just(Self::System),
+            Just(Self::Device),
+            Just(Self::Agent),
+        ]
+        .boxed()
     }
 }
 
@@ -784,6 +858,8 @@ mod tests {
         let _ = PrincipalKind::User;
         let _ = PrincipalKind::Service;
         let _ = PrincipalKind::System;
+        let _ = PrincipalKind::Device;
+        let _ = PrincipalKind::Agent;
     }
 
     // -- Principal --------------------------------------------------------
@@ -812,6 +888,47 @@ mod tests {
     #[test]
     fn principal_system_has_empty_org_path() {
         let p = Principal::system("s");
+        assert!(p.org_path.is_empty());
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_device_has_device_kind() {
+        let p = Principal::device(Uuid::nil());
+        assert_eq!(p.kind, PrincipalKind::Device);
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_device_id_is_uuid_string() {
+        let id = Uuid::new_v4();
+        let p = Principal::device(id);
+        assert_eq!(p.as_str(), id.to_string());
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_device_has_empty_org_path() {
+        let p = Principal::device(Uuid::nil());
+        assert!(p.org_path.is_empty());
+    }
+
+    #[test]
+    fn principal_agent_has_agent_kind() {
+        let p = Principal::agent("ops.triage-agent");
+        assert_eq!(p.kind, PrincipalKind::Agent);
+    }
+
+    #[test]
+    fn principal_agent_preserves_static_id() {
+        let p = Principal::agent("sdr.outreach-bot");
+        assert_eq!(p.as_str(), "sdr.outreach-bot");
+    }
+
+    #[cfg(feature = "uuid")]
+    #[test]
+    fn principal_agent_has_empty_org_path() {
+        let p = Principal::agent("svc");
         assert!(p.org_path.is_empty());
     }
 

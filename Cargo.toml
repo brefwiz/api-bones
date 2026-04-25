@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "api-bones"
-version = "4.2.1"
+version = "4.3.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
