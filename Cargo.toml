@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "api-bones-tower", "api-bones-reqwest", "api-bones-progenitor", "api-bones-sdk-gen"]
+members = [".", "api-bones-tower", "api-bones-reqwest", "api-bones-progenitor", "api-bones-sdk-gen", "api-bones-test"]
 resolver = "2"
 
 [package]
