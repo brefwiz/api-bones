@@ -147,6 +147,9 @@ pub mod calendar;
 // OpenAPI helpers: Example<T> and DeprecatedField (issues #119, #120).
 pub mod openapi;
 
+pub mod has_id;
+pub use has_id::HasId;
+
 // Axum extractors beyond IntoResponse (issue #121).
 #[cfg(feature = "axum")]
 pub mod axum_extractors;
