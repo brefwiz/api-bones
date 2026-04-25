@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.3.0] - 2026-04-24
+
+### Added
+
+- **`PrincipalKind::Device`** — hardware-bound identity variant for IoT devices,
+  edge nodes, and TPM/Secure-Enclave-backed principals. Distinct from `Service`
+  because identity is pinned to physical hardware, not to a deployed software
+  service.
+- **`PrincipalKind::Agent`** — first-class variant for autonomous AI / automation
+  principals (LLM agents, scheduled bots). Distinct from `Service` so credential
+  policy can apply agent-specific floors (shorter TTLs, smaller scope).
+- **`Principal::device(uuid: Uuid)`** — constructor mirroring `human()` with the
+  same anti-PII guarantee (UUID-only, no labels or serial numbers in audit
+  output). Requires `uuid` feature.
+- **`Principal::agent(id: &'static str)`** — constructor mirroring `system()`
+  for stable, named agent roles.
+- Both new variants are wired into the `arbitrary` and `proptest` `Arbitrary`
+  impls for `PrincipalKind`.
+
+These additions are non-breaking: `PrincipalKind` is `#[non_exhaustive]`.
+Required by `quorumauth` to distinguish hardware-bound and AI-agent principals
+in its credential-policy floor.
+
 ## [4.2.1] - 2026-04-24
 
 ### Fixed
