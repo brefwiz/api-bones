@@ -73,9 +73,7 @@ impl ClientHooks<()> for &Client {
 
         let stripped: bytes::Bytes = (|| {
             let env: serde_json::Value = serde_json::from_slice(&body).ok()?;
-            if env.get("meta").is_none() {
-                return None;
-            }
+            env.get("meta")?;
             let data = env.get("data")?;
             let serialized = serde_json::to_vec(data).ok()?;
             if let Ok(val) = reqwest::header::HeaderValue::from_str(&serialized.len().to_string()) {

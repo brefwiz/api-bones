@@ -214,6 +214,14 @@ fn cmd_ts(spec: &Path, out: &Path, pkg_name: &str, jar: Option<&Path>) -> anyhow
     // generated index.ts and patch package.json.
     splice_envelope_interceptor(out, pkg_name)?;
 
+    // Rewrite AxiosPromise<EnvelopeWrapper> → AxiosPromise<InnerData> so that
+    // resp.data is statically typed as the unwrapped payload, matching what the
+    // interceptor delivers at runtime.
+    let n = rewrite_envelope_types(out)?;
+    if n > 0 {
+        eprintln!("Rewrote {n} envelope return type(s) in api.ts");
+    }
+
     eprintln!("TypeScript SDK generated at {}", out.display());
     Ok(())
 }
@@ -248,6 +256,141 @@ fn splice_envelope_interceptor(out: &Path, _pkg_name: &str) -> anyhow::Result<()
     }
 
     Ok(())
+}
+
+// ── Envelope return-type rewriting ───────────────────────────────────────────
+
+/// Rewrite `AxiosPromise<EnvelopeWrapper>` → `AxiosPromise<DataType>` in the
+/// generated `api.ts` so that `resp.data` is statically typed as the unwrapped
+/// payload — matching what `addEnvelopeUnwrapInterceptor` delivers at runtime.
+///
+/// The openapi-generator emits per-operation response interfaces like:
+/// ```ts
+/// export interface CreateBlock201Response {
+///     'data': CreateBlock201ResponseData;
+///     'links'?: Array<Link>;
+///     'meta': ResponseMeta;       // ← envelope sentinel
+/// }
+/// ```
+/// This function detects those wrappers (presence of `'meta': ResponseMeta`)
+/// and rewrites every `AxiosPromise<CreateBlock201Response>` reference to
+/// `AxiosPromise<CreateBlock201ResponseData>`.  The wrapper interface itself
+/// is kept but marked `@deprecated`.
+fn rewrite_envelope_types(out: &Path) -> anyhow::Result<usize> {
+    let api_ts = out.join("api.ts");
+    if !api_ts.exists() {
+        return Ok(0);
+    }
+
+    let content = std::fs::read_to_string(&api_ts)?;
+    let envelope_map = collect_envelope_interfaces(&content);
+    if envelope_map.is_empty() {
+        return Ok(0);
+    }
+
+    let rewritten = apply_envelope_rewrites(&content, &envelope_map);
+    if rewritten != content {
+        std::fs::write(&api_ts, &rewritten)?;
+    }
+
+    Ok(envelope_map.len())
+}
+
+/// Scan `api.ts` content and return a map of
+/// `envelope_interface_name → data_field_type` for every interface that
+/// contains both `'data': T` and `'meta': ResponseMeta` (the envelope shape).
+fn collect_envelope_interfaces(content: &str) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let marker = "\nexport interface ";
+    let mut pos = 0;
+
+    while let Some(rel) = content[pos..].find(marker) {
+        let abs = pos + rel + marker.len();
+
+        let Some(brace_rel) = content[abs..].find(" {") else {
+            break;
+        };
+        let name = content[abs..abs + brace_rel].trim().to_string();
+        let body_start = abs + brace_rel + 2;
+
+        let Some(body_end) = find_interface_end(content, body_start) else {
+            break;
+        };
+        let body = &content[body_start..body_end];
+
+        if body.contains("'meta': ResponseMeta")
+            && let Some(data_type) = extract_data_field_type(body)
+        {
+            map.insert(name, data_type);
+        }
+
+        pos = body_end + 1;
+    }
+
+    map
+}
+
+/// Find the byte position of the `}` that closes the interface body opened at
+/// `body_start` (i.e. the first `{` is already consumed).
+fn find_interface_end(content: &str, body_start: usize) -> Option<usize> {
+    let bytes = content.as_bytes();
+    let mut depth: i32 = 1;
+    let mut i = body_start;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Extract the type name from a `'data': TypeName;` field in an interface body.
+/// Returns `None` for inline object literals (`'data': { ... }`).
+fn extract_data_field_type(body: &str) -> Option<String> {
+    let needle = "'data': ";
+    let start = body.find(needle)? + needle.len();
+    let semi = body[start..].find(';')?;
+    let data_type = body[start..start + semi].trim();
+    if data_type.starts_with('{') {
+        return None; // inline object — no clean name to rewrite to
+    }
+    Some(data_type.to_string())
+}
+
+/// Rewrite `AxiosPromise<Wrapper>` → `AxiosPromise<Inner>` everywhere in the
+/// content and mark each wrapper interface `@deprecated`.
+fn apply_envelope_rewrites(
+    content: &str,
+    envelope_map: &std::collections::HashMap<String, String>,
+) -> String {
+    let mut out = content.to_string();
+
+    for (wrapper, inner) in envelope_map {
+        // Rewrite all three call-site patterns the generator emits:
+        //   AxiosPromise<Wrapper>
+        let old = format!("AxiosPromise<{wrapper}>");
+        let new = format!("AxiosPromise<{inner}>");
+        out = out.replace(&old, &new);
+
+        // Mark the wrapper interface deprecated so downstream tooling is aware.
+        let old_decl = format!("\nexport interface {wrapper} {{");
+        let new_decl = format!(
+            "\n/** @deprecated Envelope wrapper — \
+            `resp.data` is typed as `{inner}` after interceptor unwrapping. */\
+            \nexport interface {wrapper} {{"
+        );
+        out = out.replace(&old_decl, &new_decl);
+    }
+
+    out
 }
 
 const ENVELOPE_INTERCEPTOR_APPEND: &str = r#"
@@ -288,3 +431,105 @@ codegen-typescript: openapi-generate ## Generate TypeScript axios SDK
 
 codegen-all: codegen-rust codegen-typescript ## Generate all SDKs
 "#;
+
+// ── Tests ─────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_API_TS: &str = r#"
+export interface CreateBlock201ResponseData {
+    'id': string;
+    'resource_instance_id': string;
+}
+
+export interface CreateBlock201Response {
+    'data': CreateBlock201ResponseData;
+    'links'?: Array<Link>;
+    'meta': ResponseMeta;
+}
+
+export interface ListBlocks200ResponseDataInner {
+    'id': string;
+}
+
+export interface ListBlocks200Response {
+    'data': Array<ListBlocks200ResponseDataInner>;
+    'meta': ResponseMeta;
+}
+
+export interface ResourceBlock {
+    'id': string;
+    'reason': string;
+}
+
+export const SchedulingApiAxiosParamCreator = function (configuration?: Configuration) {
+    return {
+        createBlock: async (...): Promise<RequestArgs> => { ... },
+        listBlocks: async (...): Promise<RequestArgs> => { ... },
+    }
+};
+
+export const SchedulingApiFp = function (configuration?: Configuration) {
+    return {
+        async createBlock(...): Promise<(axios?: AxiosInstance) => AxiosPromise<CreateBlock201Response>> { ... },
+        async listBlocks(...): Promise<(axios?: AxiosInstance) => AxiosPromise<ListBlocks200Response>> { ... },
+    }
+};
+
+export class SchedulingApi extends BaseAPI {
+    public createBlock(...): AxiosPromise<CreateBlock201Response> { ... }
+    public listBlocks(...): AxiosPromise<ListBlocks200Response> { ... }
+}
+"#;
+
+    #[test]
+    fn detects_envelope_interfaces() {
+        let map = collect_envelope_interfaces(SAMPLE_API_TS);
+        assert_eq!(
+            map.get("CreateBlock201Response").map(String::as_str),
+            Some("CreateBlock201ResponseData")
+        );
+        assert_eq!(
+            map.get("ListBlocks200Response").map(String::as_str),
+            Some("Array<ListBlocks200ResponseDataInner>")
+        );
+        // Non-envelope interfaces must not be included
+        assert!(!map.contains_key("ResourceBlock"));
+        assert!(!map.contains_key("CreateBlock201ResponseData"));
+    }
+
+    #[test]
+    fn rewrites_axios_promise_return_types() {
+        let map = collect_envelope_interfaces(SAMPLE_API_TS);
+        let rewritten = apply_envelope_rewrites(SAMPLE_API_TS, &map);
+        // Return types are rewritten
+        assert!(rewritten.contains("AxiosPromise<CreateBlock201ResponseData>"));
+        assert!(rewritten.contains("AxiosPromise<Array<ListBlocks200ResponseDataInner>>"));
+        // Original envelope references are gone from return positions
+        assert!(!rewritten.contains("AxiosPromise<CreateBlock201Response>"));
+        assert!(!rewritten.contains("AxiosPromise<ListBlocks200Response>"));
+        // Wrapper interfaces are deprecated but still present
+        assert!(rewritten.contains("@deprecated"));
+        assert!(rewritten.contains("export interface CreateBlock201Response {"));
+        assert!(rewritten.contains("export interface ListBlocks200Response {"));
+    }
+
+    #[test]
+    fn ignores_non_envelope_interfaces() {
+        let no_envelope = r#"
+export interface ResourceBlock {
+    'id': string;
+    'reason': string;
+}
+export class Foo extends BaseAPI {
+    public getBlock(...): AxiosPromise<ResourceBlock> { ... }
+}
+"#;
+        let map = collect_envelope_interfaces(no_envelope);
+        assert!(map.is_empty());
+        let rewritten = apply_envelope_rewrites(no_envelope, &map);
+        assert_eq!(rewritten, no_envelope);
+    }
+}
