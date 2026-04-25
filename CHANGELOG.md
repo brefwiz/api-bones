@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.0] — 2026-04-25
+
+### Added
+
+- **`HasId` trait** — transport-agnostic `trait HasId { type Id: Display; fn id(&self) -> &Self::Id; }`
+  for composing helpers (e.g. `created_under`) without coupling DTOs to HTTP paths.
+- **`api-bones-test`** — new workspace member crate providing test-ergonomics for api-bones
+  consumers: builder helpers (`FakeApiResponse`, `FakePaginated`, `FakeProblem`,
+  `FakePrincipal`, `FakeOrgContext`, `FakeETag`), axum `TestServer` wrapper with envelope
+  assertions, reqwest assertion helpers, and a `JetStream` `AuditCapture` fixture.
+
 ## [4.4.0] — 2026-04-25
 
 ### Added
