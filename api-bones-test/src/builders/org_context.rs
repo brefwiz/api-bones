@@ -5,18 +5,23 @@ use api_bones::request_id::RequestId;
 
 /// Convenience shortcut for building a fake [`OrganizationContext`].
 ///
-/// Derives `org_id` from the first entry in `principal.org_path` (or generates
-/// a fresh one) so the context is internally consistent.
+/// Derives `org_id` from the **last** entry in `principal.org_path` (the
+/// acting / leaf org, per the Brefwiz `[root, …, leaf]` convention) or
+/// generates a fresh one when `org_path` is empty.
 ///
 /// # Quick start
 ///
 /// ```rust
 /// use uuid::Uuid;
 /// use api_bones_test::builders::{FakePrincipal, FakeOrgContext};
+/// use api_bones::org_id::OrgId;
 ///
-/// let p = FakePrincipal::user(Uuid::new_v4()).build();
+/// let leaf = OrgId::generate();
+/// let p = FakePrincipal::user(Uuid::new_v4())
+///     .org_path(vec![OrgId::generate(), leaf])
+///     .build();
 /// let ctx = FakeOrgContext::for_principal(&p);
-/// assert!(!ctx.org_id.to_string().is_empty());
+/// assert_eq!(ctx.org_id, leaf);
 /// ```
 pub struct FakeOrgContext;
 
@@ -25,7 +30,7 @@ impl FakeOrgContext {
     pub fn for_principal(principal: &Principal) -> OrganizationContext {
         let org_id = principal
             .org_path
-            .first()
+            .last()
             .copied()
             .unwrap_or_else(OrgId::generate);
         let org_path = principal.org_path.clone();
