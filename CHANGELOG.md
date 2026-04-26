@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.1] — 2026-04-25
+
+### Fixed
+
+- **`api-bones-test`**: `FakeOrgContext::for_principal` now derives `org_id` from `org_path.last()` (the acting / leaf org) instead of `org_path.first()` (the root). Passing a multi-level path previously produced a context where `org_id` was the root org, inconsistent with how `OrganizationContext` is used across the platform.
+
 ## [4.5.0] — 2026-04-25
 
 ### Added
