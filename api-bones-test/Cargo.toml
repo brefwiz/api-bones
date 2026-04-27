@@ -59,7 +59,7 @@ wiremock = { version = "0.6", optional = true }
 async-nats = { version = "0.47", optional = true }
 futures-util = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["macros", "rt", "time"], optional = true }
-testcontainers = { version = "0.23", optional = true }
+testcontainers = { version = "0.27", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
