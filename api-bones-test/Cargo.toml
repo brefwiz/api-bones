@@ -56,7 +56,7 @@ reqwest = { version = "0.12", features = ["json"], optional = true }
 wiremock = { version = "0.6", optional = true }
 
 # nats feature
-async-nats = { version = "0.38", optional = true }
+async-nats = { version = "0.47", optional = true }
 futures-util = { version = "0.3", optional = true }
 tokio = { version = "1", features = ["macros", "rt", "time"], optional = true }
 testcontainers = { version = "0.23", optional = true }
