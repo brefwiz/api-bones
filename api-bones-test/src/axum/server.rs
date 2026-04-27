@@ -27,8 +27,9 @@ pub struct TestServer {
 impl TestServer {
     #[must_use]
     pub fn new(router: Router) -> Self {
-        let server = AxumTestServer::new(router).expect("failed to create test server");
-        Self { inner: server }
+        Self {
+            inner: AxumTestServer::new(router),
+        }
     }
 
     #[must_use]
