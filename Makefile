@@ -42,3 +42,6 @@ ci-deny: ## CI: dependency license audit
 
 clean: ## Clean build artifacts
 	cargo clean
+
+.PHONY: pre-commit
+pre-commit: ci-format ci-lint ci-test ## Run all pre-commit checks (ADR-0021)
