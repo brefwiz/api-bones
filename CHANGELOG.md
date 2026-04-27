@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.6.0] — 2026-04-27
+
+### Changed
+
+- **`api-bones-test`**: bump `axum-test` from 17 → 20 (public dep under `axum` feature).
+- **`api-bones-test`**: bump `testcontainers` from 0.23 → 0.27 (public dep under `nats` feature).
+
 ## [4.5.1] — 2026-04-25
 
 ### Fixed
