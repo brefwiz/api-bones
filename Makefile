@@ -44,4 +44,8 @@ clean: ## Clean build artifacts
 	cargo clean
 
 .PHONY: pre-commit
-pre-commit: ci-format ci-lint ci-test ## Run all pre-commit checks (ADR-0021)
+pre-commit: ci-format ci-lint ci-test ci-changelog ## Run all pre-commit checks (ADR-0021)
+
+.PHONY: ci-changelog
+ci-changelog: ## CI: verify CHANGELOG.md has entry for current package version (ADR-0021)
+	@bash <(curl -fsSL https://raw.githubusercontent.com/brefwiz/shared-ci-workflows/main/scripts/check-release-changelog.sh)
