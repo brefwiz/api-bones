@@ -226,7 +226,7 @@ impl proptest::arbitrary::Arbitrary for ResponseMeta {
 ///
 /// # Ergonomic access
 ///
-/// `ApiResponse<T>` implements [`Deref<Target = T>`](std::ops::Deref) so method
+/// `ApiResponse<T>` implements [`Deref<Target = T>`](core::ops::Deref) so method
 /// and field access on the payload works transparently without `.data`:
 ///
 /// ```rust
@@ -257,7 +257,7 @@ impl proptest::arbitrary::Arbitrary for ResponseMeta {
 /// let ApiResponse { data, meta, .. } = r;    // destructure
 /// ```
 ///
-/// [`DerefMut`](std::ops::DerefMut) is intentionally not implemented; mutate
+/// [`DerefMut`](core::ops::DerefMut) is intentionally not implemented; mutate
 /// after calling `into_inner()`.
 ///
 /// # Composing with `PaginatedResponse`
@@ -403,7 +403,7 @@ impl<T> ApiResponse<T> {
     }
 }
 
-impl<T> std::ops::Deref for ApiResponse<T> {
+impl<T> core::ops::Deref for ApiResponse<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
