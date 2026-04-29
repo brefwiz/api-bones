@@ -27,6 +27,8 @@ jobs:
     # Guard against publishing a version that doesn't match the tag.
     if: startsWith(github.ref, 'refs/tags/axios-v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - name: Verify axios-v<version> matches package.json
