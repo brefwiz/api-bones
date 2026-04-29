@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.7.0] — 2026-04-28
+
 ### Added
 
 - **`DeviceLease` / `DeviceLeaseKind`** — rate-limit lease contract for `PrincipalKind::Device`

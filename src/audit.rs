@@ -171,6 +171,20 @@ impl DeviceLease {
 
     /// Construct a `DeviceLease`, clamping `refresh_secs` to
     /// [`Self::MAX_REFRESH_SECS`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::{DeviceLease, DeviceLeaseKind};
+    ///
+    /// // Connection-count gauge, max 10 simultaneous, 15-minute refresh.
+    /// let lease = DeviceLease::new(DeviceLeaseKind::Connection, Some(10), 900);
+    /// assert_eq!(lease.refresh_secs, 900);
+    ///
+    /// // Refresh value is clamped to MAX_REFRESH_SECS (3 600 s).
+    /// let capped = DeviceLease::new(DeviceLeaseKind::RequestStream, None, 99_999);
+    /// assert_eq!(capped.refresh_secs, DeviceLease::MAX_REFRESH_SECS);
+    /// ```
     #[must_use]
     pub fn new(kind: DeviceLeaseKind, max_concurrent: Option<u32>, refresh_secs: u32) -> Self {
         Self {
