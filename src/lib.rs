@@ -156,7 +156,8 @@ pub mod axum_extractors;
 
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use audit::{
-    AuditInfo, Principal, PrincipalId, PrincipalKind, PrincipalParseError, ResolvedPrincipal,
+    AuditInfo, DeviceLease, DeviceLeaseKind, Principal, PrincipalId, PrincipalKind,
+    PrincipalParseError, ResolvedPrincipal,
 };
 #[cfg(feature = "auth")]
 pub use auth::{

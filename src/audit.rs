@@ -110,6 +110,92 @@ pub enum PrincipalKind {
 }
 
 // ---------------------------------------------------------------------------
+// DeviceLease
+// ---------------------------------------------------------------------------
+
+/// Discriminates the rate-limit accounting model for a [`PrincipalKind::Device`]
+/// principal.
+///
+/// `distributed-ratelimit` consults this to decide whether to track Device
+/// principals as a connection gauge or a time-windowed request counter.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub enum DeviceLeaseKind {
+    /// Concurrent-connection gauge.  The ratelimit counter is decremented
+    /// on disconnect; `DeviceLease::max_concurrent` caps simultaneous
+    /// connections from this device.
+    Connection,
+    /// Time-windowed request counter.  Same accounting shape as `User` /
+    /// `Service`; `DeviceLease::max_concurrent` is the burst ceiling per
+    /// window.
+    RequestStream,
+}
+
+/// Rate-limit lease contract for [`PrincipalKind::Device`] principals.
+///
+/// Carries the information `distributed-ratelimit` needs to implement the
+/// `Device` floor in `PrincipalKindPolicy` without re-deriving semantics.
+///
+/// # Refresh bound
+///
+/// `refresh` is the hardware-attestation renewal cadence and sets the upper
+/// bound on the rate-limit TTL floor for this device.  It **must not exceed
+/// 3 600 seconds** (1 h), consistent with the Agent credential hard-cap in
+/// platform ADR 0012.  The definitive value will be pinned when quorumauth#25
+/// (Device/Agent attestation split) settles; until then callers should treat
+/// 3 600 s as the ceiling.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct DeviceLease {
+    /// Whether to track this device as a connection gauge or a request
+    /// counter.
+    pub kind: DeviceLeaseKind,
+    /// Maximum concurrent connections (`Connection` kind) or maximum burst
+    /// requests per window (`RequestStream` kind).  `None` means no
+    /// device-specific cap; the extractor falls back to the global default.
+    pub max_concurrent: Option<u32>,
+    /// Hardware-attestation refresh cadence.  Sets the upper bound on the
+    /// rate-limit TTL floor.  Must not exceed 3 600 s (see doc comment).
+    pub refresh_secs: u32,
+}
+
+impl DeviceLease {
+    /// Maximum permitted `refresh_secs` value (1 h, matching platform ADR
+    /// 0012 Agent credential hard-cap and acting as a proxy for the
+    /// quorumauth#25 attestation cadence until that ADR settles).
+    pub const MAX_REFRESH_SECS: u32 = 3_600;
+
+    /// Construct a `DeviceLease`, clamping `refresh_secs` to
+    /// [`Self::MAX_REFRESH_SECS`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::{DeviceLease, DeviceLeaseKind};
+    ///
+    /// // Connection-count gauge, max 10 simultaneous, 15-minute refresh.
+    /// let lease = DeviceLease::new(DeviceLeaseKind::Connection, Some(10), 900);
+    /// assert_eq!(lease.refresh_secs, 900);
+    ///
+    /// // Refresh value is clamped to MAX_REFRESH_SECS (3 600 s).
+    /// let capped = DeviceLease::new(DeviceLeaseKind::RequestStream, None, 99_999);
+    /// assert_eq!(capped.refresh_secs, DeviceLease::MAX_REFRESH_SECS);
+    /// ```
+    #[must_use]
+    pub fn new(kind: DeviceLeaseKind, max_concurrent: Option<u32>, refresh_secs: u32) -> Self {
+        Self {
+            kind,
+            max_concurrent,
+            refresh_secs: refresh_secs.min(Self::MAX_REFRESH_SECS),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // PrincipalParseError
 // ---------------------------------------------------------------------------
 
@@ -1216,5 +1302,67 @@ mod tests {
         let r = ResolvedPrincipal::new(p, Some("Bob".to_owned()));
         let json = serde_json::to_value(&r).unwrap();
         assert_eq!(json["display_name"], serde_json::json!("Bob"));
+    }
+
+    // -- DeviceLeaseKind -------------------------------------------------------
+
+    #[test]
+    fn device_lease_kind_variants_distinct() {
+        assert_ne!(DeviceLeaseKind::Connection, DeviceLeaseKind::RequestStream);
+    }
+
+    #[test]
+    fn device_lease_kind_copy() {
+        let k = DeviceLeaseKind::Connection;
+        let k2 = k;
+        assert_eq!(k, k2);
+    }
+
+    // -- DeviceLease -----------------------------------------------------------
+
+    #[test]
+    fn device_lease_new_stores_fields() {
+        let lease = DeviceLease::new(DeviceLeaseKind::RequestStream, Some(100), 1800);
+        assert_eq!(lease.kind, DeviceLeaseKind::RequestStream);
+        assert_eq!(lease.max_concurrent, Some(100));
+        assert_eq!(lease.refresh_secs, 1800);
+    }
+
+    #[test]
+    fn device_lease_new_clamps_refresh_to_max() {
+        let lease = DeviceLease::new(DeviceLeaseKind::Connection, None, 9999);
+        assert_eq!(lease.refresh_secs, DeviceLease::MAX_REFRESH_SECS);
+    }
+
+    #[test]
+    fn device_lease_max_refresh_secs_is_one_hour() {
+        assert_eq!(DeviceLease::MAX_REFRESH_SECS, 3_600);
+    }
+
+    #[test]
+    fn device_lease_new_no_cap() {
+        let lease = DeviceLease::new(DeviceLeaseKind::Connection, None, 600);
+        assert_eq!(lease.max_concurrent, None);
+        assert_eq!(lease.refresh_secs, 600);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn device_lease_kind_serde_roundtrip() {
+        let k = DeviceLeaseKind::Connection;
+        let json = serde_json::to_value(k).unwrap();
+        let back: DeviceLeaseKind = serde_json::from_value(json).unwrap();
+        assert_eq!(k, back);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn device_lease_serde_roundtrip() {
+        let lease = DeviceLease::new(DeviceLeaseKind::RequestStream, Some(50), 300);
+        let json = serde_json::to_value(&lease).unwrap();
+        let back: DeviceLease = serde_json::from_value(json).unwrap();
+        assert_eq!(back.kind, lease.kind);
+        assert_eq!(back.max_concurrent, lease.max_concurrent);
+        assert_eq!(back.refresh_secs, lease.refresh_secs);
     }
 }
