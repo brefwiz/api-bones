@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`DeviceLease` / `DeviceLeaseKind`** — rate-limit lease contract for `PrincipalKind::Device`
+  principals. `distributed-ratelimit` can now implement the `Device` floor in
+  `PrincipalKindPolicy` without re-deriving semantics. `DeviceLease::refresh_secs` is
+  clamped to 3 600 s (1 h hard cap, consistent with platform ADR 0012).
+
 ## [4.6.0] — 2026-04-27
 
 ### Changed
