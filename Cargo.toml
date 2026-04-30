@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "api-bones"
-version = "4.7.0"
+version = "5.0.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
@@ -40,9 +40,6 @@ arbitrary = ["dep:arbitrary", "uuid?/arbitrary", "std"]
 proptest = ["dep:proptest", "dep:proptest-derive", "std"]
 fake = ["dep:fake", "dep:rand", "std", "uuid"]
 schemars = ["dep:schemars", "schemars/uuid1", "schemars/chrono04", "std"]
-## Enables `AuthScheme`, `AuthorizationHeader`, credential types, `Scope`, and `Permission`.
-## Requires `alloc`. Enables Base64 decode for Basic auth.
-auth = ["alloc", "base64", "dep:zeroize"]
 ## Enables HMAC-SHA256 signing for opaque cursors (`Cursor::encode_signed` / `decode_signed`).
 ## Requires `base64` and `alloc`.
 hmac = ["base64", "alloc", "dep:hmac", "dep:sha2"]
@@ -65,7 +62,6 @@ fake = { version = "5", optional = true }
 rand = { version = "0.10", optional = true }
 schemars = { version = "1", optional = true }
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
-zeroize = { version = "1", features = ["derive"], optional = true }
 hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.11", optional = true }
 
@@ -161,10 +157,6 @@ name = "cursor_hmac"
 required-features = ["base64"]
 
 [[example]]
-name = "auth_flow"
-required-features = ["auth"]
-
-[[example]]
 name = "axum_core_extractors"
 required-features = ["axum"]
 
@@ -179,10 +171,6 @@ name = "range_headers"
 
 [[example]]
 name = "trace_context"
-required-features = ["uuid"]
-
-[[example]]
-name = "org_context"
 required-features = ["uuid"]
 
 [[example]]

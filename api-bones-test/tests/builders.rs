@@ -3,7 +3,7 @@
 use api_bones::error::ErrorCode;
 use api_bones::org_id::OrgId;
 use api_bones_test::builders::{
-    FakeApiResponse, FakeETag, FakeOrgContext, FakePaginated, FakePrincipal, FakeProblem,
+    FakeApiResponse, FakeETag, FakePaginated, FakePrincipal, FakeProblem,
 };
 use chrono::Utc;
 use uuid::Uuid;
@@ -146,29 +146,6 @@ fn fake_principal_scopes_is_no_op() {
         .build();
     // Principal has no scopes field — just verify it builds without panic
     assert!(p.org_path.is_empty());
-}
-
-// ---------------------------------------------------------------------------
-// FakeOrgContext
-// ---------------------------------------------------------------------------
-
-#[test]
-fn fake_org_context_derives_org_id_from_org_path() {
-    let org = OrgId::generate();
-    let p = FakePrincipal::user(Uuid::new_v4())
-        .org_path(vec![org])
-        .build();
-    let ctx = FakeOrgContext::for_principal(&p);
-    assert_eq!(ctx.org_id, org);
-    assert_eq!(ctx.org_path.len(), 1);
-}
-
-#[test]
-fn fake_org_context_generates_org_id_when_no_org_path() {
-    let p = FakePrincipal::user(Uuid::new_v4()).build();
-    let ctx = FakeOrgContext::for_principal(&p);
-    // org_id is generated, org_path is empty
-    assert!(ctx.org_path.is_empty());
 }
 
 // ---------------------------------------------------------------------------

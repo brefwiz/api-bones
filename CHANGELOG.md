@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.0.0] — 2026-04-30
+
+### Breaking
+
+- **`auth` module removed** (`src/auth.rs`): `ApiKeyCredentials`, `AuthScheme`, `AuthorizationHeader`, `BasicCredentials`, `BearerToken`, `OAuth2Token`, `ParseAuthorizationError`, `ParsePermissionError`, `ParseScopeError`, `Permission`, `Scope` no longer re-exported from the crate root. Migrate to `service_kit::auth` or `socle::AuthProvider`.
+- **`org_context` module removed** (`src/org_context.rs`): `Attestation`, `AttestationKind`, `OrganizationContext`, `Role`, `RoleBinding`, `RoleScope` no longer re-exported from the crate root. These types now live in `service_kit` / `socle`.
+- **`axum_extractors` module removed** (`src/axum_extractors.rs`): `Authorization` extractor deleted. Use the `Authorization` type from your framework's auth middleware instead.
+- **`auth` feature removed** from `Cargo.toml`. Remove it from your dependency declaration.
+- **`api-bones-test`**: `FakeOrgContext` builder removed. Build `OrganizationContext` directly from `service_kit` / `socle` test helpers.
+
 ## [4.7.0] — 2026-04-28
 
 ### Added
