@@ -1359,7 +1359,7 @@ mod tests {
     #[test]
     fn device_lease_serde_roundtrip() {
         let lease = DeviceLease::new(DeviceLeaseKind::RequestStream, Some(50), 300);
-        let json = serde_json::to_value(&lease).unwrap();
+        let json = serde_json::to_value(lease).unwrap();
         let back: DeviceLease = serde_json::from_value(json).unwrap();
         assert_eq!(back.kind, lease.kind);
         assert_eq!(back.max_concurrent, lease.max_concurrent);

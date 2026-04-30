@@ -70,10 +70,6 @@
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
 
-// Auth module: requires the `auth` feature (implies alloc + base64 + zeroize).
-#[cfg(feature = "auth")]
-pub mod auth;
-
 // Modules that require heap allocation (String / Vec / Arc).
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod audit;
@@ -97,8 +93,6 @@ pub mod header_id;
 pub mod idempotency;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod links;
-#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub mod org_context;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub mod org_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -150,19 +144,10 @@ pub mod openapi;
 pub mod has_id;
 pub use has_id::HasId;
 
-// Axum extractors beyond IntoResponse (issue #121).
-#[cfg(feature = "axum")]
-pub mod axum_extractors;
-
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use audit::{
     AuditInfo, DeviceLease, DeviceLeaseKind, Principal, PrincipalId, PrincipalKind,
     PrincipalParseError, ResolvedPrincipal,
-};
-#[cfg(feature = "auth")]
-pub use auth::{
-    ApiKeyCredentials, AuthScheme, AuthorizationHeader, BasicCredentials, BearerToken, OAuth2Token,
-    ParseAuthorizationError, ParsePermissionError, ParseScopeError, Permission, Scope,
 };
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use bulk::{BulkItemResult, BulkRequest, BulkResponse};
@@ -215,10 +200,6 @@ pub use idempotency::{IdempotencyKey, IdempotencyKeyError};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use links::{Link, Links};
 pub use method::HttpMethod;
-#[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
-pub use org_context::{
-    Attestation, AttestationKind, OrganizationContext, Role, RoleBinding, RoleScope,
-};
 #[cfg(all(
     any(feature = "std", feature = "alloc"),
     feature = "uuid",

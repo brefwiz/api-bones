@@ -28,7 +28,7 @@ uuid = ["api-bones/uuid"]
 chrono = ["api-bones/chrono"]
 
 [dependencies]
-api-bones = { version = "4.4", path = "..", default-features = false, features = ["std", "serde"] }
+api-bones = { version = "5.0", path = "..", default-features = false, features = ["std", "serde"] }
 tower = { version = "0.5", features = ["util"] }
 http = { version = "1.0" }
 http-body = { version = "1.0" }
