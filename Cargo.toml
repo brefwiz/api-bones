@@ -2,6 +2,14 @@
 members = [".", "api-bones-tower", "api-bones-reqwest", "api-bones-progenitor", "api-bones-sdk-gen", "api-bones-test"]
 resolver = "2"
 
+[workspace.lints.rust]
+warnings    = "deny"
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all      = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+
 [package]
 name = "api-bones"
 version = "4.7.0"
