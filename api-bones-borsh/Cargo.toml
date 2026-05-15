@@ -1,0 +1,42 @@
+[package]
+name = "api-bones-borsh"
+version = "5.0.0"
+edition = "2024"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "Canonical Borsh codec shim for chain-bound encoding (ADR platform/0047)"
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-borsh"
+keywords = ["borsh", "codec", "canonical", "chain", "encoding"]
+categories = ["encoding", "no-std"]
+rust-version = "1.85"
+
+[features]
+default = ["std"]
+## Enables `std::io::Error` in `BorshCanonicalError`. Without this, a minimal
+## enum is used instead (suitable for `no_std` + alloc environments).
+std = []
+
+[dependencies]
+borsh = { version = "1", default-features = false, features = ["derive"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(coverage)'] }
+unsafe_code = { level = "deny", priority = -1 }
+unsafe_op_in_unsafe_fn = { level = "deny", priority = -1 }
+warnings = { level = "deny", priority = -1 }
+unused_imports = { level = "deny", priority = -1 }
+unused_variables = { level = "deny", priority = -1 }
+dead_code = { level = "deny", priority = -1 }
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+missing_const_for_fn = "allow"
+derive_partial_eq_without_eq = "allow"
+option_if_let_else = "allow"
