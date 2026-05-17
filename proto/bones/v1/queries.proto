@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
+//
+// Canonical query parameter shapes — the proto-side companion to
+// `api_bones::query::{SortDirection, SortParams, FilterEntry,
+// FilterParams, SearchParams}`.
+//
+// Locked-in shape: list endpoints across services consume these
+// messages directly. Per-service operator dialects ("eq" vs "equal"
+// vs "==") are rejected — the `FilterOp` enum is the contract.
+
+syntax = "proto3";
+
+package bones.v1;
+
+// =============================================================================
+// Sorting
+// =============================================================================
+
+// Sort order. UNSPECIFIED defaults to ASC server-side.
+enum SortDirection {
+  SORT_DIRECTION_UNSPECIFIED = 0;
+  SORT_DIRECTION_ASC = 1;
+  SORT_DIRECTION_DESC = 2;
+}
+
+// Per-field sort directive. Composes into `SortParams` for multi-field
+// sort; a single `SortParams` is the common case.
+message SortField {
+  // Field name to sort by (e.g. "created_at", "name"). Service-specific
+  // allowed-field list is enforced server-side.
+  string field = 1;
+
+  // Sort direction.
+  SortDirection direction = 2;
+}
+
+// Sort parameters for a list endpoint. Empty `fields` means server
+// default order.
+message SortParams {
+  repeated SortField fields = 1;
+}
+
+// =============================================================================
+// Filtering
+// =============================================================================
+
+// Filter comparison operator. Closed enum — services MUST NOT accept
+// off-list operators on the wire; per-service handlers may reject the
+// subset they don't implement, but the wire vocabulary is fixed here.
+enum FilterOp {
+  FILTER_OP_UNSPECIFIED = 0;
+
+  // Equality / inequality.
+  FILTER_OP_EQ = 1;
+  FILTER_OP_NEQ = 2;
+
+  // Ordered comparisons (numeric, timestamp, lexical).
+  FILTER_OP_GT = 3;
+  FILTER_OP_GTE = 4;
+  FILTER_OP_LT = 5;
+  FILTER_OP_LTE = 6;
+
+  // Membership; `value` carries a server-defined separator (default ',').
+  FILTER_OP_IN = 7;
+  FILTER_OP_NOT_IN = 8;
+
+  // Substring / prefix / suffix matching on string fields.
+  FILTER_OP_CONTAINS = 9;
+  FILTER_OP_STARTS_WITH = 10;
+  FILTER_OP_ENDS_WITH = 11;
+
+  // Presence / absence (`value` ignored).
+  FILTER_OP_EXISTS = 12;
+  FILTER_OP_NOT_EXISTS = 13;
+}
+
+// A single field/op/value triple.
+message FilterEntry {
+  // Field name being filtered. Service-specific allowed-field list
+  // is enforced server-side.
+  string field = 1;
+
+  // Operator. UNSPECIFIED is rejected by handlers; clients MUST set
+  // an explicit op.
+  FilterOp op = 2;
+
+  // Comparison value. Always a string on the wire — handlers parse
+  // per-field type (number, bool, timestamp, ...). For IN / NOT_IN
+  // the value is a separator-joined list (default separator: ',').
+  // For EXISTS / NOT_EXISTS the value is ignored.
+  string value = 3;
+}
+
+// AND-combined filter set. Empty `entries` means no filtering.
+// OR semantics, if needed, are handled per-service via dedicated
+// fields on the request message (not via this canonical shape).
+message FilterParams {
+  repeated FilterEntry entries = 1;
+}
+
+// =============================================================================
+// Free-text search
+// =============================================================================
+
+// Search parameters for full-text list endpoints. Empty `query` means
+// no search (treat as a plain list); empty `fields` means search the
+// service's default field set.
+message SearchParams {
+  // Search query string. Service-specific length cap enforced
+  // server-side; api-bones Rust counterpart caps at 500 chars.
+  string query = 1;
+
+  // Optional list of field names to scope the search to. Empty =
+  // server default fields.
+  repeated string fields = 2;
+}

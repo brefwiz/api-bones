@@ -1,37 +1,35 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 //
-// Canonical pagination shapes for brefwiz proto-source services
-// (ADR-0085 + the api-bones canonical-shapes pattern).
+// Canonical pagination shapes — the proto-side companion to
+// `api_bones::pagination::*` Rust types.
 //
-// Cursor-based pagination is the proto-canonical default — scales to
-// large / append-only datasets without per-page total counts. Mirrors
-// the api-bones Rust `Cursor` opaque-token convention (URL-safe
-// base64-no-pad).
+// Two contracts, mirroring the Rust crate's two pagination flavors:
 //
-// The companion `PageResponse.revision` doubles as the list-level
-// ETag used by service-kit's envelope middleware (ADR-0085
-// `envelope.v1.etag_field` on `ListXResponse`).
+//   - Cursor-based (default for new APIs, AIP-158): opaque cursor +
+//     page_size. Stable iteration under inserts. No random access.
+//     Mirrors `api_bones::pagination::CursorPaginationParams` /
+//     `CursorPagination`.
 //
-// For offset/limit pagination (admin UIs, small datasets), the Rust
-// `api_bones::pagination::PaginatedResponse<T>` shape remains the
-// utoipa-legacy choice. A canonical proto offset/limit pair will land
-// here when a service genuinely needs it.
+//   - Offset/limit (admin tools, small datasets): offset + limit +
+//     total_count + has_more. Random page access. Pages can shift
+//     under inserts. Mirrors `api_bones::pagination::PaginationParams`
+//     / `PaginatedResponse`.
+//
+// Use cursor-based by default. Use offset/limit when random access
+// or total_count is a hard requirement.
 
 syntax = "proto3";
 
 package bones.v1;
 
-// Per-request pagination input — cursor + page size.
-//
-// Convention:
-//   - `cursor` empty → start of collection.
-//   - `page_size` 0  → server default (per-service).
-//
-// Services compose this into their list-request messages:
+// =============================================================================
+// Cursor-based pagination (AIP-158, default)
+// =============================================================================
+
+// Cursor-based pagination request. Empty cursor = start; page_size 0 = server default.
 //
 //   message ListFoosRequest {
 //     bones.v1.PageRequest page = 1;
-//     // ... service-specific filters
 //   }
 message PageRequest {
   // Opaque cursor returned by a previous PageResponse.next_cursor.
@@ -43,15 +41,8 @@ message PageRequest {
   uint32 page_size = 2;
 }
 
-// Per-response pagination output — next-cursor + revision.
-//
-// Convention:
-//   - `next_cursor` empty → no more pages.
-//   - `revision` is the collection-level ETag for list-cache
-//     validation. Clients pass it as `if-none-match` metadata on the
-//     next request; unchanged → server may return 304-equivalent.
-//
-// Services compose this into their list-response messages:
+// Cursor-based pagination response. Empty next_cursor = no more pages.
+// `revision` doubles as the list-level ETag for cache validation.
 //
 //   message ListFoosResponse {
 //     repeated Foo items = 1;
@@ -64,4 +55,45 @@ message PageResponse {
   // Collection-level revision/ETag — increments on any mutation.
   // Used for list-level cache validation via if-none-match metadata.
   string revision = 2;
+}
+
+// =============================================================================
+// Offset/limit pagination (admin tools, small datasets)
+// =============================================================================
+
+// Offset/limit pagination request.
+//
+// Defaults track the Rust crate's `PaginationParams::default()`:
+// limit = 20 (when 0), offset = 0.
+//
+//   message ListUsersRequest {
+//     bones.v1.OffsetPageRequest page = 1;
+//   }
+message OffsetPageRequest {
+  // Max items the server should return on this page.
+  // 0 means use the server default (20).
+  uint64 limit = 1;
+
+  // Number of items to skip before this page.
+  uint64 offset = 2;
+}
+
+// Offset/limit pagination response.
+//
+//   message ListUsersResponse {
+//     repeated User items = 1;
+//     bones.v1.OffsetPageResponse page = 2;
+//   }
+message OffsetPageResponse {
+  // Total number of items across all pages.
+  uint64 total_count = 1;
+
+  // Whether more items exist beyond this page.
+  bool has_more = 2;
+
+  // Max items per page (echoes the requested or default limit).
+  uint64 limit = 3;
+
+  // Number of items skipped before this page.
+  uint64 offset = 4;
 }

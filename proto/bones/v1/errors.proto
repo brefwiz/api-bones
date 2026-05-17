@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
+//
+// Canonical error-detail shapes — the proto-side companion to
+// `api_bones::error::ValidationError`.
+//
+// Connect protocol ships its own top-level error envelope
+// (`{ code, message, details }`) — we do NOT redefine it here. What
+// IS canonical: the typed error-detail messages that services attach
+// to that envelope under `details`. `ValidationFailure` is the first;
+// more land as consumers need them.
+//
+// Usage on the wire (Connect HTTP+JSON):
+//
+//   HTTP/1.1 400 Bad Request
+//   Content-Type: application/json
+//   {
+//     "code": "invalid_argument",
+//     "message": "request did not validate",
+//     "details": [{
+//       "@type": "type.googleapis.com/bones.v1.ValidationFailure",
+//       "field": "/email",
+//       "message": "must be a valid email address",
+//       "rule": "format"
+//     }]
+//   }
+
+syntax = "proto3";
+
+package bones.v1;
+
+// A single field-level validation failure. Composed by services into a
+// Connect error envelope under `details` (one `ValidationFailure` per
+// failing field). Server-side request-validators typically emit one of
+// these per `validator`-style rule that fires on a request body.
+message ValidationFailure {
+  // JSON Pointer to the offending field (RFC 6901), e.g. `/email`
+  // or `/items/0/quantity`. Empty string for top-level failures.
+  string field = 1;
+
+  // Human-readable description of what went wrong.
+  string message = 2;
+
+  // Optional machine-readable rule identifier (e.g. `min_length`,
+  // `format`, `range`). Empty when the failure doesn't map to a
+  // discrete rule.
+  string rule = 3;
+}

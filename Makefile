@@ -1,6 +1,7 @@
 # Makefile for api-bones
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
+	proto-lint proto-breaking
 
 .DEFAULT_GOAL := help
 
@@ -42,6 +43,14 @@ ci-deny: ## CI: dependency license audit
 
 clean: ## Clean build artifacts
 	cargo clean
+
+# ─── Canonical proto shapes ──────────────────────────────────────────────────
+
+proto-lint: ## Lint proto/bones/v1/*.proto with buf
+	cd proto && buf lint
+
+proto-breaking: ## Check proto/ for breaking changes vs origin/main
+	cd proto && buf breaking --against ".git#branch=origin/main,subdir=proto"
 
 .PHONY: pre-commit
 pre-commit: ci-format ci-lint ci-test ci-changelog ## Run all pre-commit checks (ADR-0021)
