@@ -202,7 +202,9 @@ fn fake_sort_params() {
 fn fake_filter_entry() {
     smoke::<api_bones::FilterEntry, _>(200, |v| {
         assert!(!v.field.is_empty());
-        assert!(!v.operator.is_empty());
+        // `op` is an enum with `Unspecified` not in the variant set; any value
+        // generated is valid by construction. Field-presence is the only
+        // shape check we need.
     });
 }
 
