@@ -13,7 +13,7 @@ readme = "README.md"
 keywords = ["protobuf", "buf", "tonic", "connectrpc", "build-script"]
 categories = ["development-tools::build-utils"]
 # Embed the .proto sources in the published .crate tarball.
-include = ["src/**/*.rs", "../proto/bones/v1/*.proto", "README.md", "LICENSE"]
+include = ["src/**/*.rs", "proto/**/*.proto", "proto/buf.yaml", "proto/README.md", "README.md", "LICENSE"]
 
 [lints]
 workspace = true

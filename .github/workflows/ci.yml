@@ -17,3 +17,24 @@ jobs:
     with:
       run-coverage: true
       run-no-std: true
+
+  # Release-readiness gate — runs `cargo package` (with full verify) on
+  # every publishable workspace member. Catches the failure mode where
+  # `include = [...]` paths don't actually ship the referenced files
+  # inside the .crate tarball, which `cargo publish --no-verify` would
+  # accept and only blow up at registry-verify time.
+  #
+  # api-bones-protos 0.1.0 originally hit exactly this: `include = ["../proto/..."]`
+  # silently dropped the proto bytes, the tarball uploaded fine, and the
+  # crates.io verify-compile step failed on `include_bytes!` not finding
+  # the files. Running `cargo package -p <crate>` at PR time would have
+  # caught it before the broken release.
+  package:
+    name: Release-readiness (cargo package --verify)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: make ci-release-readiness
