@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
+//
+// Canonical pagination shapes — the proto-side companion to
+// `api_bones::pagination::*` Rust types.
+//
+// Two contracts, mirroring the Rust crate's two pagination flavors:
+//
+//   - Cursor-based (default for new APIs, AIP-158): opaque cursor +
+//     page_size. Stable iteration under inserts. No random access.
+//     Mirrors `api_bones::pagination::CursorPaginationParams` /
+//     `CursorPagination`.
+//
+//   - Offset/limit (admin tools, small datasets): offset + limit +
+//     total_count + has_more. Random page access. Pages can shift
+//     under inserts. Mirrors `api_bones::pagination::PaginationParams`
+//     / `PaginatedResponse`.
+//
+// Use cursor-based by default. Use offset/limit when random access
+// or total_count is a hard requirement.
+
+syntax = "proto3";
+
+package bones.v1;
+
+// =============================================================================
+// Cursor-based pagination (AIP-158, default)
+// =============================================================================
+
+// Cursor-based pagination request. Empty cursor = start; page_size 0 = server default.
+//
+//   message ListFoosRequest {
+//     bones.v1.PageRequest page = 1;
+//   }
+message PageRequest {
+  // Opaque cursor returned by a previous PageResponse.next_cursor.
+  // Empty string means start of collection.
+  string cursor = 1;
+
+  // Max items the server should return on this page.
+  // 0 means use the server default.
+  uint32 page_size = 2;
+}
+
+// Cursor-based pagination response. Empty next_cursor = no more pages.
+// `revision` doubles as the list-level ETag for cache validation.
+//
+//   message ListFoosResponse {
+//     repeated Foo items = 1;
+//     bones.v1.PageResponse page = 2;
+//   }
+message PageResponse {
+  // Opaque cursor for the next page. Empty when no more pages.
+  string next_cursor = 1;
+
+  // Collection-level revision/ETag — increments on any mutation.
+  // Used for list-level cache validation via if-none-match metadata.
+  string revision = 2;
+}
+
+// =============================================================================
+// Offset/limit pagination (admin tools, small datasets)
+// =============================================================================
+
+// Offset/limit pagination request.
+//
+// Defaults track the Rust crate's `PaginationParams::default()`:
+// limit = 20 (when 0), offset = 0.
+//
+//   message ListUsersRequest {
+//     bones.v1.OffsetPageRequest page = 1;
+//   }
+message OffsetPageRequest {
+  // Max items the server should return on this page.
+  // 0 means use the server default (20).
+  uint64 limit = 1;
+
+  // Number of items to skip before this page.
+  uint64 offset = 2;
+}
+
+// Offset/limit pagination response.
+//
+//   message ListUsersResponse {
+//     repeated User items = 1;
+//     bones.v1.OffsetPageResponse page = 2;
+//   }
+message OffsetPageResponse {
+  // Total number of items across all pages.
+  uint64 total_count = 1;
+
+  // Whether more items exist beyond this page.
+  bool has_more = 2;
+
+  // Max items per page (echoes the requested or default limit).
+  uint64 limit = 3;
+
+  // Number of items skipped before this page.
+  uint64 offset = 4;
+}

@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
+//
+// Canonical rate-limit metadata — the proto-side companion to
+// `api_bones::ratelimit::RateLimitInfo` (the X-RateLimit-* header
+// set on the HTTP+JSON surface).
+//
+// On the proto/Connect/gRPC surface, services attach `RateLimitInfo`
+// as response metadata (gRPC trailer / Connect response header in
+// a future-proof typed form) instead of stringly-typed headers.
+//
+// On 429 responses (Connect code `resource_exhausted`), services
+// SHOULD populate `retry_after` so clients can back off correctly.
+
+syntax = "proto3";
+
+package bones.v1;
+
+// Rate-limit metadata returned alongside a response.
+message RateLimitInfo {
+  // Maximum number of requests allowed in the current window.
+  uint64 limit = 1;
+
+  // Number of requests remaining in the current window.
+  uint64 remaining = 2;
+
+  // Unix timestamp (seconds) at which the current window resets.
+  uint64 reset = 3;
+
+  // Seconds the client should wait before retrying. Set on
+  // resource_exhausted (HTTP 429) responses; 0 when not applicable.
+  uint64 retry_after = 4;
+}

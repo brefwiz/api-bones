@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0] — 2026-05-16
+
+### Breaking
+
+- **`FilterEntry.operator: String` → `FilterEntry.op: FilterOp`** (`src/query.rs`). The Rust crate now matches the proto-side discipline (`bones.v1.FilterOp` in `proto/bones/v1/queries.proto`) — operator is a closed enum, not a free string. Per-service operator dialects ("eq" vs "equal" vs "==") can no longer drift.
+
+  Migration:
+  ```rust
+  // 5.x:
+  FilterEntry::new("status", "eq", "active")
+  entry.operator == "eq"
+
+  // 6.0:
+  use api_bones::FilterOp;
+  FilterEntry::new("status", FilterOp::Eq, "active")
+  entry.op == FilterOp::Eq
+  ```
+
+  JSON field name also changes: `operator` → `op`. Downstream consumers serializing `FilterParams` need to update their persisted documents / API contracts. `FilterOp` serializes as snake_case (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `in`, `not_in`, `contains`, `starts_with`, `ends_with`, `exists`, `not_exists`).
+
+### Added
+
+- **`FilterOp` enum** re-exported from the crate root. 13 variants covering eq/neq, ordered comparisons (gt/gte/lt/lte), membership (in/not_in), substring matching (contains/starts_with/ends_with), and presence checks (exists/not_exists).
+- **`proto/bones/v1/queries.proto`** — canonical proto shapes for sort + filter + search. Mirror of the Rust types, with `FilterOp` as a closed proto enum. Companion to the earlier `pagination.proto`, `errors.proto`, and `ratelimit.proto` shapes.
+
 ## [5.0.0] — 2026-04-30
 
 ### Breaking

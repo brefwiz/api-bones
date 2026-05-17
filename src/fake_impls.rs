@@ -391,10 +391,20 @@ impl Dummy<Faker> for crate::query::SortParams {
 
 impl Dummy<Faker> for crate::query::FilterEntry {
     fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
-        let operators = ["eq", "ne", "lt", "lte", "gt", "gte", "contains", "in"];
+        use crate::query::FilterOp;
+        let ops = [
+            FilterOp::Eq,
+            FilterOp::Neq,
+            FilterOp::Lt,
+            FilterOp::Lte,
+            FilterOp::Gt,
+            FilterOp::Gte,
+            FilterOp::Contains,
+            FilterOp::In,
+        ];
         Self::new(
             gen_str(rng),
-            operators[rng.random_range(0..operators.len())],
+            ops[rng.random_range(0..ops.len())],
             gen_str(rng),
         )
     }

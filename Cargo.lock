@@ -84,7 +84,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "api-bones"
-version = "5.0.0"
+version = "6.0.0"
 dependencies = [
  "arbitrary",
  "axum",
@@ -118,6 +118,10 @@ dependencies = [
  "progenitor",
  "serde_json",
 ]
+
+[[package]]
+name = "api-bones-protos"
+version = "0.1.0"
 
 [[package]]
 name = "api-bones-reqwest"

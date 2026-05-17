@@ -5,7 +5,7 @@
 //!
 //! Run: `cargo run --example query_params`
 
-use api_bones::{FilterEntry, FilterParams, SearchParams, SortDirection, SortParams};
+use api_bones::{FilterEntry, FilterOp, FilterParams, SearchParams, SortDirection, SortParams};
 
 fn main() {
     // -- Sorting --
@@ -27,12 +27,12 @@ fn main() {
     let filters = FilterParams::new(vec![
         FilterEntry {
             field: "status".into(),
-            operator: "eq".into(),
+            op: FilterOp::Eq,
             value: "active".into(),
         },
         FilterEntry {
             field: "price".into(),
-            operator: "gt".into(),
+            op: FilterOp::Gt,
             value: "100".into(),
         },
     ]);
