@@ -1,7 +1,7 @@
 # Makefile for api-bones
 
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
-	proto-lint proto-breaking
+	proto-lint proto-breaking ci-release-readiness
 
 .DEFAULT_GOAL := help
 
@@ -47,14 +47,37 @@ clean: ## Clean build artifacts
 # ─── Canonical proto shapes ──────────────────────────────────────────────────
 
 proto-lint: ## Lint proto/bones/v1/*.proto with buf
-	buf lint proto
+	buf lint api-bones-protos/proto
 
-proto-breaking: ## Check proto/ for breaking changes vs origin/main
-	@if git cat-file -e origin/main:proto/buf.yaml 2>/dev/null; then \
-		buf breaking proto --against ".git#branch=origin/main,subdir=proto"; \
+proto-breaking: ## Check api-bones-protos/proto/ for breaking changes vs origin/main
+	@if git cat-file -e origin/main:api-bones-protos/proto/buf.yaml 2>/dev/null; then \
+		buf breaking api-bones-protos/proto --against ".git#branch=origin/main,subdir=api-bones-protos/proto"; \
+	elif git cat-file -e origin/main:proto/buf.yaml 2>/dev/null; then \
+		echo "proto/ on origin/main — comparing against the pre-move location"; \
+		buf breaking api-bones-protos/proto --against ".git#branch=origin/main,subdir=proto"; \
 	else \
 		echo "proto/ not present on origin/main yet — skipping breaking-change check"; \
 	fi
+
+# Release-readiness: run `cargo package` (with verify-compile, not just
+# --list) for every publishable workspace member. Catches the failure mode
+# where `include = [...]` doesn't actually ship the referenced files inside
+# the .crate tarball — e.g. paths using `..` traversal that `cargo package`
+# silently drops. This is the EXACT check `cargo publish` does, run at PR
+# time so broken include lists fail in CI, not after a tag push.
+#
+# `--no-verify` would skip the unpack + compile step (the part that caught
+# the missing proto bytes for api-bones-protos 0.1.0); we explicitly opt
+# INTO verification.
+PUBLISHABLE_CRATES := api-bones api-bones-tower api-bones-reqwest api-bones-progenitor api-bones-sdk-gen api-bones-test api-bones-protos
+
+ci-release-readiness: ## CI: `cargo package` every publishable crate with full verify (catches broken include paths)
+	@set -eu; \
+	for crate in $(PUBLISHABLE_CRATES); do \
+		echo "==> packaging + verifying $$crate..."; \
+		cargo package -p "$$crate" --allow-dirty; \
+	done; \
+	echo "==> all publishable crates package-verified."
 
 .PHONY: pre-commit
 pre-commit: ci-format ci-lint ci-test ci-changelog ## Run all pre-commit checks (ADR-0021)

@@ -39,10 +39,10 @@
 //! The shapes match the proto/bones/v1/ directory in the api-bones
 //! repo. See the README for the canonical schema inventory.
 
-const PAGINATION_PROTO: &[u8] = include_bytes!("../../proto/bones/v1/pagination.proto");
-const QUERIES_PROTO: &[u8] = include_bytes!("../../proto/bones/v1/queries.proto");
-const ERRORS_PROTO: &[u8] = include_bytes!("../../proto/bones/v1/errors.proto");
-const RATELIMIT_PROTO: &[u8] = include_bytes!("../../proto/bones/v1/ratelimit.proto");
+const PAGINATION_PROTO: &[u8] = include_bytes!("../proto/bones/v1/pagination.proto");
+const QUERIES_PROTO: &[u8] = include_bytes!("../proto/bones/v1/queries.proto");
+const ERRORS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/errors.proto");
+const RATELIMIT_PROTO: &[u8] = include_bytes!("../proto/bones/v1/ratelimit.proto");
 
 /// Yield `(relative_path, bytes)` pairs for every `bones/v1/*.proto`
 /// file shipped by this crate.
