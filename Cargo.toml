@@ -1,5 +1,13 @@
 [workspace]
-members = [".", "api-bones-tower", "api-bones-reqwest", "api-bones-progenitor", "api-bones-sdk-gen", "api-bones-test"]
+members = [
+    ".",
+    "api-bones-tower",
+    "api-bones-reqwest",
+    "api-bones-progenitor",
+    "api-bones-sdk-gen",
+    "api-bones-test",
+    "api-bones-protos",
+]
 resolver = "2"
 
 [workspace.lints.rust]
