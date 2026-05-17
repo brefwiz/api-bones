@@ -217,7 +217,7 @@ pub use pagination::{
 pub use pagination::{KeysetPaginatedResponse, KeysetPaginationParams};
 pub use query::SortDirection;
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub use query::{FilterEntry, FilterParams, SearchParams, SortParams};
+pub use query::{FilterEntry, FilterOp, FilterParams, SearchParams, SortParams};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use range::{ByteRange, ContentRange, ParseRangeError, RangeHeader};
 #[cfg(any(feature = "std", feature = "alloc"))]

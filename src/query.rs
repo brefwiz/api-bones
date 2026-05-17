@@ -130,13 +130,58 @@ impl SortParams {
 }
 
 // ---------------------------------------------------------------------------
-// FilterParams
+// FilterOp + FilterParams
 // ---------------------------------------------------------------------------
 
-/// A single filter triple: `field`, `operator`, `value`.
+/// Filter comparison operator. Closed set — wire and Rust agree on the
+/// vocabulary so per-service operator dialects ("eq" vs "equal" vs "==")
+/// can't drift.
+///
+/// Mirrors `bones.v1.FilterOp` in `proto/bones/v1/queries.proto`.
+#[cfg(any(feature = "std", feature = "alloc"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(Serialize, Deserialize),
+    serde(rename_all = "snake_case")
+)]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
+pub enum FilterOp {
+    /// `field == value`.
+    Eq,
+    /// `field != value`.
+    Neq,
+    /// `field > value`.
+    Gt,
+    /// `field >= value`.
+    Gte,
+    /// `field < value`.
+    Lt,
+    /// `field <= value`.
+    Lte,
+    /// Membership; `value` carries a server-defined separator (default ',').
+    In,
+    /// Non-membership; `value` carries a separator-joined list.
+    NotIn,
+    /// Substring match on string fields.
+    Contains,
+    /// Prefix match on string fields.
+    StartsWith,
+    /// Suffix match on string fields.
+    EndsWith,
+    /// Field is present; `value` ignored.
+    Exists,
+    /// Field is absent; `value` ignored.
+    NotExists,
+}
+
+/// A single filter triple: `field`, `op`, `value`.
 ///
 /// ```json
-/// {"field": "status", "operator": "eq", "value": "active"}
+/// {"field": "status", "op": "eq", "value": "active"}
 /// ```
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,9 +193,11 @@ impl SortParams {
 pub struct FilterEntry {
     /// The field name to filter on.
     pub field: String,
-    /// The comparison operator (e.g. `"eq"`, `"neq"`, `"gt"`, `"lt"`, `"contains"`).
-    pub operator: String,
-    /// The value to compare against.
+    /// The comparison operator. Closed enum — services cannot accept
+    /// off-list operators.
+    pub op: FilterOp,
+    /// The value to compare against. For `In` / `NotIn` this is a
+    /// separator-joined list; for `Exists` / `NotExists` it is ignored.
     pub value: String,
 }
 
@@ -161,22 +208,18 @@ impl FilterEntry {
     /// # Examples
     ///
     /// ```
-    /// use api_bones::query::FilterEntry;
+    /// use api_bones::query::{FilterEntry, FilterOp};
     ///
-    /// let entry = FilterEntry::new("status", "eq", "active");
+    /// let entry = FilterEntry::new("status", FilterOp::Eq, "active");
     /// assert_eq!(entry.field, "status");
-    /// assert_eq!(entry.operator, "eq");
+    /// assert_eq!(entry.op, FilterOp::Eq);
     /// assert_eq!(entry.value, "active");
     /// ```
     #[must_use]
-    pub fn new(
-        field: impl Into<String>,
-        operator: impl Into<String>,
-        value: impl Into<String>,
-    ) -> Self {
+    pub fn new(field: impl Into<String>, op: FilterOp, value: impl Into<String>) -> Self {
         Self {
             field: field.into(),
-            operator: operator.into(),
+            op,
             value: value.into(),
         }
     }
@@ -188,7 +231,7 @@ impl FilterEntry {
 /// AND-combined by convention; consumers may choose different semantics.
 ///
 /// ```json
-/// {"filters": [{"field": "status", "operator": "eq", "value": "active"}]}
+/// {"filters": [{"field": "status", "op": "eq", "value": "active"}]}
 /// ```
 #[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -210,9 +253,9 @@ impl FilterParams {
     /// # Examples
     ///
     /// ```
-    /// use api_bones::query::{FilterParams, FilterEntry};
+    /// use api_bones::query::{FilterParams, FilterEntry, FilterOp};
     ///
-    /// let f = FilterParams::new([FilterEntry::new("status", "eq", "active")]);
+    /// let f = FilterParams::new([FilterEntry::new("status", FilterOp::Eq, "active")]);
     /// assert!(!f.is_empty());
     /// assert_eq!(f.filters.len(), 1);
     /// ```
@@ -497,21 +540,44 @@ mod tests {
 
     #[test]
     fn filter_params_new() {
-        let f = FilterParams::new([FilterEntry::new("status", "eq", "active")]);
+        let f = FilterParams::new([FilterEntry::new("status", FilterOp::Eq, "active")]);
         assert!(!f.is_empty());
         assert_eq!(f.filters.len(), 1);
         assert_eq!(f.filters[0].field, "status");
-        assert_eq!(f.filters[0].operator, "eq");
+        assert_eq!(f.filters[0].op, FilterOp::Eq);
         assert_eq!(f.filters[0].value, "active");
     }
 
     #[cfg(feature = "serde")]
     #[test]
     fn filter_params_serde_round_trip() {
-        let f = FilterParams::new([FilterEntry::new("age", "gt", "18")]);
+        let f = FilterParams::new([FilterEntry::new("age", FilterOp::Gt, "18")]);
         let json = serde_json::to_value(&f).unwrap();
         let back: FilterParams = serde_json::from_value(json).unwrap();
         assert_eq!(back, f);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn filter_op_serde_snake_case() {
+        assert_eq!(
+            serde_json::to_value(FilterOp::Eq).unwrap(),
+            serde_json::json!("eq")
+        );
+        assert_eq!(
+            serde_json::to_value(FilterOp::Neq).unwrap(),
+            serde_json::json!("neq")
+        );
+        assert_eq!(
+            serde_json::to_value(FilterOp::StartsWith).unwrap(),
+            serde_json::json!("starts_with")
+        );
+        assert_eq!(
+            serde_json::to_value(FilterOp::NotExists).unwrap(),
+            serde_json::json!("not_exists")
+        );
+        let back: FilterOp = serde_json::from_value(serde_json::json!("gte")).unwrap();
+        assert_eq!(back, FilterOp::Gte);
     }
 
     #[cfg(feature = "serde")]

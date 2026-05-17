@@ -1,0 +1,14 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+  except:
+    # `bones.v1` is the package name; no per-file suffix needed beyond
+    # the version. buf's default expects message suffixes like `_v1` —
+    # we use the established `bones.v1.Message` convention instead.
+    - PACKAGE_VERSION_SUFFIX
+breaking:
+  use:
+    - FILE
