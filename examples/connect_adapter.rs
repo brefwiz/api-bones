@@ -1,13 +1,12 @@
 //! Demonstrates the `connect` feature: proto adapter primitives for Connect RPC services.
 //!
 //! Run with:
-//!   cargo run --example connect_adapter --features connect
+//!   cargo run --example `connect_adapter` --features connect
 
 #[cfg(feature = "connect")]
 fn main() {
     use api_bones::connect::{
-        ConnectOptionExt as _, build_page, chrono_opt_to_timestamp, chrono_to_timestamp,
-        parse_uuid,
+        ConnectOptionExt as _, build_page, chrono_opt_to_timestamp, chrono_to_timestamp, parse_uuid,
     };
 
     // ── Timestamp conversion ───────────────────────────────────────────────
