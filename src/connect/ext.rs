@@ -64,7 +64,11 @@ mod tests {
         let res: Result<Option<u32>, ConnectError> = Ok(None);
         let err = res.or_not_found("thing not found").unwrap_err();
         let msg = format!("{err:?}");
-        assert!(msg.contains("not_found") || msg.contains("NotFound") || msg.contains("thing not found"));
+        assert!(
+            msg.contains("not_found")
+                || msg.contains("NotFound")
+                || msg.contains("thing not found")
+        );
     }
 
     #[test]

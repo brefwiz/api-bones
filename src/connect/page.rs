@@ -96,7 +96,12 @@ pub fn build_offset_page(
         limit_in.min(max_limit)
     };
     let has_more = offset + (item_count as u64) < total;
-    OffsetPage { total_count: total, has_more, limit, offset }
+    OffsetPage {
+        total_count: total,
+        has_more,
+        limit,
+        offset,
+    }
 }
 
 /// [`build_offset_page`] with brefwiz standard defaults (default=20, max=200).
@@ -113,7 +118,14 @@ pub fn build_offset_page(
 /// ```
 #[must_use]
 pub fn build_page(limit_in: u64, offset: u64, item_count: usize, total: u64) -> OffsetPage {
-    build_offset_page(limit_in, offset, item_count, total, DEFAULT_LIMIT, MAX_LIMIT)
+    build_offset_page(
+        limit_in,
+        offset,
+        item_count,
+        total,
+        DEFAULT_LIMIT,
+        MAX_LIMIT,
+    )
 }
 
 #[cfg(test)]
