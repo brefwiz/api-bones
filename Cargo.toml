@@ -20,7 +20,7 @@ pedantic = { level = "deny", priority = -1 }
 
 [package]
 name = "api-bones"
-version = "6.0.0"
+version = "6.1.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
@@ -47,6 +47,11 @@ serde = ["dep:serde", "dep:serde_json", "uuid?/serde", "chrono?/serde", "std"]
 base64 = ["alloc", "dep:base64"]
 uuid = ["dep:uuid"]
 chrono = ["dep:chrono", "utoipa?/chrono"]
+## Proto adapter primitives for Connect RPC services (ADR-0096).
+## Provides chrono_to_timestamp, parse_uuid, build_page (OffsetPage), and
+## ConnectOptionExt. Activates the uuid and chrono features as side-effects.
+## Zero impact on consumers who do not declare this feature.
+connect = ["dep:connectrpc", "dep:buffa-types", "uuid", "chrono"]
 http = ["dep:http", "alloc"]
 axum = ["dep:axum", "http", "serde", "std"]
 utoipa = ["dep:utoipa", "std"]
@@ -80,6 +85,10 @@ schemars = { version = "1", optional = true }
 base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
 hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.11", optional = true }
+# connect feature — versions must match what buffa-types / generated proto code use.
+# Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
+connectrpc  = { version = "0.4", optional = true }
+buffa-types = { version = "0.5", features = ["json"], optional = true }
 
 [lints.rust]
 # Allow cfg(coverage) set by cargo-llvm-cov

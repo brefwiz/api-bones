@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.1.0] — 2026-05-19
+
+### Added
+
+- **`connect` feature** — proto adapter primitives for Connect RPC services (ADR-0096).
+  Enable with `features = ["connect"]`. Provides:
+  - `chrono_to_timestamp` / `chrono_opt_to_timestamp` — `DateTime<Utc>` → `google.protobuf.Timestamp`
+  - `parse_uuid(s, field)` — UUID parsing with field attribution in `ConnectError`
+  - `build_page` / `build_offset_page` / `OffsetPage` — offset pagination newtype with private constructor (compile-time enforcement that `build_page` is the only entry point)
+  - `ConnectOptionExt` — sealed extension trait on `Result<Option<T>, E>` for ergonomic `or_not_found` shaping
+  - Zero cost for non-connect consumers — all deps are optional behind the feature flag.
+
 ## [6.0.0] — 2026-05-16
 
 ### Breaking
