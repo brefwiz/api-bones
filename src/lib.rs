@@ -141,6 +141,9 @@ pub mod calendar;
 // OpenAPI helpers: Example<T> and DeprecatedField (issues #119, #120).
 pub mod openapi;
 
+#[cfg(feature = "connect")]
+pub mod connect;
+
 pub mod has_id;
 pub use has_id::HasId;
 
