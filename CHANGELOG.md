@@ -11,8 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`api-bones-protos` 0.2.0 — `bones.v1.errors` MethodOptions extension** (ADR platform/0103).
-  New proto file `proto/bones/v1/annotations.proto` defining a `repeated string errors` extension on `google.protobuf.MethodOptions` at field number 5102347. Every RPC in a `wire_surface: proto-source` service will declare its possible error variants via `option (bones.v1.errors) = "VARIANT"`. Consumers: SDK generators (typed error variants), `/doc-pipeline` coverage gate (one Gherkin scenario per declared variant), runtime error mappers.
+- **`api-bones-protos` 0.2.0 — `bones.v1.errors` MethodOptions extension.**
+  New proto file `proto/bones/v1/annotations.proto` defining a `repeated string errors` extension on `google.protobuf.MethodOptions` at field number 5102347. Lets each RPC declare its error variants on the wire so SDK generators can emit typed error surfaces:
+
+  ```proto
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (bones.v1.errors) = "INVALID_CREDENTIALS";
+    option (bones.v1.errors) = "ACCOUNT_LOCKED";
+  }
+  ```
 
 ## [6.1.0] — 2026-05-19
 
