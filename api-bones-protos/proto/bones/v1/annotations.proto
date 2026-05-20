@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
+//
+// Method-level annotations for service authors.
+//
+// `bones.v1.errors` — declares the error variants an RPC may return.
+// Variant names are ALL_CAPS_SNAKE strings referencing the service's
+// companion error enum (the enum itself is service-owned; this
+// option just enumerates which variants apply per RPC).
+//
+// Usage:
+//
+//   service AuthService {
+//     rpc Login(LoginRequest) returns (LoginResponse) {
+//       option (bones.v1.errors) = "INVALID_CREDENTIALS";
+//       option (bones.v1.errors) = "ACCOUNT_LOCKED";
+//       option (bones.v1.errors) = "MFA_REQUIRED";
+//     }
+//   }
+//
+// SDK generators consume the annotation to emit typed per-RPC error
+// surfaces; undeclared runtime errors map to a catch-all variant
+// keyed off `google.rpc.Status`.
+
+syntax = "proto3";
+
+package bones.v1;
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.MethodOptions {
+  // Declared error variants for this RPC. Variant names are
+  // ALL_CAPS_SNAKE and must match a value in the service's
+  // companion error enum. See file header for full semantics.
+  repeated string errors = 5102347;
+}

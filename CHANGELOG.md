@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.2.0] — 2026-05-20
+
+### Added
+
+- **`api-bones-protos` 0.2.0 — `bones.v1.errors` MethodOptions extension.**
+  New proto file `proto/bones/v1/annotations.proto` defining a `repeated string errors` extension on `google.protobuf.MethodOptions` at field number 5102347. Lets each RPC declare its error variants on the wire so SDK generators can emit typed error surfaces:
+
+  ```proto
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (bones.v1.errors) = "INVALID_CREDENTIALS";
+    option (bones.v1.errors) = "ACCOUNT_LOCKED";
+  }
+  ```
+
 ## [6.1.0] — 2026-05-19
 
 ### Added
