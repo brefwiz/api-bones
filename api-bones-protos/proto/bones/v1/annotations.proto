@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: LicenseRef-Proprietary
+//
+// Method-level annotations for service authors.
+//
+// `bones.v1.errors` — the declared error contract for an RPC, per
+// ADR platform/0103. Every RPC in a `wire_surface: proto-source`
+// service must declare the error variants it may return. Variant
+// names are ALL_CAPS_SNAKE strings that reference the service's
+// companion error enum (the enum itself is service-owned; this
+// option just enumerates which variants apply per RPC).
+//
+// Usage:
+//
+//   service AuthService {
+//     rpc Login(LoginRequest) returns (LoginResponse) {
+//       option (bones.v1.errors) = "INVALID_CREDENTIALS";
+//       option (bones.v1.errors) = "ACCOUNT_LOCKED";
+//       option (bones.v1.errors) = "MFA_REQUIRED";
+//     }
+//   }
+//
+// Consumers of the annotation:
+//
+//   - SDK generators (api-bones-sdk-gen) — emit typed error variants
+//     in the SDK per declared variant; undeclared runtime errors map
+//     to a catch-all `Unknown(google.rpc.Status)` variant.
+//   - `/doc-pipeline` coverage gate (ADR platform/0102) — requires
+//     one `@endpoint:<rpc> @state:<variant>` Gherkin scenario per
+//     declared variant + one for the happy path.
+//   - Runtime error mappers (server-side, optional) — assert at
+//     handler return that any error returned matches a declared
+//     variant; refuse to ship undeclared errors over the wire.
+//
+// Enforcement:
+//
+//   1. Compile-time (preferred): a buf lint rule (or custom protoc
+//      plugin) emits a build error when an RPC in a proto-source
+//      repo has zero `option (bones.v1.errors)` annotations.
+//   2. `make proto-errors-check` (guaranteed floor): parses proto
+//      descriptors and fails on RPCs missing the annotation. Lives
+//      in the api-bones make-include consumed by every service.
+//
+// Allowlist for legitimately error-free RPCs (e.g. Healthz) lives
+// in the service's `buf.yaml` lint config, not here.
+
+syntax = "proto3";
+
+package bones.v1;
+
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.MethodOptions {
+  // Declared error variants for this RPC. Variant names are
+  // ALL_CAPS_SNAKE and must match a value in the service's
+  // companion error enum. See file header for full semantics.
+  //
+  // Field number 5102347 allocated from the proto custom-option
+  // registry for the brefwiz ecosystem. Drift would be a 0103
+  // amendment, not a code change.
+  repeated string errors = 5102347;
+}
