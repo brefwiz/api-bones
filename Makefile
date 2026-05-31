@@ -2,7 +2,7 @@
 
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
-	ci-build-check sdk-e2e-check sdk-e2e-prebuild
+	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check
 
 .DEFAULT_GOAL := help
 
@@ -79,6 +79,12 @@ ci-release-readiness: ## CI: `cargo package` every publishable crate with full v
 		cargo package -p "$$crate" --allow-dirty; \
 	done; \
 	echo "==> all publishable crates package-verified."
+
+.PHONY: sc-001-check
+sc-001-check: ## SC-001: ban tracing_subscriber::fmt in main/bin entry points
+	@grep -rn 'tracing_subscriber::fmt().*try_init\|tracing_subscriber::fmt::Subscriber.*try_init' \
+	  src/main.rs src/bin/*.rs 2>/dev/null \
+	  && (echo 'SC-001 violation: use otel-bootstrap via service-kit instead' && exit 1) || true
 
 .PHONY: ci-build-check
 ci-build-check: ## Compile-check all feature combinations
