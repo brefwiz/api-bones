@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`connect::domain_error` — shared `DomainError → ConnectError` mapper** (ADR-0096).
+  New module `api_bones::connect::domain_error` (re-exported from `api_bones::connect`) providing:
+  - `DomainErrorKind` — canonical three-variant enum (`NotFound`, `Conflict(String)`, `Internal(String)`)
+  - `IntoDomainErrorKind` — trait for service error types to implement
+  - `domain_to_connect::<E>` — generic mapper; `Internal` logs via `tracing::error!` before returning a safe `ConnectError::internal("internal error")` — detail never surfaced to callers
+
+  **Migration pattern for service authors:**
+
+  1. Implement `IntoDomainErrorKind` on your service's domain error type:
+
+     ```rust
+     use api_bones::connect::{DomainErrorKind, IntoDomainErrorKind};
+
+     impl IntoDomainErrorKind for MyServiceError {
+         fn kind(&self) -> DomainErrorKind {
+             match self {
+                 Self::NotFound => DomainErrorKind::NotFound,
+                 Self::Duplicate(msg) => DomainErrorKind::Conflict(msg.clone()),
+                 Self::Unexpected(msg) => DomainErrorKind::Internal(msg.clone()),
+             }
+         }
+     }
+     ```
+
+  2. Replace hand-rolled mapper functions with `domain_to_connect`:
+
+     ```rust
+     use api_bones::connect::domain_to_connect;
+
+     // before:
+     fn map_err(e: MyServiceError) -> ConnectError { ... }
+
+     // after:
+     store.get(id).await.map_err(|e| domain_to_connect(&e))?;
+     ```
+
+  3. Delete per-service mapper functions and their unit tests — coverage is now in `api-bones`.
+
 ## [6.2.0] — 2026-05-20
 
 ### Added

@@ -51,7 +51,7 @@ chrono = ["dep:chrono", "utoipa?/chrono"]
 ## Provides chrono_to_timestamp, parse_uuid, build_page (OffsetPage), and
 ## ConnectOptionExt. Activates the uuid and chrono features as side-effects.
 ## Zero impact on consumers who do not declare this feature.
-connect = ["dep:connectrpc", "dep:buffa-types", "uuid", "chrono"]
+connect = ["dep:connectrpc", "dep:buffa-types", "dep:tracing", "uuid", "chrono"]
 http = ["dep:http", "alloc"]
 axum = ["dep:axum", "http", "serde", "std"]
 utoipa = ["dep:utoipa", "std"]
@@ -89,6 +89,7 @@ sha2 = { version = "0.11", optional = true }
 # Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
 connectrpc  = { version = "0.4", optional = true }
 buffa-types = { version = "0.5", features = ["json"], optional = true }
+tracing     = { version = "0.1", optional = true }
 
 [lints.rust]
 # Allow cfg(coverage) set by cargo-llvm-cov
