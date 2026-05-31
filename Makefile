@@ -2,7 +2,8 @@
 
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
-	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check
+	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check \
+	lockfile ci-lockfile-diff
 
 .DEFAULT_GOAL := help
 
@@ -79,6 +80,18 @@ ci-release-readiness: ## CI: `cargo package` every publishable crate with full v
 		cargo package -p "$$crate" --allow-dirty; \
 	done; \
 	echo "==> all publishable crates package-verified."
+
+.PHONY: lockfile
+lockfile: ## Regenerate Cargo.lock
+	cargo generate-lockfile
+
+.PHONY: ci-lockfile-diff
+ci-lockfile-diff: ## Assert committed Cargo.lock matches resolved lock
+	@cargo generate-lockfile
+	@if ! git diff --quiet Cargo.lock; then \
+	  echo 'ERROR: Cargo.lock is out of date. Run: make lockfile && git add Cargo.lock'; \
+	  git diff Cargo.lock; exit 1; \
+	fi
 
 .PHONY: sc-001-check
 sc-001-check: ## SC-001: ban tracing_subscriber::fmt in main/bin entry points
