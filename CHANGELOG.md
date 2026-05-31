@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.3.0] — 2026-05-31
+
 ### Added
 
 - **`connect::domain_error` — shared `DomainError → ConnectError` mapper** (ADR-0096).
@@ -46,6 +48,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      ```
 
   3. Delete per-service mapper functions and their unit tests — coverage is now in `api-bones`.
+
+- **`api-bones-connect` 0.1.0** — new satellite crate re-exporting the full `api_bones::connect` surface.
+  Consumers who prefer a dedicated dependency over enabling the `connect` feature flag on `api-bones`:
+  ```toml
+  api-bones-connect = "0.1"
+  ```
+
+### Changed
+
+- **Dependency bumps** (no public API change):
+  - `connectrpc` 0.4.2 → 0.6.0
+  - `buffa-types` 0.5.2 → 0.6.0
+  - `tokio` 1.51.1 → 1.52.3
+  - `async-nats` 0.47.0 → 0.48.0
+  - `utoipa` 5.4.0 → 5.5.0
+  - `serde_json` 1.0.149 → 1.0.150
+  - `pin-project` 1.1.11 → 1.1.13
+  - `openssl` 0.10.79 → 0.10.80
+  - `actions/checkout` v4 → v6
 
 ## [6.2.0] — 2026-05-20
 

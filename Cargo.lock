@@ -90,7 +90,7 @@ checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
 name = "api-bones"
-version = "6.2.0"
+version = "6.3.0"
 dependencies = [
  "arbitrary",
  "axum",
@@ -116,6 +116,14 @@ dependencies = [
  "utoipa",
  "uuid",
  "validator",
+]
+
+[[package]]
+name = "api-bones-connect"
+version = "0.1.0"
+dependencies = [
+ "api-bones",
+ "connectrpc",
 ]
 
 [[package]]
