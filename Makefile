@@ -1,7 +1,8 @@
 # Makefile for api-bones
 
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
-	proto-lint proto-breaking ci-release-readiness spec-check
+	proto-lint proto-breaking ci-release-readiness spec-check \
+	ci-build-check sdk-e2e-check sdk-e2e-prebuild
 
 .DEFAULT_GOAL := help
 
@@ -78,6 +79,19 @@ ci-release-readiness: ## CI: `cargo package` every publishable crate with full v
 		cargo package -p "$$crate" --allow-dirty; \
 	done; \
 	echo "==> all publishable crates package-verified."
+
+.PHONY: ci-build-check
+ci-build-check: ## Compile-check all feature combinations
+	cargo check --all-features
+	cargo check --no-default-features
+
+.PHONY: sdk-e2e-check
+sdk-e2e-check: ## No SDK E2E targets for this library crate
+	@echo "sdk-e2e-check: no-op (library crate)"
+
+.PHONY: sdk-e2e-prebuild
+sdk-e2e-prebuild: ## No SDK E2E prebuild for this library crate
+	@echo "sdk-e2e-prebuild: no-op (library crate)"
 
 .PHONY: spec-check
 spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
