@@ -1,7 +1,9 @@
 # Makefile for api-bones
 
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
-	proto-lint proto-breaking ci-release-readiness
+	proto-lint proto-breaking ci-release-readiness spec-check \
+	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check \
+	lockfile ci-lockfile-diff
 
 .DEFAULT_GOAL := help
 
@@ -78,6 +80,48 @@ ci-release-readiness: ## CI: `cargo package` every publishable crate with full v
 		cargo package -p "$$crate" --allow-dirty; \
 	done; \
 	echo "==> all publishable crates package-verified."
+
+.PHONY: lockfile
+lockfile: ## Regenerate Cargo.lock
+	cargo generate-lockfile
+
+.PHONY: ci-lockfile-diff
+ci-lockfile-diff: ## Assert committed Cargo.lock matches resolved lock
+	@cargo generate-lockfile
+	@if ! git diff --quiet Cargo.lock; then \
+	  echo 'ERROR: Cargo.lock is out of date. Run: make lockfile && git add Cargo.lock'; \
+	  git diff Cargo.lock; exit 1; \
+	fi
+
+.PHONY: sc-001-check
+sc-001-check: ## SC-001: ban tracing_subscriber::fmt in main/bin entry points
+	@grep -rn 'tracing_subscriber::fmt().*try_init\|tracing_subscriber::fmt::Subscriber.*try_init' \
+	  src/main.rs src/bin/*.rs 2>/dev/null \
+	  && (echo 'SC-001 violation: use otel-bootstrap via service-kit instead' && exit 1) || true
+
+.PHONY: ci-build-check
+ci-build-check: ## Compile-check all feature combinations
+	cargo check --all-features
+	cargo check --no-default-features
+
+.PHONY: sdk-e2e-check
+sdk-e2e-check: ## No SDK E2E targets for this library crate
+	@echo "sdk-e2e-check: no-op (library crate)"
+
+.PHONY: sdk-e2e-prebuild
+sdk-e2e-prebuild: ## No SDK E2E prebuild for this library crate
+	@echo "sdk-e2e-prebuild: no-op (library crate)"
+
+.PHONY: spec-check
+spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
+	@SPEC=SPEC.md; \
+	VALID="proto-source utoipa-legacy mixed-transition"; \
+	[ -f "$$SPEC" ] || { echo "ERROR: $$SPEC missing (ADR-0086 L1)"; exit 1; }; \
+	WS=$$(awk 'BEGIN{f=0}/^---/{f=!f;next}f&&/^wire_surface:/{print $$2;exit}' "$$SPEC"); \
+	[ -n "$$WS" ] || { echo "ERROR: wire_surface field missing (ADR-0086 L1)"; exit 1; }; \
+	echo "$$VALID" | tr ' ' '\n' | grep -qx "$$WS" \
+		|| { echo "ERROR: wire_surface='$$WS' invalid. Must be one of: $$VALID"; exit 1; }; \
+	echo "spec-check OK: wire_surface=$$WS"
 
 .PHONY: pre-commit
 pre-commit: ci-format ci-lint ci-test ci-changelog ## Run all pre-commit checks (ADR-0021)

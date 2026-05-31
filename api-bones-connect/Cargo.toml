@@ -1,0 +1,21 @@
+[package]
+name = "api-bones-connect"
+version = "0.1.0"
+edition = "2024"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "Connect RPC adapter primitives for api-bones services (ADR-0096)"
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-connect"
+readme = "README.md"
+keywords = ["connect", "grpc", "rpc", "protobuf", "api-bones"]
+categories = ["web-programming::http-server", "api-bindings", "network-programming"]
+rust-version = "1.85"
+
+[dependencies]
+api-bones = { version = "6.3", path = "..", default-features = false, features = ["connect"] }
+connectrpc = { version = "0.6", optional = false }
+
+[lints]
+workspace = true
