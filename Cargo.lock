@@ -545,12 +545,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "buffa"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "941c714734a660caa93a210c531dec553cc0ef417890409914d24032c94ab840"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "hashbrown 0.15.5",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "buffa-types"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d406a92c781273688fa21eb2641b54b2cf4e6b52e4a1339fd12279b8220313c"
 dependencies = [
- "buffa",
+ "buffa 0.5.2",
  "bytes",
  "serde",
  "serde_json",
@@ -703,13 +718,14 @@ checksum = "cc14f565cf027a105f7a44ccf9e5b424348421a1d8952a8fc9d499d313107789"
 
 [[package]]
 name = "connectrpc"
-version = "0.4.2"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55cb80f9eb09b593a96880eb1c2588ac6319b129519de8c672f9b8b4ffdeaece"
+checksum = "1da5e4adde184f69e64ef112c6f8b645afe9ff82466761f8fc348dbd36aaee7e"
 dependencies = [
  "async-compression",
+ "async-trait",
  "base64 0.22.1",
- "buffa",
+ "buffa 0.6.0",
  "bytes",
  "flate2",
  "futures",
