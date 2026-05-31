@@ -70,16 +70,25 @@ proto-breaking: ## Check api-bones-protos/proto/ for breaking changes vs origin/
 #
 # `--no-verify` would skip the unpack + compile step (the part that caught
 # the missing proto bytes for api-bones-protos 0.1.0); we explicitly opt
-# INTO verification.
-PUBLISHABLE_CRATES := api-bones api-bones-tower api-bones-reqwest api-bones-progenitor api-bones-sdk-gen api-bones-test api-bones-protos
+# INTO verification for the root crate.
+#
+# Satellite crates (those with a path dep on api-bones) cannot be verify-compiled
+# until the parent version is live on crates.io — the verify step substitutes the
+# path dep with the registry version. They are packaged (checking include-list
+# completeness, the main failure mode) but compiled via ci-test / ci-lint instead.
+PUBLISHABLE_ROOT   := api-bones
+PUBLISHABLE_SATS   := api-bones-connect api-bones-tower api-bones-reqwest api-bones-progenitor api-bones-sdk-gen api-bones-test api-bones-protos
+PUBLISHABLE_CRATES := $(PUBLISHABLE_ROOT) $(PUBLISHABLE_SATS)
 
-ci-release-readiness: ## CI: `cargo package` every publishable crate with full verify (catches broken include paths)
+ci-release-readiness: ## CI: package-verify root, package-only satellites (catches broken include paths)
 	@set -eu; \
-	for crate in $(PUBLISHABLE_CRATES); do \
-		echo "==> packaging + verifying $$crate..."; \
-		cargo package -p "$$crate" --allow-dirty; \
+	echo "==> packaging + verifying $(PUBLISHABLE_ROOT)..."; \
+	cargo package -p "$(PUBLISHABLE_ROOT)" --allow-dirty; \
+	for crate in $(PUBLISHABLE_SATS); do \
+		echo "==> packaging (no-verify) $$crate..."; \
+		cargo package -p "$$crate" --allow-dirty --no-verify; \
 	done; \
-	echo "==> all publishable crates package-verified."
+	echo "==> all publishable crates packaged."
 
 .PHONY: lockfile
 lockfile: ## Regenerate Cargo.lock

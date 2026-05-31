@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.3.1] — 2026-05-31
+
+### Fixed
+
+- **`connect` feature now correctly declares `std` as a dependency.**
+  `String`, `format!`, and `ToOwned` are `std`/`alloc` items — the feature was missing the `std` dep, causing `cargo publish` to fail when compiling the tarball without `std`. `no_std` consumers who don't enable `connect` are unaffected.
+- **`api-bones-connect` added to `PUBLISHABLE_CRATES` in Makefile.**
+  `ci-release-readiness` now packages and verify-compiles `api-bones-connect` alongside other satellite crates, catching publish failures before they reach the release tag.
+
 ## [6.3.0] — 2026-05-31
 
 ### Added

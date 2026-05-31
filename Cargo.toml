@@ -21,7 +21,7 @@ pedantic = { level = "deny", priority = -1 }
 
 [package]
 name = "api-bones"
-version = "6.3.0"
+version = "6.3.1"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
