@@ -87,8 +87,8 @@ hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.11", optional = true }
 # connect feature — versions must match what buffa-types / generated proto code use.
 # Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
-connectrpc  = { version = "0.4", optional = true }
-buffa-types = { version = "0.5", features = ["json"], optional = true }
+connectrpc  = { version = "0.6", optional = true }
+buffa-types = { version = "0.6", features = ["json"], optional = true }
 tracing     = { version = "0.1", optional = true }
 
 [lints.rust]
