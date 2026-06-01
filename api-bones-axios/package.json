@@ -21,7 +21,7 @@
   },
   "devDependencies": {
     "typescript": "^5.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.0"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",
