@@ -13,9 +13,8 @@ struct QuantityRule {
 #[cfg(feature = "connect")]
 fn main() {
     use api_bones::connect::{
-        ConnectOptionExt as _, build_page, chrono_opt_to_timestamp,
-        chrono_to_timestamp, encode_json, etag_from_updated_at, invalid_field, parse_rfc3339,
-        parse_uuid,
+        ConnectOptionExt as _, build_page, chrono_opt_to_timestamp, chrono_to_timestamp,
+        encode_json, etag_from_updated_at, invalid_field, parse_rfc3339, parse_uuid,
     };
 
     // ── Timestamp conversion ───────────────────────────────────────────────
