@@ -14,7 +14,7 @@ categories = ["web-programming::http-server", "api-bindings", "network-programmi
 rust-version = "1.85"
 
 [dependencies]
-api-bones = { version = "6.3", path = "..", default-features = false, features = ["connect"] }
+api-bones = { version = "6", path = "..", default-features = false, features = ["connect"] }
 connectrpc = { version = "0.6", optional = false }
 
 [lints]

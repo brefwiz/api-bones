@@ -31,7 +31,7 @@ What's specific to api-bones is the opinion: one crate, bundled surface, strict 
 
 ```toml
 [dependencies]
-api-bones = "4.0"
+api-bones = "6.5.0"
 ```
 
 ## Use cases
@@ -254,10 +254,10 @@ All implement the `HeaderId` trait (`as_str()`, `header_name()`).
 
 ```toml
 # no_std + alloc (WASM, embedded with allocator)
-api-bones = { version = "4", default-features = false, features = ["alloc"] }
+api-bones = { version = "6.5.0", default-features = false, features = ["alloc"] }
 
 # pure no_std (core types only)
-api-bones = { version = "4", default-features = false }
+api-bones = { version = "6.5.0", default-features = false }
 ```
 
 ## License

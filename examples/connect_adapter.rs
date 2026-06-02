@@ -4,9 +4,17 @@
 //!   cargo run --example `connect_adapter` --features connect
 
 #[cfg(feature = "connect")]
+#[derive(serde::Serialize)]
+struct QuantityRule {
+    kind: &'static str,
+    value: u32,
+}
+
+#[cfg(feature = "connect")]
 fn main() {
     use api_bones::connect::{
-        ConnectOptionExt as _, build_page, chrono_opt_to_timestamp, chrono_to_timestamp, parse_uuid,
+        ConnectOptionExt as _, build_page, chrono_opt_to_timestamp, chrono_to_timestamp,
+        encode_json, etag_from_updated_at, invalid_field, parse_rfc3339, parse_uuid,
     };
 
     // ── Timestamp conversion ───────────────────────────────────────────────
@@ -54,6 +62,37 @@ fn main() {
 
     let missing: Result<Option<&str>, connectrpc::ConnectError> = Ok(None);
     assert!(missing.or_not_found("record not found").is_err());
+
+    // ── invalid_field ──────────────────────────────────────────────────────
+    let err = invalid_field("org_id");
+    println!("invalid_field: {:?}", err.code);
+
+    // ── encode_json ────────────────────────────────────────────────────────
+    let json = encode_json(
+        &QuantityRule {
+            kind: "fixed",
+            value: 2,
+        },
+        "quantity_rule",
+    )
+    .unwrap();
+    assert_eq!(json, r#"{"kind":"fixed","value":2}"#);
+    println!("encode_json: {json}");
+
+    // ── parse_rfc3339 ──────────────────────────────────────────────────────
+    let dt = parse_rfc3339("2024-01-15T10:00:00Z", "starts_at").unwrap();
+    println!("parse_rfc3339: {dt}");
+    assert!(parse_rfc3339("not-a-date", "starts_at").is_err());
+
+    // ── etag_from_updated_at ───────────────────────────────────────────────
+    let etag = etag_from_updated_at(chrono::Utc::now());
+    assert!(etag.starts_with("W/\""), "etag={etag}");
+    println!("etag: {etag}");
+
+    // ── check_if_match ─────────────────────────────────────────────────────
+    // check_if_match requires a RequestContext which is only available inside a
+    // live connect handler; the behaviour is validated in unit tests in
+    // src/connect/etag.rs. See those tests for the four-case breakdown.
 
     println!("All connect adapter primitives OK");
 }
