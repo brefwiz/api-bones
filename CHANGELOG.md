@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.5.0] — 2026-06-02
+
+### Added
+
+- **`connect` module: validation and serialization helpers** — `invalid_field` validation builder, `check_if_match` for conditional processing, `etag` generation, `parse_rfc3339` for timestamp parsing, and `encode_json` for serialization (ADR brefwiz-architecture#226).
+- **`connect` module: usage examples and documentation** — Added examples demonstrating the new connect primitives.
+
+### Changed
+
+- Code style formatting alignment via rustfmt.
+
+## [6.4.0] — 2026-06-02
+
+### Added
+
+- **`connect` module: validation and serialization helpers** (ADR brefwiz-architecture#226).
+  New utilities for wire protocol helpers: `invalid_field` validation builder, `check_if_match` for conditional processing, `etag` generation, `parse_rfc3339` for timestamp parsing, and `encode_json` for serialization.
+
 ## [6.3.1] — 2026-05-31
 
 ### Fixed
