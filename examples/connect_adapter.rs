@@ -4,9 +4,16 @@
 //!   cargo run --example `connect_adapter` --features connect
 
 #[cfg(feature = "connect")]
+#[derive(serde::Serialize)]
+struct QuantityRule {
+    kind: &'static str,
+    value: u32,
+}
+
+#[cfg(feature = "connect")]
 fn main() {
     use api_bones::connect::{
-        ConnectOptionExt as _, build_page, check_if_match, chrono_opt_to_timestamp,
+        ConnectOptionExt as _, build_page, chrono_opt_to_timestamp,
         chrono_to_timestamp, encode_json, etag_from_updated_at, invalid_field, parse_rfc3339,
         parse_uuid,
     };
@@ -62,11 +69,6 @@ fn main() {
     println!("invalid_field: {:?}", err.code);
 
     // ── encode_json ────────────────────────────────────────────────────────
-    #[derive(serde::Serialize)]
-    struct QuantityRule {
-        kind: &'static str,
-        value: u32,
-    }
     let json = encode_json(
         &QuantityRule {
             kind: "fixed",
