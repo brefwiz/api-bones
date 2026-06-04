@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.5.1] - 2026-06-04
+
+### Changed
+
+- **`api-bones-test`**: published at 6.5.1 — the crate stayed at 5.0.0 on
+  crates.io while depending on api-bones 6 in-repo, leaving consumers pinning
+  api-bones =6.x without a resolvable test crate. Version-only change.
+
 ## [6.5.0] — 2026-06-02
 
 ### Added
