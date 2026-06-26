@@ -65,6 +65,7 @@ mod ext;
 mod page;
 mod parse;
 mod timestamp;
+pub mod transport;
 mod uuid;
 
 pub use domain_error::{DomainErrorKind, IntoDomainErrorKind, domain_to_connect};
@@ -73,6 +74,9 @@ pub use ext::ConnectOptionExt;
 pub use page::{DEFAULT_LIMIT, MAX_LIMIT, OffsetPage, build_offset_page, build_page};
 pub use parse::parse_rfc3339;
 pub use timestamp::{chrono_opt_to_timestamp, chrono_to_timestamp};
+pub use transport::{
+    ConnectConfigExt, client_tls_config, connect_http_client, is_caller_rejection,
+};
 pub use uuid::parse_uuid;
 
 /// Build an `InvalidArgument` `ConnectError` attributing the error to a named request field.

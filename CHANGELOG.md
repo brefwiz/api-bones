@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.6.0] — 2026-06-25
+
+### Added
+
+- **`connect::transport` — client transport primitives** (`connect_http_client`,
+  `client_tls_config`, `ConnectConfigExt`, `is_caller_rejection`). Scheme-aware
+  `HttpClient` construction, a process-wide rustls config built via `OnceLock`
+  from the OS root store (honors `SSL_CERT_FILE`/`SSL_CERT_DIR`), brefwiz header
+  conventions as builder methods on `ClientConfig`, and a helper that classifies
+  `ErrorCode` values as caller-facing rejections vs transport/server failures.
+  All symbols re-exported from `api_bones::connect`.
+
+### Changed
+
+- **`connectrpc`** bumped 0.6 → 0.7; `buffa-types` bumped 0.6 → 0.7.
+  `connectrpc` dep now explicitly enables `client` and `client-tls` features.
+- **`api-bones-test`**: `reqwest` bumped 0.12 → 0.13; `async-nats` bumped 0.48 → 0.49.
+- Caret-floor bumps: `chrono` 0.4.45, `http` 1.4.2, `uuid` 1.23.3, `icalendar` 0.17.11.
+- `rustls-native-certs` 0.8 added as a dep of the `connect` feature.
+- `actions/checkout` v6 → v7 in all GitHub Actions workflows.
+- `vitest` 3.x → 4.1.0 in `api-bones-axios`.
+
 ## [6.5.1] - 2026-06-04
 
 ### Changed
