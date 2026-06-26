@@ -52,7 +52,7 @@ chrono = ["dep:chrono", "utoipa?/chrono"]
 ## Provides chrono_to_timestamp, parse_uuid, build_page (OffsetPage), and
 ## ConnectOptionExt. Activates the uuid and chrono features as side-effects.
 ## Zero impact on consumers who do not declare this feature.
-connect = ["dep:connectrpc", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "uuid", "chrono", "std"]
+connect = ["dep:connectrpc", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "uuid", "chrono", "http", "std"]
 http = ["dep:http", "alloc"]
 axum = ["dep:axum", "http", "serde", "std"]
 utoipa = ["dep:utoipa", "std"]
