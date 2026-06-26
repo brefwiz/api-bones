@@ -21,7 +21,7 @@ pedantic = { level = "deny", priority = -1 }
 
 [package]
 name = "api-bones"
-version = "6.5.0"
+version = "6.6.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
@@ -52,7 +52,7 @@ chrono = ["dep:chrono", "utoipa?/chrono"]
 ## Provides chrono_to_timestamp, parse_uuid, build_page (OffsetPage), and
 ## ConnectOptionExt. Activates the uuid and chrono features as side-effects.
 ## Zero impact on consumers who do not declare this feature.
-connect = ["dep:connectrpc", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "uuid", "chrono", "std"]
+connect = ["dep:connectrpc", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "uuid", "chrono", "std"]
 http = ["dep:http", "alloc"]
 axum = ["dep:axum", "http", "serde", "std"]
 utoipa = ["dep:utoipa", "std"]
@@ -70,15 +70,15 @@ hmac = ["base64", "alloc", "dep:hmac", "dep:sha2"]
 thiserror = { version = "2", default-features = false }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-uuid = { version = "1.23", features = ["v4"], optional = true }
-chrono = { version = "0.4", optional = true }
+uuid = { version = "1.23.3", features = ["v4"], optional = true }
+chrono = { version = "0.4.45", optional = true }
 arbitrary = { version = "1", features = ["derive"], optional = true }
 proptest = { version = "1", optional = true }
 proptest-derive = { version = "0.8", optional = true }
 axum = { version = "0.8", optional = true }
-http = { version = "1.0", optional = true }
+http = { version = "1.4.2", optional = true }
 utoipa = { version = "5", optional = true, features = ["uuid", "chrono"] }
-icalendar = { version = "0.17", features = ["parser", "serde"], optional = true }
+icalendar = { version = "0.17.11", features = ["parser", "serde"], optional = true }
 validator = { version = "0.20", features = ["derive"], optional = true }
 fake = { version = "5", optional = true }
 rand = { version = "0.10", optional = true }
@@ -88,8 +88,9 @@ hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.11", optional = true }
 # connect feature — versions must match what buffa-types / generated proto code use.
 # Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
-connectrpc  = { version = "0.6", optional = true }
-buffa-types = { version = "0.6", features = ["json"], optional = true }
+connectrpc  = { version = "0.7", features = ["client", "client-tls"], optional = true }
+buffa-types = { version = "0.7", features = ["json"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
 tracing     = { version = "0.1", optional = true }
 
 [lints.rust]
