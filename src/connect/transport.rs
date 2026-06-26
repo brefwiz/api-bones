@@ -111,7 +111,10 @@ mod tests {
         let uri: Uri = "http://localhost:8080".parse().unwrap();
         let client = connect_http_client(&uri);
         let debug = format!("{client:?}");
-        assert!(debug.contains("plaintext"), "expected plaintext mode, got: {debug}");
+        assert!(
+            debug.contains("plaintext"),
+            "expected plaintext mode, got: {debug}"
+        );
     }
 
     #[test]
@@ -183,7 +186,10 @@ mod tests {
             ErrorCode::Unimplemented,
         ];
         for code in rejection_codes {
-            assert!(is_caller_rejection(code), "{code:?} should be a caller rejection");
+            assert!(
+                is_caller_rejection(code),
+                "{code:?} should be a caller rejection"
+            );
         }
     }
 
