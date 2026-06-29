@@ -592,12 +592,30 @@ dependencies = [
 ]
 
 [[package]]
-name = "buffa-types"
-version = "0.7.1"
+name = "buffa"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5103995623b8e213abfa84b89feb98a0df84514607aafd52e6add9ca53c57d2e"
+checksum = "1f5f4b9af6f6e0cd7ce5d0bc30fd28e64e3582c76e25c374a3d37d21501702a2"
 dependencies = [
- "buffa",
+ "base64",
+ "bytes",
+ "foldhash 0.1.5",
+ "hashbrown 0.15.5",
+ "once_cell",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "smoothutf8",
+ "thiserror",
+]
+
+[[package]]
+name = "buffa-types"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "322c36afb2c98a8623ba03058439ac2311f1c8218772f6aa92078f058aeb1ca5"
+dependencies = [
+ "buffa 0.8.0",
  "bytes",
  "serde",
  "serde_json",
@@ -806,7 +824,7 @@ dependencies = [
  "async-compression",
  "async-trait",
  "base64",
- "buffa",
+ "buffa 0.7.1",
  "bytes",
  "flate2",
  "futures",
@@ -3450,6 +3468,15 @@ checksum = "9676b89cd56310a87b93dec47b11af744f34d5fc9f367b829474eec0a891350d"
 dependencies = [
  "borsh",
  "serde",
+]
+
+[[package]]
+name = "smoothutf8"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36358427d32ecdb1624616deed99eccfef0a167fe5bf40ddb51efe6980bc1ec8"
+dependencies = [
+ "simdutf8",
 ]
 
 [[package]]
