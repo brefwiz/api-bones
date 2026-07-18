@@ -19,7 +19,19 @@
     "build": "tsc",
     "test": "vitest run"
   },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.7.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@opentelemetry/api": "^1.7.0",
+    "@opentelemetry/core": "^1.17.0",
+    "@opentelemetry/sdk-trace-base": "^1.17.0",
+    "@types/node": "^20.0.0",
     "typescript": "^5.0.0",
     "vitest": "^4.1.0"
   },

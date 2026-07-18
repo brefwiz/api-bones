@@ -49,10 +49,17 @@ export interface AxiosInterceptorManager<V> {
 // Widened `V` to `any` so real axios instances (whose interceptor is typed for
 // `AxiosResponse`, not `EnvelopeAxiosResponse`) are structurally assignable.
 // The interceptor callback internally treats the value as `EnvelopeAxiosResponse`.
+export interface AxiosRequestConfig {
+  headers?: Record<string, string>;
+  [key: string]: unknown;
+}
+
 export interface AxiosLikeInstance {
   interceptors: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     response: AxiosInterceptorManager<any>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    request: AxiosInterceptorManager<any>;
   };
 }
 
@@ -112,6 +119,72 @@ export function addEnvelopeUnwrapInterceptor(instance: AxiosLikeInstance): numbe
         return { ...response, config: cfg, data: envelope.data };
       }
       return response;
+    },
+    (error: unknown) => Promise.reject(error),
+  );
+}
+
+/**
+ * Add a request interceptor to `instance` that injects the active OpenTelemetry
+ * trace context (W3C `traceparent` / `tracestate` headers) on every outbound call.
+ *
+ * This integrates with the host application's globally-configured OpenTelemetry
+ * setup (via `@opentelemetry/api`'s `context` and `propagation` APIs). If no
+ * active span or context exists, no trace headers are injected.
+ *
+ * If `@opentelemetry/api` is not available at runtime (not installed or not
+ * imported), this function silently succeeds without injecting headers.
+ *
+ * Returns the interceptor id so the caller can eject it via
+ * `instance.interceptors.request.eject(id)`.
+ *
+ * @example
+ * ```ts
+ * import axios from "axios";
+ * import { addTraceContextInterceptor } from "@brefwiz/api-bones-axios";
+ *
+ * const client = axios.create({ baseURL: "/api" });
+ * addTraceContextInterceptor(client);
+ *
+ * // Outbound calls now carry W3C traceparent/tracestate headers
+ * // linking them to the active span in the host app.
+ * const { data: user } = await client.get<User>("/users/me");
+ * ```
+ */
+export function addTraceContextInterceptor(instance: AxiosLikeInstance): number {
+  return instance.interceptors.request.use(
+    (config: AxiosRequestConfig) => {
+      try {
+        // Dynamically require @opentelemetry/api to avoid a hard dependency.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const otel = require("@opentelemetry/api");
+        const { context, propagation } = otel;
+
+        if (!context || !propagation) {
+          return config;
+        }
+
+        // Create a carrier (plain object) to receive injected headers
+        const carrier: Record<string, string> = {};
+
+        // Get the current active context and inject W3C trace headers
+        const activeContext = context.active?.();
+        if (activeContext) {
+          propagation.inject?.(activeContext, carrier);
+        }
+
+        // Merge injected headers into the request config
+        if (Object.keys(carrier).length > 0) {
+          if (!config.headers) {
+            config.headers = {};
+          }
+          Object.assign(config.headers, carrier);
+        }
+      } catch {
+        // @opentelemetry/api not available; silently skip injection
+      }
+
+      return config;
     },
     (error: unknown) => Promise.reject(error),
   );
