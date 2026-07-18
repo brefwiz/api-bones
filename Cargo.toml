@@ -21,7 +21,7 @@ pedantic = { level = "deny", priority = -1 }
 
 [package]
 name = "api-bones"
-version = "6.7.0"
+version = "6.7.1"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
@@ -67,8 +67,9 @@ schemars = ["dep:schemars", "schemars/uuid1", "schemars/chrono04", "std"]
 hmac = ["base64", "alloc", "dep:hmac", "dep:sha2"]
 ## Enables OpenTelemetry trace context propagation helpers for SDK clients.
 ## Provides `inject_current` for injecting the active span context into HTTP headers.
-## Requires `http` and `opentelemetry` (SDK is only needed for tests).
-opentelemetry = ["http", "dep:opentelemetry"]
+## Requires `http`, `std` (the `opentelemetry` crate is not no_std-compatible),
+## and `opentelemetry` (SDK is only needed for tests).
+opentelemetry = ["http", "std", "dep:opentelemetry"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }

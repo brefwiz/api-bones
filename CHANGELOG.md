@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.7.1] — 2026-07-18
+
+### Fixed
+
+- **`opentelemetry` feature now requires `std`.** The `opentelemetry` crate is
+  not `no_std`-compatible; the feature previously omitted the `std` requirement
+  present on every other std-only feature (`connect`, `axum`, `utoipa`, ...),
+  which broke `no_default_features + alloc + opentelemetry` builds (the exact
+  combination `sealwiz-sdk` and `brefwiz-spiffe`'s SDKs use) with an unresolved
+  `String` type in `propagation.rs`.
+
 ## [6.7.0] — 2026-07-18
 
 ### Added
