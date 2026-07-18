@@ -5,6 +5,15 @@ All notable changes to `@brefwiz/api-bones-axios` are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this package adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.0] — 2026-07-18
+
+### Added
+
+- `addTraceContextInterceptor` — axios request interceptor that injects W3C
+  `traceparent`/`tracestate` headers from the active OpenTelemetry context via
+  `@opentelemetry/api` (optional peer dependency; no-ops if unavailable).
+  Installed the same way as `addEnvelopeUnwrapInterceptor` (platform/0229).
+
 ## [4.4.0] — 2026-04-25
 
 ### Changed
