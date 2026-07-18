@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.7.0] — 2026-07-18
+
+### Added
+
+- **`propagation` module** (behind new `opentelemetry` feature) — shared
+  `inject_current(&mut HeaderMap)` helper for injecting the active OpenTelemetry
+  trace context (W3C `traceparent`/`tracestate`) onto outbound requests, via the
+  globally-installed text-map propagator. Replaces the identical hand-rolled
+  `HeaderMapInjector` previously duplicated independently in `sealwiz-sdk` and
+  `brefwiz-spiffe`'s rust SDKs (platform/0229).
+
 ## [6.6.0] — 2026-06-25
 
 ### Added

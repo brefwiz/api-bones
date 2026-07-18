@@ -144,6 +144,9 @@ pub mod openapi;
 #[cfg(feature = "connect")]
 pub mod connect;
 
+#[cfg(feature = "opentelemetry")]
+pub mod propagation;
+
 pub mod has_id;
 pub use has_id::HasId;
 
