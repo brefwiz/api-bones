@@ -14,8 +14,6 @@
 //! // headers now contains traceparent / tracestate if an active span exists
 //! ```
 
-use alloc::string::String;
-
 use http::HeaderMap;
 use opentelemetry::{Context, global, propagation::Injector};
 
