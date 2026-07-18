@@ -1,6 +1,6 @@
 {
   "name": "@brefwiz/api-bones-axios",
-  "version": "4.4.0",
+  "version": "4.5.0",
   "description": "Axios interceptor for transparent ApiResponse envelope stripping in Brefwiz SDKs",
   "author": "Brefwiz Team",
   "license": "MIT",
