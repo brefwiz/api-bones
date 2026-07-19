@@ -1,0 +1,37 @@
+{
+  "name": "@brefwiz/api-bones-otel",
+  "version": "0.1.0",
+  "description": "OpenTelemetry W3C trace-context propagation interceptors for Brefwiz Connect-ES SDKs",
+  "author": "Brefwiz Team",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@connectrpc/connect": "^2.0.0",
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "devDependencies": {
+    "@connectrpc/connect": "^2.0.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/core": "^1.20.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  }
+}

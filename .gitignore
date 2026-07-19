@@ -37,3 +37,11 @@ api-bones-reqwest/Cargo.lock
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 api-bones-axios/*.tgz
+
+# TypeScript packages
+api-bones-axios/node_modules
+api-bones-axios/dist
+api-bones-otel/node_modules
+api-bones-otel/dist
+**/node_modules
+**/dist
