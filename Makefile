@@ -132,6 +132,18 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 		|| { echo "ERROR: wire_surface='$$WS' invalid. Must be one of: $$VALID"; exit 1; }; \
 	echo "spec-check OK: wire_surface=$$WS"
 
+# ─── TypeScript packages ────────────────────────────────────────────────────
+
+.PHONY: ts-build ts-test ts-lint
+ts-build: ## Build TypeScript packages
+	cd api-bones-otel && npm install && npm run build
+
+ts-test: ## Test TypeScript packages
+	cd api-bones-otel && npm install && npm run test
+
+ts-lint: ## Lint TypeScript packages (format check + biome)
+	cd api-bones-otel && npm install
+
 .PHONY: pre-commit
 pre-commit: ci-format ci-lint ci-test ci-changelog ## Run all pre-commit checks (ADR-0021)
 
