@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.8.0] — 2026-07-20
+
+### Added
+
+- **`api-bones-tower`: client-side `TraceContextLayer`** (api-bones-tower 4.5.0),
+  behind that crate's new `opentelemetry` feature. A Tower `Layer` / `Service`
+  that injects the active W3C trace context (`traceparent` / `tracestate`) into
+  every **outbound** request's headers. Because `connectrpc` client transports
+  are `tower::Service`s, stacking this layer once on a client transport makes
+  every call through that client propagate trace context automatically — no
+  per-call `inject_current` boilerplate, and a background task's calls link into
+  a trace exactly like a request handler's, as long as the caller runs inside a
+  span. Reads `Context::current()` at dispatch and is a transparent no-op when no
+  span is active. Complements the existing outbound `propagation::inject_current`
+  helper and the server-side context extraction.
+
+The `api-bones` core crate carries no functional change at 6.8.0; the minor bump
+mints the workspace release train that publishes `api-bones-tower` 4.5.0.
+
 ## [6.7.1] — 2026-07-18
 
 ### Fixed

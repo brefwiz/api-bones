@@ -3,20 +3,22 @@
 //! Provides composable Tower [`Layer`](tower::Layer) / [`Service`](tower::Service)
 //! implementations for:
 //!
-//! | Layer                | What it does                                         |
-//! |----------------------|------------------------------------------------------|
-//! | [`RequestIdLayer`]   | Generates / propagates `X-Request-Id` on every req  |
-//! | [`ProblemJsonLayer`] | Maps non-`ApiError` inner-service errors to Problem+JSON |
+//! | Layer                 | What it does                                         |
+//! |-----------------------|------------------------------------------------------|
+//! | [`RequestIdLayer`]    | Generates / propagates `X-Request-Id` on every req  |
+//! | [`ProblemJsonLayer`]  | Maps non-`ApiError` inner-service errors to Problem+JSON |
+//! | `TraceContextLayer`   | Injects W3C `traceparent`/`tracestate` on every outbound request (feature `opentelemetry`) |
 //!
 //! ## Feature flags
 //!
 //! By default this crate enables `std` and `serde` on `api-bones`.
 //! Additional `api-bones` features can be opted into:
 //!
-//! | Feature  | What it enables                              |
-//! |----------|----------------------------------------------|
-//! | `uuid`   | UUID-based request IDs (`api-bones/uuid`)    |
-//! | `chrono` | Chrono timestamp types (`api-bones/chrono`)  |
+//! | Feature         | What it enables                                                   |
+//! |-----------------|-------------------------------------------------------------------|
+//! | `uuid`          | UUID-based request IDs (`api-bones/uuid`)                         |
+//! | `chrono`        | Chrono timestamp types (`api-bones/chrono`)                       |
+//! | `opentelemetry` | Client-side `TraceContextLayer` — outbound W3C trace-context injection |
 //!
 //! # Example
 //!
@@ -277,6 +279,93 @@ fn api_error_to_response(err: ApiError) -> Response<String> {
 }
 
 // ---------------------------------------------------------------------------
+// TraceContextLayer
+// ---------------------------------------------------------------------------
+
+/// Tower [`Layer`] that injects the active OpenTelemetry trace context into
+/// every outbound request's headers.
+///
+/// It emits W3C `traceparent` / `tracestate` so the callee's span links to the
+/// caller's span instead of starting a fresh orphan-root trace.
+///
+/// This is the client-side complement of the server-side context extraction
+/// the inbound middleware performs. Stack it once on any [`tower::Service`]-based
+/// HTTP transport — for example a `connectrpc` client transport, which is a
+/// `tower::Service<http::Request<_>>` — and **every** call made through that
+/// client propagates trace context automatically: no per-call code, no per-SDK
+/// `inject_current` boilerplate. That "inject on every outbound call, for any
+/// reason" property is the whole point — a background poller's calls propagate
+/// exactly like a request handler's, as long as the caller runs inside a span.
+///
+/// Injection reads [`opentelemetry::Context::current`] at dispatch time, so it
+/// carries whatever span is active on the calling task. When no span is active
+/// the propagator emits nothing, so the layer is a transparent no-op on
+/// untraced calls rather than a source of malformed headers.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// use api_bones_tower::TraceContextLayer;
+/// use tower::ServiceBuilder;
+///
+/// let _svc = ServiceBuilder::new()
+///     .layer(TraceContextLayer::new())
+///     .service(tower::service_fn(|_req: http::Request<()>| async {
+///         Ok::<_, std::convert::Infallible>(http::Response::new(()))
+///     }));
+/// ```
+#[cfg(feature = "opentelemetry")]
+#[derive(Clone, Debug, Default)]
+pub struct TraceContextLayer;
+
+#[cfg(feature = "opentelemetry")]
+impl TraceContextLayer {
+    /// Create a new `TraceContextLayer`.
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(feature = "opentelemetry")]
+impl<S> Layer<S> for TraceContextLayer {
+    type Service = TraceContextService<S>;
+
+    fn layer(&self, inner: S) -> Self::Service {
+        TraceContextService { inner }
+    }
+}
+
+/// Tower [`Service`] produced by [`TraceContextLayer`].
+#[cfg(feature = "opentelemetry")]
+#[derive(Clone, Debug)]
+pub struct TraceContextService<S> {
+    inner: S,
+}
+
+#[cfg(feature = "opentelemetry")]
+impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for TraceContextService<S>
+where
+    S: Service<Request<ReqBody>, Response = Response<ResBody>>,
+{
+    type Response = Response<ResBody>;
+    type Error = S::Error;
+    type Future = S::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: Request<ReqBody>) -> Self::Future {
+        // Inject the active W3C trace context into the outbound request headers
+        // so the callee's span links to the caller's. A no-op when no span is
+        // active on the current task.
+        api_bones::propagation::inject_current(req.headers_mut());
+        self.inner.call(req)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -430,5 +519,87 @@ mod tests {
         let resp = fut.await.unwrap();
         assert!(resp.headers().contains_key("x-request-id"));
         assert!(ready.load(Ordering::SeqCst));
+    }
+
+    #[cfg(feature = "opentelemetry")]
+    #[tokio::test]
+    async fn trace_context_layer_injects_traceparent_on_outbound() {
+        use std::sync::{Arc, Mutex};
+
+        use opentelemetry::Context as OtelContext;
+        use opentelemetry::global;
+        use opentelemetry::trace::{TraceContextExt as _, Tracer as _, TracerProvider as _};
+        use opentelemetry_sdk::propagation::TraceContextPropagator;
+        use opentelemetry_sdk::trace::TracerProvider as SdkTracerProvider;
+        use tower::ServiceExt as _;
+
+        global::set_text_map_propagator(TraceContextPropagator::new());
+        let provider = SdkTracerProvider::builder().build();
+        let tracer = provider.tracer("test");
+        let span = tracer.start("caller-span");
+        let _guard = OtelContext::current_with_span(span).attach();
+
+        // Capture the headers the inner (transport) service actually receives.
+        let seen: Arc<Mutex<Option<http::HeaderMap>>> = Arc::new(Mutex::new(None));
+        let seen_inner = Arc::clone(&seen);
+        let inner = tower::service_fn(move |req: Request<()>| {
+            let seen = Arc::clone(&seen_inner);
+            async move {
+                *seen.lock().expect("headers mutex poisoned") = Some(req.headers().clone());
+                Ok::<Response<()>, std::convert::Infallible>(Response::new(()))
+            }
+        });
+
+        let svc = TraceContextLayer::new().layer(inner);
+        let req = Request::builder()
+            .uri("/")
+            .body(())
+            .expect("request builds");
+        svc.oneshot(req).await.expect("service call succeeds");
+
+        let headers = seen
+            .lock()
+            .expect("headers mutex poisoned")
+            .take()
+            .expect("inner service ran");
+        assert!(
+            headers.contains_key("traceparent"),
+            "expected traceparent injected into outbound headers, got: {headers:?}"
+        );
+    }
+
+    #[cfg(feature = "opentelemetry")]
+    #[tokio::test]
+    async fn trace_context_layer_is_noop_without_active_span() {
+        use std::sync::{Arc, Mutex};
+
+        use tower::ServiceExt as _;
+
+        let seen: Arc<Mutex<Option<http::HeaderMap>>> = Arc::new(Mutex::new(None));
+        let seen_inner = Arc::clone(&seen);
+        let inner = tower::service_fn(move |req: Request<()>| {
+            let seen = Arc::clone(&seen_inner);
+            async move {
+                *seen.lock().expect("headers mutex poisoned") = Some(req.headers().clone());
+                Ok::<Response<()>, std::convert::Infallible>(Response::new(()))
+            }
+        });
+
+        let svc = TraceContextLayer::new().layer(inner);
+        let req = Request::builder()
+            .uri("/")
+            .body(())
+            .expect("request builds");
+        svc.oneshot(req).await.expect("service call succeeds");
+
+        let headers = seen
+            .lock()
+            .expect("headers mutex poisoned")
+            .take()
+            .expect("inner service ran");
+        assert!(
+            !headers.contains_key("traceparent"),
+            "expected no traceparent header when no span is active, got: {headers:?}"
+        );
     }
 }

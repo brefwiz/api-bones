@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-tower"
-version = "4.4.0"
+version = "4.5.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
@@ -26,6 +26,9 @@ rust-version = "1.85"
 uuid = ["api-bones/uuid"]
 ## Enables chrono timestamp support via api-bones/chrono.
 chrono = ["api-bones/chrono"]
+## Enables the client-side `TraceContextLayer` (W3C trace-context injection on
+## outbound requests) via api-bones/opentelemetry.
+opentelemetry = ["api-bones/opentelemetry"]
 
 [dependencies]
 api-bones = { version = "6", path = "..", default-features = false, features = ["std", "serde"] }
@@ -56,6 +59,10 @@ option_if_let_else = "allow"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+# For the TraceContextLayer test: install a W3C propagator + an active span,
+# then assert the layer injects `traceparent` on the outbound request.
+opentelemetry = { version = "0.24" }
+opentelemetry_sdk = { version = "0.24", features = ["trace", "rt-tokio"] }
 
 [[example]]
 name = "request_id"
