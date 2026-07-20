@@ -126,7 +126,7 @@ option_if_let_else = "allow"         # nursery: map_or_else is less readable in 
 [dev-dependencies]
 mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
-opentelemetry_sdk = { version = "0.24", features = ["trace", "rt-tokio"] }
+opentelemetry_sdk = { version = "0.32", features = ["trace", "rt-tokio"] }
 
 [[example]]
 name = "query_builder"
