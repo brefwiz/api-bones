@@ -80,7 +80,7 @@ mod tests {
     fn traceparent_injected_with_propagator_and_active_span() {
         use opentelemetry::trace::{TraceContextExt, Tracer, TracerProvider};
         use opentelemetry_sdk::propagation::TraceContextPropagator;
-        use opentelemetry_sdk::trace::TracerProvider as SdkTracerProvider;
+        use opentelemetry_sdk::trace::SdkTracerProvider;
 
         global::set_text_map_propagator(TraceContextPropagator::new());
         let provider = SdkTracerProvider::builder().build();

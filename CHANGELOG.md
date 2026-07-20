@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.9.0] — 2026-07-20
+
+### Changed
+
+- **Aligned `opentelemetry` / `opentelemetry_sdk` from `0.24` to `0.32`** to match
+  `otel-bootstrap` (the platform's tracing bootstrap). This is a dependency
+  alignment, not a public-API change — `inject_current(&mut HeaderMap)` and the
+  rest of the `opentelemetry`-feature surface are unchanged.
+
+  **Why it matters:** `opentelemetry` 0.x minors are semver-incompatible, so a
+  graph carrying both `0.24` (old api-bones) and `0.32` (otel-bootstrap)
+  maintained **two separate task-local `Context::current()` stacks**.
+  `otel-bootstrap`'s port/axum spans set the active context in the `0.32` stack,
+  while api-bones' `inject_current` read the `0.24` stack — which was empty — so
+  **no `traceparent` was injected** on any outbound call whose parent span was
+  minted by otel-bootstrap. Client spans (KMS/gRPC ports, connectrpc SDK calls)
+  silently produced disconnected root spans instead of linked children. Unifying
+  on `0.32` makes both share one context stack, so trace context propagates
+  end-to-end across the api-bones ↔ otel-bootstrap boundary.
+
 ## [6.8.0] — 2026-07-20
 
 ### Added
