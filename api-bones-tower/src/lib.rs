@@ -530,7 +530,7 @@ mod tests {
         use opentelemetry::global;
         use opentelemetry::trace::{TraceContextExt as _, Tracer as _, TracerProvider as _};
         use opentelemetry_sdk::propagation::TraceContextPropagator;
-        use opentelemetry_sdk::trace::TracerProvider as SdkTracerProvider;
+        use opentelemetry_sdk::trace::SdkTracerProvider;
         use tower::ServiceExt as _;
 
         global::set_text_map_propagator(TraceContextPropagator::new());

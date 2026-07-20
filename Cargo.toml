@@ -21,7 +21,7 @@ pedantic = { level = "deny", priority = -1 }
 
 [package]
 name = "api-bones"
-version = "6.8.0"
+version = "6.9.0"
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
@@ -97,7 +97,7 @@ connectrpc  = { version = "0.7", features = ["client", "client-tls"], optional =
 buffa-types = { version = "0.7", features = ["json"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 tracing     = { version = "0.1", optional = true }
-opentelemetry = { version = "0.24", optional = true }
+opentelemetry = { version = "0.32", optional = true }
 
 [lints.rust]
 # Allow cfg(coverage) set by cargo-llvm-cov
@@ -126,7 +126,7 @@ option_if_let_else = "allow"         # nursery: map_or_else is less readable in 
 [dev-dependencies]
 mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
-opentelemetry_sdk = { version = "0.24", features = ["trace", "rt-tokio"] }
+opentelemetry_sdk = { version = "0.32", features = ["trace", "rt-tokio"] }
 
 [[example]]
 name = "query_builder"
