@@ -49,3 +49,40 @@ jobs:
           git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
           echo "Pushed tag ${{ steps.version.outputs.tag }}"
+
+  # api-bones-otel npm package version → otel-v<X.Y.Z> tag (independent cadence)
+  tag-otel:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Read OTel package version
+        id: version
+        run: |
+          VERSION="$(node -p "require('./api-bones-otel/package.json').version")"
+          echo "tag=otel-v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Detected OTel version: ${VERSION}"
+
+      - name: Check whether tag already exists
+        id: tag_check
+        run: |
+          if git tag --list "${{ steps.version.outputs.tag }}" | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${{ steps.version.outputs.tag }} already exists — skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.tag_check.outputs.exists == 'false'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+          echo "Pushed tag ${{ steps.version.outputs.tag }}"
