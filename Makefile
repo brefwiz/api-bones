@@ -149,4 +149,4 @@ pre-commit: ci-format ci-lint ci-test ci-changelog ## Run all pre-commit checks 
 
 .PHONY: ci-changelog
 ci-changelog: ## CI: verify CHANGELOG.md has entry for current package version (ADR-0021)
-	@bash <(curl -fsSL https://raw.githubusercontent.com/brefwiz/shared-ci-workflows/main/scripts/check-release-changelog.sh)
+	@curl -fsSL https://raw.githubusercontent.com/brefwiz/shared-ci-workflows/main/scripts/check-release-changelog.sh | bash

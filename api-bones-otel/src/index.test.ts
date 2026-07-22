@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { context, trace, propagation, SpanContext, TraceFlags } from "@opentelemetry/api";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { context, trace, propagation, ROOT_CONTEXT, SpanContext, TraceFlags } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import type { UnaryRequest } from "@connectrpc/connect";
-import { addTraceContextInterceptor, injectTraceContext } from "./index";
+import { addTraceContextInterceptor, captureTraceContext, injectTraceContext } from "./index";
 
 // Register a W3C propagator for testing
 const propagator = new W3CTraceContextPropagator();
@@ -89,6 +89,25 @@ describe("injectTraceContext", () => {
 
     expect(carrier.traceparent).toBeDefined();
     expect(carrier.traceparent).toMatch(/^00-[a-f0-9]{32}-[a-f0-9]{16}-[01][0-9a-f]$/);
+  });
+
+  it("injects a captured context after ambient context changes", () => {
+    const activeCtx = trace.setSpanContext(context.active(), createMockSpanContext());
+    const active = vi.spyOn(context, "active").mockReturnValue(activeCtx);
+    const delayedCallbackSource = new EventTarget();
+    const captured = captureTraceContext();
+    const carrier: Record<string, string> = {};
+
+    active.mockReturnValue(ROOT_CONTEXT);
+    delayedCallbackSource.addEventListener("end", () => {
+      injectTraceContext(carrier, captured);
+    });
+    delayedCallbackSource.dispatchEvent(new Event("end"));
+
+    expect(carrier.traceparent).toBe(
+      "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    );
+    active.mockRestore();
   });
 
   it("handles errors gracefully", () => {
