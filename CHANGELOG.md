@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`api-bones-otel` 0.1.1:** `captureTraceContext()` snapshots active
+  OpenTelemetry context for delayed callbacks and stream events, allowing
+  explicit injection after ambient async context changes.
+
 ## [6.9.0] — 2026-07-20
 
 ### Changed

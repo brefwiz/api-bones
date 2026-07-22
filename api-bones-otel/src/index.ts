@@ -9,6 +9,18 @@ import type { Interceptor } from "@connectrpc/connect";
 // ---------------------------------------------------------------------------
 
 /**
+ * Capture the currently active OpenTelemetry context for later use.
+ *
+ * Capture synchronously while the request span is active, then pass the
+ * returned context to {@link injectTraceContext} from delayed callbacks whose
+ * async resource may have been created before the span. This avoids relying on
+ * ambient context after crossing EventEmitter, stream, or callback boundaries.
+ */
+export function captureTraceContext(): Context {
+  return context.active();
+}
+
+/**
  * Inject the active OpenTelemetry trace context as W3C trace headers
  * into a carrier (plain object, Headers, or Map-like).
  *
@@ -33,7 +45,7 @@ export function injectTraceContext(
   ctx?: Context,
 ): void {
   try {
-    const targetContext = ctx ?? context.active();
+    const targetContext = ctx ?? captureTraceContext();
     propagation.inject(targetContext, carrier, {
       set: (c: Record<string, string> | Headers | Map<string, string>, key: string, value: string) => {
         if (c instanceof Headers) {
