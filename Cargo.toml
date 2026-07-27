@@ -84,7 +84,7 @@ axum = { version = "0.8", optional = true }
 http = { version = "1.4.2", optional = true }
 utoipa = { version = "5", optional = true, features = ["uuid", "chrono"] }
 icalendar = { version = "0.17.11", features = ["parser", "serde"], optional = true }
-validator = { version = "0.20", features = ["derive"], optional = true }
+validator = { version = "0.21", features = ["derive"], optional = true }
 fake = { version = "5", optional = true }
 rand = { version = "0.10", optional = true }
 schemars = { version = "1", optional = true }
