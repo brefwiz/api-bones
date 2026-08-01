@@ -3,12 +3,16 @@ name: Release
 # Rust crates release on `v*` tags (e.g. v4.3.0).
 # The `@brefwiz/api-bones-axios` npm package releases on `axios-v*` tags
 # (e.g. axios-v0.1.1) so its cadence is independent of the Rust workspace.
+# `@brefwiz/api-bones-connect` releases on `connect-v*` tags, same pattern.
+# Note the Rust crate `api-bones-connect` releases on `v*` with the workspace —
+# same name, different artifact and different cadence, hence the tag prefix.
 on:
   push:
     tags:
       - 'v*'
       - 'axios-v*'
       - 'otel-v*'
+      - 'connect-v*'
 
 jobs:
   release-rust:
@@ -62,6 +66,25 @@ jobs:
             exit 1
           fi
 
+  validate-connect-tag:
+    # Guard against publishing a version that doesn't match the tag.
+    if: startsWith(github.ref, 'refs/tags/connect-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify connect-v<version> matches package.json
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/connect-v}"
+          PKG_VERSION="$(node -p "require('./api-bones-connect-ts/package.json').version")"
+          echo "Tag version:     ${TAG_VERSION}"
+          echo "Package version: ${PKG_VERSION}"
+          if [ "${TAG_VERSION}" != "${PKG_VERSION}" ]; then
+            echo "::error::tag connect-v${TAG_VERSION} does not match api-bones-connect-ts/package.json version ${PKG_VERSION}"
+            exit 1
+          fi
+
   release-npm:
     needs: [validate-axios-tag]
     if: startsWith(github.ref, 'refs/tags/axios-v')
@@ -78,6 +101,16 @@ jobs:
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
     with:
       packages: "api-bones-otel"
+    permissions:
+      contents: read
+      packages: write
+
+  release-npm-connect:
+    needs: validate-connect-tag
+    if: startsWith(github.ref, 'refs/tags/connect-v')
+    uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
+    with:
+      packages: "api-bones-connect-ts"
     permissions:
       contents: read
       packages: write

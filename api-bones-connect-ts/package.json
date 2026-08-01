@@ -1,0 +1,52 @@
+{
+  "name": "@brefwiz/api-bones-connect",
+  "version": "0.1.0",
+  "description": "Canonical Connect transport profiles for Brefwiz SDKs — shared policy core with browser and Node adapters",
+  "author": "Brefwiz Team",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./web": {
+      "import": "./dist/web.js",
+      "require": "./dist/web.js",
+      "types": "./dist/web.d.ts"
+    },
+    "./node": {
+      "import": "./dist/node.js",
+      "require": "./dist/node.js",
+      "types": "./dist/node.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@bufbuild/protobuf": "^2.0.0",
+    "@connectrpc/connect": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@connectrpc/connect-web": { "optional": true },
+    "@connectrpc/connect-node": { "optional": true }
+  },
+  "devDependencies": {
+    "@bufbuild/protobuf": "^2.0.0",
+    "@connectrpc/connect": "^2.0.0",
+    "@connectrpc/connect-node": "^2.0.0",
+    "@connectrpc/connect-web": "^2.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^3.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
+  }
+}
