@@ -13,6 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenTelemetry context for delayed callbacks and stream events, allowing
   explicit injection after ambient async context changes.
 
+## [6.10.0] — 2026-08-01
+
+### Added
+
+- **`api-bones-protos` 0.3.0: `bones.v1.authz`** — a `MethodOptions` extension
+  declaring the principal class an RPC admits (`AUTHZ_KIND_SERVICE`,
+  `AUTHZ_KIND_USER`, `AUTHZ_KIND_PUBLIC`), with a `reason` that is mandatory for
+  public routes. An absent option means deny, so a new RPC is closed before
+  anyone remembers to close it.
+
+### Fixed
+
+- **`annotations.proto` is now shipped in `api_bones_protos::files()`.** The file
+  existed in the repo but was never exported, so a consumer could not import it
+  from the staged include path without vendoring its own copy.
+
 ## [6.9.0] — 2026-07-20
 
 ### Changed
