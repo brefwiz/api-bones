@@ -1,7 +1,7 @@
 {
   "name": "@brefwiz/api-bones-connect",
-  "version": "0.1.0",
-  "description": "Canonical Connect transport profiles for Brefwiz SDKs — shared policy core with browser and Node adapters",
+  "version": "0.1.1",
+  "description": "Canonical Connect transport profiles for Brefwiz SDKs \u2014 shared policy core with browser and Node adapters",
   "author": "Brefwiz Team",
   "license": "MIT",
   "main": "dist/index.js",
@@ -24,7 +24,9 @@
       "types": "./dist/node.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
@@ -34,8 +36,12 @@
     "@connectrpc/connect": "^2.0.0"
   },
   "peerDependenciesMeta": {
-    "@connectrpc/connect-web": { "optional": true },
-    "@connectrpc/connect-node": { "optional": true }
+    "@connectrpc/connect-web": {
+      "optional": true
+    },
+    "@connectrpc/connect-node": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@bufbuild/protobuf": "^2.0.0",
