@@ -135,14 +135,29 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # ─── TypeScript packages ────────────────────────────────────────────────────
 
 .PHONY: ts-build ts-test ts-lint
+# Every TypeScript package in the repo. Enumerated once and looped over rather
+# than named per target: these were hardcoded to api-bones-otel alone, so
+# api-bones-axios shipped without its build or tests ever running in CI despite
+# having both scripts. A list makes adding a package a one-line change and makes
+# an omission visible.
+TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
+
 ts-build: ## Build TypeScript packages
-	cd api-bones-otel && npm install && npm run build
+	@set -e; for pkg in $(TS_PACKAGES); do \
+		echo "==> build $$pkg"; \
+		( cd $$pkg && npm install --no-audit --no-fund && npm run build ); \
+	done
 
 ts-test: ## Test TypeScript packages
-	cd api-bones-otel && npm install && npm run test
+	@set -e; for pkg in $(TS_PACKAGES); do \
+		echo "==> test $$pkg"; \
+		( cd $$pkg && npm install --no-audit --no-fund && npm run test ); \
+	done
 
 ts-lint: ## Lint TypeScript packages (format check + biome)
-	cd api-bones-otel && npm install
+	@set -e; for pkg in $(TS_PACKAGES); do \
+		( cd $$pkg && npm install --no-audit --no-fund ); \
+	done
 
 .PHONY: pre-commit
 pre-commit: ci-format ci-lint ci-test ci-changelog ## Run all pre-commit checks (ADR-0021)
