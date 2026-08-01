@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import { Code, ConnectError } from "@connectrpc/connect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -12,6 +13,12 @@ import {
   indexGeneratedPolicy,
 } from "./policy";
 import { configureNodeConnectTransport } from "./node";
+import {
+  RetryThrottle,
+  isRetryableMethod,
+  serverPushbackMs,
+} from "./retry";
+import type { GeneratedMethodPolicy } from "./policy";
 
 const method = (over: Record<string, unknown> = {}) => ({
   rpc: "/svc.v1.S/Get",
@@ -124,5 +131,55 @@ describe("node transport", () => {
         policy: { schemaVersion: 1, methods: [method(), method()] },
       }),
     ).toThrow(/malformed or has duplicate RPC entries/);
+  });
+});
+
+describe("retry eligibility", () => {
+  const unary = (idempotency: GeneratedMethodPolicy["idempotency"]): GeneratedMethodPolicy => ({
+    rpc: "/pkg.v1.Svc/Method",
+    procedure: "unary",
+    idempotency,
+    browserCache: { scope: "NO_STORE", maxAgeSeconds: 0 },
+    sensitivity: "UNSPECIFIED",
+    maxEncodedUrlBytes: 4096,
+  });
+
+  it("retries only methods the proto declares safe", () => {
+    expect(isRetryableMethod(unary("NO_SIDE_EFFECTS"))).toBe(true);
+    expect(isRetryableMethod(unary("IDEMPOTENT"))).toBe(true);
+    // The case that matters: an unannotated method is NOT replayed. Bootstrap
+    // token redemption is single-use, and Connect can report Unavailable after
+    // the server already accepted the call.
+    expect(isRetryableMethod(unary("UNSPECIFIED"))).toBe(false);
+  });
+
+  it("fails closed with no policy entry or on streams", () => {
+    expect(isRetryableMethod(undefined)).toBe(false);
+    expect(isRetryableMethod({ ...unary("NO_SIDE_EFFECTS"), procedure: "streaming" })).toBe(false);
+  });
+
+  it("reads Retry-After in both delay-seconds and HTTP-date form", () => {
+    const withHeader = (value: string): ConnectError => {
+      const err = new ConnectError("throttled", Code.ResourceExhausted);
+      err.metadata.set("retry-after", value);
+      return err;
+    };
+    expect(serverPushbackMs(withHeader("2"))).toBe(2000);
+    const now = Date.parse("2026-01-01T00:00:00Z");
+    expect(serverPushbackMs(withHeader("Thu, 01 Jan 2026 00:00:30 GMT"), now)).toBe(30000);
+    expect(serverPushbackMs(withHeader("nonsense"))).toBeNull();
+    expect(serverPushbackMs(new ConnectError("x", Code.Unavailable))).toBeNull();
+  });
+
+  it("suspends retries once the budget drains", () => {
+    const throttle = new RetryThrottle({ maxTokens: 4, tokenRatio: 0.1 });
+    expect(throttle.canRetry).toBe(true);
+    throttle.recordFailure();
+    throttle.recordFailure();
+    // 4 -> 2, which is not above half of 4: a sustained outage stops retrying
+    // instead of multiplying the load that caused it.
+    expect(throttle.canRetry).toBe(false);
+    for (let i = 0; i < 20; i++) throttle.recordSuccess();
+    expect(throttle.canRetry).toBe(true);
   });
 });

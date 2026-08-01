@@ -21,13 +21,13 @@ import { createClientMethodSerializers, createMethodUrl } from "@connectrpc/conn
 import { createConnectTransport, createGrpcWebTransport } from "@connectrpc/connect-web";
 
 import type { BackoffOptions } from "./backoff";
-import { computeBackoffDelay, resolveBackoff } from "./backoff";
 import {
   eligibleBrowserReadPolicy,
   indexGeneratedPolicy,
   MAX_CONNECT_GET_URL_BYTES,
   type SdkTransportProfile,
 } from "./policy";
+import { makeRetryInterceptor, rpcIdentity } from "./retry";
 
 export interface ConnectTransportOptions {
   baseUrl: string;
@@ -61,9 +61,6 @@ export interface ConnectTransportOptions {
   /** Fetch override for browser adapters and focused transport tests. */
   fetch?: typeof globalThis.fetch;
 }
-
-const RETRYABLE_CODES = new Set([Code.Unavailable, Code.Aborted, Code.ResourceExhausted]);
-const MAX_RETRIES = 3;
 
 function makeAuthInterceptor(getToken: () => string | null | undefined): Interceptor {
   return (next) => (req) => {
@@ -106,33 +103,6 @@ function makeUnauthInterceptor(onUnauthorized: () => void): Interceptor {
       throw err;
     }
   };
-}
-
-function makeRetryInterceptor(retryOpts?: BackoffOptions): Interceptor {
-  const backoff = resolveBackoff(retryOpts);
-  return (next) => async (req) => {
-    // Only retry unary requests — streams must handle reconnect separately.
-    if (req.stream) return next(req);
-
-    let attempt = 0;
-    for (;;) {
-      try {
-        return await next(req);
-      } catch (err) {
-        if (err instanceof ConnectError && RETRYABLE_CODES.has(err.code) && attempt < MAX_RETRIES) {
-          const delay = computeBackoffDelay(attempt, backoff);
-          await new Promise<void>((resolve) => setTimeout(resolve, delay));
-          attempt++;
-          continue;
-        }
-        throw err;
-      }
-    }
-  };
-}
-
-function rpcIdentity(method: DescMethodUnary): string {
-  return `/${method.parent.typeName}/${method.name}`;
 }
 
 function encodedConnectGetUrlBytes<I extends DescMessage, O extends DescMessage>(
@@ -212,7 +182,7 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
     ...(getToken ? [makeAuthInterceptor(getToken)] : []),
     makeCsrfInterceptor(),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
-    makeRetryInterceptor(retry),
+    makeRetryInterceptor({ policyByRpc, backoff: retry }),
   ];
 
   const transportOpts = {

@@ -30,3 +30,14 @@ export {
   type GeneratedMethodPolicyDocument,
   type SdkTransportProfile,
 } from "./policy";
+
+export {
+  MAX_RETRY_ATTEMPTS,
+  RetryThrottle,
+  isRetryableMethod,
+  makeRetryInterceptor,
+  rpcIdentity,
+  serverPushbackMs,
+  type RetryInterceptorOptions,
+  type RetryThrottleOptions,
+} from "./retry";

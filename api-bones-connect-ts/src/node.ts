@@ -25,11 +25,8 @@ import {
 } from "@connectrpc/connect-node";
 
 import type { BackoffOptions } from "./backoff";
-import { computeBackoffDelay, resolveBackoff } from "./backoff";
 import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy";
-
-const RETRYABLE_CODES = new Set([Code.Unavailable, Code.Aborted, Code.ResourceExhausted]);
-const MAX_RETRIES = 3;
+import { makeRetryInterceptor } from "./retry";
 
 export interface NodeConnectTransportOptions {
   baseUrl: string;
@@ -85,29 +82,6 @@ function makeUnauthInterceptor(onUnauthorized: () => void): Interceptor {
   };
 }
 
-function makeRetryInterceptor(retryOpts?: BackoffOptions): Interceptor {
-  const backoff = resolveBackoff(retryOpts);
-  return (next) => async (req) => {
-    // Only retry unary requests — streams must handle reconnect separately.
-    if (req.stream) return next(req);
-
-    let attempt = 0;
-    for (;;) {
-      try {
-        return await next(req);
-      } catch (err) {
-        if (err instanceof ConnectError && RETRYABLE_CODES.has(err.code) && attempt < MAX_RETRIES) {
-          const delay = computeBackoffDelay(attempt, backoff);
-          await new Promise<void>((resolve) => setTimeout(resolve, delay));
-          attempt++;
-          continue;
-        }
-        throw err;
-      }
-    }
-  };
-}
-
 /**
  * Build the canonical Connect transport for a Node service, CLI, or harness.
  *
@@ -138,14 +112,17 @@ export function configureNodeConnectTransport(opts: NodeConnectTransportOptions)
     );
   }
 
-  // Parsed for its failure, not its result: indexGeneratedPolicy fails closed to
-  // an empty map, so an empty index alongside a non-empty document means the
-  // artifact is malformed or has duplicate RPCs. Catching that here stops a
-  // drifted policy from being noticed only once a webapp consumes it.
+  // Parsed for its failure as well as its result: indexGeneratedPolicy fails
+  // closed to an empty map, so an empty index alongside a non-empty document
+  // means the artifact is malformed or has duplicate RPCs. Catching that here
+  // stops a drifted policy from being noticed only once a webapp consumes it.
+  //
+  // The same index then decides retry eligibility, so a service that ships no
+  // policy simply gets no retries rather than blind ones.
+  const policyByRpc = indexGeneratedPolicy(policy);
   if (policy !== undefined) {
-    const index = indexGeneratedPolicy(policy);
     const declared = (policy as { methods?: unknown })?.methods;
-    if (Array.isArray(declared) && declared.length > 0 && index.size === 0) {
+    if (Array.isArray(declared) && declared.length > 0 && policyByRpc.size === 0) {
       throw new Error(
         "configureNodeConnectTransport: connect-method-policy.json is malformed or has " +
           "duplicate RPC entries. Regenerate it (check-connect-read-profile.py --write) " +
@@ -158,7 +135,7 @@ export function configureNodeConnectTransport(opts: NodeConnectTransportOptions)
     ...(opts.interceptors ?? []),
     ...(getToken ? [makeAuthInterceptor(getToken)] : []),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
-    makeRetryInterceptor(retry),
+    makeRetryInterceptor({ policyByRpc, backoff: retry }),
   ];
 
   return createConnectTransport({
