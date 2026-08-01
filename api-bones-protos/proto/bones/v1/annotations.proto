@@ -20,6 +20,28 @@
 // SDK generators consume the annotation to emit typed per-RPC error
 // surfaces; undeclared runtime errors map to a catch-all variant
 // keyed off `google.rpc.Status`.
+//
+// `bones.v1.authz` — declares which principal class may call an RPC.
+// The declaration belongs to the contract, so it travels with the
+// contract: the RPC carries it, not the server implementation.
+//
+// Usage:
+//
+//   service ReservationService {
+//     rpc Reserve(ReserveRequest) returns (ReserveResponse) {
+//       option (bones.v1.authz) = { kind: AUTHZ_KIND_SERVICE };
+//     }
+//     rpc GetHealth(GetHealthRequest) returns (GetHealthResponse) {
+//       option (bones.v1.authz) = {
+//         kind: AUTHZ_KIND_PUBLIC,
+//         reason: "liveness probe, no tenant data"
+//       };
+//     }
+//   }
+//
+// An RPC with no `authz` option is denied. A new RPC is therefore
+// secure before anyone remembers it exists; declaring the class is
+// the only way to make it reachable.
 
 syntax = "proto3";
 
@@ -32,4 +54,36 @@ extend google.protobuf.MethodOptions {
   // ALL_CAPS_SNAKE and must match a value in the service's
   // companion error enum. See file header for full semantics.
   repeated string errors = 5102347;
+
+  // Declared authorization class for this RPC. Absent option means
+  // the RPC is denied to every caller. See file header for usage.
+  AuthzRule authz = 5102348;
+}
+
+// Principal class admitted by an RPC.
+enum AuthzKind {
+  // No class declared. Enforcement denies the RPC — the option must
+  // name a class explicitly for the RPC to be reachable.
+  AUTHZ_KIND_UNSPECIFIED = 0;
+
+  // Requires a service principal (SVID-derived workload identity).
+  AUTHZ_KIND_SERVICE = 1;
+
+  // Requires a user principal.
+  AUTHZ_KIND_USER = 2;
+
+  // Served without authentication. `reason` is mandatory and must be
+  // non-empty: an unauthenticated route is a decision that has to be
+  // justified in the contract where reviewers can see it.
+  AUTHZ_KIND_PUBLIC = 3;
+}
+
+// Authorization declaration attached to an RPC.
+message AuthzRule {
+  // Principal class admitted by the RPC.
+  AuthzKind kind = 1;
+
+  // Why the RPC carries this class. Mandatory and non-empty for
+  // AUTHZ_KIND_PUBLIC; optional for the authenticated classes.
+  string reason = 2;
 }
