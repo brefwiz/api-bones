@@ -153,13 +153,34 @@ function encodedConnectGetUrlBytes<I extends DescMessage, O extends DescMessage>
   return new TextEncoder().encode(`${createMethodUrl(baseUrl, method)}${query}`).byteLength;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Send credentials, and classify transport failures as Connect errors.
+ *
+ * Without the catch, a network-level failure escapes as a raw fetch TypeError,
+ * so callers see an opaque exception instead of a Connect code and cannot tell
+ * "server said no" from "server unreachable". Abort and timeout map to
+ * Canceled; everything else is Unavailable.
+ */
 function withCredentials(fetchImpl: typeof globalThis.fetch): typeof globalThis.fetch {
-  return (input, init) =>
-    fetchImpl(input, {
-      ...init,
-      credentials: "include",
-      cache: init?.method === "GET" ? "no-cache" : init?.cache,
-    });
+  return async (input, init) => {
+    try {
+      return await fetchImpl(input, {
+        ...init,
+        credentials: "include",
+        cache: init?.method === "GET" ? "no-cache" : init?.cache,
+      });
+    } catch (error) {
+      if (isRecord(error) && (error.name === "AbortError" || error.name === "TimeoutError")) {
+        const message = typeof error.message === "string" ? error.message : "request canceled";
+        throw new ConnectError(message, Code.Canceled, undefined, undefined, error);
+      }
+      throw ConnectError.from(error, Code.Unavailable);
+    }
+  };
 }
 
 /**
