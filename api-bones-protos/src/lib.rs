@@ -43,6 +43,7 @@ const PAGINATION_PROTO: &[u8] = include_bytes!("../proto/bones/v1/pagination.pro
 const QUERIES_PROTO: &[u8] = include_bytes!("../proto/bones/v1/queries.proto");
 const ERRORS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/errors.proto");
 const RATELIMIT_PROTO: &[u8] = include_bytes!("../proto/bones/v1/ratelimit.proto");
+const ANNOTATIONS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/annotations.proto");
 
 /// Yield `(relative_path, bytes)` pairs for every `bones/v1/*.proto`
 /// file shipped by this crate.
@@ -56,6 +57,7 @@ pub fn files() -> impl Iterator<Item = (&'static str, &'static [u8])> {
         ("bones/v1/queries.proto", QUERIES_PROTO),
         ("bones/v1/errors.proto", ERRORS_PROTO),
         ("bones/v1/ratelimit.proto", RATELIMIT_PROTO),
+        ("bones/v1/annotations.proto", ANNOTATIONS_PROTO),
     ]
     .into_iter()
 }
@@ -65,9 +67,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ships_four_files() {
+    fn ships_five_files() {
         let v: Vec<_> = files().collect();
-        assert_eq!(v.len(), 4);
+        assert_eq!(v.len(), 5);
     }
 
     #[test]
@@ -96,6 +98,23 @@ mod tests {
             "message OffsetPageResponse",
         ] {
             assert!(body.contains(msg), "pagination.proto missing `{msg}`");
+        }
+    }
+
+    #[test]
+    fn annotations_proto_declares_authz_option() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("AuthzRule authz = 5102348;"),
+            "annotations.proto missing the authz method option"
+        );
+        for value in [
+            "AUTHZ_KIND_UNSPECIFIED",
+            "AUTHZ_KIND_SERVICE",
+            "AUTHZ_KIND_USER",
+            "AUTHZ_KIND_PUBLIC",
+        ] {
+            assert!(body.contains(value), "annotations.proto missing `{value}`");
         }
     }
 
