@@ -6,19 +6,19 @@ import {
   DEFAULT_BACKOFF,
   computeBackoffDelay,
   resolveBackoff,
-} from "./backoff";
+} from "./backoff.js";
 import {
   MAX_CONNECT_GET_URL_BYTES,
   eligibleBrowserReadPolicy,
   indexGeneratedPolicy,
-} from "./policy";
-import { configureNodeConnectTransport } from "./node";
+} from "./policy.js";
+import { configureNodeConnectTransport } from "./node.js";
 import {
   RetryThrottle,
   isRetryableMethod,
   serverPushbackMs,
-} from "./retry";
-import type { GeneratedMethodPolicy } from "./policy";
+} from "./retry.js";
+import type { GeneratedMethodPolicy } from "./policy.js";
 
 const method = (over: Record<string, unknown> = {}) => ({
   rpc: "/svc.v1.S/Get",
@@ -181,5 +181,34 @@ describe("retry eligibility", () => {
     expect(throttle.canRetry).toBe(false);
     for (let i = 0; i < 20; i++) throttle.recordSuccess();
     expect(throttle.canRetry).toBe(true);
+  });
+});
+
+describe("package resolution", () => {
+  // The published 0.2.0 emitted ESM with extensionless relative imports while
+  // declaring no module type, so Node refused to resolve `./policy` from
+  // `dist/web.js`. Every test here imports from `src`, which a bundler-style
+  // resolver handles, so the suite stayed green while the artifact consumers
+  // actually install was unusable. Assert the shape the emit depends on.
+  it("declares the module type its emit requires", async () => {
+    const pkg = await import("../package.json", { with: { type: "json" } });
+    expect(pkg.default.type).toBe("module");
+  });
+
+  it("gives every relative specifier an explicit extension", async () => {
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const dir = new URL("../src", import.meta.url).pathname;
+    const offenders: string[] = [];
+    for (const name of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
+      const text = readFileSync(join(dir, name), "utf8");
+      for (const line of text.split("\n")) {
+        const trimmed = line.trimStart();
+        if (!/^(import|export|\} from)\b/.test(trimmed)) continue;
+        const m = /from\s+"(\.\.?\/[^"]+)"/.exec(trimmed);
+        if (m && !/\.(js|json)$/.test(m[1])) offenders.push(`${name}: ${m[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

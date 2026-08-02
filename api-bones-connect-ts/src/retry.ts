@@ -23,9 +23,9 @@
 
 import { Code, ConnectError, type Interceptor } from "@connectrpc/connect";
 
-import type { BackoffOptions } from "./backoff";
-import { computeBackoffDelay, resolveBackoff } from "./backoff";
-import type { GeneratedMethodPolicy } from "./policy";
+import type { BackoffOptions } from "./backoff.js";
+import { computeBackoffDelay, resolveBackoff } from "./backoff.js";
+import type { GeneratedMethodPolicy } from "./policy.js";
 
 /**
  * Codes retried without any server instruction.
