@@ -24,9 +24,9 @@ import {
   createConnectTransport,
 } from "@connectrpc/connect-node";
 
-import type { BackoffOptions } from "./backoff";
-import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy";
-import { makeRetryInterceptor } from "./retry";
+import type { BackoffOptions } from "./backoff.js";
+import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
+import { makeRetryInterceptor } from "./retry.js";
 
 export interface NodeConnectTransportOptions {
   baseUrl: string;

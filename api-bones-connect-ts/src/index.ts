@@ -17,7 +17,7 @@ export {
   resolveBackoff,
   type BackoffConfig,
   type BackoffOptions,
-} from "./backoff";
+} from "./backoff.js";
 
 export {
   MAX_CONNECT_GET_URL_BYTES,
@@ -29,7 +29,7 @@ export {
   type GeneratedMethodPolicy,
   type GeneratedMethodPolicyDocument,
   type SdkTransportProfile,
-} from "./policy";
+} from "./policy.js";
 
 export {
   MAX_RETRY_ATTEMPTS,
@@ -40,4 +40,4 @@ export {
   serverPushbackMs,
   type RetryInterceptorOptions,
   type RetryThrottleOptions,
-} from "./retry";
+} from "./retry.js";

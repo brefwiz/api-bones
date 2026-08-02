@@ -20,14 +20,14 @@ import { Code, ConnectError, type Interceptor, type Transport } from "@connectrp
 import { createClientMethodSerializers, createMethodUrl } from "@connectrpc/connect/protocol";
 import { createConnectTransport, createGrpcWebTransport } from "@connectrpc/connect-web";
 
-import type { BackoffOptions } from "./backoff";
+import type { BackoffOptions } from "./backoff.js";
 import {
   eligibleBrowserReadPolicy,
   indexGeneratedPolicy,
   MAX_CONNECT_GET_URL_BYTES,
   type SdkTransportProfile,
-} from "./policy";
-import { makeRetryInterceptor, rpcIdentity } from "./retry";
+} from "./policy.js";
+import { makeRetryInterceptor, rpcIdentity } from "./retry.js";
 
 export interface ConnectTransportOptions {
   baseUrl: string;

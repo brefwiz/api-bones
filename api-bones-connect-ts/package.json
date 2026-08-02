@@ -1,6 +1,6 @@
 {
   "name": "@brefwiz/api-bones-connect",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Canonical Connect transport profiles for Brefwiz SDKs \u2014 shared policy core with browser and Node adapters",
   "author": "Brefwiz Team",
   "license": "MIT",
@@ -10,17 +10,14 @@
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
     "./web": {
       "import": "./dist/web.js",
-      "require": "./dist/web.js",
       "types": "./dist/web.d.ts"
     },
     "./node": {
       "import": "./dist/node.js",
-      "require": "./dist/node.js",
       "types": "./dist/node.d.ts"
     }
   },
@@ -54,5 +51,6 @@
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",
     "access": "public"
-  }
+  },
+  "type": "module"
 }
