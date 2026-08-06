@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
-import { Code, ConnectError } from "@connectrpc/connect";
+import { Code, ConnectError, createContextValues } from "@connectrpc/connect";
 import { describe, expect, it } from "vitest";
+
+import { CALL_CREDENTIAL, callScopedAuthInterceptor } from "./auth.js";
 
 import {
   DEFAULT_BACKOFF,
@@ -210,5 +212,42 @@ describe("package resolution", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("call-scoped auth (ADR platform/0269)", () => {
+  const call = (credential?: string) => {
+    const header = new Headers();
+    const ctx = createContextValues();
+    if (credential !== undefined) ctx.set(CALL_CREDENTIAL, credential);
+    return { header, ctx };
+  };
+
+  const run = async (credential: string | undefined, header: Headers, ctx: ReturnType<typeof createContextValues>) => {
+    const interceptor = callScopedAuthInterceptor();
+    await interceptor(async (req) => ({ ...req, message: {} }) as never)({
+      header,
+      contextValues: ctx,
+    } as never);
+    return header.get("Authorization");
+  };
+
+  it("binds a different credential to each concurrent call", async () => {
+    // The regression this exists for: a shared credential slot lets one call
+    // observe another's. Two calls in flight together must not.
+    const a = call("claim-a");
+    const b = call("claim-b");
+    const [ra, rb] = await Promise.all([
+      run("claim-a", a.header, a.ctx),
+      run("claim-b", b.header, b.ctx),
+    ]);
+    expect(ra).toBe("Bearer claim-a");
+    expect(rb).toBe("Bearer claim-b");
+  });
+
+  it("leaves a process-wide credential untouched when the call binds none", async () => {
+    const c = call();
+    c.header.set("Authorization", "Bearer service-token");
+    expect(await run(undefined, c.header, c.ctx)).toBe("Bearer service-token");
   });
 });
