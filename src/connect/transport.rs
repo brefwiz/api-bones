@@ -148,11 +148,15 @@ mod tests {
         // this — one would overwrite the other, which is the race ADR
         // platform/0269 exists to make unwritable.
         assert_eq!(
-            a.headers().get("authorization").and_then(|v| v.to_str().ok()),
+            a.headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok()),
             Some("Bearer claim-a")
         );
         assert_eq!(
-            b.headers().get("authorization").and_then(|v| v.to_str().ok()),
+            b.headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok()),
             Some("Bearer claim-b")
         );
     }
