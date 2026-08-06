@@ -7,7 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.11.0] — 2026-08-06
+
 ### Added
+
+- **Per-call auth scoping (ADR platform/0269), in both languages.** A client
+  configured with a static credential carries one identity for its whole
+  lifetime. That is right for a service presenting its own rotating token, and
+  wrong for any caller whose credential varies per call — which was then left
+  with a single option: park the credential somewhere the transport can reach
+  and hope no concurrent call observes it. quorumauth's sealwiz namespace
+  provisioner did exactly that, and concurrent org creations presented each
+  other's claims.
+
+  Rust gains `ConnectCallExt::with_claim` on `connectrpc`'s `CallOptions`,
+  which already carries per-call headers. TypeScript gains `CALL_CREDENTIAL`
+  and `callScopedAuthInterceptor` (`@brefwiz/api-bones-connect/auth`, 0.3.0)
+  over the `contextValues` channel connect-es already threads through every
+  call. Either way the credential rides the request it belongs to: one
+  transport, one connection pool, no per-call TLS work, and no ambient state
+  for two concurrent calls to race on.
+
+  The process-wide token injector is unchanged and remains correct for a
+  genuinely process-wide identity.
 
 - **`api-bones-otel` 0.1.1:** `captureTraceContext()` snapshots active
   OpenTelemetry context for delayed callbacks and stream events, allowing
