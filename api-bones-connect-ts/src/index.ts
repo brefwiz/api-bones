@@ -12,6 +12,12 @@
 //   import { configureNodeConnectTransport } from "@brefwiz/api-bones-connect/node";
 
 export {
+  CALL_CREDENTIAL,
+  callScopedAuthInterceptor,
+  type CallScopedAuthOptions,
+} from "./auth.js";
+
+export {
   DEFAULT_BACKOFF,
   computeBackoffDelay,
   resolveBackoff,

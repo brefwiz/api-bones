@@ -43,7 +43,49 @@ pub fn client_tls_config() -> Arc<RustlsClientConfig> {
         .clone()
 }
 
+/// brefwiz Connect header conventions bound to a SINGLE call (ADR
+/// platform/0269).
+///
+/// [`ConnectConfigExt::with_bearer`] sets a DEFAULT header, so the credential
+/// belongs to the client and therefore to the process. That is right for a
+/// service presenting its own identity and wrong for a caller whose credential
+/// varies per call: sharing one client then means sharing one credential slot,
+/// and the caller is left to keep the right value in it while concurrent calls
+/// read it.
+///
+/// Nobody manages that correctly for long. quorumauth's sealwiz namespace
+/// provisioner held a per-org claim in one shared cell, with a comment
+/// explaining why that was safe — true while the claim named no org, false the
+/// moment it had to. Concurrent org creations presented each other's claims and
+/// sealwiz refused 1892 per run, naming neither operand.
+///
+/// `CallOptions` already carries per-call headers, so the credential can travel
+/// with the request instead:
+///
+/// ```rust,ignore
+/// client.create_namespace(req, CallOptions::default().with_claim(&claim)).await
+/// ```
+///
+/// One client, one connection pool, no per-call TLS work, and a credential
+/// visible to exactly the call it was bound to.
+pub trait ConnectCallExt {
+    /// Present `Authorization: Bearer <token>` on this call only, overriding
+    /// any client default.
+    #[must_use]
+    fn with_claim(self, token: &str) -> Self;
+}
+
+impl ConnectCallExt for connectrpc::client::CallOptions {
+    fn with_claim(self, token: &str) -> Self {
+        self.with_header("authorization", format!("Bearer {token}"))
+    }
+}
+
 /// brefwiz Connect header conventions on connectrpc's `ClientConfig`.
+///
+/// These set DEFAULT headers and so describe the process's own identity. For a
+/// credential that varies per call, use [`ConnectCallExt`] — see ADR
+/// platform/0269 for why a shared default is not a place to put one.
 pub trait ConnectConfigExt {
     /// Add `Authorization: Bearer <token>` as a default header.
     #[must_use]
@@ -93,6 +135,30 @@ mod tests {
     /// build TLS configs in tests. Idempotent — later calls are no-ops.
     fn install_crypto_provider() {
         let _ = connectrpc::rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
+
+    #[test]
+    fn a_call_scoped_claim_rides_the_call_not_the_client() {
+        use super::ConnectCallExt as _;
+        let a = connectrpc::client::CallOptions::default().with_claim("claim-a");
+        let b = connectrpc::client::CallOptions::default().with_claim("claim-b");
+
+        // The point of the primitive: two calls hold different credentials at
+        // the same time. A default header on a shared client cannot express
+        // this — one would overwrite the other, which is the race ADR
+        // platform/0269 exists to make unwritable.
+        assert_eq!(
+            a.headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok()),
+            Some("Bearer claim-a")
+        );
+        assert_eq!(
+            b.headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok()),
+            Some("Bearer claim-b")
+        );
     }
 
     #[test]
