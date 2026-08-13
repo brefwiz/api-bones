@@ -15,6 +15,7 @@ import {
 import { configureNodeConnectTransport } from "./node.js";
 import {
   RetryThrottle,
+  isConnectionWriteFailure,
   isRetryableMethod,
   serverPushbackMs,
 } from "./retry.js";
@@ -169,6 +170,22 @@ describe("retry eligibility", () => {
     expect(serverPushbackMs(withHeader("Thu, 01 Jan 2026 00:00:30 GMT"), now)).toBe(30000);
     expect(serverPushbackMs(withHeader("nonsense"))).toBeNull();
     expect(serverPushbackMs(new ConnectError("x", Code.Unavailable))).toBeNull();
+  });
+
+  it("treats a failed connection write as never having reached the server", () => {
+    // A pooled keep-alive socket the peer already closed: the write fails
+    // before any byte ships, and both adapters report that as Internal.
+    expect(isConnectionWriteFailure(new ConnectError("write EPIPE", Code.Internal))).toBe(true);
+    expect(isConnectionWriteFailure(new ConnectError("socket hang up", Code.Internal))).toBe(true);
+    expect(isConnectionWriteFailure(new ConnectError("read ECONNRESET", Code.Internal))).toBe(true);
+  });
+
+  it("does not mistake a server-side Internal for a connection write failure", () => {
+    // The server ran the call and failed inside it. Replaying that is exactly
+    // the blind retry this module exists to refuse.
+    expect(isConnectionWriteFailure(new ConnectError("nil pointer", Code.Internal))).toBe(false);
+    // Same words, but the peer answered — the code is what separates them.
+    expect(isConnectionWriteFailure(new ConnectError("write EPIPE", Code.Unknown))).toBe(false);
   });
 
   it("suspends retries once the budget drains", () => {
