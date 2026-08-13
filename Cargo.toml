@@ -94,7 +94,7 @@ sha2 = { version = "0.11", optional = true }
 # connect feature — versions must match what buffa-types / generated proto code use.
 # Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
 connectrpc  = { version = "0.7", features = ["client", "client-tls"], optional = true }
-buffa-types = { version = "0.7", features = ["json"], optional = true }
+buffa-types = { version = "0.9", features = ["json"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 tracing     = { version = "0.1", optional = true }
 opentelemetry = { version = "0.32", optional = true }
