@@ -40,6 +40,43 @@ import type { GeneratedMethodPolicy } from "./policy.js";
  */
 const UNPROMPTED_RETRYABLE_CODES: ReadonlySet<Code> = new Set([Code.Unavailable]);
 
+/**
+ * Failures raised while writing the request onto the connection.
+ *
+ * A keep-alive pool hands back a socket the peer has already closed, and the
+ * write fails before any byte of the request is delivered. Both adapters
+ * surface that as Internal — the code Connect uses for "the transport itself
+ * broke" — so the codes above never see it and the call fails outright, even
+ * though nothing ran on the server.
+ *
+ * This is the safest replay there is. Unavailable, which is retried above, can
+ * reach the client AFTER the server accepted the call; a socket that rejected
+ * the write demonstrably carried nothing. Eligibility is still read from the
+ * method's declared idempotency, so widening the code set never widens WHICH
+ * methods may be replayed — only the failure shapes that count as "never left".
+ */
+const CONNECTION_WRITE_FAILURE_SIGNATURES: readonly string[] = [
+  "write epipe",
+  "broken pipe",
+  "econnreset",
+  "connection reset",
+  "socket hang up",
+  "http2 stream closed",
+  "received goaway",
+];
+
+/**
+ * Whether a failure happened before the request reached the server.
+ *
+ * Matched on the message because neither adapter preserves the underlying
+ * `code` property once the reason is wrapped into a ConnectError.
+ */
+export function isConnectionWriteFailure(err: ConnectError): boolean {
+  if (err.code !== Code.Internal) return false;
+  const message = err.rawMessage.toLowerCase();
+  return CONNECTION_WRITE_FAILURE_SIGNATURES.some((signature) => message.includes(signature));
+}
+
 /** Attempts after the initial call. */
 export const MAX_RETRY_ATTEMPTS = 3;
 
@@ -157,6 +194,7 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
         const pushbackMs = serverPushbackMs(err);
         const retryable =
           UNPROMPTED_RETRYABLE_CODES.has(err.code) ||
+          isConnectionWriteFailure(err) ||
           (err.code === Code.ResourceExhausted && pushbackMs !== null);
         if (!retryable) throw err;
 
