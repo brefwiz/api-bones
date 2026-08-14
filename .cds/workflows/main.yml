@@ -128,9 +128,18 @@ jobs:
           python3 /opt/ci-workflows/ci-scripts/ts-command.py \
             --kind build --timeout-seconds 1800 --log-file /tmp/ci-ts.log \
             -- make ci-ts
+      # Emitted here rather than in the analysing job because the producer asks
+      # the type checker which classes satisfy a port, so it needs the resolved
+      # program this job just built. Run before the install and half the imports
+      # resolve to `any`, which satisfies no port — the artifact stays
+      # structurally valid while describing a program with no seams in it.
+      - id: typerel-typescript
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/typerel-typescript-emit@main
+        with:
+          artifact-name: typerel-typescript
 
   # Its own job because it is its own worker class: it compiles nothing and
-  # reads type relations out of the JSON `test` uploaded. Without it a Rust
+  # reads type relations out of the JSON `test` and `ts` uploaded. Without it a
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
@@ -138,7 +147,7 @@ jobs:
     region: brefwiz-light
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
-    needs: [test]
+    needs: [test, ts]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
@@ -151,6 +160,11 @@ jobs:
           checkout: "false"
           repository: ${{ cds.workflow_repository }}
           rustdoc-artifact: rustdoc-json
+          # This repo ships three npm packages, so the tier has a TypeScript
+          # surface to read. Omitted, it reports zero for a language it never
+          # opened — and a zero meaning `read nothing` is byte-identical to one
+          # meaning `read everything and found nothing`.
+          typerel-artifact: typerel-typescript
 
   cargo-package:
     if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
