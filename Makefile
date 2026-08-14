@@ -142,6 +142,13 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # an omission visible.
 TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
 
+.PHONY: ci-connect-ts-publish
+ci-connect-ts-publish: ## Publish @brefwiz/api-bones-connect to the brefwiz npm registry
+	# The registry comes from the package's own publishConfig, so the manifest
+	# stays the single place that decides where this lands.
+	@set -eu; \
+	cd api-bones-connect-ts && npm ci --no-audit --no-fund && npm run build && npm publish --access public
+
 ts-build: ## Build TypeScript packages
 	@set -e; for pkg in $(TS_PACKAGES); do \
 		echo "==> build $$pkg"; \

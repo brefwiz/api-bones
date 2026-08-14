@@ -1,0 +1,75 @@
+# Publishes @brefwiz/api-bones-connect on a connect-v* tag.
+#
+# This repo's canonical home is Gitea; GitHub is a downstream mirror. The
+# package publishes to the brefwiz npm registry, which is what makes it
+# resolvable to consumers whose @brefwiz scope points there — npm and pnpm
+# select a registry per SCOPE rather than per package, so a dependency of a
+# Gitea-published package that lives only on GitHub Packages cannot be resolved
+# by those consumers at all, whatever credentials they hold.
+#
+# Rust crates still release from the mirror's GitHub Actions to crates.io on
+# `v*` tags; this workflow owns only the connect npm lineage.
+
+name: api-bones-connect-ts-release
+
+vars: [brefwiz-secrets, brefwiz-vars]
+
+on:
+  push:
+    tags:
+      - "connect-v[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "connect tag to re-release (e.g. connect-v0.2.2)"
+        required: true
+
+jobs:
+  publish:
+    region: brefwiz-local
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      memory: "4096"
+    env:
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      # CARGO_REGISTRIES_BREFWIZ_TOKEN is the one that carries npm package:write
+      # on this registry; PACKAGE_PUBLISHER_TOKEN 401s there.
+      NPM_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+    steps:
+      - id: resolve
+        env:
+          TAG_INPUT: ${{ cds.workflow.inputs.tag }}
+          REF_NAME_INPUT: ${{ git.ref_name }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          REF="${TAG_INPUT:-$REF_NAME_INPUT}"
+          if [[ ! "$REF" =~ ^connect-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::resolve: tag '$REF' does not match 'connect-vX.Y.Z'"
+            exit 1
+          fi
+          worker output "tag" "$REF"
+          worker output "version" "${BASH_REMATCH[1]}"
+      - id: checkout
+        uses: actions/checkout
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+          fetch-depth: 0
+      # A tag whose version disagrees with the manifest is a mis-mint, not a
+      # release; publishing it would put a version on the registry that no
+      # commit claims.
+      - id: validate
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/validate-release-version@main
+        with:
+          checkout: "false"
+          tag: ${{ steps.resolve.outputs.version }}
+          version-file: api-bones-connect-ts/package.json
+      - id: publish
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
+        with:
+          checkout: "false"
+          make-target: ci-connect-ts-publish
+          package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          npm-publish-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+          gh-packages-read-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
