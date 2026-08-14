@@ -101,6 +101,15 @@ jobs:
         with:
           ref: ${{ jobs.validate-version.outputs.tag }}
           fetch-depth: 0
+      - id: sign-release
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sign-release@main
+        with:
+          checkout: "false"
+          tag: ${{ jobs.validate-version.outputs.tag }}
+          repo: brefwiz/api-bones
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          cosign-key: ${{ vars.brefwiz-secrets.COSIGN_KEY }}
+          cosign-password: ${{ vars.brefwiz-secrets.COSIGN_PASSWORD }}
       - id: gitea-release-create
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/gitea-release-create@main
         with:

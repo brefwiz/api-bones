@@ -37,6 +37,21 @@ on:
         required: true
 
 jobs:
+  # Reads the declared publish surface once, so the pipeline does not restate
+  # inline what SPEC.md and the Makefile already say.
+  publish-config:
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: publish-config
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/publish-config@main
+        with:
+          checkout: "false"
+
   release-plz-pr:
     if: ${{ git.ref_name == 'main' }}
     region: brefwiz-light

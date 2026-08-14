@@ -103,8 +103,8 @@ ci-lockfile-diff: ## Assert Cargo.lock satisfies Cargo.toml
 	# this a moving target: the repo goes red the moment any unrelated transitive
 	# dependency publishes a patch, and the only way out is an unrelated re-lock.
 	# `--locked` fails only when Cargo.lock genuinely no longer satisfies
-	# Cargo.toml, which is the thing worth gating. (ADR-0021; see
-	# ci-workflows/build/brefwiz-service.mk.)
+	# Cargo.toml, which is the thing worth gating. The canonical form lives in
+	# ci-workflows/build/brefwiz-service.mk.
 	@cargo metadata --locked --format-version 1 >/dev/null
 
 .PHONY: sc-001-check
@@ -150,7 +150,7 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
 
 .PHONY: canonical-check
-canonical-check: ## Run the brefwiz canonical structural gates locally (ADR-0086)
+canonical-check: ## Run the brefwiz canonical structural gates locally
 	@if [ -f .ci-workflows/ci-scripts/canonical-check.sh ]; then \
 		bash .ci-workflows/ci-scripts/canonical-check.sh; \
 	elif [ -f /tmp/ci-workflows/ci-scripts/canonical-check.sh ]; then \
@@ -182,15 +182,19 @@ ci-npm-publish: ## Publish every npm package to the brefwiz registry
 	# it npm sends @brefwiz/* to GitHub Packages, which is where these used to
 	# live and is exactly the split that made them unresolvable to consumers
 	# scoped to this registry. publishConfig in each manifest agrees with it.
+	@# npm prepends its own `Bearer ` to _authToken, and the shared Gitea
+	@# credential is stored cargo-style as `Bearer <pat>` — strip the prefix so
+	@# npm sends a single one. A raw PAT passes through unchanged.
 	@set -eu; \
 	REGISTRY="https://git.brefwiz.com/api/packages/brefwiz/npm/"; \
+	REGISTRY_HOST="git.brefwiz.com/api/packages/brefwiz/npm/"; \
+	NPM_AUTH="$${NPM_TOKEN#Bearer }"; \
+	test -n "$$NPM_AUTH" || { echo 'ERROR: NPM_TOKEN is empty — npm publish would fail with ENEEDAUTH'; exit 1; }; \
 	for pkg in $(TS_PACKAGES); do \
 		echo "==> publish $$pkg"; \
-		( cd $$pkg \
-		  && npm config set @brefwiz:registry "$$REGISTRY" --location project \
-		  && npm ci --no-audit --no-fund \
-		  && npm run build \
-		  && npm publish --access public ); \
+		printf '@brefwiz:registry=%s\n//%s:_authToken=%s\n' "$$REGISTRY" "$$REGISTRY_HOST" "$$NPM_AUTH" > $$pkg/.npmrc; \
+		( cd $$pkg && npm ci --no-audit --no-fund && npm run build && npm publish --access public --registry "$$REGISTRY" ); \
+		rm -f $$pkg/.npmrc; \
 	done
 
 ts-build: ## Build TypeScript packages
