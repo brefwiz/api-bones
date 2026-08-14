@@ -29,7 +29,10 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 	cargo check --no-default-features --features alloc,serde
 
 ci-test: ## Run tests with nextest (CI)
-	cargo nextest run --workspace --all-features
+	# --profile ci selects the JUnit-emitting profile the test composite consumes.
+	# Without it the suite passes and the job still fails, on a missing artifact
+	# rather than a failing test.
+	cargo nextest run --workspace --all-features --profile ci
 
 ci-coverage: ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100

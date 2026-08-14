@@ -1,0 +1,7 @@
+# nextest configuration for api-bones
+
+# CI profile: produces the JUnit XML the ci-workflows/test composite consumes.
+# Without it the suite passes and the job still fails, because the composite has
+# no result artifact to publish.
+[profile.ci]
+junit = { path = "junit.xml" }
