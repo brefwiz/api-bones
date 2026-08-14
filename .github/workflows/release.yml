@@ -111,6 +111,15 @@ jobs:
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
     with:
       packages: "api-bones-connect-ts"
+      # Consumers published to the internal registry depend on this package, and
+      # npm/pnpm pick a registry per scope rather than per package — so a
+      # consumer scoped to that registry cannot resolve this one from GitHub
+      # Packages, whatever credentials it holds. Publishing to both keeps it
+      # reachable from either scope. The other packages here have no such
+      # consumer and stay single-registry.
+      mirror-gitea: true
+    secrets:
+      gitea-token: ${{ secrets.GITEA_PACKAGE_TOKEN }}
     permissions:
       contents: read
       packages: write
