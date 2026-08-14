@@ -10,6 +10,18 @@ proto_packages: []
 openapi_path: ~
 publishes: [rust-crates, npm]
 version_ecosystem: rust
+# Ceilings, not targets: they only ratchet down (`--lower` rewrites them as the
+# duplication goes), and a new copy-paste still fails against them. The existing
+# volume is tracked in the issue below rather than accepted silently.
+duplication_baseline:
+  issue: 2
+  adapter_construction: 0
+  noop_in_production: 0
+  test_double_in_production: 0
+  duplicate_dispatch: 0
+  duplicate_literals: 0
+  clone_tokens: 2467
+  test_clone_tokens: 564
 ci_checks:
   license_headers:
     # Cargo metadata is authoritative here: these crates are MIT, and the

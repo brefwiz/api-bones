@@ -1,0 +1,12 @@
+# release-plz owns per-crate versioning and publishing for this workspace.
+#
+# Before this, all eight crates were publishable with no release mechanism
+# publishing them: a version bump merged to main never reached crates.io, and
+# nothing said so — release-single-owner calls that a silent no-publish.
+#
+# `publish` is deliberately absent from every Cargo.toml here, which means
+# crates.io: these are MIT and shipped publicly, unlike the registry-scoped
+# crates in service repos. release-plz reads that from Cargo directly, so the
+# target is not restated here (and `registry` is not a valid key in this file).
+[workspace]
+release = true

@@ -7,15 +7,26 @@
 # Gitea-published package that lives only on GitHub Packages cannot be resolved
 # by those consumers at all, whatever credentials they hold.
 #
-# Rust crates still release from the mirror's GitHub Actions to crates.io on
-# `v*` tags; this workflow owns only the connect npm lineage.
+# Two publish axes, both owned here now that the repo lives in Gitea:
+#
+#   Rust crates -> crates.io, via release-plz on every push to main. All eight
+#   were publishable with no mechanism publishing them: a merged version bump
+#   simply never shipped, and nothing reported it.
+#
+#   @brefwiz/api-bones-connect -> the brefwiz npm registry, on a connect-v* tag.
+#
+# release-plz runs both modes on every push and each is idempotent: release-pr
+# opens/updates the standing bump PR, release publishes whatever an earlier
+# merge already changed, and no-ops otherwise.
 
-name: api-bones-connect-ts-release
+name: api-bones-release
 
 vars: [brefwiz-secrets, brefwiz-vars]
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "connect-v[0-9]*.[0-9]*.[0-9]*"
   workflow_dispatch:
@@ -25,7 +36,54 @@ on:
         required: true
 
 jobs:
+  release-plz-pr:
+    if: ${{ git.ref_name == 'main' }}
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      flavor: checks
+      memory: "1536"
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          fetch-depth: 0
+      - id: release-plz
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/release-plz@main
+        with:
+          checkout: "false"
+          mode: release-pr
+          git-token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
+          forge: gitea
+          gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
+          gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
+          registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-plz-release:
+    if: ${{ git.ref_name == 'main' }}
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      flavor: checks
+      memory: "1536"
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          fetch-depth: 0
+      - id: release-plz
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/release-plz@main
+        with:
+          checkout: "false"
+          mode: release
+          git-token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
+          forge: gitea
+          gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
+          gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
+          registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRY_TOKEN }}
+
   publish:
+    if: ${{ startsWith(git.ref_name, 'connect-v') }}
     region: brefwiz-local
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main

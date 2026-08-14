@@ -68,6 +68,9 @@ jobs:
     region: brefwiz-ram
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-ram@main
+      # The RAM lane is a fixed profile, not a request: the worker backs the
+      # target dir with memory and the placement check requires this exact size.
+      memory: "24576"
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
@@ -87,6 +90,13 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/test@main
         with:
           checkout: "false"
+      # Emitted from the job that already compiled the workspace rather than
+      # paying for a second compile purely to feed the analysis.
+      - id: rustdoc-json
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rustdoc-json-emit@main
+        with:
+          artifact-name: rustdoc-json
+
 
   ts:
     region: brefwiz-local
@@ -111,6 +121,28 @@ jobs:
           python3 /opt/ci-workflows/ci-scripts/ts-command.py \
             --kind build --timeout-seconds 1800 --log-file /tmp/ci-ts.log \
             -- make ci-ts
+
+  # Its own job because it is its own worker class: it compiles nothing and
+  # reads type relations out of the JSON `test` uploaded. Without it a Rust
+  # workspace gets no abstraction-linked duplication signal at all, and silence
+  # reads exactly like a clean workspace.
+  duplication-typed:
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+    needs: [test]
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: duplication-typed
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/duplication-typed@main
+        with:
+          checkout: "false"
+          repository: ${{ cds.workflow_repository }}
+          rustdoc-artifact: rustdoc-json
 
   cargo-package:
     region: brefwiz-local
