@@ -2,7 +2,24 @@
 service: api-bones
 wire_surface: library
 surface_kind: library
-sdk_languages: [rust, typescript]
+# Empty by design. `sdk_languages` declares a *generated SDK* surface backed by
+# a service; api-bones has neither. What it ships is library units: Rust crates
+# (below) and npm packages, each with its own release owner. Declaring rust and
+# typescript here claimed an SDK publish axis — per-language dry-run and publish
+# targets rehearsing a codegen pipeline — that nothing in this repo produces.
+sdk_languages: []
+# The publishable workspace members, kept in step with cargo metadata: an
+# undeclared publishable crate is surface drift, and this repo previously had
+# all eight publishable with no mechanism publishing any of them.
+library_crates:
+  - api-bones
+  - api-bones-connect
+  - api-bones-progenitor
+  - api-bones-protos
+  - api-bones-reqwest
+  - api-bones-sdk-gen
+  - api-bones-test
+  - api-bones-tower
 capability_exposes: []
 capability_consumes: []
 ci_snowflakes: []

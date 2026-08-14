@@ -42,6 +42,11 @@ jobs:
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
 
   clippy:
+    # release-plz's standing bump PR touches manifests and changelogs only.
+    # `checks` stays on that branch because branch protection needs the
+    # combined status it emits; every worker-heavy job below would just
+    # reserve a runner to recompile unchanged code.
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
     region: brefwiz-local
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
     env:
@@ -65,6 +70,7 @@ jobs:
           checkout: "false"
 
   test:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
     region: brefwiz-ram
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-ram@main
@@ -99,6 +105,7 @@ jobs:
 
 
   ts:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
     region: brefwiz-local
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
     env:
@@ -127,6 +134,7 @@ jobs:
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
     region: brefwiz-light
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
@@ -145,6 +153,7 @@ jobs:
           rustdoc-artifact: rustdoc-json
 
   cargo-package:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
     region: brefwiz-local
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
     env:
