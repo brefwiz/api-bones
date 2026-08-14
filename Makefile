@@ -2,7 +2,7 @@
 
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
-	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
+	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc ci-npm-build \
 	lockfile ci-lockfile-diff
 
 .DEFAULT_GOAL := help
@@ -210,9 +210,22 @@ ci-npm-publish: ## Publish every npm package to the brefwiz registry
 	@set -eu; \
 	for pkg in $(TS_PACKAGES); do \
 		echo "==> publish $$pkg"; \
-		printf '@brefwiz:registry=%s\n' "$(NPM_SCOPE_REGISTRY)" > $$pkg/.npmrc; \
-		( cd $$pkg && npm ci --no-audit --no-fund && npm run build && npm publish --access public ); \
+		( cd $$pkg && npm publish --access public ); \
 		rm -f $$pkg/.npmrc; \
+	done
+
+.PHONY: ci-npm-build
+ci-npm-build: ## CI: install and build every npm package, ready to publish
+	# Split out of the publish so the packing rehearsal between them has
+	# something real to pack. publish-readiness-npm asks to be called from a job
+	# that has already installed and built; run before that, it packs a tree
+	# with no dist/ in it and proves nothing about what would ship. The .npmrc
+	# written here is scope routing only, and the publish half removes it.
+	@set -eu; \
+	for pkg in $(TS_PACKAGES); do \
+		echo "==> build $$pkg"; \
+		printf '@brefwiz:registry=%s\n' "$(NPM_SCOPE_REGISTRY)" > $$pkg/.npmrc; \
+		( cd $$pkg && npm ci --no-audit --no-fund && npm run build ); \
 	done
 
 ts-build: ## Build TypeScript packages

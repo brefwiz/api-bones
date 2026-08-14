@@ -65,17 +65,31 @@ jobs:
           checkout: "false"
           tag: ${{ steps.resolve.outputs.version }}
           version-file: api-bones-connect-ts/package.json
+      # Installed and built first, so the rehearsal below packs what would
+      # actually ship rather than an empty tree.
+      - id: build
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
+        with:
+          checkout: "false"
+          make-target: ci-npm-build
+          package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          npm-publish-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+          gh-packages-read-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+          registry-name: gitea
+          registry-scope: "@brefwiz"
       # Proves each package packs before any of them is published: a publish
       # that fails on the third package has already put the first two on the
       # registry, and npm versions are immutable.
       #
-      # No token and no registry: packing is fully local, so a credential here
-      # buys nothing and a registry URL only offers a way to name the wrong one.
+      # `build: false` because the step above already did it. No token and no
+      # registry either: packing is fully local, so a credential here buys
+      # nothing and a registry URL only offers a way to name the wrong one.
       - id: publish-readiness
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/publish-readiness-npm@main
         with:
           checkout: "false"
           workspaces: api-bones-otel api-bones-axios api-bones-connect-ts
+          build: "false"
       - id: publish
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
         with:
