@@ -13,7 +13,8 @@
 #   were publishable with no mechanism publishing them: a merged version bump
 #   simply never shipped, and nothing reported it.
 #
-#   @brefwiz/api-bones-connect -> the brefwiz npm registry, on a connect-v* tag.
+# The npm surface is its own axis and lives in sdk-release.yml: a split release
+# axis needs a dedicated workflow, not a second trigger bolted onto this one.
 #
 # release-plz runs both modes on every push and each is idempotent: release-pr
 # opens/updates the standing bump PR, release publishes whatever an earlier
@@ -28,11 +29,11 @@ on:
     branches:
       - main
     tags:
-      - "connect-v[0-9]*.[0-9]*.[0-9]*"
+      - "[0-9]*.[0-9]*.[0-9]*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "connect tag to re-release (e.g. connect-v0.2.2)"
+        description: "Semver tag to re-release (e.g. 3.1.0)"
         required: true
 
 jobs:
@@ -82,52 +83,53 @@ jobs:
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
           registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRY_TOKEN }}
 
-  publish:
-    if: ${{ startsWith(git.ref_name, 'connect-v') }}
-    region: brefwiz-local
+  # Mandatory on every release pipeline: a tag whose version disagrees with the
+  # manifest is a mis-mint, and publishing it puts a version on the registry
+  # that no commit claims.
+  validate-version:
+    if: ${{ startsWith(git.ref_name, '0') || startsWith(git.ref_name, '1') || startsWith(git.ref_name, '2') || startsWith(git.ref_name, '3') || startsWith(git.ref_name, '4') || startsWith(git.ref_name, '5') || startsWith(git.ref_name, '6') || startsWith(git.ref_name, '7') || startsWith(git.ref_name, '8') || startsWith(git.ref_name, '9') }}
+    region: brefwiz-light
     runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-      memory: "4096"
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
     env:
-      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-      # CARGO_REGISTRIES_BREFWIZ_TOKEN is the one that carries npm package:write
-      # on this registry; PACKAGE_PUBLISHER_TOKEN 401s there.
-      NPM_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
     steps:
-      - id: resolve
-        env:
-          TAG_INPUT: ${{ cds.workflow.inputs.tag }}
-          REF_NAME_INPUT: ${{ git.ref_name }}
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          REF="${TAG_INPUT:-$REF_NAME_INPUT}"
-          if [[ ! "$REF" =~ ^connect-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-            echo "::error::resolve: tag '$REF' does not match 'connect-vX.Y.Z'"
-            exit 1
-          fi
-          worker output "tag" "$REF"
-          worker output "version" "${BASH_REMATCH[1]}"
       - id: checkout
         uses: actions/checkout
         with:
-          ref: ${{ steps.resolve.outputs.tag }}
+          ref: ${{ git.ref_name }}
           fetch-depth: 0
-      # A tag whose version disagrees with the manifest is a mis-mint, not a
-      # release; publishing it would put a version on the registry that no
-      # commit claims.
       - id: validate
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/validate-release-version@main
         with:
           checkout: "false"
-          tag: ${{ steps.resolve.outputs.version }}
-          version-file: api-bones-connect-ts/package.json
-      - id: publish
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
+          tag: ${{ git.ref_name }}
+
+  # Mandatory audit trail: the release that shipped, recorded against the tag.
+  gitea-release:
+    needs: [validate-version]
+    if: ${{ !failure() && !cancelled() }}
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
+    env:
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          ref: ${{ git.ref_name }}
+          fetch-depth: 0
+      - id: gitea-release-create
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/gitea-release-create@main
         with:
           checkout: "false"
-          make-target: ci-connect-ts-publish
-          package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-          npm-publish-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
-          gh-packages-read-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+          tag: ${{ git.ref_name }}
+          repo: brefwiz/api-bones
+          token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          release-notes-extra: |
+            ### Artifacts published
+            - Rust crates (crates.io), published per-crate by release-plz.
+            - npm packages release on their own axis — see sdk-release.yml.

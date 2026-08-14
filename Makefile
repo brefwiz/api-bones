@@ -176,12 +176,22 @@ cds-lint: ## Validate .cds/workflows/ YAML via cdsctl — catches schema breakag
 .PHONY: ci-ts
 ci-ts: ts-lint ts-build ts-test ## CI: the whole TypeScript lane in one target
 
-.PHONY: ci-connect-ts-publish
-ci-connect-ts-publish: ## Publish @brefwiz/api-bones-connect to the brefwiz npm registry
-	# The registry comes from the package's own publishConfig, so the manifest
-	# stays the single place that decides where this lands.
+.PHONY: ci-npm-publish
+ci-npm-publish: ## Publish every npm package to the brefwiz registry
+	# The scope is routed explicitly rather than left to the environment: without
+	# it npm sends @brefwiz/* to GitHub Packages, which is where these used to
+	# live and is exactly the split that made them unresolvable to consumers
+	# scoped to this registry. publishConfig in each manifest agrees with it.
 	@set -eu; \
-	cd api-bones-connect-ts && npm ci --no-audit --no-fund && npm run build && npm publish --access public
+	REGISTRY="https://git.brefwiz.com/api/packages/brefwiz/npm/"; \
+	for pkg in $(TS_PACKAGES); do \
+		echo "==> publish $$pkg"; \
+		( cd $$pkg \
+		  && npm config set @brefwiz:registry "$$REGISTRY" --location project \
+		  && npm ci --no-audit --no-fund \
+		  && npm run build \
+		  && npm publish --access public ); \
+	done
 
 ts-build: ## Build TypeScript packages
 	@set -e; for pkg in $(TS_PACKAGES); do \

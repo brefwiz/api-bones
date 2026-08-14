@@ -16,6 +16,9 @@ on:
   push:
     branches:
       - "**"
+      # release-plz's standing bump PR changes manifests and changelogs only.
+      # Running the full lane there reserves workers on a metadata-only branch.
+      - "!release-plz-**"
 
 jobs:
   checks:
@@ -168,10 +171,12 @@ jobs:
           checkout: "false"
           patch-workspace-deps: "true"
 
-  auto-tag:
+  # Required for a repo that publishes library crates (ADR-0086): asserts each
+  # publishable crate can actually be packaged and published before a release
+  # tries it for real.
+  lib-crate-publish-gate:
     region: brefwiz-local
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-    if: ${{ git.ref_name == 'main' }}
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
@@ -181,15 +186,15 @@ jobs:
       RUSTC_WRAPPER: sccache
       SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
       CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
     steps:
       - id: checkout
         uses: actions/checkout
-        with:
-          fetch-depth: 0
-      - id: auto-tag
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/auto-tag@main
+      - id: lib-crate-publish-gate
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/lib-crate-publish-gate@main
         with:
           checkout: "false"
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-          git-user-name: cds-bot
-          git-user-email: ci@brefwiz.com
+          brefwiz_token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}

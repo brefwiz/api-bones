@@ -1,0 +1,113 @@
+# npm publish axis for api-bones. Separate from release.yml by design: the crate
+# lineage and the npm lineage version independently, and a split release axis
+# needs its own workflow rather than a second trigger on the crate one.
+#
+# All three packages publish to the brefwiz registry. They used to sit on GitHub
+# Packages while their consumers resolved the @brefwiz scope from Gitea, and npm
+# picks a registry per SCOPE rather than per package — so a dependent published
+# to Gitea could not resolve them at all, whatever credentials it held.
+
+name: api-bones-sdk-release
+
+vars: [brefwiz-secrets, brefwiz-vars]
+
+on:
+  push:
+    tags:
+      - "sdk/v[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "SDK tag to re-release (e.g. sdk/v0.2.2)"
+        required: true
+
+jobs:
+  validate-version:
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
+    outputs:
+      tag:
+        value: ${{ steps.resolve.outputs.tag }}
+      version:
+        value: ${{ steps.resolve.outputs.version }}
+    env:
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+    steps:
+      - id: resolve
+        env:
+          TAG_INPUT: ${{ cds.workflow.inputs.tag }}
+          REF_NAME_INPUT: ${{ git.ref_name }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          REF="${TAG_INPUT:-$REF_NAME_INPUT}"
+          if [[ ! "$REF" =~ ^sdk/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::resolve: tag '$REF' does not match 'sdk/vX.Y.Z'"
+            exit 1
+          fi
+          worker output "tag" "$REF"
+          worker output "version" "${BASH_REMATCH[1]}"
+      - id: checkout
+        uses: actions/checkout
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+          fetch-depth: 0
+      - id: validate
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/validate-release-version@main
+        with:
+          checkout: "false"
+          tag: ${{ steps.resolve.outputs.version }}
+          version-file: api-bones-connect-ts/package.json
+
+  publish:
+    needs: [validate-version]
+    region: brefwiz-local
+    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    env:
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      # The token carrying npm package:write on this registry.
+      # PACKAGE_PUBLISHER_TOKEN 401s there.
+      NPM_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          ref: ${{ jobs.validate-version.outputs.tag }}
+          fetch-depth: 0
+      - id: publish
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
+        with:
+          checkout: "false"
+          make-target: ci-npm-publish
+          package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          npm-publish-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+          gh-packages-read-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+
+  gitea-release:
+    needs: [validate-version, publish]
+    if: ${{ !failure() && !cancelled() }}
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
+    env:
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          ref: ${{ jobs.validate-version.outputs.tag }}
+          fetch-depth: 0
+      - id: gitea-release-create
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/gitea-release-create@main
+        with:
+          checkout: "false"
+          tag: ${{ jobs.validate-version.outputs.tag }}
+          repo: brefwiz/api-bones
+          token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          release-notes-extra: |
+            ### Artifacts published
+            - npm (brefwiz registry): @brefwiz/api-bones-connect, @brefwiz/api-bones-axios, @brefwiz/api-bones-otel
