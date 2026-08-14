@@ -111,6 +111,14 @@ jobs:
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
     with:
       packages: "api-bones-connect-ts"
+      # @brefwiz/core-ui depends on this package at runtime and is published to
+      # the Gitea registry. Consumers map the whole @brefwiz scope to a single
+      # registry, so publishing this one to GitHub Packages alone makes core-ui
+      # uninstallable everywhere — the dependency 404s whichever registry the
+      # consumer picks. Mirror it so the scope resolves as a whole.
+      mirror-gitea: true
+    secrets:
+      gitea-token: ${{ secrets.GITEA_PACKAGES_TOKEN }}
     permissions:
       contents: read
       packages: write
