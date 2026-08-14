@@ -91,6 +91,9 @@ jobs:
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
     with:
       packages: "api-bones-axios"
+      mirror-gitea: true
+    secrets:
+      gitea-token: ${{ secrets.GITEA_PACKAGES_TOKEN }}
     permissions:
       contents: read
       packages: write
@@ -101,6 +104,9 @@ jobs:
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
     with:
       packages: "api-bones-otel"
+      mirror-gitea: true
+    secrets:
+      gitea-token: ${{ secrets.GITEA_PACKAGES_TOKEN }}
     permissions:
       contents: read
       packages: write
@@ -111,6 +117,9 @@ jobs:
     uses: brefwiz/shared-ci-workflows/.github/workflows/release-npm.yml@main
     with:
       packages: "api-bones-connect-ts"
+      mirror-gitea: true
+    secrets:
+      gitea-token: ${{ secrets.GITEA_PACKAGES_TOKEN }}
     permissions:
       contents: read
       packages: write
