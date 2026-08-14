@@ -109,5 +109,5 @@ If the shape varies per service, it doesn't belong here.
 ## CI
 
 `make proto-lint` runs `buf lint`; `make proto-breaking` runs `buf
-breaking` against `origin/main`. Both are gated in
-`.github/workflows/proto.yml`.
+breaking` against `origin/main`. Both are gated by the canonical checks in
+`.cds/workflows/main.yml`.

@@ -32,10 +32,11 @@ jobs:
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
     env:
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-      # The token carrying npm package:write on this registry.
-      # PACKAGE_PUBLISHER_TOKEN 401s there.
-      NPM_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+      # No NPM_TOKEN here. The publish credential is the composite's
+      # `npm-publish-token` input below; setting it as job env as well suggests
+      # the make target reads it, which is exactly the assumption that broke
+      # this release — the wrapper strips that name before running make.
     steps:
       - id: resolve
         env:
@@ -82,6 +83,13 @@ jobs:
           package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
           npm-publish-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
           gh-packages-read-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+          # Not optional here. Left unset, the wrapper resolves the @brefwiz
+          # scope to GitHub Packages by default and writes that into the .npmrc
+          # it hands make — which would publish these packages to the very
+          # registry this whole change exists to move them off, while every
+          # consumer resolves the scope from Gitea.
+          registry-url: ${{ vars.brefwiz-vars.NPM_CONFIG_REGISTRY }}
+          registry-scope: "@brefwiz"
       - id: sign-release
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sign-release@main
         with:

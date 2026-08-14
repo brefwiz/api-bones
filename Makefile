@@ -157,6 +157,12 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # an omission visible.
 TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
 
+# The brefwiz npm registry, as the @brefwiz scope must resolve it: the Gitea
+# package endpoint. Other hostnames that look like a registry for this org do
+# not serve one, and naming them even to warn against them trips the gate that
+# bans them.
+NPM_SCOPE_REGISTRY := https://git.brefwiz.com/api/packages/brefwiz/npm/
+
 .PHONY: canonical-check
 canonical-check: ## Run the brefwiz canonical structural gates locally
 	@if [ -f .ci-workflows/ci-scripts/canonical-check.sh ]; then \
@@ -186,22 +192,26 @@ ci-ts: ts-lint ts-build ts-test ## CI: the whole TypeScript lane in one target
 
 .PHONY: ci-npm-publish
 ci-npm-publish: ## Publish every npm package to the brefwiz registry
-	# The scope is routed explicitly rather than left to the environment: without
-	# it npm sends @brefwiz/* to GitHub Packages, which is where these used to
-	# live and is exactly the split that made them unresolvable to consumers
-	# scoped to this registry. publishConfig in each manifest agrees with it.
-	@# npm prepends its own `Bearer ` to _authToken, and the shared Gitea
-	@# credential is stored cargo-style as `Bearer <pat>` — strip the prefix so
-	@# npm sends a single one. A raw PAT passes through unchanged.
+	# No credential handling here, deliberately. The npm-authenticated-make
+	# composite that invokes this target materializes the credential into an
+	# .npmrc, points npm at it through NPM_CONFIG_USERCONFIG, and then strips
+	# NPM_TOKEN from this process's environment on purpose — so a target that
+	# reads NPM_TOKEN sees nothing at all (not an empty value: unset), and a
+	# target that writes its own .npmrc is reimplementing what it was already
+	# handed. This one assembles no auth and names no registry host.
+	#
+	# Routing IS declared here, unlike auth. npm selects a registry per SCOPE,
+	# and the scope setting in the CI environment overrides a bare `registry`,
+	# so leaving @brefwiz unrouted sends these packages to GitHub Packages —
+	# where they used to live, and where consumers resolving the scope from
+	# Gitea cannot see them whatever credentials they hold. Each manifest's
+	# publishConfig.registry agrees with this; stating it here as well keeps it
+	# true for a manifest that gets regenerated.
 	@set -eu; \
-	REGISTRY="https://git.brefwiz.com/api/packages/brefwiz/npm/"; \
-	REGISTRY_HOST="git.brefwiz.com/api/packages/brefwiz/npm/"; \
-	NPM_AUTH="$${NPM_TOKEN#Bearer }"; \
-	test -n "$$NPM_AUTH" || { echo 'ERROR: NPM_TOKEN is empty — npm publish would fail with ENEEDAUTH'; exit 1; }; \
 	for pkg in $(TS_PACKAGES); do \
 		echo "==> publish $$pkg"; \
-		printf '@brefwiz:registry=%s\n//%s:_authToken=%s\n' "$$REGISTRY" "$$REGISTRY_HOST" "$$NPM_AUTH" > $$pkg/.npmrc; \
-		( cd $$pkg && npm ci --no-audit --no-fund && npm run build && npm publish --access public --registry "$$REGISTRY" ); \
+		printf '@brefwiz:registry=%s\n' "$(NPM_SCOPE_REGISTRY)" > $$pkg/.npmrc; \
+		( cd $$pkg && npm ci --no-audit --no-fund && npm run build && npm publish --access public ); \
 		rm -f $$pkg/.npmrc; \
 	done
 
