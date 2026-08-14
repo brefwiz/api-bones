@@ -2,7 +2,7 @@
 
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
-	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check \
+	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
 	lockfile ci-lockfile-diff
 
 .DEFAULT_GOAL := help
@@ -22,6 +22,14 @@ ci-format: ## Check formatting (CI)
 
 ci-lint: ## Run Clippy (CI — zero warnings)
 	cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
+
+ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
+	# Nothing else in this repo compiles documentation: ci-lint is clippy, which
+	# never evaluates rustdoc lints. Broken intra-doc links therefore accumulated
+	# invisibly until the rustdoc JSON emit in the test job started failing on
+	# them — and because rustdoc aborts at the first crate that fails, they
+	# surfaced one crate per CI round. This checks the whole workspace at once.
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
 
 ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regression guard for issue 80)
 	cargo check --no-default-features
