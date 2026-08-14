@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! RFC 7807 / 9457 `ProblemJson` response type.
 //!
 //! Demonstrates converting an [`ApiError`] to a [`ProblemJson`], adding

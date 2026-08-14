@@ -1,6 +1,7 @@
+// SPDX-License-Identifier: MIT
 //! Tower middleware building blocks for api-bones services.
 //!
-//! Provides composable Tower [`Layer`](tower::Layer) / [`Service`](tower::Service)
+//! Provides composable Tower [`Layer`] / [`Service`]
 //! implementations for:
 //!
 //! | Layer                 | What it does                                         |
@@ -297,7 +298,7 @@ fn api_error_to_response(err: ApiError) -> Response<String> {
 /// reason" property is the whole point — a background poller's calls propagate
 /// exactly like a request handler's, as long as the caller runs inside a span.
 ///
-/// Injection reads [`opentelemetry::Context::current`] at dispatch time, so it
+/// Injection reads `opentelemetry::Context::current` at dispatch time, so it
 /// carries whatever span is active on the calling task. When no span is active
 /// the propagator emits nothing, so the layer is a transparent no-op on
 /// untraced calls rather than a source of malformed headers.

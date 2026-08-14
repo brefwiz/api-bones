@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 mod etag;
 mod paginated;
 mod principal;

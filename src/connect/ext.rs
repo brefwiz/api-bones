@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use connectrpc::ConnectError;
 
 mod private {

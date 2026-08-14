@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use api_bones::pagination::PaginatedResponse;
 
 /// Builder for a fake [`PaginatedResponse<T>`].

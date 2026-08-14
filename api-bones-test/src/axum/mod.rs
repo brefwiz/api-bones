@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pub mod assertions;
 pub mod server;
 

@@ -242,7 +242,7 @@ impl OrgId {
     ///
     /// This parser is intended for callers that do **not** run behind an
     /// `AuthLayer` — e.g. webhook-signature verifiers, out-of-band tooling —
-    /// and therefore cannot use [`OrganizationContext`]. Handlers served by
+    /// and therefore cannot use `OrganizationContext`. Handlers served by
     /// axum routers must consume `OrganizationContext` instead, per
     /// ADR platform/0015.
     ///

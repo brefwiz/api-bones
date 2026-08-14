@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Standalone `RequestId` newtype for tracing HTTP requests end-to-end.
 //!
 //! `RequestId` is a UUID v4 wrapper that surfaces the `X-Request-Id` header

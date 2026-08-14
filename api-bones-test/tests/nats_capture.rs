@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #![cfg(feature = "nats")]
 // Integration test — requires a running NATS server with JetStream enabled.
 // Skipped automatically when NATS_URL is not set.

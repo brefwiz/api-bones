@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `OpenAPI` schema helpers: [`Example`] wrapper and [`DeprecatedField`] marker.
 //!
 //! ## `Example<T>`

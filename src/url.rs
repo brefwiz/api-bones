@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Fluent URL and query-string builders.
 //!
 //! # [`UrlBuilder`]

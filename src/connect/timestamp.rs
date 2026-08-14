@@ -1,7 +1,8 @@
+// SPDX-License-Identifier: MIT
 use buffa_types::google::protobuf::Timestamp;
 use chrono::{DateTime, Utc};
 
-/// Convert a [`chrono::DateTime<Utc>`] to a [`google.protobuf.Timestamp`].
+/// Convert a [`chrono::DateTime<Utc>`] to a [`Timestamp`] (`google.protobuf.Timestamp`).
 ///
 /// # Safety of the subsec cast
 ///

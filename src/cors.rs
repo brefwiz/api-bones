@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Typed helpers for CORS response headers (`Access-Control-*`).
 //!
 //! [`CorsHeaders`] models the complete set of CORS response headers defined in
@@ -41,7 +42,7 @@ use serde::{Deserialize, Serialize};
 /// The value of the `Access-Control-Allow-Origin` header.
 ///
 /// - [`CorsOrigin::Any`] — `*`
-/// - [`CorsOrigin::Origin(url)`] — a specific origin URL
+/// - [`CorsOrigin::Origin`] — a specific origin URL
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]

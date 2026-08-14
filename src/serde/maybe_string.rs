@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Serde module that accepts either a string **or** a number and coerces the
 //! value to the target type via [`core::str::FromStr`].
 //!

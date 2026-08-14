@@ -1,0 +1,198 @@
+# CI for api-bones, whose canonical home is Gitea (GitHub is a downstream
+# mirror). Mirrors the Gitea-primary library shape used by sqlx-switchboard:
+# canonical checks, the Rust gates, and the crate-publish preflights.
+#
+# api-bones also ships three npm packages, so there is a TypeScript lane the
+# Rust-only template has no equivalent for. It runs through ts-command.py with
+# an explicit deadline: package-manager work must not be able to wedge a runner,
+# and the canonical npm wrapper's budget is sized for installs rather than for
+# building and testing three packages.
+
+name: api-bones-ci
+
+vars: [brefwiz-secrets, brefwiz-vars]
+
+on:
+  push:
+    branches:
+      - "**"
+
+jobs:
+  checks:
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: checks
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
+        with:
+          checkout: "false"
+          # Both are required and neither can be inherited. Without `repository`
+          # the runner cannot resolve which repo it is and aborts before it
+          # reports anything; without the token, adr-conformance reads
+          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
+          # composite takes inputs, not the job's ambient env.
+          repository: ${{ cds.workflow_repository }}
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+
+  clippy:
+    # release-plz's standing bump PR touches manifests and changelogs only.
+    # `checks` stays on that branch because branch protection needs the
+    # combined status it emits; every worker-heavy job below would just
+    # reserve a runner to recompile unchanged code.
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    region: brefwiz-local
+    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: clippy
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
+        with:
+          checkout: "false"
+
+  test:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    region: brefwiz-ram
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-ram@main
+      # The RAM lane is a fixed profile, not a request: the worker backs the
+      # target dir with memory and the placement check requires this exact size.
+      memory: "24576"
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: test
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/test@main
+        with:
+          checkout: "false"
+      # Emitted from the job that already compiled the workspace rather than
+      # paying for a second compile purely to feed the analysis.
+      - id: rustdoc-json
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rustdoc-json-emit@main
+        with:
+          artifact-name: rustdoc-json
+
+
+  ts:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    region: brefwiz-local
+    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    env:
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: npm-auth
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-auth@main
+        with:
+          checkout: "false"
+          npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          registry-url: ${{ vars.brefwiz-vars.NPM_CONFIG_REGISTRY }}
+      - id: ts
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          python3 /opt/ci-workflows/ci-scripts/ts-command.py \
+            --kind build --timeout-seconds 1800 --log-file /tmp/ci-ts.log \
+            -- make ci-ts
+      # Emitted here rather than in the analysing job because the producer asks
+      # the type checker which classes satisfy a port, so it needs the resolved
+      # program this job just built. Run before the install and half the imports
+      # resolve to `any`, which satisfies no port — the artifact stays
+      # structurally valid while describing a program with no seams in it.
+      - id: typerel-typescript
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/typerel-typescript-emit@main
+        with:
+          artifact-name: typerel-typescript
+
+  # Its own job because it is its own worker class: it compiles nothing and
+  # reads type relations out of the JSON `test` and `ts` uploaded. Without it a
+  # workspace gets no abstraction-linked duplication signal at all, and silence
+  # reads exactly like a clean workspace.
+  duplication-typed:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+    needs: [test, ts]
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: duplication-typed
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/duplication-typed@main
+        with:
+          checkout: "false"
+          repository: ${{ cds.workflow_repository }}
+          rustdoc-artifact: rustdoc-json
+          # This repo ships three npm packages, so the tier has a TypeScript
+          # surface to read. Omitted, it reports zero for a language it never
+          # opened — and a zero meaning `read nothing` is byte-identical to one
+          # meaning `read everything and found nothing`.
+          typerel-artifact: typerel-typescript
+
+  cargo-package:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    region: brefwiz-local
+    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: cargo-package
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/cargo-package@main
+        with:
+          checkout: "false"
+          patch-workspace-deps: "true"
+      # Shares this worker with the packaging proof above: both compile the
+      # workspace, so a separate job would reserve a second one to rebuild it.
+      - id: lib-crate-publish-gate
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/lib-crate-publish-gate@main
+        with:
+          checkout: "false"

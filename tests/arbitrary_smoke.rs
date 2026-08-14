@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Smoke tests for the `arbitrary` and `proptest` features.
 //!
 //! Generates 1 000 random instances of every public type and asserts that

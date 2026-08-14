@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Demonstrates `QueryBuilder` — type-safe query string construction.
 //!
 //! Run with:

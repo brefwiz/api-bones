@@ -1,0 +1,79 @@
+# The crate-tag pipeline for api-bones: verify the tag, record the release.
+#
+# This repo's canonical home is Gitea; GitHub is a downstream mirror.
+#
+# Publishing itself is not here. The Rust crates go to crates.io through
+# release-plz, which owns its own workflow (release-plz.yml) because that is
+# what identifies it as the crate axis's release owner. The npm packages are a
+# separate axis with a separate version lineage and live in sdk-release.yml — a
+# split release axis needs its own workflow, not a second trigger bolted onto
+# this one.
+#
+# What remains is the tag's own obligation: prove the tag agrees with the
+# manifest before anything trusts it, and leave an audit trail against it.
+
+name: api-bones-release
+
+vars: [brefwiz-secrets, brefwiz-vars]
+
+on:
+  push:
+    tags:
+      - "[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Semver tag to re-release (e.g. 3.1.0)"
+        required: true
+
+jobs:
+  # Reads the declared publish surface once, so the pipeline does not restate
+  # inline what SPEC.md and the Makefile already say.
+  publish-config:
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: publish-config
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/publish-config@main
+        with:
+          checkout: "false"
+
+  # Validation and the release record share a worker deliberately. Nothing else
+  # consumes the validation, so splitting them buys a second hatchery spawn, a
+  # queue wait and an artifact round-trip to run two short steps that already
+  # need the same checkout of the same tag.
+  release:
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
+    env:
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          ref: ${{ git.ref_name }}
+          fetch-depth: 0
+      # A tag whose version disagrees with the manifest is a mis-mint, and
+      # recording it puts a version on the registry that no commit claims.
+      - id: validate
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/validate-release-version@main
+        with:
+          checkout: "false"
+          tag: ${{ git.ref_name }}
+      - id: gitea-release-create
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/gitea-release-create@main
+        with:
+          checkout: "false"
+          tag: ${{ git.ref_name }}
+          repo: brefwiz/api-bones
+          token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          release-notes-extra: |
+            ### Artifacts published
+            - Rust crates (crates.io), published per-crate by release-plz.
+            - npm packages release on their own axis — see sdk-release.yml.

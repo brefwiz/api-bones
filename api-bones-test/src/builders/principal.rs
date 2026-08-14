@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use api_bones::audit::{Principal, PrincipalId, PrincipalKind};
 use api_bones::org_id::OrgId;
 use uuid::Uuid;

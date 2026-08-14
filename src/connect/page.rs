@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Offset pagination builder for Connect proto adapters (ADR-0096).
 
 /// Brefwiz standard default page size.

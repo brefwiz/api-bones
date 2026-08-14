@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! API versioning types.
 //!
 //! [`ApiVersion`] supports three versioning schemes used in practice:

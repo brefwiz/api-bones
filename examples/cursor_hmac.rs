@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Cursor encode/sign/decode/verify with the `hmac` feature.
 //!
 //! Demonstrates:

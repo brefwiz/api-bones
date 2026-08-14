@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Serde module for `Vec<u8>` ↔ Base64 string.
 //!
 //! Provides three sub-modules covering the most common encoding combinations:

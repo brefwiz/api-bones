@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Validated URL-safe slugs.
 //!
 //! Demonstrates `Slug::new()` validation, `Slug::from_title()` auto-conversion,

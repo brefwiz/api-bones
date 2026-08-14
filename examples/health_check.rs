@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Health check examples.
 //!
 //! Demonstrates building `ReadinessResponse` with multiple component checks

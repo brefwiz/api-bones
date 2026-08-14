@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::path::PathBuf;
 
 /// Build-script helper: generate a progenitor Rust SDK from an OpenAPI spec

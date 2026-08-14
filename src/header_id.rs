@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Shared [`HeaderId`] trait for newtype wrappers that are transported via a
 //! dedicated HTTP header.
 //!

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Deprecation marker type (RFC 8594).
 //!
 //! [`Deprecated`] carries a sunset date and an optional replacement link,

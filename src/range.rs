@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `Range` request and `Content-Range` response header types (RFC 7233).
 //!
 //! [`ByteRange`] models a single byte range specifier.

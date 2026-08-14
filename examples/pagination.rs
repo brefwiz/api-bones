@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Pagination examples.
 //!
 //! Demonstrates constructing both offset-based (`PaginatedResponse`) and

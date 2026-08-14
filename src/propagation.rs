@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! OpenTelemetry trace context propagation helpers for SDK clients.
 //!
 //! This module provides helpers for injecting the active OpenTelemetry span context

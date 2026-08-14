@@ -1,0 +1,103 @@
+# npm publish axis for api-bones. Separate from release.yml by design: the crate
+# lineage and the npm lineage version independently, and a split release axis
+# needs its own workflow rather than a second trigger on the crate one.
+#
+# All three packages publish to the brefwiz npm registry. They used to sit on
+# GitHub Packages while their consumers resolved the @brefwiz scope from Gitea,
+# and npm picks a registry per SCOPE rather than per package — so a dependent
+# published to Gitea could not resolve them at all, whatever credentials it held.
+#
+# One job on purpose. Resolve, validate, prove packable, publish and record all
+# want the same checkout of the same tag and nothing else consumes any of them,
+# so splitting them buys a hatchery spawn, a queue wait and an artifact
+# round-trip per boundary and nothing else.
+
+name: api-bones-sdk-release
+
+vars: [brefwiz-secrets, brefwiz-vars]
+
+on:
+  push:
+    tags:
+      - "sdk/v[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "SDK tag to re-release (e.g. sdk/v0.2.2)"
+        required: true
+
+jobs:
+  publish:
+    region: brefwiz-local
+    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    env:
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      # The token carrying npm package:write on this registry.
+      # PACKAGE_PUBLISHER_TOKEN 401s there.
+      NPM_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+    steps:
+      - id: resolve
+        env:
+          TAG_INPUT: ${{ cds.workflow.inputs.tag }}
+          REF_NAME_INPUT: ${{ git.ref_name }}
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          REF="${TAG_INPUT:-$REF_NAME_INPUT}"
+          if [[ ! "$REF" =~ ^sdk/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::resolve: tag '$REF' does not match 'sdk/vX.Y.Z'"
+            exit 1
+          fi
+          worker output "tag" "$REF"
+          worker output "version" "${BASH_REMATCH[1]}"
+      - id: checkout
+        uses: actions/checkout
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+          fetch-depth: 0
+      # A tag whose version disagrees with the manifest is a mis-mint, and
+      # publishing it puts a version on the registry that no commit claims.
+      - id: validate
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/validate-release-version@main
+        with:
+          checkout: "false"
+          tag: ${{ steps.resolve.outputs.version }}
+          version-file: api-bones-connect-ts/package.json
+      # Proves each package packs before any of them is published: a publish
+      # that fails on the third package has already put the first two on the
+      # registry, and npm versions are immutable.
+      - id: publish-readiness
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/publish-readiness-npm@main
+        with:
+          checkout: "false"
+          workspaces: api-bones-otel api-bones-axios api-bones-connect-ts
+          npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          registry-url: ${{ vars.brefwiz-vars.NPM_CONFIG_REGISTRY }}
+      - id: publish
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
+        with:
+          checkout: "false"
+          make-target: ci-npm-publish
+          package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          npm-publish-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+          gh-packages-read-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+      - id: sign-release
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sign-release@main
+        with:
+          checkout: "false"
+          tag: ${{ steps.resolve.outputs.tag }}
+          repo: brefwiz/api-bones
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          cosign-key: ${{ vars.brefwiz-secrets.COSIGN_KEY }}
+          cosign-password: ${{ vars.brefwiz-secrets.COSIGN_PASSWORD }}
+      - id: gitea-release-create
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/gitea-release-create@main
+        with:
+          checkout: "false"
+          tag: ${{ steps.resolve.outputs.tag }}
+          repo: brefwiz/api-bones
+          token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          release-notes-extra: |
+            ### Artifacts published
+            - npm (brefwiz registry): @brefwiz/api-bones-connect, @brefwiz/api-bones-axios, @brefwiz/api-bones-otel

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Serde helper modules for common API wire-format patterns.
 //!
 //! Each module is designed to be used with `#[serde(with = "...")]`.

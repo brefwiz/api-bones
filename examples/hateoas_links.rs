@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! HATEOAS `Link` and `Links` types.
 //!
 //! Demonstrates building link collections with factory methods, custom rels,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Reqwest client extensions from `api-bones-reqwest`.
 //!
 //! Demonstrates `RequestBuilderExt` (attach request-id, idempotency-key,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! RFC 9457 error handling with `ApiError`.
 //!
 //! Demonstrates all error constructors, the builder pattern, validation errors,

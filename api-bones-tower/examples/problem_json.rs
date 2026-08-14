@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `ProblemJsonLayer` — convert service errors to Problem+JSON responses.
 //!
 //! Demonstrates:

@@ -45,3 +45,9 @@ api-bones-otel/node_modules
 api-bones-otel/dist
 **/node_modules
 **/dist
+
+# CDS log downloads (`cdsctl experimental workflow logs download`). The prefix is
+# the INSPECTED workflow name, not this repo, so the pattern must not anchor on
+# either the repo name or a single attempt number.
+*-ci-[0-9]*-[0-9]*-*
+*-release-[0-9]*-[0-9]*-*

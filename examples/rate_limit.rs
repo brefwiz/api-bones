@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Rate limit metadata types.
 //!
 //! Demonstrates `RateLimitInfo` for tracking API quota state,

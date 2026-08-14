@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `Range` request and `Content-Range` response headers (RFC 7233).
 //!
 //! Demonstrates parsing `Range` request headers, validating ranges against

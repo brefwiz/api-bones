@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use api_bones::links::Links;
 use api_bones::response::{ApiResponse, ResponseMeta};
 use chrono::Utc;

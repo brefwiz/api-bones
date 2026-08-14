@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `Cache-Control` header builder and parser (RFC 7234).
 //!
 //! [`CacheControl`] represents the structured set of directives that can

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Media type / Content-Type representation.
 //!
 //! [`ContentType`] models a structured `Content-Type` header value consisting

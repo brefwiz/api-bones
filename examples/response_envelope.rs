@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! API response envelope with metadata and links.
 //!
 //! Demonstrates `ApiResponse`, `ResponseMeta`, and response-level `Links`,

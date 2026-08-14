@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `ETag` and conditional request types (RFC 7232).
 //!
 //! [`ETag`] represents an HTTP entity tag with strong or weak variants.

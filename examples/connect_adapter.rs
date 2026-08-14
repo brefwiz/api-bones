@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Demonstrates the `connect` feature: proto adapter primitives for Connect RPC services.
 //!
 //! Run with:

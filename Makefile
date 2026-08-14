@@ -2,7 +2,7 @@
 
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
-	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check \
+	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
 	lockfile ci-lockfile-diff
 
 .DEFAULT_GOAL := help
@@ -23,13 +23,24 @@ ci-format: ## Check formatting (CI)
 ci-lint: ## Run Clippy (CI — zero warnings)
 	cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
+ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
+	# Nothing else in this repo compiles documentation: ci-lint is clippy, which
+	# never evaluates rustdoc lints. Broken intra-doc links therefore accumulated
+	# invisibly until the rustdoc JSON emit in the test job started failing on
+	# them — and because rustdoc aborts at the first crate that fails, they
+	# surfaced one crate per CI round. This checks the whole workspace at once.
+	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+
 ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regression guard for issue 80)
 	cargo check --no-default-features
 	cargo check --no-default-features --features alloc
 	cargo check --no-default-features --features alloc,serde
 
 ci-test: ## Run tests with nextest (CI)
-	cargo nextest run --workspace --all-features
+	# --profile ci selects the JUnit-emitting profile the test composite consumes.
+	# Without it the suite passes and the job still fails, on a missing artifact
+	# rather than a failing test.
+	cargo nextest run --workspace --all-features --profile ci
 
 ci-coverage: ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100
@@ -95,12 +106,14 @@ lockfile: ## Regenerate Cargo.lock
 	cargo generate-lockfile
 
 .PHONY: ci-lockfile-diff
-ci-lockfile-diff: ## Assert committed Cargo.lock matches resolved lock
-	@cargo generate-lockfile
-	@if ! git diff --quiet Cargo.lock; then \
-	  echo 'ERROR: Cargo.lock is out of date. Run: make lockfile && git add Cargo.lock'; \
-	  git diff Cargo.lock; exit 1; \
-	fi
+ci-lockfile-diff: ## Assert Cargo.lock satisfies Cargo.toml
+	# `cargo generate-lockfile` re-resolves against the live registry, which makes
+	# this a moving target: the repo goes red the moment any unrelated transitive
+	# dependency publishes a patch, and the only way out is an unrelated re-lock.
+	# `--locked` fails only when Cargo.lock genuinely no longer satisfies
+	# Cargo.toml, which is the thing worth gating. The canonical form lives in
+	# ci-workflows/build/brefwiz-service.mk.
+	@cargo metadata --locked --format-version 1 >/dev/null
 
 .PHONY: sc-001-check
 sc-001-check: ## SC-001: ban tracing_subscriber::fmt in main/bin entry points
@@ -124,7 +137,9 @@ sdk-e2e-prebuild: ## No SDK E2E prebuild for this library crate
 .PHONY: spec-check
 spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 	@SPEC=SPEC.md; \
-	VALID="proto-source utoipa-legacy mixed-transition"; \
+	: "Mirrors policies/spec.schema.json's wire_surface enum, which owns this"; \
+	: "list; 'library' was added there and this copy had drifted behind it."; \
+	VALID="proto-source utoipa-legacy mixed-transition library"; \
 	[ -f "$$SPEC" ] || { echo "ERROR: $$SPEC missing (ADR-0086 L1)"; exit 1; }; \
 	WS=$$(awk 'BEGIN{f=0}/^---/{f=!f;next}f&&/^wire_surface:/{print $$2;exit}' "$$SPEC"); \
 	[ -n "$$WS" ] || { echo "ERROR: wire_surface field missing (ADR-0086 L1)"; exit 1; }; \
@@ -141,6 +156,54 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # having both scripts. A list makes adding a package a one-line change and makes
 # an omission visible.
 TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
+
+.PHONY: canonical-check
+canonical-check: ## Run the brefwiz canonical structural gates locally
+	@if [ -f .ci-workflows/ci-scripts/canonical-check.sh ]; then \
+		bash .ci-workflows/ci-scripts/canonical-check.sh; \
+	elif [ -f /tmp/ci-workflows/ci-scripts/canonical-check.sh ]; then \
+		bash /tmp/ci-workflows/ci-scripts/canonical-check.sh; \
+	elif [ -d "$$HOME/git/ci-workflows/ci-scripts" ]; then \
+		bash "$$HOME/git/ci-workflows/ci-scripts/canonical-check.sh"; \
+	else \
+		echo "canonical-check: helper not found in .ci-workflows, /tmp/ci-workflows or ~/git/ci-workflows — fetch ci-workflows first"; \
+		exit 1; \
+	fi
+
+.PHONY: cds-lint
+cds-lint: ## Validate .cds/workflows/ YAML via cdsctl — catches schema breakage that would otherwise make CDS silently drop the branch
+	@if [ -f /tmp/ci-workflows/ci-scripts/cds-lint.sh ]; then \
+		bash /tmp/ci-workflows/ci-scripts/cds-lint.sh; \
+	elif [ -d "$$HOME/git/ci-workflows/ci-scripts" ]; then \
+		bash "$$HOME/git/ci-workflows/ci-scripts/cds-lint.sh"; \
+	else \
+		echo "cds-lint: helper not found in /tmp/ci-workflows or ~/git/ci-workflows — fetch ci-workflows first"; \
+		exit 1; \
+	fi
+
+.PHONY: ci-ts
+ci-ts: ts-lint ts-build ts-test ## CI: the whole TypeScript lane in one target
+
+.PHONY: ci-npm-publish
+ci-npm-publish: ## Publish every npm package to the brefwiz registry
+	# The scope is routed explicitly rather than left to the environment: without
+	# it npm sends @brefwiz/* to GitHub Packages, which is where these used to
+	# live and is exactly the split that made them unresolvable to consumers
+	# scoped to this registry. publishConfig in each manifest agrees with it.
+	@# npm prepends its own `Bearer ` to _authToken, and the shared Gitea
+	@# credential is stored cargo-style as `Bearer <pat>` — strip the prefix so
+	@# npm sends a single one. A raw PAT passes through unchanged.
+	@set -eu; \
+	REGISTRY="https://git.brefwiz.com/api/packages/brefwiz/npm/"; \
+	REGISTRY_HOST="git.brefwiz.com/api/packages/brefwiz/npm/"; \
+	NPM_AUTH="$${NPM_TOKEN#Bearer }"; \
+	test -n "$$NPM_AUTH" || { echo 'ERROR: NPM_TOKEN is empty — npm publish would fail with ENEEDAUTH'; exit 1; }; \
+	for pkg in $(TS_PACKAGES); do \
+		echo "==> publish $$pkg"; \
+		printf '@brefwiz:registry=%s\n//%s:_authToken=%s\n' "$$REGISTRY" "$$REGISTRY_HOST" "$$NPM_AUTH" > $$pkg/.npmrc; \
+		( cd $$pkg && npm ci --no-audit --no-fund && npm run build && npm publish --access public --registry "$$REGISTRY" ); \
+		rm -f $$pkg/.npmrc; \
+	done
 
 ts-build: ## Build TypeScript packages
 	@set -e; for pkg in $(TS_PACKAGES); do \
@@ -160,7 +223,7 @@ ts-lint: ## Lint TypeScript packages (format check + biome)
 	done
 
 .PHONY: pre-commit
-pre-commit: ci-format ci-lint ci-test ci-changelog ## Run all pre-commit checks (ADR-0021)
+pre-commit: ci-format ci-lint ci-test ci-changelog canonical-check cds-lint ## Run all pre-commit checks (ADR-0021)
 
 .PHONY: ci-changelog
 ci-changelog: ## CI: verify CHANGELOG.md has entry for current package version (ADR-0021)

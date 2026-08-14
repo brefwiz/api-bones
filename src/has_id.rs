@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `HasId` — universal "this resource has an identifier" trait.
 //!
 //! Transport-agnostic. Lets helpers like `created_under` (in socle) compose

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Build `ApiError` with custom codes, validation errors, and request IDs.
 //!
 //! Demonstrates the full RFC 9457 Problem Details construction surface:

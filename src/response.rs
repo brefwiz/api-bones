@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Generic API response envelope types.
 //!
 //! [`ApiResponse<T>`] wraps any payload with consistent metadata so all API

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! HATEOAS `Link` and `Links` types for hypermedia-driven API responses.
 //!
 //! A [`Link`] captures a single hypermedia relation (`rel`, `href`, optional

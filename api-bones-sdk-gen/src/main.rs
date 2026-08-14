@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
