@@ -2669,7 +2669,7 @@ mod tests {
 ///
 /// Available when either `std` or `alloc` is enabled together with `serde`
 /// (required for `serde_json::Value` and `BTreeMap`).
-/// Uses [`BTreeMap`](alloc::collections::BTreeMap) internally so heap
+/// Uses `BTreeMap` internally so heap
 /// allocation is the only requirement — `std` is not needed.
 ///
 /// # Examples
@@ -2719,7 +2719,7 @@ pub struct ProblemJson {
     ///
     /// Serialized **inline** at the top level of the JSON object via
     /// `#[serde(flatten)]`. Keys must not collide with the standard fields.
-    /// Uses [`BTreeMap`](alloc::collections::BTreeMap) for `no_std` compatibility.
+    /// Uses `BTreeMap` for `no_std` compatibility.
     #[cfg_attr(feature = "serde", serde(flatten))]
     #[cfg_attr(feature = "schemars", schemars(skip))]
     #[cfg_attr(feature = "arbitrary", arbitrary(default))]

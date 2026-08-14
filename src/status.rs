@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! Full HTTP status code type covering 1xx/2xx/3xx/4xx/5xx.
 //!
-//! [`StatusCode`] extends the domain of [`ErrorCode`](crate::error::ErrorCode),
+//! [`StatusCode`] extends the domain of [`ErrorCode`],
 //! which only covers 4xx/5xx error responses, to include informational (1xx),
 //! successful (2xx), and redirect (3xx) status codes as well.
 //!
