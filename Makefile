@@ -95,12 +95,14 @@ lockfile: ## Regenerate Cargo.lock
 	cargo generate-lockfile
 
 .PHONY: ci-lockfile-diff
-ci-lockfile-diff: ## Assert committed Cargo.lock matches resolved lock
-	@cargo generate-lockfile
-	@if ! git diff --quiet Cargo.lock; then \
-	  echo 'ERROR: Cargo.lock is out of date. Run: make lockfile && git add Cargo.lock'; \
-	  git diff Cargo.lock; exit 1; \
-	fi
+ci-lockfile-diff: ## Assert Cargo.lock satisfies Cargo.toml
+	# `cargo generate-lockfile` re-resolves against the live registry, which makes
+	# this a moving target: the repo goes red the moment any unrelated transitive
+	# dependency publishes a patch, and the only way out is an unrelated re-lock.
+	# `--locked` fails only when Cargo.lock genuinely no longer satisfies
+	# Cargo.toml, which is the thing worth gating. (ADR-0021; see
+	# ci-workflows/build/brefwiz-service.mk.)
+	@cargo metadata --locked --format-version 1 >/dev/null
 
 .PHONY: sc-001-check
 sc-001-check: ## SC-001: ban tracing_subscriber::fmt in main/bin entry points
@@ -124,7 +126,9 @@ sdk-e2e-prebuild: ## No SDK E2E prebuild for this library crate
 .PHONY: spec-check
 spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 	@SPEC=SPEC.md; \
-	VALID="proto-source utoipa-legacy mixed-transition"; \
+	: "Mirrors policies/spec.schema.json's wire_surface enum, which owns this"; \
+	: "list; 'library' was added there and this copy had drifted behind it."; \
+	VALID="proto-source utoipa-legacy mixed-transition library"; \
 	[ -f "$$SPEC" ] || { echo "ERROR: $$SPEC missing (ADR-0086 L1)"; exit 1; }; \
 	WS=$$(awk 'BEGIN{f=0}/^---/{f=!f;next}f&&/^wire_surface:/{print $$2;exit}' "$$SPEC"); \
 	[ -n "$$WS" ] || { echo "ERROR: wire_surface field missing (ADR-0086 L1)"; exit 1; }; \
