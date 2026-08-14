@@ -68,13 +68,14 @@ jobs:
       # Proves each package packs before any of them is published: a publish
       # that fails on the third package has already put the first two on the
       # registry, and npm versions are immutable.
+      #
+      # No token and no registry: packing is fully local, so a credential here
+      # buys nothing and a registry URL only offers a way to name the wrong one.
       - id: publish-readiness
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/publish-readiness-npm@main
         with:
           checkout: "false"
           workspaces: api-bones-otel api-bones-axios api-bones-connect-ts
-          npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-          registry-url: ${{ vars.brefwiz-vars.NPM_CONFIG_REGISTRY }}
       - id: publish
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
         with:
@@ -88,7 +89,12 @@ jobs:
           # it hands make — which would publish these packages to the very
           # registry this whole change exists to move them off, while every
           # consumer resolves the scope from Gitea.
-          registry-url: ${{ vars.brefwiz-vars.NPM_CONFIG_REGISTRY }}
+          #
+          # Named, not spelled out as a URL: the owner declares the canonical
+          # endpoint for each name, and a URL passed by hand is validated
+          # against exactly that list — so the only thing a literal here can add
+          # is a way to be wrong.
+          registry-name: gitea
           registry-scope: "@brefwiz"
       - id: sign-release
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sign-release@main
