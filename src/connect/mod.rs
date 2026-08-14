@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Proto adapter primitives for Connect RPC services (ADR-0096).
 //!
 //! Enable with `features = ["connect"]`:

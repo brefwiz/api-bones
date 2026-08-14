@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use buffa_types::google::protobuf::Timestamp;
 use chrono::{DateTime, Utc};
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Flexible timestamp serde: deserializes from Unix epoch (integer or float)
 //! **or** ISO 8601 / RFC 3339 string; always serializes as an RFC 3339 string.
 //!

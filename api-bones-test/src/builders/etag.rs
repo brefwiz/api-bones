@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use api_bones::etag::ETag;
 use chrono::{DateTime, Utc};
 

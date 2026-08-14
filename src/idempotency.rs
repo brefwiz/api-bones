@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `IdempotencyKey` newtype for safe retry of non-idempotent HTTP methods.
 //!
 //! An idempotency key is an opaque string (or UUID) that a client sends once

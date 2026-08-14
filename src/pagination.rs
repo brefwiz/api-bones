@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Pagination types for list endpoints.
 //!
 //! Supports both offset-based and cursor-based pagination patterns.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Bulk operation envelope types for batch API endpoints.
 //!
 //! [`BulkRequest<T>`] wraps a collection of items for a batch operation.

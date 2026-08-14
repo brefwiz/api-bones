@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Smoke tests for the `fake` feature.
 //!
 //! Generates 200 random instances of every public type and asserts:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Standard API error types for all api-bones services.
 //!
 //! All services serialize errors into [`ApiError`] before sending an HTTP

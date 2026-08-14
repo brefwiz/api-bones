@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Audit metadata for API resources.
 //!
 //! Demonstrates `AuditInfo` for tracking creation and update timestamps

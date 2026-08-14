@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Retry primitives: policy, backoff strategies, `Retry-After` parsing, and
 //! the `Idempotent` marker trait.
 //!

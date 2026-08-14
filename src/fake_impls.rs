@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! [`fake::Dummy`] implementations for all public types (behind the `fake` feature flag).
 //!
 //! Enable the `fake` cargo feature to get realistic test-fixture generation for every

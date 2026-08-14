@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Audit metadata for API resources.
 //!
 //! Provides [`AuditInfo`], an embeddable struct that tracks when a resource

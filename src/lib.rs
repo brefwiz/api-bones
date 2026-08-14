@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! # api-bones
 //!
 //! Opinionated REST API types: errors (RFC 9457), pagination, health checks, and more.

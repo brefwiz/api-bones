@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Query parameter types for list endpoints.
 //!
 //! Provides reusable structs for sorting, filtering, and full-text search

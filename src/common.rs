@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Common RFC-conformant primitive types used across all external APIs.
 //!
 //! ## Standards

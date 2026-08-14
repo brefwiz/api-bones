@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! W3C Trace Context types: `TraceId`, `SpanId`, and `TraceContext`.
 //!
 //! This module implements the

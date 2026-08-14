@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Reqwest client adapter for api-bones types.
 //!
 //! Extension traits that enrich [`reqwest::RequestBuilder`] and

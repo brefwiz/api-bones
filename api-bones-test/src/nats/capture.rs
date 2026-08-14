@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use std::time::Duration;
 
 use async_nats::Client;

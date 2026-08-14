@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Integration tests that call `Display::fmt` for `ApiVersion` types from an
 //! external-crate context, covering the second instantiation that unit tests
 //! cannot reach.

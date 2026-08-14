@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Core-type axum extractors.
 //!
 //! Demonstrates that `RequestId`, `IdempotencyKey`, and `ApiVersion`

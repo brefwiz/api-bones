@@ -146,6 +146,30 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # an omission visible.
 TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
 
+.PHONY: canonical-check
+canonical-check: ## Run the brefwiz canonical structural gates locally (ADR-0086)
+	@if [ -f .ci-workflows/ci-scripts/canonical-check.sh ]; then \
+		bash .ci-workflows/ci-scripts/canonical-check.sh; \
+	elif [ -f /tmp/ci-workflows/ci-scripts/canonical-check.sh ]; then \
+		bash /tmp/ci-workflows/ci-scripts/canonical-check.sh; \
+	elif [ -d "$$HOME/git/ci-workflows/ci-scripts" ]; then \
+		bash "$$HOME/git/ci-workflows/ci-scripts/canonical-check.sh"; \
+	else \
+		echo "canonical-check: helper not found in .ci-workflows, /tmp/ci-workflows or ~/git/ci-workflows — fetch ci-workflows first"; \
+		exit 1; \
+	fi
+
+.PHONY: cds-lint
+cds-lint: ## Validate .cds/workflows/ YAML via cdsctl — catches schema breakage that would otherwise make CDS silently drop the branch
+	@if [ -f /tmp/ci-workflows/ci-scripts/cds-lint.sh ]; then \
+		bash /tmp/ci-workflows/ci-scripts/cds-lint.sh; \
+	elif [ -d "$$HOME/git/ci-workflows/ci-scripts" ]; then \
+		bash "$$HOME/git/ci-workflows/ci-scripts/cds-lint.sh"; \
+	else \
+		echo "cds-lint: helper not found in /tmp/ci-workflows or ~/git/ci-workflows — fetch ci-workflows first"; \
+		exit 1; \
+	fi
+
 .PHONY: ci-ts
 ci-ts: ts-lint ts-build ts-test ## CI: the whole TypeScript lane in one target
 

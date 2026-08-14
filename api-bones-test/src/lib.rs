@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Test helpers for `api-bones` consumers.
 //!
 //! Provides builder ergonomics for api-bones types and assertion helpers for

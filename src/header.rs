@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Lightweight `HeaderName` and `HeaderValue` wrappers.
 //!
 //! These types wrap the corresponding types from the `http` crate, adding

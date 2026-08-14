@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Bulk operation envelope types.
 //!
 //! Demonstrates `BulkRequest`, `BulkResponse`, and `BulkItemResult`

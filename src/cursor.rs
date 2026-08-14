@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Opaque cursor encode/decode helpers (Stripe/GitHub style).
 //!
 //! Cursors hide internal sort keys behind URL-safe base64 encoding. An optional

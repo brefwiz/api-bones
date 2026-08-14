@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use api_bones::error::{ApiError, ErrorCode, ValidationError};
 
 /// Builder for a fake [`ApiError`].

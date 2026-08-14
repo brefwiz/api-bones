@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #![cfg(feature = "builders")]
 
 use api_bones::error::ErrorCode;

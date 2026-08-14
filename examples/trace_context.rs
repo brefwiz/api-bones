@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! W3C Trace Context, `CorrelationId`, and `RequestId` propagation.
 //!
 //! Demonstrates parsing a `traceparent` header, creating child spans,

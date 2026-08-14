@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `Vary` response header helper.
 //!
 //! The [`Vary`] type represents the set of request header names that affect

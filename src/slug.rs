@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Validated `Slug` newtype for URL-friendly identifiers.
 //!
 //! A `Slug` is a lowercase ASCII string used as a human-readable URL segment.

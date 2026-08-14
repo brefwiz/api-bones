@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Serde module for fields that carry stringified JSON on the wire.
 //!
 //! Use `#[serde(with = "api_bones::serde::json_string")]` to transparently

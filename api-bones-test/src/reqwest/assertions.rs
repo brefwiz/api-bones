@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use api_bones::error::{ApiError, ErrorCode};
 use api_bones::pagination::PaginatedResponse;
 use api_bones::response::ApiResponse;

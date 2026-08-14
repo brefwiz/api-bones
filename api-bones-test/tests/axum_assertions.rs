@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 #![cfg(feature = "axum")]
 
 use api_bones::error::ErrorCode;

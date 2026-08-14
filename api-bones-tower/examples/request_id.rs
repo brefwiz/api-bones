@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `RequestIdLayer` — inject and propagate `X-Request-Id`.
 //!
 //! Demonstrates:

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `CorrelationId` newtype for cross-service request correlation.
 //!
 //! A `CorrelationId` is distinct from a [`crate::request_id::RequestId`]:

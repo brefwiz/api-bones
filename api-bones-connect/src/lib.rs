@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Connect RPC adapter primitives for api-bones services (ADR-0096).
 //!
 //! This crate re-exports the [`api_bones::connect`] module surface for

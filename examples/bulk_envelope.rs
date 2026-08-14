@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `ApiResponse<BulkResponse<T>>` with mixed success/failure items.
 //!
 //! Shows how to wrap a bulk operation result in the standard API response

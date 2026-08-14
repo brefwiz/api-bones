@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Query parameter types for list endpoints.
 //!
 //! Demonstrates `SortParams`, `SortDirection`, `FilterParams`,

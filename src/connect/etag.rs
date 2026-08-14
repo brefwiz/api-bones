@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
+// SPDX-License-Identifier: MIT
 // ETag / If-Match helpers for Connect RPC adapters.
 
 use chrono::{DateTime, Utc};

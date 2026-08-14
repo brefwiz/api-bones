@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 use connectrpc::ConnectError;
 
 /// Canonical error-kind shape for domain errors that need to cross the Connect RPC boundary.

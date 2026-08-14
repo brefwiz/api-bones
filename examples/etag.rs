@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! `ETag` and conditional request types (RFC 7232).
 //!
 //! Demonstrates `ETag` (strong/weak), `IfMatch`, and `IfNoneMatch`

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Typed helpers for CORS response headers (`Access-Control-*`).
 //!
 //! [`CorsHeaders`] models the complete set of CORS response headers defined in

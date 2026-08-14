@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Axum error handling with `ApiError`.
 //!
 //! Demonstrates how `ApiError` implements `IntoResponse`, producing

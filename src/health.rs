@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! RFC 8458 health check response types.
 //!
 //! Implements the IETF Health Check Response Format for HTTP APIs

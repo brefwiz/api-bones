@@ -10,6 +10,11 @@ proto_packages: []
 openapi_path: ~
 publishes: [rust-crates, npm]
 version_ecosystem: rust
+ci_checks:
+  license_headers:
+    # Cargo metadata is authoritative here: these crates are MIT, and the
+    # check's default expects the proprietary identifier every other repo uses.
+    mode: cargo-per-crate
 migration_baseline:
   utoipa_handler_count: 0
   baseline_commit: ~

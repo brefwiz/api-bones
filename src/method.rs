@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! HTTP method types.
 //!
 //! [`HttpMethod`] is a typed enum of all standard HTTP verbs, with

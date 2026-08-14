@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Axum extractors and structured rate-limit bodies.
 //!
 //! Demonstrates:

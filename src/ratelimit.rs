@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 //! Rate limit metadata types.
 //!
 //! [`RateLimitInfo`] carries the structured data normally surfaced through
