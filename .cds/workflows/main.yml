@@ -23,6 +23,9 @@ jobs:
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
       memory: "1536"
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
     steps:
       - id: checkout
         uses: actions/checkout
@@ -60,11 +63,11 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
         with:
           checkout: "false"
-          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
 
   test:
-    region: brefwiz-local
-    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    region: brefwiz-ram
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-ram@main
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
@@ -84,7 +87,6 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/test@main
         with:
           checkout: "false"
-          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
 
   ts:
     region: brefwiz-local
@@ -132,14 +134,12 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/cargo-package@main
         with:
           checkout: "false"
-          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
           patch-workspace-deps: "true"
 
   auto-tag:
     region: brefwiz-local
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
     if: ${{ git.ref_name == 'main' }}
-    needs: [checks, clippy, test, ts, cargo-package]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
