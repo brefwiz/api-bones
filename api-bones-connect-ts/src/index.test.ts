@@ -19,6 +19,7 @@ import {
   isRetryableMethod,
   serverPushbackMs,
 } from "./retry.js";
+import { scopedCallOptions } from "./scoped.js";
 import type { GeneratedMethodPolicy } from "./policy.js";
 
 const method = (over: Record<string, unknown> = {}) => ({
@@ -198,6 +199,40 @@ describe("retry eligibility", () => {
     expect(throttle.canRetry).toBe(false);
     for (let i = 0; i < 20; i++) throttle.recordSuccess();
     expect(throttle.canRetry).toBe(true);
+  });
+});
+
+describe("scoped", () => {
+  it("presents the given credential as a bearer token", () => {
+    const options = scopedCallOptions("this-call-only");
+    expect(new Headers(options.headers).get("Authorization")).toBe("Bearer this-call-only");
+  });
+
+  it("preserves other options and headers already being built for the call", () => {
+    const options = scopedCallOptions("claim", {
+      timeoutMs: 5_000,
+      headers: { "x-request-id": "abc" },
+    });
+    expect(options.timeoutMs).toBe(5_000);
+    const headers = new Headers(options.headers);
+    expect(headers.get("x-request-id")).toBe("abc");
+    expect(headers.get("Authorization")).toBe("Bearer claim");
+  });
+
+  it("overwrites rather than duplicates an existing Authorization header", () => {
+    const options = scopedCallOptions("this-call-only", {
+      headers: { Authorization: "Bearer process-identity" },
+    });
+    expect(new Headers(options.headers).get("Authorization")).toBe("Bearer this-call-only");
+  });
+
+  it("two calls scoped from the same base options never observe each other's credential", () => {
+    const base = { timeoutMs: 1_000 };
+    const first = scopedCallOptions("credential-one", base);
+    const second = scopedCallOptions("credential-two", base);
+
+    expect(new Headers(first.headers).get("Authorization")).toBe("Bearer credential-one");
+    expect(new Headers(second.headers).get("Authorization")).toBe("Bearer credential-two");
   });
 });
 

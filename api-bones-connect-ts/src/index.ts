@@ -42,3 +42,5 @@ export {
   type RetryInterceptorOptions,
   type RetryThrottleOptions,
 } from "./retry.js";
+
+export { scopedCallOptions } from "./scoped.js";
