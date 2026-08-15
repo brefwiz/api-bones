@@ -14,6 +14,7 @@ import {
   createDiagnosticAgent,
   formatConnectionFacts,
   makeConnectionDiagnosticsInterceptor,
+  resolveTlsIdentity,
   type ConnectionFacts,
 } from "./node-diagnostics.js";
 
@@ -153,6 +154,45 @@ describe("createDiagnosticAgent", () => {
     expect(recorded?.reused).toBe(false);
     expect(recorded?.priorRequests).toBe(0);
     expect(recorded?.bytesWritten).toBeGreaterThan(0);
+    agent.destroy();
+  });
+});
+
+describe("resolveTlsIdentity", () => {
+  it("passes static material through", () => {
+    const material = { ca: "root", rejectUnauthorized: true };
+    expect(resolveTlsIdentity(material)).toEqual(material);
+  });
+
+  it("calls a provider every time, so a rotated identity is picked up", () => {
+    let generation = 0;
+    const provider = (): { cert: string } => ({ cert: `svid-${(generation += 1)}` });
+    expect(resolveTlsIdentity(provider)).toEqual({ cert: "svid-1" });
+    expect(resolveTlsIdentity(provider)).toEqual({ cert: "svid-2" });
+  });
+
+  it("resolves an absent identity to no material rather than undefined", () => {
+    expect(resolveTlsIdentity(undefined)).toEqual({});
+  });
+});
+
+describe("createDiagnosticAgent tls", () => {
+  it("leaves a plaintext agent's identity unresolved", async () => {
+    const recorder = new ConnectionFactsRecorder();
+    let resolved = 0;
+    // A plaintext agent never reaches TLS. Resolving there would hand cert
+    // material to a connection that cannot present it and quietly mask the
+    // misconfiguration.
+    const agent = createDiagnosticAgent(false, recorder, () => {
+      resolved += 1;
+      return {};
+    });
+    const port = await listen((req, res) => {
+      req.resume();
+      res.end("ok");
+    });
+    expect(await post(agent, port, "a")).toBe(200);
+    expect(resolved).toBe(0);
     agent.destroy();
   });
 });

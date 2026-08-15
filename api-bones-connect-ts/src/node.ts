@@ -29,6 +29,8 @@ import {
   ConnectionFactsRecorder,
   createDiagnosticAgent,
   makeConnectionDiagnosticsInterceptor,
+  resolveTlsIdentity,
+  type NodeTlsIdentity,
 } from "./node-diagnostics.js";
 import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
 import { makeRetryInterceptor } from "./retry.js";
@@ -62,6 +64,23 @@ export interface NodeConnectTransportOptions {
   interceptors?: readonly Interceptor[];
   /** HTTP version. Default "2" — services talk h2 to the mesh. */
   httpVersion?: "1.1" | "2";
+  /**
+   * Client TLS identity for an mTLS peer.
+   *
+   * Not a knob — a mesh workload's identity is runtime state, and without a way
+   * to carry it the canonical helper is unusable by exactly the services that
+   * most need what it composes. That is the gap that left every mTLS caller
+   * hand-rolling connect-node.
+   *
+   * Pass a function when the identity rotates (a SPIFFE SVID does). It is
+   * called per connection, not per transport, so a rotating identity needs no
+   * transport rebuild — which is what a caller doing this by hand has to do,
+   * and doing so discards the socket pool on every call. Node keys its pool by
+   * the resolved TLS material, so a rotation opens a fresh pool bucket on its
+   * own and connections already established finish on the identity they
+   * started with.
+   */
+  tls?: NodeTlsIdentity | (() => NodeTlsIdentity);
 }
 
 function makeAuthInterceptor(getToken: () => string | null | undefined): Interceptor {
@@ -171,9 +190,20 @@ export function configureNodeConnectTransport(opts: NodeConnectTransportOptions)
       ...common,
       httpVersion: "1.1",
       nodeOptions: {
-        agent: createDiagnosticAgent(new URL(baseUrl).protocol === "https:", diagnostics),
+        agent: createDiagnosticAgent(
+          new URL(baseUrl).protocol === "https:",
+          diagnostics,
+          opts.tls,
+        ),
       },
     });
   }
-  return createConnectTransport({ ...common, httpVersion: "2" });
+  // h2 resolves the identity once, at composition: connect-node owns the
+  // session and there is no per-connection hook to re-resolve through. A
+  // rotating identity therefore wants httpVersion "1.1" until that lands.
+  return createConnectTransport({
+    ...common,
+    httpVersion: "2",
+    ...(opts.tls ? { nodeOptions: resolveTlsIdentity(opts.tls) } : {}),
+  });
 }

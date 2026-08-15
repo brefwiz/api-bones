@@ -221,11 +221,9 @@ ci-npm-publish: ## Publish every npm package to the brefwiz registry
 	# is the point; blanket-masking 4xx is how a rotated publish token once went
 	# unnoticed.
 	@set -eu; \
-	pub=ci-scripts/npm-publish-idempotent.py; \
-	[ -f "$$pub" ] || pub=/opt/ci-workflows/ci-scripts/npm-publish-idempotent.py; \
 	for pkg in $(TS_PACKAGES); do \
 		echo "==> publish $$pkg"; \
-		python3 "$$pub" "$$pkg" "$(NPM_SCOPE_REGISTRY)"; \
+		python3 /opt/ci-workflows/ci-scripts/npm-publish-idempotent.py "$$pkg" "$(NPM_SCOPE_REGISTRY)"; \
 		rm -f $$pkg/.npmrc; \
 	done
 

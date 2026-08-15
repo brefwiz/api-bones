@@ -18,8 +18,10 @@
 //
 // Recovering those facts after the fact is impossible: the socket is gone by
 // the time anyone reads the log. They have to be recorded as the connection
-// lives, which is what this module does. The transport owns it — no consumer
-// wires an agent, sets a flag, or opts in.
+// lives, which is what this module does. The transport owns the agent — no
+// consumer wires one, sets a flag, or opts in. The one thing a consumer does
+// supply is its TLS identity, and that is not a knob: a mesh workload's
+// identity is runtime state nothing else can derive.
 //
 // Scope: HTTP/1.1, where a pooling `Agent` is the thing that hands back a stale
 // socket. The HTTP/2 path multiplexes over a session and fails with
@@ -35,6 +37,28 @@ import type { Socket } from "node:net";
 import { Code, ConnectError, type Interceptor } from "@connectrpc/connect";
 
 import { isConnectionWriteFailure } from "./retry.js";
+
+/**
+ * Client TLS material for an mTLS peer.
+ *
+ * A narrow slice of Node's agent options on purpose: everything else there is
+ * transport composition the helper already owns, and accepting the whole type
+ * would reopen the bypass this module exists to close.
+ */
+export type NodeTlsIdentity = Pick<
+  https.AgentOptions,
+  "cert" | "key" | "ca" | "rejectUnauthorized" | "checkServerIdentity"
+>;
+
+/** Live identity, resolved per connection so a rotating SVID needs no rebuild. */
+export type NodeTlsIdentitySource = NodeTlsIdentity | (() => NodeTlsIdentity);
+
+export function resolveTlsIdentity(
+  source: NodeTlsIdentitySource | undefined,
+): NodeTlsIdentity {
+  if (source === undefined) return {};
+  return typeof source === "function" ? source() : source;
+}
 
 /** Connection facts as of the moment a request failed on it. */
 export interface ConnectionFacts {
@@ -103,6 +127,7 @@ type TrackedSocket = Socket & { [RECORD]?: SocketRecord };
 
 type AgentInternals = http.Agent & {
   addRequest(request: ClientRequest, options: unknown): void;
+  createConnection(options: object, callback: unknown): Socket;
 };
 
 /**
@@ -183,6 +208,7 @@ function headerValue(value: string | string[] | undefined): string | null {
 export function createDiagnosticAgent(
   secure: boolean,
   recorder: ConnectionFactsRecorder,
+  tls?: NodeTlsIdentitySource,
 ): http.Agent {
   // Node's own default is 1000ms; naming it here is the point — this value is
   // load-bearing, not incidental, and it must stay strictly below the server's
@@ -191,6 +217,18 @@ export function createDiagnosticAgent(
   const agent: http.Agent = secure ? new https.Agent(options) : new http.Agent(options);
   const internals = agent as AgentInternals;
   const addRequest = internals.addRequest.bind(internals);
+
+  if (tls !== undefined && secure) {
+    // Resolved per connection rather than folded into the agent's constructor
+    // options, so an identity that rotates is picked up without rebuilding the
+    // agent — rebuilding is what a caller doing this by hand must do, and it
+    // discards the socket pool every time. Node derives its pool key from the
+    // resolved material, so a rotation opens a fresh bucket by itself and
+    // sockets already established finish under the identity they started with.
+    const createConnection = internals.createConnection.bind(internals);
+    internals.createConnection = (connectionOptions: object, callback: unknown) =>
+      createConnection({ ...connectionOptions, ...resolveTlsIdentity(tls) }, callback);
+  }
 
   internals.addRequest = (request: ClientRequest, requestOptions: unknown): void => {
     let record: SocketRecord | null = null;
