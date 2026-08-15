@@ -21,15 +21,32 @@
 // surfaces; undeclared runtime errors map to a catch-all variant
 // keyed off `google.rpc.Status`.
 //
-// `bones.v1.authz` — declares which principal class may call an RPC.
-// The declaration belongs to the contract, so it travels with the
+// `bones.v1.authz` — declares what authority an RPC requires. The
+// declaration belongs to the contract, so it travels with the
 // contract: the RPC carries it, not the server implementation.
+//
+// Authority is capability, not principal class. `requires` names the
+// CanonicalClaim scopes a caller must hold. The question an RPC asks
+// is "does this principal hold the authority for this operation",
+// never "what kind of thing is this principal". Scope strings are the
+// platform's existing operation-authority vocabulary; this option
+// introduces no second one.
+//
+// There is deliberately no service-vs-user axis here. A delegated
+// token carries a user subject and a service actor simultaneously, so
+// no single class describes it, and a class gate on such a token can
+// only be made permissive rather than correct. Authenticating a
+// caller establishes who they are; it never establishes what they may
+// do.
 //
 // Usage:
 //
 //   service ReservationService {
 //     rpc Reserve(ReserveRequest) returns (ReserveResponse) {
-//       option (bones.v1.authz) = { kind: AUTHZ_KIND_SERVICE };
+//       option (bones.v1.authz) = {
+//         kind: AUTHZ_KIND_AUTHENTICATED,
+//         requires: "quorate:reservation:write"
+//       };
 //     }
 //     rpc GetHealth(GetHealthRequest) returns (GetHealthResponse) {
 //       option (bones.v1.authz) = {
@@ -39,9 +56,10 @@
 //     }
 //   }
 //
-// An RPC with no `authz` option is denied. A new RPC is therefore
-// secure before anyone remembers it exists; declaring the class is
-// the only way to make it reachable.
+// An RPC with no `authz` option is denied, and an authenticated RPC
+// naming no `requires` scope is denied. A new RPC is therefore secure
+// before anyone remembers it exists; declaring the authority it needs
+// is the only way to make it reachable.
 
 syntax = "proto3";
 
@@ -55,35 +73,51 @@ extend google.protobuf.MethodOptions {
   // companion error enum. See file header for full semantics.
   repeated string errors = 5102347;
 
-  // Declared authorization class for this RPC. Absent option means
-  // the RPC is denied to every caller. See file header for usage.
+  // Declared authorization requirement for this RPC. Absent option
+  // means the RPC is denied to every caller. See file header.
   AuthzRule authz = 5102348;
 }
 
-// Principal class admitted by an RPC.
+// Whether an RPC requires a credential at all.
+//
+// This is the only authorization question answerable before a
+// credential is parsed, which is why it is a declaration rather than a
+// scope. Everything else an RPC requires is expressed in
+// `AuthzRule.requires`.
 enum AuthzKind {
-  // No class declared. Enforcement denies the RPC — the option must
-  // name a class explicitly for the RPC to be reachable.
+  // No declaration. Enforcement denies the RPC — the option must name
+  // a kind explicitly for the RPC to be reachable.
   AUTHZ_KIND_UNSPECIFIED = 0;
 
-  // Requires a service principal (SVID-derived workload identity).
-  AUTHZ_KIND_SERVICE = 1;
-
-  // Requires a user principal.
-  AUTHZ_KIND_USER = 2;
+  // Requires a verified credential, plus every scope named in
+  // `AuthzRule.requires`. The principal's class is irrelevant: a
+  // workload, a human, and a delegated on-behalf-of token are all
+  // admitted on identical terms if they hold the required scopes.
+  AUTHZ_KIND_AUTHENTICATED = 1;
 
   // Served without authentication. `reason` is mandatory and must be
   // non-empty: an unauthenticated route is a decision that has to be
   // justified in the contract where reviewers can see it.
-  AUTHZ_KIND_PUBLIC = 3;
+  AUTHZ_KIND_PUBLIC = 2;
 }
 
 // Authorization declaration attached to an RPC.
 message AuthzRule {
-  // Principal class admitted by the RPC.
+  // Whether a credential is required. See `AuthzKind`.
   AuthzKind kind = 1;
 
-  // Why the RPC carries this class. Mandatory and non-empty for
-  // AUTHZ_KIND_PUBLIC; optional for the authenticated classes.
+  // Why the RPC is unauthenticated. Mandatory and non-empty for
+  // AUTHZ_KIND_PUBLIC; ignored otherwise.
   string reason = 2;
+
+  // CanonicalClaim scopes the caller must hold. Every listed scope
+  // must be present — the list is a conjunction, so adding one can
+  // only ever narrow who may call.
+  //
+  // Mandatory and non-empty for AUTHZ_KIND_AUTHENTICATED: an
+  // authenticated RPC that names no scope would admit every
+  // authenticated caller on the platform, which is the failure this
+  // option exists to prevent. Must be empty for AUTHZ_KIND_PUBLIC,
+  // which has no credential to read scopes from.
+  repeated string requires = 3;
 }
