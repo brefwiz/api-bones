@@ -85,20 +85,34 @@ extend google.protobuf.MethodOptions {
 // scope. Everything else an RPC requires is expressed in
 // `AuthzRule.requires`.
 enum AuthzKind {
+  // 1 and 2 previously carried the principal-class values
+  // (AUTHZ_KIND_SERVICE, AUTHZ_KIND_USER) from before the migration to
+  // a capability gate. Reserved so a vendored copy that still declares
+  // them resolves to no known value and is denied, rather than
+  // silently resolving to a live one.
+  reserved 1, 2;
+  reserved "AUTHZ_KIND_SERVICE", "AUTHZ_KIND_USER";
+
   // No declaration. Enforcement denies the RPC — the option must name
   // a kind explicitly for the RPC to be reachable.
   AUTHZ_KIND_UNSPECIFIED = 0;
+
+  // Served without authentication. `reason` is mandatory and must be
+  // non-empty: an unauthenticated route is a decision that has to be
+  // justified in the contract where reviewers can see it.
+  //
+  // Kept at its original pre-migration number (3) deliberately: a
+  // stale vendored copy that still declares the old principal-class
+  // enum will resolve this value identically under both schemas,
+  // keeping genuinely-public declarations working across a
+  // stale/new vendor mismatch instead of breaking them.
+  AUTHZ_KIND_PUBLIC = 3;
 
   // Requires a verified credential, plus every scope named in
   // `AuthzRule.requires`. The principal's class is irrelevant: a
   // workload, a human, and a delegated on-behalf-of token are all
   // admitted on identical terms if they hold the required scopes.
-  AUTHZ_KIND_AUTHENTICATED = 1;
-
-  // Served without authentication. `reason` is mandatory and must be
-  // non-empty: an unauthenticated route is a decision that has to be
-  // justified in the contract where reviewers can see it.
-  AUTHZ_KIND_PUBLIC = 2;
+  AUTHZ_KIND_AUTHENTICATED = 4;
 }
 
 // Authorization declaration attached to an RPC.

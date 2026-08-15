@@ -120,17 +120,40 @@ mod tests {
     /// Authority is capability, not principal class. A service-vs-user
     /// axis cannot describe a delegated token (user subject, service
     /// actor, simultaneously), so a class gate on one can only be made
-    /// permissive rather than correct.
+    /// permissive rather than correct. The old names may still appear
+    /// in `reserved` declarations (so their numbers can never be
+    /// reused), but must never be declared as live enum values again.
     #[test]
     fn annotations_proto_carries_no_principal_class_axis() {
         let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
         for banned in ["AUTHZ_KIND_SERVICE", "AUTHZ_KIND_USER"] {
-            assert!(
-                !body.contains(banned),
-                "annotations.proto reintroduces the principal-class gate `{banned}`; \
-                 authority belongs in AuthzRule.requires"
-            );
+            for live_declaration in [format!("{banned} = "), format!("{banned}=")] {
+                assert!(
+                    !body.contains(&live_declaration),
+                    "annotations.proto reintroduces the principal-class gate `{banned}` as a \
+                     live enum value; authority belongs in AuthzRule.requires"
+                );
+            }
         }
+    }
+
+    /// The numbers `AUTHZ_KIND_SERVICE` (1) and `AUTHZ_KIND_USER` (2)
+    /// previously occupied must be `reserved`, not recycled. A vendored
+    /// copy of this proto that still declares the old principal-class
+    /// enum encodes `kind` as one of these two numbers on the wire; if
+    /// a live value were ever assigned to either number, that stale
+    /// vendor would silently resolve to it instead of failing closed.
+    #[test]
+    fn annotations_proto_reserves_the_recycled_principal_class_numbers() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("reserved 1, 2;"),
+            "annotations.proto must reserve the recycled AuthzKind numbers 1 and 2"
+        );
+        assert!(
+            body.contains(r#"reserved "AUTHZ_KIND_SERVICE", "AUTHZ_KIND_USER";"#),
+            "annotations.proto must reserve the recycled AuthzKind names"
+        );
     }
 
     #[test]
