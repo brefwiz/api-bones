@@ -47,7 +47,16 @@ import { isConnectionWriteFailure } from "./retry.js";
  */
 export type NodeTlsIdentity = Pick<
   https.AgentOptions,
-  "cert" | "key" | "ca" | "rejectUnauthorized" | "checkServerIdentity"
+  | "cert"
+  | "key"
+  | "ca"
+  | "rejectUnauthorized"
+  | "checkServerIdentity"
+  // A SPIFFE bundle is a trust anchor, not a full chain to a public root, so a
+  // workload's own leaf legitimately validates against a partial chain. Omit
+  // this and every SPIFFE caller's handshake fails — which is the shape of gap
+  // that makes a "canonical" helper unusable in practice.
+  | "allowPartialTrustChain"
 >;
 
 /** Live identity, resolved per connection so a rotating SVID needs no rebuild. */

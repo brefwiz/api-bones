@@ -81,6 +81,15 @@ export interface NodeConnectTransportOptions {
    * started with.
    */
   tls?: NodeTlsIdentity | (() => NodeTlsIdentity);
+  /**
+   * Per-call deadline in milliseconds, applied when the caller sets none.
+   *
+   * A transport with no default deadline waits forever on a peer that accepts
+   * the connection and then says nothing — the failure mode a tier-zero
+   * bootstrap call cannot afford, since nothing downstream of it has started
+   * yet to notice.
+   */
+  defaultTimeoutMs?: number;
 }
 
 function makeAuthInterceptor(getToken: () => string | null | undefined): Interceptor {
@@ -180,6 +189,9 @@ export function configureNodeConnectTransport(opts: NodeConnectTransportOptions)
     useBinaryFormat: useBinaryFormat ?? false,
     interceptors,
     acceptCompression: [compressionGzip, compressionBrotli],
+    ...(opts.defaultTimeoutMs === undefined
+      ? {}
+      : { defaultTimeoutMs: opts.defaultTimeoutMs }),
   };
 
   // Spelled out per version rather than spread: ConnectTransportOptions is a
