@@ -25,6 +25,11 @@ import {
 } from "@connectrpc/connect-node";
 
 import type { BackoffOptions } from "./backoff.js";
+import {
+  ConnectionFactsRecorder,
+  createDiagnosticAgent,
+  makeConnectionDiagnosticsInterceptor,
+} from "./node-diagnostics.js";
 import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
 import { makeRetryInterceptor } from "./retry.js";
 
@@ -131,18 +136,44 @@ export function configureNodeConnectTransport(opts: NodeConnectTransportOptions)
     }
   }
 
+  const httpVersion = opts.httpVersion ?? "2";
+
+  // HTTP/1.1 pools sockets through an Agent, and a pooled socket the peer has
+  // already closed is what turns a healthy call into `write EPIPE`. Own the
+  // agent so the failure can name its own cause: a consumer that had to pass
+  // one in would be carrying a knob for something the transport already knows.
+  // HTTP/2 multiplexes over a session connect-node owns and fails with
+  // GOAWAY/stream-closed, which already say why.
+  const diagnostics = httpVersion === "1.1" ? new ConnectionFactsRecorder() : null;
+
   const interceptors: Interceptor[] = [
     ...(opts.interceptors ?? []),
     ...(getToken ? [makeAuthInterceptor(getToken)] : []),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
+    // Inside the retry interceptor: a failure the policy lets us replay never
+    // reaches a caller, so only the ones that actually surface get rewritten.
     makeRetryInterceptor({ policyByRpc, backoff: retry }),
+    ...(diagnostics ? [makeConnectionDiagnosticsInterceptor(diagnostics)] : []),
   ];
 
-  return createConnectTransport({
+  const common = {
     baseUrl,
-    httpVersion: opts.httpVersion ?? "2",
     useBinaryFormat: useBinaryFormat ?? false,
     interceptors,
     acceptCompression: [compressionGzip, compressionBrotli],
-  });
+  };
+
+  // Spelled out per version rather than spread: ConnectTransportOptions is a
+  // union discriminated on httpVersion, and each arm accepts a different
+  // nodeOptions shape (Agent for h1, session options for h2).
+  if (diagnostics !== null) {
+    return createConnectTransport({
+      ...common,
+      httpVersion: "1.1",
+      nodeOptions: {
+        agent: createDiagnosticAgent(new URL(baseUrl).protocol === "https:", diagnostics),
+      },
+    });
+  }
+  return createConnectTransport({ ...common, httpVersion: "2" });
 }
