@@ -43,6 +43,7 @@ jobs:
           forge: gitea
           gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
+          registry: crates-io
           registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRY_TOKEN }}
 
   release-plz-release:
@@ -65,4 +66,5 @@ jobs:
           forge: gitea
           gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
+          registry: crates-io
           registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRY_TOKEN }}
