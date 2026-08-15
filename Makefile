@@ -250,4 +250,9 @@ pre-commit: ci-format ci-lint ci-test ci-changelog canonical-check cds-lint ## R
 
 .PHONY: ci-changelog
 ci-changelog: ## CI: verify CHANGELOG.md has entry for current package version (ADR-0021)
-	@curl -fsSL https://raw.githubusercontent.com/brefwiz/shared-ci-workflows/main/scripts/check-release-changelog.sh | bash
+	# The canonical check ships in the runner image (ci-internal bakes
+	# ci-workflows at /opt/ci-workflows), so it moves with the fleet on a
+	# ci-workflows merge. Curling raw.githubusercontent.com pinned this repo
+	# to a pre-relocation copy on GitHub and made a lint gate depend on
+	# public network reachability.
+	@bash /opt/ci-workflows/ci-scripts/check-release-changelog.sh
