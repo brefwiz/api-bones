@@ -207,10 +207,25 @@ ci-npm-publish: ## Publish every npm package to the brefwiz registry
 	# Gitea cannot see them whatever credentials they hold. Each manifest's
 	# publishConfig.registry agrees with this; stating it here as well keeps it
 	# true for a manifest that gets regenerated.
+	#
+	# Published through the platform's idempotent publisher, not a bare `npm
+	# publish`. One tag publishes all three packages, but they version
+	# independently — so any release where only one of them changed reaches a
+	# package whose version is already on the registry, and npm versions are
+	# immutable. A bare publish fails there and takes the release with it.
+	#
+	# The alternative, bumping all three on every tag, mints versions nothing
+	# changed in. So the publisher decides from the registry's MESSAGE: an
+	# explicit "already published" is benign and skipped loudly, and every other
+	# failure — E401, E403, network — still fails the release. That distinction
+	# is the point; blanket-masking 4xx is how a rotated publish token once went
+	# unnoticed.
 	@set -eu; \
+	pub=ci-scripts/npm-publish-idempotent.py; \
+	[ -f "$$pub" ] || pub=/opt/ci-workflows/ci-scripts/npm-publish-idempotent.py; \
 	for pkg in $(TS_PACKAGES); do \
 		echo "==> publish $$pkg"; \
-		( cd $$pkg && npm publish --access public ); \
+		python3 "$$pub" "$$pkg" "$(NPM_SCOPE_REGISTRY)"; \
 		rm -f $$pkg/.npmrc; \
 	done
 
