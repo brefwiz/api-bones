@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.11.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.10.0...api-bones-v6.11.0) - 2026-08-15
+
+### Added
+
+- *(connect)* own which failures may be replayed, not just how long to wait
+- *(connect-ts)* scopedCallOptions — named per-call credential scoping
+- *(connect)* per-call credential scoping for generated Connect clients
+- *(release)* split the two publish axes and give every package an owner
+- *(release)* give the eight publishable crates an owner, and wire the rest
+- *(connect-ts)* publish to the brefwiz registry from CDS
+
+### Fixed
+
+- *(release)* build before rehearsing the pack, so the rehearsal means something
+- *(release)* name the publish registry instead of spelling it out
+- *(release)* publish the npm surface to the registry its consumers resolve
+- *(ci)* emit TypeScript type relations so the typed tier can see the npm packages
+- *(docs)* drop the redundant payload hint clippy and rustdoc disagree on
+- *(docs)* add a doc gate and repair the links it found
+- *(docs)* repair three intra-doc links rustdoc could never resolve
+- *(ci)* declare the library release surface honestly and split the crate axis
+- *(ci)* correct the release wiring the shape checks rejected
+- *(ci)* correct the workflow shape the canonical checks rejected
+- *(ci)* emit the JUnit the test composite consumes
+- *(ci)* correct two MIT files claiming proprietary, and close three gates
+- *(ci)* give the checks composite the inputs it cannot infer
+- *(ci)* declare the repo in SPEC.md and stop the lockfile gate re-resolving
+- *(connect-ts)* retry a call whose write never reached the server
+- *(connect-ts)* emit a package Node can actually resolve
+
+### Other
+
+- *(cds)* wire api-bones into CDS with the canonical checks job
+- *(deps)* re-lock Cargo.lock against current resolution
+- *(release)* api-bones-connect 0.2.2
+- *(deps)* re-lock Cargo.lock against current resolution
+- *(deps)* refresh Cargo.lock
+
 ### Added
 
 - **`api-bones-otel` 0.1.1:** `captureTraceContext()` snapshots active
