@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-Proprietary
 //
-// Method-level annotations for service authors.
+// Contract annotations for service authors.
 //
 // `bones.v1.errors` — declares the error variants an RPC may return.
 // Variant names are ALL_CAPS_SNAKE strings referencing the service's
@@ -60,12 +60,30 @@
 // naming no `requires` scope is denied. A new RPC is therefore secure
 // before anyone remembers it exists; declaring the authority it needs
 // is the only way to make it reachable.
+//
+// `bones.v1.capability` groups one protobuf service under the stable goal it
+// provides. Enrollment tooling derives that capability's authority from the
+// service's authenticated RPC `requires` values. Consumers name the
+// capability; they never copy its provider-owned scope vocabulary.
+//
+// Usage:
+//
+//   service ReservationService {
+//     option (bones.v1.capability) = "platform.scheduling";
+//     // RPC declarations follow.
+//   }
 
 syntax = "proto3";
 
 package bones.v1;
 
 import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.ServiceOptions {
+  // Stable capability exposed by this service. Empty or absent means this
+  // service is not enrolled as a capability provider.
+  string capability = 5102349;
+}
 
 extend google.protobuf.MethodOptions {
   // Declared error variants for this RPC. Variant names are

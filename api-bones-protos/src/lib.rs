@@ -117,6 +117,19 @@ mod tests {
         }
     }
 
+    #[test]
+    fn annotations_proto_declares_service_capability_option() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("extend google.protobuf.ServiceOptions"),
+            "annotations.proto missing the service-options extension"
+        );
+        assert!(
+            body.contains("string capability = 5102349;"),
+            "annotations.proto missing the provider capability option"
+        );
+    }
+
     /// Authority is capability, not principal class. A service-vs-user
     /// axis cannot describe a delegated token (user subject, service
     /// actor, simultaneously), so a class gate on one can only be made
