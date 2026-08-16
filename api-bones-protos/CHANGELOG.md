@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-protos-v0.4.1...api-bones-protos-v0.4.2) - 2026-08-16
+
+### Added
+
+- *(protos)* declare provider capabilities on services
+
+### Fixed
+
+- *(protos)* keep capability examples generic
+
 ### Fixed
 
 - Capability annotation examples now use generic service vocabulary only.

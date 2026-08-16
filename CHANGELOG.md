@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.12.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.11.0...api-bones-v6.12.0) - 2026-08-16
+
+### Added
+
+- *(protos)* declare provider capabilities on services
+- *(connect)* carry partial trust chains and a default deadline
+- *(connect)* carry an mTLS client identity through the Node transport
+- *(connect)* explain a Node connection-write failure
+
+### Other
+
+- *(connect)* release @brefwiz/api-bones-connect 0.3.0
+
 ## [6.11.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.10.0...api-bones-v6.11.0) - 2026-08-15
 
 ### Added
