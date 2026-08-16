@@ -45,7 +45,7 @@
 //     rpc Reserve(ReserveRequest) returns (ReserveResponse) {
 //       option (bones.v1.authz) = {
 //         kind: AUTHZ_KIND_AUTHENTICATED,
-//         requires: "quorate:reservation:write"
+//         requires: "reservation:write"
 //       };
 //     }
 //     rpc GetHealth(GetHealthRequest) returns (GetHealthResponse) {
@@ -69,7 +69,7 @@
 // Usage:
 //
 //   service ReservationService {
-//     option (bones.v1.capability) = "platform.scheduling";
+//     option (bones.v1.capability) = "reservations.schedule";
 //     // RPC declarations follow.
 //   }
 
