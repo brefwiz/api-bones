@@ -179,6 +179,15 @@ mod tests {
     }
 
     #[test]
+    fn annotations_proto_declares_optional_workload_assignment_policy() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("optional bool workload_assignable = 4;"),
+            "annotations.proto missing the presence-preserving workload assignment policy"
+        );
+    }
+
+    #[test]
     fn queries_proto_declares_filter_op_enum() {
         let body = std::str::from_utf8(QUERIES_PROTO).expect("utf8");
         assert!(

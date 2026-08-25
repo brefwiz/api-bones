@@ -152,4 +152,9 @@ message AuthzRule {
   // option exists to prevent. Must be empty for AUTHZ_KIND_PUBLIC,
   // which has no credential to read scopes from.
   repeated string requires = 3;
+
+  // Whether the declared capability may be assigned to workload identities.
+  // Absence preserves the historical default: human/delegated authority only.
+  // Providers opt in explicitly after validating that workload use is safe.
+  optional bool workload_assignable = 4;
 }

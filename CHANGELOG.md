@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(protos)* add optional `AuthzRule.workload_assignable` policy metadata for
+  providers that explicitly allow workload identity assignment
+
 ## [6.12.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.11.0...api-bones-v6.12.0) - 2026-08-16
 
 ### Added
