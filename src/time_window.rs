@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: Apache-2.0
 //! Closed UTC time interval `[from, to]`.
 //!
 //! Requires the `chrono` feature.

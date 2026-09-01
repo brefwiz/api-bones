@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: Apache-2.0
 //! Tenant identifier newtype, transported via the `X-Org-Id` HTTP header.
 //!
 //! # Example
