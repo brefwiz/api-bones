@@ -34,6 +34,8 @@ import {
 } from "./node-diagnostics.js";
 import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
 import { makeRetryInterceptor } from "./retry.js";
+import { startWatcherSafe } from "@brefwiz/spiffe-client";
+import { clientTlsIdentityFor, WATCHER_ATTEMPTS, WorkloadIdentityError } from "./workload-identity.js";
 
 export interface NodeConnectTransportOptions {
   baseUrl: string;
@@ -79,6 +81,12 @@ export interface NodeConnectTransportOptions {
    * the resolved TLS material, so a rotation opens a fresh pool bucket on its
    * own and connections already established finish on the identity they
    * started with.
+   */
+  /**
+   * Supplying this at all is the outside-the-mesh case. An in-fleet caller
+   * omits it and gets its identity from the Workload API — naming a cert, key
+   * or CA here is the consumer assembling trust, which is what this transport
+   * exists to stop.
    */
   tls?: NodeTlsIdentity | (() => NodeTlsIdentity);
   /**
@@ -134,7 +142,9 @@ function makeUnauthInterceptor(onUnauthorized: () => void): Interceptor {
  * });
  * ```
  */
-export function configureNodeConnectTransport(opts: NodeConnectTransportOptions): Transport {
+export async function configureNodeConnectTransport(
+  opts: NodeConnectTransportOptions,
+): Promise<Transport> {
   const { baseUrl, profile, policy, getToken, onUnauthorized, useBinaryFormat, retry } = opts;
 
   if (profile !== "service") {
@@ -197,16 +207,32 @@ export function configureNodeConnectTransport(opts: NodeConnectTransportOptions)
   // Spelled out per version rather than spread: ConnectTransportOptions is a
   // union discriminated on httpVersion, and each arm accepts a different
   // nodeOptions shape (Agent for h1, session options for h2).
+  // An https:// peer is an in-fleet peer unless the caller said otherwise by
+  // passing `tls`. Resolving the watcher here — once per transport — keeps the
+  // per-connection hook below synchronous, so a rotating SVID still takes
+  // effect on the next connection without rebuilding the transport.
+  const isTls = new URL(baseUrl).protocol === "https:";
+  let tlsSource: NodeTlsIdentity | (() => NodeTlsIdentity) | undefined = opts.tls;
+
+  if (tlsSource === undefined && isTls) {
+    const watcher = await startWatcherSafe(undefined, WATCHER_ATTEMPTS);
+    if (watcher === null) {
+      throw new WorkloadIdentityError(
+        `SPIFFE Workload API unavailable after ${WATCHER_ATTEMPTS} attempts; ` +
+          `cannot open an in-fleet transport to ${baseUrl}. Pass \`tls\` explicitly ` +
+          `if this caller is outside the mesh.`,
+        "workload_api_unavailable",
+      );
+    }
+    tlsSource = () => clientTlsIdentityFor(watcher);
+  }
+
   if (diagnostics !== null) {
     return createConnectTransport({
       ...common,
       httpVersion: "1.1",
       nodeOptions: {
-        agent: createDiagnosticAgent(
-          new URL(baseUrl).protocol === "https:",
-          diagnostics,
-          opts.tls,
-        ),
+        agent: createDiagnosticAgent(isTls, diagnostics, tlsSource),
       },
     });
   }
@@ -216,6 +242,6 @@ export function configureNodeConnectTransport(opts: NodeConnectTransportOptions)
   return createConnectTransport({
     ...common,
     httpVersion: "2",
-    ...(opts.tls ? { nodeOptions: resolveTlsIdentity(opts.tls) } : {}),
+    ...(tlsSource ? { nodeOptions: resolveTlsIdentity(tlsSource) } : {}),
   });
 }

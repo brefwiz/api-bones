@@ -1,7 +1,7 @@
 {
   "name": "@brefwiz/api-bones-connect",
   "version": "0.3.0",
-  "description": "Canonical Connect transport profiles for Brefwiz SDKs — shared policy core with browser and Node adapters",
+  "description": "Canonical Connect transport profiles for Brefwiz SDKs \u2014 shared policy core with browser and Node adapters",
   "author": "Brefwiz Team",
   "license": "MIT",
   "main": "dist/index.js",
@@ -53,5 +53,8 @@
     "registry": "https://git.brefwiz.com/api/packages/brefwiz/npm/",
     "access": "public"
   },
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@brefwiz/spiffe-client": "^0.43.0"
+  }
 }

@@ -121,6 +121,18 @@ jobs:
           checkout: "false"
           npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
           registry-url: ${{ vars.brefwiz-vars.NPM_CONFIG_REGISTRY }}
+      # api-bones-connect-ts takes its client identity from
+      # @brefwiz/spiffe-client, which lives on the Gitea registry. npm-auth
+      # appends to ~/.npmrc and the last @brefwiz:registry line wins, so this
+      # must come after the step above — that one points the scope at
+      # NPM_CONFIG_REGISTRY, which is the public registry and has no such
+      # package.
+      - id: configure-brefwiz-registry
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-auth@main
+        with:
+          checkout: "false"
+          npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          registry-url: "https://git.brefwiz.com/api/packages/brefwiz/npm/"
       - id: ts
         run: |
           #!/usr/bin/env bash

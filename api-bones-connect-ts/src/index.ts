@@ -44,3 +44,15 @@ export {
 } from "./retry.js";
 
 export { scopedCallOptions } from "./scoped.js";
+
+// Workload API identity. Exported from the root because the error is something
+// a composition root catches, and the trust-domain derivation is something a
+// test asserts — neither requires pulling in the Node transport.
+export {
+  WorkloadIdentityError,
+  workloadClientTlsIdentity,
+  clientTlsIdentityFor,
+  trustDomainOf,
+  WATCHER_ATTEMPTS,
+} from "./workload-identity.js";
+export type { WorkloadIdentityErrorKind } from "./workload-identity.js";

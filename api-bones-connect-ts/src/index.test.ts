@@ -96,43 +96,68 @@ describe("policy", () => {
 });
 
 describe("node transport", () => {
+  // Outside-the-mesh identity, so these cases exercise composition rather than
+  // the Workload API. An in-fleet caller passes none of this.
+  const outsideMesh = { cert: "CERT", key: "KEY", ca: "CA" };
+
   // A Node process cannot issue a browser request, so accepting "webapp" would
   // accept a composition-root mistake silently.
-  it("rejects the webapp profile instead of downgrading it", () => {
-    expect(() =>
+  it("rejects the webapp profile instead of downgrading it", async () => {
+    await expect(
       configureNodeConnectTransport({ baseUrl: "https://svc", profile: "webapp" }),
-    ).toThrow(/must be "service"/);
+    ).rejects.toThrow(/must be "service"/);
   });
 
-  it("builds a transport for the service profile", () => {
-    const transport = configureNodeConnectTransport({
+  it("builds a transport for the service profile", async () => {
+    const transport = await configureNodeConnectTransport({
       baseUrl: "https://svc",
       profile: "service",
+      tls: outsideMesh,
     });
     expect(transport).toHaveProperty("unary");
     expect(transport).toHaveProperty("stream");
   });
 
-  it("accepts a well-formed policy", () => {
-    expect(() =>
+  it("accepts a well-formed policy", async () => {
+    await expect(
       configureNodeConnectTransport({
         baseUrl: "https://svc",
         profile: "service",
         policy: { schemaVersion: 1, methods: [method()] },
+        tls: outsideMesh,
       }),
-    ).not.toThrow();
+    ).resolves.toBeDefined();
   });
 
   // Services validate the same artifact webapps do, so a drifted policy is
   // caught wherever it is first composed rather than only in a browser.
-  it("rejects a policy that fails closed while claiming methods", () => {
-    expect(() =>
+  it("rejects a policy that fails closed while claiming methods", async () => {
+    await expect(
       configureNodeConnectTransport({
         baseUrl: "https://svc",
         profile: "service",
         policy: { schemaVersion: 1, methods: [method(), method()] },
+        tls: outsideMesh,
       }),
-    ).toThrow(/malformed or has duplicate RPC entries/);
+    ).rejects.toThrow(/malformed or has duplicate RPC entries/);
+  });
+
+  // AC4: no Workload API here, so an https:// peer with no explicit identity
+  // must say so rather than connecting anonymously.
+  it("fails closed on https when no Workload API answers", async () => {
+    await expect(
+      configureNodeConnectTransport({ baseUrl: "https://svc", profile: "service" }),
+    ).rejects.toThrow(/Workload API unavailable/);
+  });
+
+  // A cleartext peer is an explicit caller choice, not a downgrade decided
+  // here, so it must not require an agent.
+  it("needs no Workload API for a cleartext peer", async () => {
+    const transport = await configureNodeConnectTransport({
+      baseUrl: "http://svc:8080",
+      profile: "service",
+    });
+    expect(transport).toHaveProperty("unary");
   });
 });
 
