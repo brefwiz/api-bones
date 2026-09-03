@@ -58,7 +58,14 @@ export interface NodeConnectTransportOptions {
   getToken?: () => string | null | undefined;
   /** Called when the server returns Unauthenticated. */
   onUnauthorized?: () => void;
-  /** Binary protobuf instead of JSON. Default: false. */
+  /**
+   * Wire encoding. Defaults to binary protobuf, which is the platform
+   * default on both hops — see `rpc_protocols` in SPEC.md.
+   *
+   * Set false for JSON when a body has to be readable in a proxy or a log.
+   * A Connect server built from the same protos serves either, so this is a
+   * debugging choice rather than a compatibility one.
+   */
   useBinaryFormat?: boolean;
   /** Retry options for transient unary failures. */
   retry?: BackoffOptions;
@@ -196,7 +203,7 @@ export async function configureNodeConnectTransport(
 
   const common = {
     baseUrl,
-    useBinaryFormat: useBinaryFormat ?? false,
+    useBinaryFormat: useBinaryFormat ?? true,
     interceptors,
     acceptCompression: [compressionGzip, compressionBrotli],
     ...(opts.defaultTimeoutMs === undefined

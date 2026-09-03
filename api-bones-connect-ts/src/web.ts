@@ -48,8 +48,12 @@ export interface ConnectTransportOptions {
    */
   onUnauthorized?: () => void;
   /**
-   * Use binary protobuf encoding instead of JSON. Default: false (JSON, more
-   * debuggable in browser devtools).
+   * Wire encoding. Defaults to binary protobuf, which is the platform
+   * default on both hops — see `rpc_protocols` in SPEC.md.
+   *
+   * Set false for JSON when a body has to be readable in browser devtools.
+   * A Connect server built from the same protos serves either, so this is a
+   * debugging choice rather than a compatibility one.
    */
   useBinaryFormat?: boolean;
   /** Fall back to gRPC-Web transport instead of Connect protocol. */
@@ -187,7 +191,7 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
 
   const transportOpts = {
     baseUrl,
-    useBinaryFormat: useBinaryFormat ?? false,
+    useBinaryFormat: useBinaryFormat ?? true,
     interceptors,
     fetch: withCredentials(opts.fetch ?? globalThis.fetch),
   };
@@ -208,7 +212,7 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
       if (!methodPolicy) {
         return postTransport.unary(method, signal, timeoutMs, header, input, contextValues);
       }
-      const urlBytes = encodedConnectGetUrlBytes(baseUrl, method, input, useBinaryFormat ?? false);
+      const urlBytes = encodedConnectGetUrlBytes(baseUrl, method, input, useBinaryFormat ?? true);
       const maxBytes = Math.min(MAX_CONNECT_GET_URL_BYTES, methodPolicy.maxEncodedUrlBytes);
       const selected = urlBytes <= maxBytes ? getTransport : postTransport;
       return selected.unary(method, signal, timeoutMs, header, input, contextValues);
