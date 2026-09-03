@@ -12,11 +12,16 @@ readme = "README.md"
 keywords = ["connect", "grpc", "rpc", "protobuf", "api-bones"]
 categories = ["web-programming::http-server", "api-bindings", "network-programming"]
 rust-version = "1.85"
-# brefwiz-spiffe-client is published to the Brefwiz registry, and crates.io
-# refuses a package whose dependencies are not themselves on crates.io. This
-# crate therefore ships where its dependency does. Restore the crates.io
-# default (remove this key) once brefwiz-spiffe-client is published publicly.
-publish = ["brefwiz"]
+# Not publishable anywhere while it depends on brefwiz-spiffe-client.
+# crates.io refuses a package whose dependencies are not themselves on
+# crates.io, and the Brefwiz registry is no better: this crate's own
+# `api-bones` dependency resolves from crates.io, which publish-preflight
+# (ADR platform/0220) correctly refuses to mix.
+#
+# Nothing outside this repo consumes it as a published crate today, so saying
+# so costs nothing. Delete this key once brefwiz-spiffe-client is published
+# publicly and the crates.io default applies again.
+publish = false
 
 [dependencies]
 api-bones = { version = "6", path = "..", default-features = false, features = ["connect"] }

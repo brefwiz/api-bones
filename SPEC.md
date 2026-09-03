@@ -13,7 +13,6 @@ sdk_languages: []
 # all eight publishable with no mechanism publishing any of them.
 library_crates:
   - api-bones
-  - api-bones-connect
   - api-bones-progenitor
   - api-bones-protos
   - api-bones-reqwest
