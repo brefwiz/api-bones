@@ -18,57 +18,6 @@ on:
       - "**"
 
 jobs:
-  checks:
-    region: brefwiz-light
-    runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
-      memory: "1536"
-    env:
-      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
-      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-    steps:
-      - id: checkout
-        uses: actions/checkout
-      - id: checks
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
-        with:
-          checkout: "false"
-          # Both are required and neither can be inherited. Without `repository`
-          # the runner cannot resolve which repo it is and aborts before it
-          # reports anything; without the token, adr-conformance reads
-          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
-          # composite takes inputs, not the job's ambient env.
-          repository: ${{ cds.workflow_repository }}
-          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-
-  clippy:
-    # release-plz's standing bump PR touches manifests and changelogs only.
-    # `checks` stays on that branch because branch protection needs the
-    # combined status it emits; every worker-heavy job below would just
-    # reserve a runner to recompile unchanged code.
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
-    region: brefwiz-local
-    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-    env:
-      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
-      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
-      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
-      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
-      RUSTC_WRAPPER: sccache
-      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
-      CARGO_INCREMENTAL: "0"
-      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
-      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
-      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
-    steps:
-      - id: checkout
-        uses: actions/checkout
-      - id: clippy
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
-        with:
-          checkout: "false"
-
   test:
     if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
     region: brefwiz-ram
@@ -76,7 +25,7 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-ram@main
       # The RAM lane is a fixed profile, not a request: the worker backs the
       # target dir with memory and the placement check requires this exact size.
-      memory: "24576"
+      memory: "40960"
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
@@ -208,3 +157,54 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/lib-crate-publish-gate@main
         with:
           checkout: "false"
+  checks:
+    region: brefwiz-light
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      memory: "1536"
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: checks
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
+        with:
+          checkout: "false"
+          # Both are required and neither can be inherited. Without `repository`
+          # the runner cannot resolve which repo it is and aborts before it
+          # reports anything; without the token, adr-conformance reads
+          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
+          # composite takes inputs, not the job's ambient env.
+          repository: ${{ cds.workflow_repository }}
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+
+  clippy:
+    # release-plz's standing bump PR touches manifests and changelogs only.
+    # `checks` stays on that branch because branch protection needs the
+    # combined status it emits; every worker-heavy job below would just
+    # reserve a runner to recompile unchanged code.
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    region: brefwiz-local
+    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: clippy
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
+        with:
+          checkout: "false"
+

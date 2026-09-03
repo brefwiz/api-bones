@@ -19,6 +19,12 @@ library_crates:
   - api-bones-sdk-gen
   - api-bones-test
   - api-bones-tower
+rpc_protocols:
+  supported: [proto, json]
+  service:
+    default: proto
+  webapp:
+    default: proto
 capability_exposes: []
 capability_consumes: []
 ci_snowflakes: []
