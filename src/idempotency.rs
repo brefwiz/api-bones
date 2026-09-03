@@ -235,8 +235,7 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for IdempotencyKey {
     fn from_request_parts(
         parts: &mut axum::http::request::Parts,
         _state: &S,
-    ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send
-    {
+    ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         // Pure parse of parts already in hand — nothing to await.
         let parsed = (|| -> Result<Self, Self::Rejection> {
             let raw = parts

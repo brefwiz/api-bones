@@ -376,8 +376,7 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OrgPath {
     fn from_request_parts(
         parts: &mut axum::http::request::Parts,
         _state: &S,
-    ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send
-    {
+    ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         // Pure parse of parts already in hand — nothing to await.
         let parsed = (|| -> Result<Self, Self::Rejection> {
             let raw = parts
@@ -388,10 +387,13 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OrgPath {
                 })?
                 .to_str()
                 .map_err(|_| {
-                    crate::error::ApiError::bad_request("header x-org-path contains non-UTF-8 bytes")
+                    crate::error::ApiError::bad_request(
+                        "header x-org-path contains non-UTF-8 bytes",
+                    )
                 })?;
-            raw.parse::<Self>()
-                .map_err(|e| crate::error::ApiError::bad_request(format!("invalid X-Org-Path: {e}")))
+            raw.parse::<Self>().map_err(|e| {
+                crate::error::ApiError::bad_request(format!("invalid X-Org-Path: {e}"))
+            })
         })();
         core::future::ready(parsed)
     }

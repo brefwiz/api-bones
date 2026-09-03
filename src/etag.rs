@@ -410,8 +410,7 @@ mod axum_support {
         fn from_request_parts(
             parts: &mut Parts,
             _state: &S,
-        ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send
-        {
+        ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send {
             // Pure parse of parts already in hand — nothing to await.
             let parsed = (|| -> Result<Self, Self::Rejection> {
                 let raw = header_str(parts, &axum::http::header::IF_MATCH)?;
@@ -432,8 +431,7 @@ mod axum_support {
         fn from_request_parts(
             parts: &mut Parts,
             _state: &S,
-        ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send
-        {
+        ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send {
             // Pure parse of parts already in hand — nothing to await.
             let parsed = (|| -> Result<Self, Self::Rejection> {
                 let raw = header_str(parts, &axum::http::header::IF_NONE_MATCH)?;
