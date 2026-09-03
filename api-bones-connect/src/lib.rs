@@ -107,6 +107,10 @@ mod tests {
 
     #[test]
     fn os_trust_client_remains_available_for_outside_callers() {
+        // nextest gives each test its own process, so nothing else has installed
+        // a provider here and building a rustls config would panic. Idempotent.
+        let _ = connectrpc::rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let client = os_trust_http_client(&uri("https://example.com"));
         let debug = format!("{client:?}");
         assert!(

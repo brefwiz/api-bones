@@ -232,25 +232,30 @@ impl<'de> Deserialize<'de> for IdempotencyKey {
 impl<S: Send + Sync> axum::extract::FromRequestParts<S> for IdempotencyKey {
     type Rejection = crate::error::ApiError;
 
-    async fn from_request_parts(
+    fn from_request_parts(
         parts: &mut axum::http::request::Parts,
         _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let raw = parts
-            .headers
-            .get("idempotency-key")
-            .ok_or_else(|| {
-                crate::error::ApiError::bad_request("missing required header: idempotency-key")
-            })?
-            .to_str()
-            .map_err(|_| {
-                crate::error::ApiError::bad_request(
-                    "header idempotency-key contains non-UTF-8 bytes",
-                )
-            })?;
-        Self::new(raw).map_err(|e| {
-            crate::error::ApiError::bad_request(format!("invalid Idempotency-Key: {e}"))
-        })
+    ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send
+    {
+        // Pure parse of parts already in hand — nothing to await.
+        let parsed = (|| -> Result<Self, Self::Rejection> {
+            let raw = parts
+                .headers
+                .get("idempotency-key")
+                .ok_or_else(|| {
+                    crate::error::ApiError::bad_request("missing required header: idempotency-key")
+                })?
+                .to_str()
+                .map_err(|_| {
+                    crate::error::ApiError::bad_request(
+                        "header idempotency-key contains non-UTF-8 bytes",
+                    )
+                })?;
+            Self::new(raw).map_err(|e| {
+                crate::error::ApiError::bad_request(format!("invalid Idempotency-Key: {e}"))
+            })
+        })();
+        core::future::ready(parsed)
     }
 }
 
