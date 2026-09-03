@@ -12,6 +12,11 @@ readme = "README.md"
 keywords = ["connect", "grpc", "rpc", "protobuf", "api-bones"]
 categories = ["web-programming::http-server", "api-bindings", "network-programming"]
 rust-version = "1.85"
+# brefwiz-spiffe-client is published to the Brefwiz registry, and crates.io
+# refuses a package whose dependencies are not themselves on crates.io. This
+# crate therefore ships where its dependency does. Restore the crates.io
+# default (remove this key) once brefwiz-spiffe-client is published publicly.
+publish = ["brefwiz"]
 
 [dependencies]
 api-bones = { version = "6", path = "..", default-features = false, features = ["connect"] }

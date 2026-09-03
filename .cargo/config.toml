@@ -1,2 +1,10 @@
+# api-bones-connect takes its client identity from brefwiz-spiffe-client,
+# which is published to the Brefwiz registry rather than crates.io. Cargo
+# resolves `registry = "brefwiz"` in a manifest through this index; without it
+# every cargo invocation fails to even parse the workspace.
+[registries.brefwiz]
+index = "sparse+https://git.brefwiz.com/api/packages/brefwiz/cargo/"
+credential-provider = "cargo:token"
+
 [registry]
 global-credential-providers = ["cargo:token"]

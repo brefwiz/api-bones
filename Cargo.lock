@@ -714,7 +714,7 @@ dependencies = [
 [[package]]
 name = "brefwiz-spiffe-client"
 version = "0.43.6"
-source = "sparse+https://git.brefwiz.com/api/packages/Brefwiz/cargo/"
+source = "sparse+https://git.brefwiz.com/api/packages/brefwiz/cargo/"
 checksum = "7d358a9cb03fa0888330821fae9f4d05a88ea22157010eee0f401fba9b80738c"
 dependencies = [
  "anyhow",

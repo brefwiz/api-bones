@@ -142,8 +142,8 @@ describe("node transport", () => {
     ).rejects.toThrow(/malformed or has duplicate RPC entries/);
   });
 
-  // AC4: no Workload API here, so an https:// peer with no explicit identity
-  // must say so rather than connecting anonymously.
+  // No Workload API is running here, so an https:// peer with no explicit
+  // identity must say so rather than connecting anonymously.
   it("fails closed on https when no Workload API answers", async () => {
     await expect(
       configureNodeConnectTransport({ baseUrl: "https://svc", profile: "service" }),
