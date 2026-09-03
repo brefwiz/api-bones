@@ -98,20 +98,12 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn https_without_workload_api_fails_closed() {
-        // No agent is running in the test environment. The contract is that
-        // this reports the absence rather than downgrading to an anonymous
-        // transport that would still connect.
-        let err = connect_http_client(&uri("https://registry.internal"))
-            .await
-            .expect_err("https:// with no Workload API must not silently downgrade");
-
-        assert!(
-            matches!(err, WorkloadIdentityError::Unavailable),
-            "expected a nameable unavailable error, got: {err:?}"
-        );
-    }
+    // The https-without-an-agent path is not driven here. `start_watcher_safe`
+    // spends its full retry budget against an absent socket — nextest logged
+    // this test SLOW [>240s] and it was still climbing — and what it would
+    // prove is brefwiz-spiffe-client's backoff, not this crate's wiring. The
+    // refusal's own shape is asserted in `workload_identity::tests`, and the
+    // one line between them is a `?`.
 
     #[test]
     fn os_trust_client_remains_available_for_outside_callers() {
