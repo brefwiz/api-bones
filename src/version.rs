@@ -245,41 +245,30 @@ impl ApiVersion {
 impl<S: Send + Sync> axum::extract::FromRequestParts<S> for ApiVersion {
     type Rejection = crate::error::ApiError;
 
-    fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _state: &S,
-    ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        // Pure parse of parts already in hand — nothing to await.
-        let parsed = (|| -> Result<Self, Self::Rejection> {
-            // 1. Try X-Api-Version header
-            if let Some(val) = parts.headers.get("x-api-version") {
-                let s = val.to_str().map_err(|_| {
-                    crate::error::ApiError::bad_request(
-                        "header x-api-version contains non-UTF-8 bytes",
-                    )
-                })?;
-                return s.parse::<Self>().map_err(|e| {
-                    crate::error::ApiError::bad_request(format!("invalid X-Api-Version: {e}"))
-                });
-            }
-            // 2. Try query parameter `v`
-            if let Some(query) = parts.uri.query() {
-                for pair in query.split('&') {
-                    if let Some(v) = pair.strip_prefix("v=") {
-                        return v.parse::<Self>().map_err(|e| {
-                            crate::error::ApiError::bad_request(format!(
-                                "invalid v= query param: {e}"
-                            ))
-                        });
-                    }
+    crate::ready_from_request_parts!(|parts: axum::http::request::Parts| {
+        // 1. Try X-Api-Version header
+        if let Some(val) = parts.headers.get("x-api-version") {
+            let s = val.to_str().map_err(|_| {
+                crate::error::ApiError::bad_request("header x-api-version contains non-UTF-8 bytes")
+            })?;
+            return s.parse::<Self>().map_err(|e| {
+                crate::error::ApiError::bad_request(format!("invalid X-Api-Version: {e}"))
+            });
+        }
+        // 2. Try query parameter `v`
+        if let Some(query) = parts.uri.query() {
+            for pair in query.split('&') {
+                if let Some(v) = pair.strip_prefix("v=") {
+                    return v.parse::<Self>().map_err(|e| {
+                        crate::error::ApiError::bad_request(format!("invalid v= query param: {e}"))
+                    });
                 }
             }
-            Err(crate::error::ApiError::bad_request(
-                "missing api version: provide X-Api-Version header or v= query parameter",
-            ))
-        })();
-        core::future::ready(parsed)
-    }
+        }
+        Err(crate::error::ApiError::bad_request(
+            "missing api version: provide X-Api-Version header or v= query parameter",
+        ))
+    });
 }
 
 // ---------------------------------------------------------------------------

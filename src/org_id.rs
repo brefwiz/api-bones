@@ -373,30 +373,20 @@ impl FromStr for OrgPath {
 #[cfg(feature = "axum")]
 impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OrgPath {
     type Rejection = crate::error::ApiError;
-    fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _state: &S,
-    ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send {
-        // Pure parse of parts already in hand — nothing to await.
-        let parsed = (|| -> Result<Self, Self::Rejection> {
-            let raw = parts
-                .headers
-                .get("x-org-path")
-                .ok_or_else(|| {
-                    crate::error::ApiError::bad_request("missing required header: x-org-path")
-                })?
-                .to_str()
-                .map_err(|_| {
-                    crate::error::ApiError::bad_request(
-                        "header x-org-path contains non-UTF-8 bytes",
-                    )
-                })?;
-            raw.parse::<Self>().map_err(|e| {
-                crate::error::ApiError::bad_request(format!("invalid X-Org-Path: {e}"))
-            })
-        })();
-        core::future::ready(parsed)
-    }
+    crate::ready_from_request_parts!(|parts: axum::http::request::Parts| {
+        let raw = parts
+            .headers
+            .get("x-org-path")
+            .ok_or_else(|| {
+                crate::error::ApiError::bad_request("missing required header: x-org-path")
+            })?
+            .to_str()
+            .map_err(|_| {
+                crate::error::ApiError::bad_request("header x-org-path contains non-UTF-8 bytes")
+            })?;
+        raw.parse::<Self>()
+            .map_err(|e| crate::error::ApiError::bad_request(format!("invalid X-Org-Path: {e}")))
+    });
 }
 
 // ---------------------------------------------------------------------------

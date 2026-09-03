@@ -71,6 +71,37 @@
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
 
+/// Implement `FromRequestParts` for an extractor that is a pure parse.
+///
+/// Every such extractor reads headers or path segments already in hand and
+/// awaits nothing, so `async fn` would declare a future that never suspends —
+/// which clippy rejects. Written out per extractor the ready-future wrapper is
+/// the same dozen lines each time and duplication is measured; written once it
+/// is a shape, and each body stays where it belongs.
+///
+/// ```rust,ignore
+/// impl<S: Send + Sync> FromRequestParts<S> for IfMatch {
+///     type Rejection = ApiError;
+///     ready_from_request_parts!(|parts: Parts| {
+///         let raw = header_str(parts, &axum::http::header::IF_MATCH)?;
+///         Ok(Self::Tags(parse_condition(raw)?.1))
+///     });
+/// }
+/// ```
+#[cfg(feature = "axum")]
+#[macro_export]
+macro_rules! ready_from_request_parts {
+    (|$parts:ident: $parts_ty:ty| $body:block) => {
+        fn from_request_parts(
+            $parts: &mut $parts_ty,
+            _state: &S,
+        ) -> impl core::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+            let parsed = (|| -> Result<Self, Self::Rejection> { $body })();
+            core::future::ready(parsed)
+        }
+    };
+}
+
 // Modules that require heap allocation (String / Vec / Arc).
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod audit;

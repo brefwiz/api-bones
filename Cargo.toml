@@ -122,9 +122,13 @@ module_name_repetitions = "allow"    # e.g. ErrorCode, ApiError — idiomatic
 missing_const_for_fn = "allow"       # nursery: not stable across MSRV, adds no safety value here
 derive_partial_eq_without_eq = "allow" # nursery: serde types are rarely fully Eq-hashable
 option_if_let_else = "allow"         # nursery: map_or_else is less readable in match-heavy code
-result_large_err = "allow"           # ApiError is RFC-9457 problem details and is ~200B by
-                                     # design; boxing it to satisfy a perf lint on the error
-                                     # path would change every handler signature in the fleet
+# ApiError is RFC-9457 problem details and runs ~200B by design. Boxing it to
+# satisfy a perf lint on the error path would change every handler signature in
+# the fleet and put an allocation on every rejection, to buy nothing at the call
+# site. The lint fires only where a non-async fn returns it, which after the
+# extractors stopped being needlessly async is every one of them.
+# golden-lint: justified: boxing ApiError would change every handler signature in the fleet
+result_large_err = "allow"
 
 [dev-dependencies]
 mockito = "1.7.2"
