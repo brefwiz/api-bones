@@ -174,7 +174,10 @@ async fn concurrent_scoped_calls_reach_the_server_with_their_own_credential() {
 
     let first = client.with_claim("claim-for-first");
     let second = client.with_claim("claim-for-second");
-    tokio::join!(first.probe(probe_spec("/scoped.v1.Probe/First")), second.probe(probe_spec("/scoped.v1.Probe/Second")));
+    tokio::join!(
+        first.probe(probe_spec("/scoped.v1.Probe/First")),
+        second.probe(probe_spec("/scoped.v1.Probe/Second"))
+    );
 
     let seen = recorder.snapshot();
     assert_eq!(
@@ -198,8 +201,14 @@ async fn scoped_calls_share_the_parent_connection_pool() {
     let addr = start_server(recorder.clone()).await;
     let client = Client::new(addr, CallCredential::bearer("process-identity"));
 
-    client.with_claim("claim-one").probe(probe_spec("/scoped.v1.Probe/One")).await;
-    client.with_claim("claim-two").probe(probe_spec("/scoped.v1.Probe/Two")).await;
+    client
+        .with_claim("claim-one")
+        .probe(probe_spec("/scoped.v1.Probe/One"))
+        .await;
+    client
+        .with_claim("claim-two")
+        .probe(probe_spec("/scoped.v1.Probe/Two"))
+        .await;
     client.probe(probe_spec("/scoped.v1.Probe/Unscoped")).await;
 
     let seen = recorder.snapshot();
