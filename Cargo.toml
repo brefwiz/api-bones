@@ -84,17 +84,17 @@ axum = { version = "0.8", optional = true }
 http = { version = "1.4.2", optional = true }
 utoipa = { version = "5", optional = true, features = ["uuid", "chrono"] }
 icalendar = { version = "0.17.11", features = ["parser", "serde"], optional = true }
-validator = { version = "0.20", features = ["derive"], optional = true }
+validator = { version = "0.21", features = ["derive"], optional = true }
 fake = { version = "5", optional = true }
 rand = { version = "0.10", optional = true }
 schemars = { version = "1", optional = true }
-base64 = { version = "0.22", default-features = false, features = ["alloc"], optional = true }
+base64 = { version = "0.23", default-features = false, features = ["alloc"], optional = true }
 hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.11", optional = true }
 # connect feature — versions must match what buffa-types / generated proto code use.
 # Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
-connectrpc  = { version = "0.7", features = ["client", "client-tls"], optional = true }
-buffa-types = { version = "0.7", features = ["json"], optional = true }
+connectrpc  = { version = "0.9", features = ["client", "client-tls"], optional = true }
+buffa-types = { version = "0.9", features = ["json"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 tracing     = { version = "0.1", optional = true }
 opentelemetry = { version = "0.32", optional = true }

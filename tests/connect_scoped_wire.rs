@@ -16,8 +16,14 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::HeaderMap;
 use buffa_types::google::protobuf::{Empty, EmptyView};
 use connectrpc::client::{ClientConfig, HttpClient, call_unary};
+use connectrpc::{Spec, StreamType};
 
-const SERVICE: &str = "scoped.v1.Probe";
+/// connectrpc 0.9 takes the whole procedure path as one `&'static str`, so the
+/// service and method are no longer separate arguments. The test server still
+/// keys what it saw on the last path segment, so the method names are unchanged.
+const fn probe_spec(procedure: &'static str) -> Spec {
+    Spec::client(procedure, StreamType::Unary)
+}
 
 /// What the server saw for one request.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -122,12 +128,11 @@ impl Client {
     }
 
     /// A call on the process's own identity.
-    async fn probe(&self, method: &str) {
+    async fn probe(&self, spec: Spec) {
         call_unary::<_, Empty, EmptyView>(
             &self.transport,
             &self.config,
-            SERVICE,
-            method,
+            spec,
             Empty::default(),
             self.auth.call_options(),
         )
@@ -144,13 +149,12 @@ impl Client {
 struct Scoped<'a>(ScopedClient<'a, Client>);
 
 impl Scoped<'_> {
-    async fn probe(&self, method: &str) {
+    async fn probe(&self, spec: Spec) {
         let client = self.0.client();
         call_unary::<_, Empty, EmptyView>(
             &client.transport,
             &client.config,
-            SERVICE,
-            method,
+            spec,
             Empty::default(),
             self.0.call_options(),
         )
@@ -170,7 +174,7 @@ async fn concurrent_scoped_calls_reach_the_server_with_their_own_credential() {
 
     let first = client.with_claim("claim-for-first");
     let second = client.with_claim("claim-for-second");
-    tokio::join!(first.probe("First"), second.probe("Second"));
+    tokio::join!(first.probe(probe_spec("/scoped.v1.Probe/First")), second.probe(probe_spec("/scoped.v1.Probe/Second")));
 
     let seen = recorder.snapshot();
     assert_eq!(
@@ -194,9 +198,9 @@ async fn scoped_calls_share_the_parent_connection_pool() {
     let addr = start_server(recorder.clone()).await;
     let client = Client::new(addr, CallCredential::bearer("process-identity"));
 
-    client.with_claim("claim-one").probe("One").await;
-    client.with_claim("claim-two").probe("Two").await;
-    client.probe("Unscoped").await;
+    client.with_claim("claim-one").probe(probe_spec("/scoped.v1.Probe/One")).await;
+    client.with_claim("claim-two").probe(probe_spec("/scoped.v1.Probe/Two")).await;
+    client.probe(probe_spec("/scoped.v1.Probe/Unscoped")).await;
 
     let seen = recorder.snapshot();
     assert_eq!(
