@@ -9,6 +9,8 @@ name = "api-bones-contract-rust"
 version = "0.0.0"
 edition = "2024"
 publish = false
+# Not published, so this is not part of any released artifact.
+license = "MIT"
 
 [dependencies]
 api-bones-connect = { path = "../../api-bones-connect" }
@@ -16,6 +18,9 @@ connectrpc = "0.9"
 
 [dev-dependencies]
 cucumber = "0.23"
+# The platform BDD runner: constructing a Cucumber runner by hand is what
+# the delegation rule exists to stop.
+brefwiz-cucumber-steps = { version = "0.4.18", registry = "brefwiz" }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 [[test]]

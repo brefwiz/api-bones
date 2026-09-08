@@ -1,34 +1,30 @@
 // SPDX-License-Identifier: MIT
 //! Runs the shared Gherkin contract that both languages answer.
 //!
-//! `has_tag` is local rather than taken from the shared runner crate: this
-//! repository publishes to crates.io under MIT and carries no dependency on
-//! the internal platform crates, so a helper this small is written here rather
-//! than imported.
+//! The runner is `brefwiz_cucumber_steps::TwoPass` rather than a hand-built
+//! `filter_run_and_exit`: constructing a Cucumber runner directly is what the
+//! BDD delegation rule exists to stop, and the platform primitive already owns
+//! scenario selection, concurrency and the census.
+//!
+//! This lane crate is `publish = false`, so depending on the internal runner
+//! costs the published artifacts nothing — the same shape `api-bones-connect`
+//! already has with its own internal dependency.
 
 mod steps;
 
-use cucumber::World as _;
-use cucumber::gherkin::{Feature, Scenario};
+use brefwiz_cucumber_steps::TwoPass;
 use steps::RetryWorld;
-
-/// Whether `tag` is on the scenario or inherited from its feature.
-fn has_tag(feature: &Feature, scenario: &Scenario, tag: &str) -> bool {
-    let wanted = format!("@{tag}");
-    feature
-        .tags
-        .iter()
-        .any(|each| *each == wanted || *each == tag)
-        || scenario
-            .tags
-            .iter()
-            .any(|each| *each == wanted || *each == tag)
-}
 
 #[tokio::main]
 async fn main() {
-    RetryWorld::cucumber()
-        .max_concurrent_scenarios(Some(1))
-        .filter_run_and_exit("../features", |f, _r, s| has_tag(f, s, "connect"))
-        .await;
+    let features = concat!(env!("CARGO_MANIFEST_DIR"), "/../features").to_owned();
+    // Nothing is skipped and nothing is isolated: every row of this contract is
+    // a pure classification over one constructed error, so the scenarios share
+    // no state and none of them needs holding back.
+    let two_pass = TwoPass {
+        skip_tags: vec!["wip".into()],
+        isolated_tag: "isolated".into(),
+        parallel: 1,
+    };
+    two_pass.run::<RetryWorld>(features).await;
 }
