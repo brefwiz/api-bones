@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+#
+# The Rust step lane for the shared Gherkin contract at ../features. Its own
+# crate rather than an integration test of api-bones-connect: the contract is
+# answered by both languages, and a lane per language beside the corpus is the
+# canonical layout the closure gate resolves first.
+[package]
+name = "api-bones-contract-rust"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+api-bones-connect = { path = "../../api-bones-connect" }
+connectrpc = "0.9"
+
+[dev-dependencies]
+cucumber = "0.23"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+
+[[test]]
+name = "connect_retry_eligibility"
+harness = false

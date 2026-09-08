@@ -2,15 +2,41 @@
 service: api-bones
 wire_surface: library
 surface_kind: library
-# Empty by design. `sdk_languages` declares a *generated SDK* surface backed by
-# a service; api-bones has neither. What it ships is library units: Rust crates
-# (below) and npm packages, each with its own release owner. Declaring rust and
-# typescript here claimed an SDK publish axis — per-language dry-run and publish
-# targets rehearsing a codegen pipeline — that nothing in this repo produces.
-sdk_languages: []
+# The union of every sdk_surfaces target below, which the schema requires it to
+# equal. This was empty while nothing was declared, with a note that filling it
+# claimed a codegen publish axis this repo does not produce — but leaving it
+# empty also meant no gate ever asked whether the surfaces shipped in two
+# languages agreed, and they had already stopped agreeing.
+sdk_languages: [rust, typescript]
 # The publishable workspace members, kept in step with cargo metadata: an
 # undeclared publishable crate is surface drift, and this repo previously had
 # all eight publishable with no mechanism publishing any of them.
+# The surfaces this library ships in more than one language.
+#
+# Distinct from `sdk_languages` above, which stays empty: that declares a
+# GENERATED SDK backed by a service, and claiming it here would claim a codegen
+# publish axis nothing in this repo produces. These are hand-written library
+# surfaces that happen to exist twice, and declaring them is what makes
+# feature-closure require a Gherkin contract with direct backing in EVERY
+# target language — the same proof every other surface owes.
+#
+# Nothing enforced that before. The Connect retry vocabulary shipped as
+# `is_connection_write_failure` beside `isConnectionWriteFailure` with the
+# signature list transcribed into each by hand, and a normaliser added to the
+# TypeScript half shipped with its own tests and left Rust behind.
+#
+# No `owns:` — this surface names no RPC endpoint, which is also why it needs
+# no canary: there is no image here to run one against.
+sdk_surfaces:
+  connect-retry-eligibility:
+    contract: tests/features/connect_retry_eligibility.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-connect]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 library_crates:
   - api-bones
   - api-bones-progenitor

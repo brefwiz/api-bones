@@ -1,6 +1,6 @@
 # Makefile for api-bones
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust ci-coverage ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
 	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc ci-npm-build \
 	lockfile ci-lockfile-diff
@@ -36,11 +36,22 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 	cargo check --no-default-features --features alloc
 	cargo check --no-default-features --features alloc,serde
 
-ci-test: ## Run tests with nextest (CI)
+ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# --profile ci selects the JUnit-emitting profile the test composite consumes.
 	# Without it the suite passes and the job still fails, on a missing artifact
 	# rather than a failing test.
 	cargo nextest run --workspace --all-features --profile ci
+
+ci-e2e-rust: ## Answer the shared Gherkin contract from the Rust lane
+	# The contract at tests/features is answered by BOTH languages; this is the
+	# Rust half, and ci-e2e-ts is the other. A cucumber suite is its own harness
+	# (harness = false), so nextest cannot carry it and it runs through cargo
+	# test directly.
+	#
+	# No live stack, unlike the service repos this lane is named after: the
+	# contract is a pure classification, so the lane is a direct synchronous run
+	# rather than a flavor-parallel deployment.
+	cargo test -p api-bones-contract-rust --test connect_retry_eligibility
 
 ci-coverage: ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100
@@ -248,9 +259,13 @@ ts-build: ## Build TypeScript packages
 	done
 
 ts-test: ## Test TypeScript packages
+	: 'scripts.test is the Gherkin contract -- one direct Cucumber command, which'
+	: 'is the shape the platform gate reads. The unit suite moved to test:unit and'
+	: 'still runs here: the contract proves the two languages AGREE, the unit'
+	: 'tests prove the edges neither language shares.'
 	@set -e; for pkg in $(TS_PACKAGES); do \
 		echo "==> test $$pkg"; \
-		( cd $$pkg && npm install --no-audit --no-fund && npm run test ); \
+		( cd $$pkg && npm install --no-audit --no-fund && npm run test && npm run test:unit ); \
 	done
 
 ts-lint: ## Lint TypeScript packages (format check + biome)
