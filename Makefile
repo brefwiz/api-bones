@@ -1,6 +1,7 @@
 # Makefile for api-bones
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust ci-coverage ci-audit ci-deny build clean \
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust ci-coverage \
+	ci-sdk-publish-rust-dry-run ci-sdk-publish-typescript-dry-run ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
 	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc ci-npm-build \
 	lockfile ci-lockfile-diff
@@ -53,8 +54,19 @@ ci-e2e-rust: ## Answer the shared Gherkin contract from the Rust lane
 	# rather than a flavor-parallel deployment.
 	cargo test -p api-bones-contract-rust --test connect_retry_eligibility
 
-ci-coverage: ## Enforce 100% function coverage with llvm-cov + nextest (CI)
+ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100
+
+# Publish rehearsals, one per declared SDK language. Both artifacts are real:
+# this workspace publishes crates to crates.io and @brefwiz/api-bones-connect
+# to npm, so a dry run is the same operation the release performs, minus the
+# upload -- which is the point of rehearsing it at PR time rather than
+# discovering a broken include list or files list after a tag.
+ci-sdk-publish-rust-dry-run: ## Rehearse the crate publish without uploading
+	cargo package -p api-bones-connect --allow-dirty --no-verify
+
+ci-sdk-publish-typescript-dry-run: ## Rehearse the npm publish without uploading
+	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm publish --dry-run
 
 build: ## Build the crate
 	cargo build --release
