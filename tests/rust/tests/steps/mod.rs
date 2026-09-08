@@ -6,12 +6,12 @@
 //! a corpus each side wrote for itself would let the two drift apart exactly
 //! as the implementations could.
 
+use crate::world::RetryWorld;
 use api_bones_connect::{
     connection_failure_as_unavailable, is_connection_write_failure,
     is_replayable_transport_failure, is_unprompted_retryable,
 };
 use connectrpc::{ConnectError, ErrorCode};
-use crate::world::RetryWorld;
 use cucumber::{given, then};
 
 fn code_of(name: &str) -> ErrorCode {
