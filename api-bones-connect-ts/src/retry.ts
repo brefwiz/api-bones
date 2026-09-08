@@ -77,6 +77,38 @@ export function isConnectionWriteFailure(err: ConnectError): boolean {
   return CONNECTION_WRITE_FAILURE_SIGNATURES.some((signature) => message.includes(signature));
 }
 
+/**
+ * Re-codes a failure that never reached the server as `Unavailable`.
+ *
+ * Connect stamps anything that is not already a ConnectError as `Internal`, so
+ * a socket reset mid-write arrives claiming the server has a bug. It is the
+ * opposite claim: the request never got there. The difference is what a caller
+ * acts on -- `Internal` says stop and investigate the server, `Unavailable`
+ * says the hop failed and may be retried -- and it is what a caller asserting
+ * on a refusal sees in place of the refusal.
+ *
+ * Belongs OUTSIDE the retry interceptor: `isConnectionWriteFailure` matches on
+ * `Internal`, so re-coding before retry runs would make every one of these
+ * unretryable. Only what escapes retry is re-coded.
+ */
+export function makeConnectionFailureNormalizer(): Interceptor {
+  return (next) => async (req) => {
+    try {
+      return await next(req);
+    } catch (err) {
+      const connectErr = ConnectError.from(err);
+      if (!isConnectionWriteFailure(connectErr)) throw err;
+      throw new ConnectError(
+        connectErr.rawMessage,
+        Code.Unavailable,
+        connectErr.metadata,
+        undefined,
+        connectErr.cause,
+      );
+    }
+  };
+}
+
 /** Attempts after the initial call. */
 export const MAX_RETRY_ATTEMPTS = 3;
 

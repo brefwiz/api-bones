@@ -33,7 +33,7 @@ import {
   type NodeTlsIdentity,
 } from "./node-diagnostics.js";
 import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
-import { makeRetryInterceptor } from "./retry.js";
+import { makeConnectionFailureNormalizer, makeRetryInterceptor } from "./retry.js";
 import { startWatcherSafe } from "@brefwiz/spiffe-client";
 import { clientTlsIdentityFor, WATCHER_ATTEMPTS, WorkloadIdentityError } from "./workload-identity.js";
 
@@ -195,9 +195,12 @@ export async function configureNodeConnectTransport(
     ...(opts.interceptors ?? []),
     ...(getToken ? [makeAuthInterceptor(getToken)] : []),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
+    // Outside the retry interceptor: `isConnectionWriteFailure` matches on the
+    // Internal code, so re-coding any earlier would make these unretryable.
+    makeConnectionFailureNormalizer(),
+    makeRetryInterceptor({ policyByRpc, backoff: retry }),
     // Inside the retry interceptor: a failure the policy lets us replay never
     // reaches a caller, so only the ones that actually surface get rewritten.
-    makeRetryInterceptor({ policyByRpc, backoff: retry }),
     ...(diagnostics ? [makeConnectionDiagnosticsInterceptor(diagnostics)] : []),
   ];
 

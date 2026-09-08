@@ -16,6 +16,7 @@ import { configureNodeConnectTransport } from "./node.js";
 import {
   RetryThrottle,
   isConnectionWriteFailure,
+  makeConnectionFailureNormalizer,
   isRetryableMethod,
   serverPushbackMs,
 } from "./retry.js";
@@ -287,5 +288,47 @@ describe("package resolution", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("connection-failure normalisation", () => {
+  const call = async (thrown: unknown): Promise<ConnectError | null> => {
+    const interceptor = makeConnectionFailureNormalizer();
+    const next = async () => {
+      throw thrown;
+    };
+    try {
+      await interceptor(next as never)({} as never);
+      return null;
+    } catch (err) {
+      return ConnectError.from(err);
+    }
+  };
+
+  it("re-codes a request that never reached the server as unavailable", async () => {
+    // The distinction a caller acts on: Internal says the server has a bug,
+    // Unavailable says the hop failed. A reset socket is the second.
+    const err = await call(new ConnectError("write EPIPE (socket=16)", Code.Internal));
+    expect(err?.code).toBe(Code.Unavailable);
+    expect(err?.rawMessage).toContain("write EPIPE");
+  });
+
+  it("leaves a genuine server-side Internal alone", async () => {
+    const err = await call(new ConnectError("nil pointer dereference", Code.Internal));
+    expect(err?.code).toBe(Code.Internal);
+  });
+
+  it("leaves a refusal the server actually sent alone", async () => {
+    // The bug this guards: a transport failure arriving as Internal was
+    // indistinguishable from a refusal, so a caller expecting Unauthenticated
+    // saw 13 and could not tell which had happened.
+    const err = await call(new ConnectError("no verified peer", Code.Unauthenticated));
+    expect(err?.code).toBe(Code.Unauthenticated);
+  });
+
+  it("passes a successful call through untouched", async () => {
+    const interceptor = makeConnectionFailureNormalizer();
+    const next = async () => "ok" as never;
+    await expect(interceptor(next as never)({} as never)).resolves.toBe("ok");
   });
 });

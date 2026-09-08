@@ -36,6 +36,7 @@ export {
   RetryThrottle,
   isConnectionWriteFailure,
   isRetryableMethod,
+  makeConnectionFailureNormalizer,
   makeRetryInterceptor,
   rpcIdentity,
   serverPushbackMs,

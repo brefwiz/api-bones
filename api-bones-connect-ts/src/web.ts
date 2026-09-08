@@ -27,7 +27,7 @@ import {
   MAX_CONNECT_GET_URL_BYTES,
   type SdkTransportProfile,
 } from "./policy.js";
-import { makeRetryInterceptor, rpcIdentity } from "./retry.js";
+import { makeConnectionFailureNormalizer, makeRetryInterceptor, rpcIdentity } from "./retry.js";
 
 export interface ConnectTransportOptions {
   baseUrl: string;
@@ -186,6 +186,9 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
     ...(getToken ? [makeAuthInterceptor(getToken)] : []),
     makeCsrfInterceptor(),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
+    // Outside the retry interceptor: `isConnectionWriteFailure` matches on the
+    // Internal code, so re-coding any earlier would make these unretryable.
+    makeConnectionFailureNormalizer(),
     makeRetryInterceptor({ policyByRpc, backoff: retry }),
   ];
 
