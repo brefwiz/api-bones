@@ -1,7 +1,7 @@
 {
   "name": "@brefwiz/api-bones-connect",
-  "version": "0.3.0",
-  "description": "Canonical Connect transport profiles for Brefwiz SDKs \u2014 shared policy core with browser and Node adapters",
+  "version": "0.3.1",
+  "description": "Canonical Connect transport profiles for Brefwiz SDKs — shared policy core with browser and Node adapters",
   "author": "Brefwiz Team",
   "license": "MIT",
   "main": "dist/index.js",

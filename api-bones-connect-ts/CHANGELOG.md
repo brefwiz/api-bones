@@ -1,21 +1,18 @@
 # Changelog
 
-All notable changes to `@brefwiz/api-bones-connect` are documented here.
+## [0.3.1](https://git.brefwiz.com/brefwiz/api-bones/releases/tag/sdk/v0.3.1) - 2026-09-08
 
-This file is maintained by ready-release-go from the commits that land on
-main; entries below the first release heading are written by automation, not
-by hand.
+### ❤️ Thanks to all contributors! ❤️
 
-## Unreleased
+@gsalingu, @release-bot
 
-### Added
+### Misc
 
-- `isUnpromptedRetryable`, `isReplayableTransportFailure` and
-  `connectionFailureAsUnavailable`, the retry-eligibility vocabulary paired
-  with the Rust implementation and answered by a shared parity corpus.
-
-### Fixed
-
-- A request that never reached the server is reported as `Unavailable` rather
-  than `Internal`, so a caller can tell a failed hop from a server fault — and
-  from a refusal the server actually sent.
+- npm-axis-ready-release-go [[#26](https://git.brefwiz.com/brefwiz/api-bones/pulls/26)]
+- library-parity-enrolment [[#25](https://git.brefwiz.com/brefwiz/api-bones/pulls/25)]
+- fix-connection-failure-unavailable [[#24](https://git.brefwiz.com/brefwiz/api-bones/pulls/24)]
+- chore/dependency-consolidation [[#23](https://git.brefwiz.com/brefwiz/api-bones/pulls/23)]
+- feat(connect): acquire client TLS from the Workload API by default [[#22](https://git.brefwiz.com/brefwiz/api-bones/pulls/22)]
+- chore: release [[#15](https://git.brefwiz.com/brefwiz/api-bones/pulls/15)]
+- fix(protos): keep capability examples generic [[#18](https://git.brefwiz.com/brefwiz/api-bones/pulls/18)]
+- feat(protos): declare provider capabilities on services [[#17](https://git.brefwiz.com/brefwiz/api-bones/pulls/17)]
