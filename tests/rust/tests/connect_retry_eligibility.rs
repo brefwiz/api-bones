@@ -15,8 +15,14 @@ use steps::RetryWorld;
 /// Whether `tag` is on the scenario or inherited from its feature.
 fn has_tag(feature: &Feature, scenario: &Scenario, tag: &str) -> bool {
     let wanted = format!("@{tag}");
-    feature.tags.iter().any(|each| *each == wanted || *each == tag)
-        || scenario.tags.iter().any(|each| *each == wanted || *each == tag)
+    feature
+        .tags
+        .iter()
+        .any(|each| *each == wanted || *each == tag)
+        || scenario
+            .tags
+            .iter()
+            .any(|each| *each == wanted || *each == tag)
 }
 
 #[tokio::main]

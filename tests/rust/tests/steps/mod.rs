@@ -80,5 +80,8 @@ fn then_replayable(world: &mut RetryWorld, expected: String) {
 #[then(expr = "it is reported to the caller as {string}")]
 fn then_reported(world: &mut RetryWorld, expected: String) {
     let failure = world.failure.take().expect("no failure given");
-    assert_eq!(name_of(connection_failure_as_unavailable(failure).code), expected);
+    assert_eq!(
+        name_of(connection_failure_as_unavailable(failure).code),
+        expected
+    );
 }
