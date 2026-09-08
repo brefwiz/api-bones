@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.2](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-sdk-gen-v4.4.1...api-bones-sdk-gen-v4.4.2) - 2026-09-08
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [4.4.1](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-sdk-gen-v4.4.0...api-bones-sdk-gen-v4.4.1) - 2026-08-15
 
 ### Fixed

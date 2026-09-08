@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.13.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.12.0...api-bones-v6.13.0) - 2026-09-08
+
+### Added
+
+- *(contract)* a TypeScript step lane beside the corpus, symmetric with Rust
+- *(connect)* the paired retry surface is a Gherkin contract both languages answer
+- *(release)* give the npm axis a tag minter, and release-plz its dependency token
+- *(connect)* pair the retry vocabulary across both languages, and prove it
+- *(connect)* acquire client TLS from the Workload API by default
+
+### Fixed
+
+- *(ci)* keep the harness-free contract lane out of the nextest run
+- *(ci)* run the contract lane where npm credentials already exist
+- *(contract)* run the Rust lane through the platform BDD primitive
+- *(ci)* give the declared SDK languages their publish rehearsals
+- *(ci)* route ready-release-go branches off the heavy lanes
+- *(connect-ts)* a request that never reached the server is unavailable, not internal
+- *(lint)* re-pin the toolchain to what CI runs, and clear what that surfaced
+- *(connect)* default the wire encoding to proto, as the platform declares
+- *(connect)* say the crate is unpublishable rather than pick a wrong registry
+- *(connect)* resolve the brefwiz registry and ship where the dependency does
+
+### Other
+
+- state what the contract lane is, not how it came to be
+- rustfmt the migrated connect spec call sites
+- *(deps)* consolidate the dependency and advisory backlog
+- *(axum)* factor the ready-future extractor into one macro
+- rustfmt the rewritten extractors
+- *(ci)* clear two pre-existing gates blocking every branch
+
 ## [6.12.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.11.0...api-bones-v6.12.0) - 2026-08-16
 
 ### Added
