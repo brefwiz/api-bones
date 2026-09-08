@@ -29,6 +29,12 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
       flavor: checks
       memory: "1536"
+    env:
+      # The package diff reads brefwiz-spiffe-client from the authenticated
+      # brefwiz registry. That is a DEPENDENCY read, not a publish: these
+      # crates go to crates.io, and the publish token below is a different
+      # credential for a different registry.
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
     steps:
       - id: checkout
         uses: actions/checkout
@@ -51,6 +57,12 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
       flavor: checks
       memory: "1536"
+    env:
+      # The package diff reads brefwiz-spiffe-client from the authenticated
+      # brefwiz registry. That is a DEPENDENCY read, not a publish: these
+      # crates go to crates.io, and the publish token below is a different
+      # credential for a different registry.
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
     steps:
       - id: checkout
         uses: actions/checkout

@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: MIT
+# The npm release axis for api-bones: ready-release-go, on every push to main.
+#
+# The Rust crates release themselves — release-plz opens its bump PR on every
+# push and publishes what an earlier merge already changed. The TypeScript
+# package had no equivalent: sdk-release.yml publishes to npm, but it fires on
+# an `sdk/v*` tag and nothing in the repo minted one. There is no auto-tag here
+# and release-plz owns Cargo manifests only, so every `sdk/v*` tag to date was
+# pushed by hand.
+#
+# That asymmetry is the bug. The two halves of this library are held in source
+# parity by parity-units.yml, and a Rust half that releases itself beside a
+# TypeScript half that waits for someone to remember lets the PUBLISHED halves
+# drift even while the source agrees.
+#
+# ready-release-go owns the standing changelog PR and the tag mint. It does not
+# edit package.json: the version in api-bones-connect-ts/package.json is bumped
+# in the development PR, and the tag it cuts must match it.
+
+name: api-bones-ready-release-go
+
+vars: [brefwiz-secrets, brefwiz-vars]
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  api-bones-connect-ts:
+    region: brefwiz-light
+    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          fetch-depth: 0
+      - id: ready-release-go
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/ready-release-go@main
+        with:
+          checkout: "false"
+          forge-token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
+          repo-owner: brefwiz
+          repo-name: api-bones
+          # The lineage sdk-release.yml already publishes on, so the tag this
+          # mints is the one that fires the existing npm publish rather than a
+          # second, parallel notion of "the TypeScript release".
+          tag-prefix: sdk/v
+          pull-request-branch-prefix: next-release/api-bones-connect-ts-
+          changelog-path: api-bones-connect-ts/CHANGELOG.md
+          registry-user: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+          registry-token: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+          gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
+          git-email: "release-bot@brefwiz.com"
+          gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
