@@ -1,15 +1,14 @@
 # SPDX-License-Identifier: MIT
 #
-# The Rust step lane for the shared Gherkin contract at ../features. Its own
-# crate rather than an integration test of api-bones-connect: the contract is
-# answered by both languages, and a lane per language beside the corpus is the
-# canonical layout the closure gate resolves first.
+# The Rust step lane for the shared Gherkin contract at ../features. One lane
+# per language sits beside the corpus; the TypeScript lane is in
+# api-bones-connect-ts.
 [package]
 name = "api-bones-contract-rust"
 version = "0.0.0"
 edition = "2024"
 publish = false
-# Not published, so this is not part of any released artifact.
+# Unpublished; declared so workspace members all resolve one.
 license = "MIT"
 
 [dependencies]
@@ -18,8 +17,7 @@ connectrpc = "0.9"
 
 [dev-dependencies]
 cucumber = "0.23"
-# The platform BDD runner: constructing a Cucumber runner by hand is what
-# the delegation rule exists to stop.
+# The platform BDD runner.
 brefwiz-cucumber-steps = { version = "0.4.18", registry = "brefwiz" }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 

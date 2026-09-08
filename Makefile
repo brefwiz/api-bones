@@ -44,24 +44,17 @@ ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	cargo nextest run --workspace --all-features --profile ci
 
 ci-e2e-rust: ## Answer the shared Gherkin contract from the Rust lane
-	# The contract at tests/features is answered by BOTH languages; this is the
-	# Rust half, and ci-e2e-ts is the other. A cucumber suite is its own harness
-	# (harness = false), so nextest cannot carry it and it runs through cargo
-	# test directly.
-	#
-	# No live stack, unlike the service repos this lane is named after: the
-	# contract is a pure classification, so the lane is a direct synchronous run
-	# rather than a flavor-parallel deployment.
+	# A cucumber suite is its own harness (harness = false), so nextest cannot
+	# carry it. The contract is a pure classification, so this needs no live
+	# stack and runs synchronously.
 	cargo test -p api-bones-contract-rust --test connect_retry_eligibility
 
 ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100
 
-# Publish rehearsals, one per declared SDK language. Both artifacts are real:
-# this workspace publishes crates to crates.io and @brefwiz/api-bones-connect
-# to npm, so a dry run is the same operation the release performs, minus the
-# upload -- which is the point of rehearsing it at PR time rather than
-# discovering a broken include list or files list after a tag.
+# Publish rehearsals, one per declared SDK language: the release operation
+# minus the upload, so a broken include or files list fails at PR time rather
+# than after a tag.
 ci-sdk-publish-rust-dry-run: ## Rehearse the crate publish without uploading
 	cargo package -p api-bones-connect --allow-dirty --no-verify
 

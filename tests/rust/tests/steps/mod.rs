@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: MIT
-//! The Rust half of `tests/features/connect_retry_eligibility.feature`.
+//! The Rust half of `../../features/connect_retry_eligibility.feature`.
 //!
-//! The TypeScript half answers the same file. Neither language keeps its own
-//! copy of the rows: the signature list is transcribed into each by hand, and
-//! a corpus each side wrote for itself would let the two drift apart exactly
-//! as the implementations could.
+//! The TypeScript half answers the same file; neither keeps its own copy of
+//! the rows.
 
-use crate::world::RetryWorld;
 use api_bones_connect::{
     connection_failure_as_unavailable, is_connection_write_failure,
     is_replayable_transport_failure, is_unprompted_retryable,

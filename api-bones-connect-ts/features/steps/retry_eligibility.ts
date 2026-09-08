@@ -2,10 +2,7 @@
 /**
  * The TypeScript half of `tests/features/connect_retry_eligibility.feature`.
  *
- * The Rust half answers the same file. Neither language keeps its own copy of
- * the rows: the signature list is transcribed into each by hand, and a corpus
- * each side wrote for itself would let the two drift apart exactly as the
- * implementations could.
+ * The Rust half answers the same file; neither keeps its own copy of the rows.
  */
 
 import assert from "node:assert/strict";

@@ -3,14 +3,8 @@
 Feature: Connect retry eligibility
 
   api-bones ships this vocabulary twice, once in Rust and once in
-  TypeScript. The seven connection-write signatures are transcribed into
-  each language by hand, and for a long time the two agreed only because
-  two authors typed the same seven strings.
-
-  These scenarios are the contract both implementations answer. A row that
-  only one language satisfies is a divergence, which is the whole point:
-  a normaliser once shipped in TypeScript with its own passing tests and
-  left Rust behind, and nothing objected.
+  TypeScript. Both implementations answer the scenarios below, so a row
+  only one language satisfies is a divergence.
 
   Scenario Outline: A failure is classified the same way in every language
     Given a Connect failure with code "<code>" and message "<message>"

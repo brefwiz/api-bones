@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: MIT
 //! The Cucumber World for the shared contract lane.
-//!
-//! A sibling of `steps/` rather than a member of it: step modules hold
-//! glue, and world state shared across them is its own thing.
 
 use connectrpc::ConnectError;
 use cucumber::World;
