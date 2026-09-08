@@ -8,6 +8,7 @@
 
 ### Misc
 
+- chore: release [[#29](https://git.brefwiz.com/brefwiz/api-bones/pulls/29)]
 - gherkin-library-surface [[#27](https://git.brefwiz.com/brefwiz/api-bones/pulls/27)]
 - npm-axis-ready-release-go [[#26](https://git.brefwiz.com/brefwiz/api-bones/pulls/26)]
 - library-parity-enrolment [[#25](https://git.brefwiz.com/brefwiz/api-bones/pulls/25)]
