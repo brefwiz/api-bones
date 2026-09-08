@@ -32,7 +32,7 @@ chrono = ["api-bones/chrono"]
 opentelemetry = ["api-bones/opentelemetry"]
 
 [dependencies]
-api-bones = { version = "6", path = "..", default-features = false, features = ["std", "serde"] }
+api-bones = { version = "6", path = "..", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
 tower = { version = "0.5", features = ["util"] }
 http = { version = "1.0" }
 http-body = { version = "1.0" }

@@ -224,3 +224,20 @@ required-features = ["uuid"]
 name = "header_parser"
 required-features = ["http"]
 
+# `cargo publish --dry-run` resolves each crate's dependencies against the
+# registry, and a workspace member being published in the same run is not on it
+# yet — the dry run would fail on a version that exists only in this tree.
+# Redirect each publishable member to its local path so the dry run reads what
+# is about to be published rather than what already shipped.
+#
+# api-bones-connect is absent on purpose: it declares `publish = false`, so
+# nothing resolves it from the registry and an entry here would redirect a
+# dependency that does not exist.
+[patch.brefwiz]
+api-bones = { path = "." }
+api-bones-tower = { path = "api-bones-tower" }
+api-bones-reqwest = { path = "api-bones-reqwest" }
+api-bones-progenitor = { path = "api-bones-progenitor" }
+api-bones-sdk-gen = { path = "api-bones-sdk-gen" }
+api-bones-test = { path = "api-bones-test" }
+api-bones-protos = { path = "api-bones-protos" }
