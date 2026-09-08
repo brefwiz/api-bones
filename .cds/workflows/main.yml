@@ -19,7 +19,7 @@ on:
 
 jobs:
   test:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     region: brefwiz-ram
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-ram@main
@@ -54,7 +54,7 @@ jobs:
 
 
   ts:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     region: brefwiz-local
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
     env:
@@ -104,7 +104,7 @@ jobs:
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     region: brefwiz-light
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
@@ -128,7 +128,7 @@ jobs:
           typerel-artifact: typerel-typescript
 
   cargo-package:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     region: brefwiz-local
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
     env:
@@ -185,7 +185,7 @@ jobs:
     # `checks` stays on that branch because branch protection needs the
     # combined status it emits; every worker-heavy job below would just
     # reserve a runner to recompile unchanged code.
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     region: brefwiz-local
     runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
     env:
