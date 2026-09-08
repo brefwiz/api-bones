@@ -11,9 +11,10 @@
 //! already has with its own internal dependency.
 
 mod steps;
+mod world;
 
 use brefwiz_cucumber_steps::TwoPass;
-use steps::RetryWorld;
+use world::RetryWorld;
 
 #[tokio::main]
 async fn main() {

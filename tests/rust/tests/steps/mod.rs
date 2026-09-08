@@ -11,7 +11,8 @@ use api_bones_connect::{
     is_replayable_transport_failure, is_unprompted_retryable,
 };
 use connectrpc::{ConnectError, ErrorCode};
-use cucumber::{World, given, then};
+use crate::world::RetryWorld;
+use cucumber::{given, then};
 
 fn code_of(name: &str) -> ErrorCode {
     match name {
@@ -34,17 +35,6 @@ fn name_of(code: ErrorCode) -> &'static str {
         ErrorCode::ResourceExhausted => "resource_exhausted",
         ErrorCode::PermissionDenied => "permission_denied",
         other => panic!("the implementation produced a code the contract does not name: {other:?}"),
-    }
-}
-
-#[derive(Debug, Default, World)]
-pub struct RetryWorld {
-    failure: Option<ConnectError>,
-}
-
-impl RetryWorld {
-    fn failure(&self) -> &ConnectError {
-        self.failure.as_ref().expect("no failure given")
     }
 }
 
