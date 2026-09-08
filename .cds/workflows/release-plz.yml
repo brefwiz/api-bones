@@ -31,9 +31,11 @@ jobs:
       memory: "1536"
     env:
       # The package diff reads brefwiz-spiffe-client from the authenticated
-      # brefwiz registry. That is a DEPENDENCY read, not a publish: these
-      # crates go to crates.io, and the publish token below is a different
-      # credential for a different registry.
+      # brefwiz registry. That is a DEPENDENCY read; the publish below goes to
+      # the same registry, so the same credential answers both — but they stay
+      # separately named because reading an index and writing a crate are
+      # different grants, and a repository that conflates them cannot be given
+      # one without the other.
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
     steps:
       - id: checkout
@@ -49,8 +51,8 @@ jobs:
           forge: gitea
           gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
-          registry: crates-io
-          registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRY_TOKEN }}
+          registry: brefwiz
+          registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
   pr-release-plz:
     region: brefwiz-light
     runs-on:
@@ -59,9 +61,11 @@ jobs:
       memory: "1536"
     env:
       # The package diff reads brefwiz-spiffe-client from the authenticated
-      # brefwiz registry. That is a DEPENDENCY read, not a publish: these
-      # crates go to crates.io, and the publish token below is a different
-      # credential for a different registry.
+      # brefwiz registry. That is a DEPENDENCY read; the publish below goes to
+      # the same registry, so the same credential answers both — but they stay
+      # separately named because reading an index and writing a crate are
+      # different grants, and a repository that conflates them cannot be given
+      # one without the other.
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
     steps:
       - id: checkout
@@ -77,6 +81,6 @@ jobs:
           forge: gitea
           gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
-          registry: crates-io
-          registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRY_TOKEN }}
+          registry: brefwiz
+          registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
 

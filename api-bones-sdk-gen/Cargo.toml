@@ -1,6 +1,7 @@
 [package]
 name = "api-bones-sdk-gen"
 version = "4.4.2"
+publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
 license = "MIT"
