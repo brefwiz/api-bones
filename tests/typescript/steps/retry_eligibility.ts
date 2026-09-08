@@ -8,14 +8,15 @@
 import assert from "node:assert/strict";
 
 import { Given, Then, World } from "@cucumber/cucumber";
-import { Code, ConnectError } from "@connectrpc/connect";
 
 import {
+  Code,
+  ConnectError,
   connectionFailureAsUnavailable,
   isConnectionWriteFailure,
   isReplayableTransportFailure,
   isUnpromptedRetryable,
-} from "../../src/retry-eligibility.js";
+} from "@brefwiz/api-bones-connect";
 
 const CODES: Readonly<Record<string, Code>> = {
   internal: Code.Internal,
@@ -55,20 +56,24 @@ Given(
 );
 
 Then("it is a connection write failure: {word}", function (this: RetryWorld, expected: string) {
-  assert.equal(String(isConnectionWriteFailure(failureOf(this))), expected);
+  const actual = isConnectionWriteFailure(failureOf(this));
+  assert.equal(String(actual), expected);
 });
 
 Then(
   "it is retryable without server instruction: {word}",
   function (this: RetryWorld, expected: string) {
-    assert.equal(String(isUnpromptedRetryable(failureOf(this).code)), expected);
+    const actual = isUnpromptedRetryable(failureOf(this).code);
+    assert.equal(String(actual), expected);
   },
 );
 
 Then("its shape permits a replay: {word}", function (this: RetryWorld, expected: string) {
-  assert.equal(String(isReplayableTransportFailure(failureOf(this))), expected);
+  const actual = isReplayableTransportFailure(failureOf(this));
+  assert.equal(String(actual), expected);
 });
 
 Then("it is reported to the caller as {string}", function (this: RetryWorld, expected: string) {
-  assert.equal(NAMES.get(connectionFailureAsUnavailable(failureOf(this)).code), expected);
+  const recoded = connectionFailureAsUnavailable(failureOf(this));
+  assert.equal(NAMES.get(recoded.code), expected);
 });

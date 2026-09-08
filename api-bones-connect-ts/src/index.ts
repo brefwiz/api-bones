@@ -11,6 +11,10 @@
 //   import { configureConnectTransport }     from "@brefwiz/api-bones-connect/web";
 //   import { configureNodeConnectTransport } from "@brefwiz/api-bones-connect/node";
 
+// The Connect error vocabulary this package's predicates classify. Re-exported
+// so a consumer reasoning about retry eligibility takes the code and the error
+// type from the same place as the predicates that read them.
+export { Code, ConnectError } from "@connectrpc/connect";
 export {
   DEFAULT_BACKOFF,
   computeBackoffDelay,

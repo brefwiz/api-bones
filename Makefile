@@ -1,6 +1,6 @@
 # Makefile for api-bones
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust ci-coverage \
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust contract-ts ci-coverage \
 	ci-sdk-publish-rust-dry-run ci-sdk-publish-typescript-dry-run ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
 	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc ci-npm-build \
@@ -37,7 +37,7 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 	cargo check --no-default-features --features alloc
 	cargo check --no-default-features --features alloc,serde
 
-ci-test: ci-e2e-rust ## Run tests with nextest (CI)
+ci-test: ci-e2e-rust contract-ts ## Run tests with nextest (CI)
 	# --profile ci selects the JUnit-emitting profile the test composite consumes.
 	# Without it the suite passes and the job still fails, on a missing artifact
 	# rather than a failing test.
@@ -49,7 +49,14 @@ ci-e2e-rust: ## Answer the shared Gherkin contract from the Rust lane
 	# stack and runs synchronously.
 	cargo test -p api-bones-contract-rust --test connect_retry_eligibility
 
-ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
+contract-ts: ## Answer the shared Gherkin contract from the TypeScript lane
+	# The lane consumes the package through its published entry points, so the
+	# package is built first. The loader is ESM because that is what the package
+	# exports.
+	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build
+	cd tests/typescript && npm install --no-audit --no-fund && NODE_OPTIONS="--import tsx" npm test
+
+ci-coverage: ci-e2e-rust contract-ts ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100
 
 # Publish rehearsals, one per declared SDK language: the release operation

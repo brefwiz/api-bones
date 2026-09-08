@@ -4,10 +4,7 @@
 //! The TypeScript half answers the same file; neither keeps its own copy of
 //! the rows.
 
-use api_bones_connect::{
-    connection_failure_as_unavailable, is_connection_write_failure,
-    is_replayable_transport_failure, is_unprompted_retryable,
-};
+use crate::world::RetryWorld;
 use connectrpc::{ConnectError, ErrorCode};
 use cucumber::{given, then};
 
@@ -42,33 +39,25 @@ fn given_failure(world: &mut RetryWorld, code: String, message: String) {
 
 #[then(expr = "it is a connection write failure: {word}")]
 fn then_write_failure(world: &mut RetryWorld, expected: String) {
-    assert_eq!(
-        is_connection_write_failure(world.failure()).to_string(),
-        expected
-    );
+    let actual = api_bones_connect::is_connection_write_failure(world.failure());
+    assert_eq!(actual.to_string(), expected);
 }
 
 #[then(expr = "it is retryable without server instruction: {word}")]
 fn then_unprompted(world: &mut RetryWorld, expected: String) {
-    assert_eq!(
-        is_unprompted_retryable(world.failure().code).to_string(),
-        expected
-    );
+    let actual = api_bones_connect::is_unprompted_retryable(world.failure().code);
+    assert_eq!(actual.to_string(), expected);
 }
 
 #[then(expr = "its shape permits a replay: {word}")]
 fn then_replayable(world: &mut RetryWorld, expected: String) {
-    assert_eq!(
-        is_replayable_transport_failure(world.failure()).to_string(),
-        expected
-    );
+    let actual = api_bones_connect::is_replayable_transport_failure(world.failure());
+    assert_eq!(actual.to_string(), expected);
 }
 
 #[then(expr = "it is reported to the caller as {string}")]
 fn then_reported(world: &mut RetryWorld, expected: String) {
     let failure = world.failure.take().expect("no failure given");
-    assert_eq!(
-        name_of(connection_failure_as_unavailable(failure).code),
-        expected
-    );
+    let recoded = api_bones_connect::connection_failure_as_unavailable(failure);
+    assert_eq!(name_of(recoded.code), expected);
 }

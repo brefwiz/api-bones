@@ -26,8 +26,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "cucumber-js",
-    "test:unit": "vitest run"
+    "test": "vitest run"
   },
   "peerDependencies": {
     "@bufbuild/protobuf": "^2.0.0",
@@ -46,9 +45,7 @@
     "@connectrpc/connect": "^2.0.0",
     "@connectrpc/connect-node": "^2.0.0",
     "@connectrpc/connect-web": "^2.0.0",
-    "@cucumber/cucumber": "^12.0.0",
     "@types/node": "^22.20.1",
-    "tsx": "^4.0.0",
     "typescript": "^5.0.0",
     "vitest": "^3.0.0"
   },
