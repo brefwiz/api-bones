@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.2](https://git.brefwiz.com/brefwiz/api-bones/releases/tag/sdk/v0.3.2) - 2026-09-08
+
+### ❤️ Thanks to all contributors! ❤️
+
+@gsalingu
+
+### Misc
+
+- fix/publish-to-brefwiz-registry [[#30](https://git.brefwiz.com/brefwiz/api-bones/pulls/30)]
+
 ## [0.3.1](https://git.brefwiz.com/brefwiz/api-bones/releases/tag/sdk/v0.3.1) - 2026-09-08
 
 ### ❤️ Thanks to all contributors! ❤️
