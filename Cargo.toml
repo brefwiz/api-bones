@@ -8,6 +8,10 @@ members = [
     "api-bones-sdk-gen",
     "api-bones-test",
     "api-bones-protos",
+    # The Rust step lane for the shared Gherkin contract. A member rather than
+    # an integration test of the crate it exercises, because the contract is
+    # answered by two languages and each lane sits beside the corpus.
+    "tests/rust",
 ]
 resolver = "2"
 
@@ -131,9 +135,6 @@ option_if_let_else = "allow"         # nursery: map_or_else is less readable in 
 result_large_err = "allow"
 
 [dev-dependencies]
-# The parity corpus is JSON and the test that reads it must not depend on
-# which optional features a given build turned on.
-serde_json = "1.0"
 mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
 opentelemetry_sdk = { version = "0.32", features = ["trace", "rt-tokio"] }
@@ -221,3 +222,4 @@ required-features = ["uuid"]
 [[example]]
 name = "header_parser"
 required-features = ["http"]
+

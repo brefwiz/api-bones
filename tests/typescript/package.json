@@ -1,0 +1,15 @@
+{
+  "name": "api-bones-contract-ts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TypeScript step lane for the shared Gherkin contract.",
+  "scripts": {
+    "test": "cucumber-js"
+  },
+  "devDependencies": {
+    "@brefwiz/api-bones-connect": "file:../../api-bones-connect-ts",
+    "@cucumber/cucumber": "^12.0.0",
+    "tsx": "^4.0.0"
+  }
+}

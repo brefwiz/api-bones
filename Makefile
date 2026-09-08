@@ -1,6 +1,7 @@
 # Makefile for api-bones
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-coverage ci-audit ci-deny build clean \
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust ci-coverage \
+	ci-sdk-publish-rust-dry-run ci-sdk-publish-typescript-dry-run ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
 	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc ci-npm-build \
 	lockfile ci-lockfile-diff
@@ -36,14 +37,34 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 	cargo check --no-default-features --features alloc
 	cargo check --no-default-features --features alloc,serde
 
-ci-test: ## Run tests with nextest (CI)
+ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# --profile ci selects the JUnit-emitting profile the test composite consumes.
 	# Without it the suite passes and the job still fails, on a missing artifact
 	# rather than a failing test.
-	cargo nextest run --workspace --all-features --profile ci
+	# The contract lane is excluded: its test target is harness = false, and
+	# nextest enumerates targets with `--list`, which such a binary does not
+	# accept ("unexpected argument '--list' found"). ci-e2e-rust runs it.
+	cargo nextest run --workspace --exclude api-bones-contract-rust --all-features --profile ci
 
-ci-coverage: ## Enforce 100% function coverage with llvm-cov + nextest (CI)
-	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100
+ci-e2e-rust: ## Answer the shared Gherkin contract from the Rust lane
+	# A cucumber suite is its own harness (harness = false), so nextest cannot
+	# carry it. The contract is a pure classification, so this needs no live
+	# stack and runs synchronously.
+	cargo test -p api-bones-contract-rust --test connect_retry_eligibility
+
+ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
+	# Excluded for the same reason as ci-test: nextest cannot enumerate a
+	# harness = false target.
+	cargo llvm-cov nextest --workspace --exclude api-bones-contract-rust --all-features --fail-under-functions 100
+
+# Publish rehearsals, one per declared SDK language: the release operation
+# minus the upload, so a broken include or files list fails at PR time rather
+# than after a tag.
+ci-sdk-publish-rust-dry-run: ## Rehearse the crate publish without uploading
+	cargo package -p api-bones-connect --allow-dirty --no-verify
+
+ci-sdk-publish-typescript-dry-run: ## Rehearse the npm publish without uploading
+	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm publish --dry-run
 
 build: ## Build the crate
 	cargo build --release
@@ -156,6 +177,10 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # having both scripts. A list makes adding a package a one-line change and makes
 # an omission visible.
 TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
+# The contract lane is its own TypeScript package; ts-test runs it where npm
+# credentials already exist. It is excluded from publish/pack, which iterate
+# PUBLISHABLE sets, because it ships nothing.
+TS_TEST_PACKAGES := $(TS_PACKAGES) tests/typescript
 
 # The brefwiz npm registry, as the @brefwiz scope must resolve it: the Gitea
 # package endpoint. Other hostnames that look like a registry for this org do
@@ -248,7 +273,11 @@ ts-build: ## Build TypeScript packages
 	done
 
 ts-test: ## Test TypeScript packages
-	@set -e; for pkg in $(TS_PACKAGES); do \
+	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
+	: '@brefwiz/api-bones-connect through its published entry points, so the'
+	: 'package it depends on is built first.'
+	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build
+	@set -e; for pkg in $(TS_TEST_PACKAGES); do \
 		echo "==> test $$pkg"; \
 		( cd $$pkg && npm install --no-audit --no-fund && npm run test ); \
 	done
