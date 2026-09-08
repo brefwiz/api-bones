@@ -1,6 +1,6 @@
 # Makefile for api-bones
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust contract-ts ci-coverage \
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust ci-coverage \
 	ci-sdk-publish-rust-dry-run ci-sdk-publish-typescript-dry-run ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
 	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc ci-npm-build \
@@ -37,7 +37,7 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 	cargo check --no-default-features --features alloc
 	cargo check --no-default-features --features alloc,serde
 
-ci-test: ci-e2e-rust contract-ts ## Run tests with nextest (CI)
+ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# --profile ci selects the JUnit-emitting profile the test composite consumes.
 	# Without it the suite passes and the job still fails, on a missing artifact
 	# rather than a failing test.
@@ -49,14 +49,7 @@ ci-e2e-rust: ## Answer the shared Gherkin contract from the Rust lane
 	# stack and runs synchronously.
 	cargo test -p api-bones-contract-rust --test connect_retry_eligibility
 
-contract-ts: ## Answer the shared Gherkin contract from the TypeScript lane
-	# The lane consumes the package through its published entry points, so the
-	# package is built first. The loader is ESM because that is what the package
-	# exports.
-	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build
-	cd tests/typescript && npm install --no-audit --no-fund && NODE_OPTIONS="--import tsx" npm test
-
-ci-coverage: ci-e2e-rust contract-ts ## Enforce 100% function coverage with llvm-cov + nextest (CI)
+ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	cargo llvm-cov nextest --workspace --all-features --fail-under-functions 100
 
 # Publish rehearsals, one per declared SDK language: the release operation
@@ -179,6 +172,10 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # having both scripts. A list makes adding a package a one-line change and makes
 # an omission visible.
 TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
+# The contract lane is its own TypeScript package; ts-test runs it where npm
+# credentials already exist. It is excluded from publish/pack, which iterate
+# PUBLISHABLE sets, because it ships nothing.
+TS_TEST_PACKAGES := $(TS_PACKAGES) tests/typescript
 
 # The brefwiz npm registry, as the @brefwiz scope must resolve it: the Gitea
 # package endpoint. Other hostnames that look like a registry for this org do
@@ -271,13 +268,13 @@ ts-build: ## Build TypeScript packages
 	done
 
 ts-test: ## Test TypeScript packages
-	: 'scripts.test is the Gherkin contract -- one direct Cucumber command, which'
-	: 'is the shape the platform gate reads. The unit suite moved to test:unit and'
-	: 'still runs here: the contract proves the two languages AGREE, the unit'
-	: 'tests prove the edges neither language shares.'
-	@set -e; for pkg in $(TS_PACKAGES); do \
+	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
+	: '@brefwiz/api-bones-connect through its published entry points, so the'
+	: 'package it depends on is built first.'
+	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build
+	@set -e; for pkg in $(TS_TEST_PACKAGES); do \
 		echo "==> test $$pkg"; \
-		( cd $$pkg && npm install --no-audit --no-fund && npm run test && npm run test:unit ); \
+		( cd $$pkg && npm install --no-audit --no-fund && npm run test ); \
 	done
 
 ts-lint: ## Lint TypeScript packages (format check + biome)
