@@ -84,6 +84,106 @@ pub fn is_replayable_transport_failure(error: &ConnectError) -> bool {
     is_unprompted_retryable(error.code) || is_connection_write_failure(error)
 }
 
+/// Re-code a failure that never reached the server as `Unavailable`.
+///
+/// `Internal` asserts the server has a bug; a socket that rejected the write
+/// asserts the opposite, that nothing server-side formed an opinion. The
+/// difference is what a caller acts on -- stop and investigate, versus the hop
+/// failed and may be retried -- and it is what a caller asserting on a refusal
+/// sees in place of the refusal.
+///
+/// Applied at the boundary where the error leaves the transport, AFTER any
+/// retry decision: [`is_connection_write_failure`] recognises these by their
+/// `Internal` code, so re-coding earlier would make every one of them look
+/// unretryable. Anything else is returned untouched.
+#[must_use]
+pub fn connection_failure_as_unavailable(error: ConnectError) -> ConnectError {
+    if !is_connection_write_failure(&error) {
+        return error;
+    }
+    let mut recoded = error;
+    recoded.code = ErrorCode::Unavailable;
+    recoded
+}
+
+#[cfg(test)]
+mod parity {
+    //! The Rust half of the shared parity corpus.
+    //!
+    //! `../../test-fixtures/parity/connect-retry-eligibility.json` is answered
+    //! by BOTH languages. Neither keeps its own copy of the cases: the
+    //! signature list is transcribed into each language by hand, and a corpus
+    //! each side wrote for itself would let the two drift apart exactly as the
+    //! implementations could.
+    use super::*;
+    use connectrpc::ConnectError;
+
+    const CORPUS: &str = include_str!("../../test-fixtures/parity/connect-retry-eligibility.json");
+
+    fn code_of(name: &str) -> ErrorCode {
+        match name {
+            "internal" => ErrorCode::Internal,
+            "unavailable" => ErrorCode::Unavailable,
+            "unauthenticated" => ErrorCode::Unauthenticated,
+            "aborted" => ErrorCode::Aborted,
+            "resource_exhausted" => ErrorCode::ResourceExhausted,
+            "permission_denied" => ErrorCode::PermissionDenied,
+            other => panic!("corpus names a code this test cannot build: {other}"),
+        }
+    }
+
+    fn name_of(code: ErrorCode) -> &'static str {
+        match code {
+            ErrorCode::Internal => "internal",
+            ErrorCode::Unavailable => "unavailable",
+            ErrorCode::Unauthenticated => "unauthenticated",
+            ErrorCode::Aborted => "aborted",
+            ErrorCode::ResourceExhausted => "resource_exhausted",
+            ErrorCode::PermissionDenied => "permission_denied",
+            _ => "other",
+        }
+    }
+
+    #[test]
+    fn every_corpus_case_answers_as_declared() {
+        let document: serde_json::Value =
+            serde_json::from_str(CORPUS).expect("parity corpus parses");
+        let cases = document["cases"].as_array().expect("corpus has cases");
+        assert!(!cases.is_empty(), "an empty corpus agrees with itself");
+
+        for case in cases {
+            let id = case["id"].as_str().expect("case id");
+            let error = ConnectError::new(
+                code_of(case["code"].as_str().expect("case code")),
+                case["message"].as_str().expect("case message"),
+            );
+
+            assert_eq!(
+                is_connection_write_failure(&error),
+                case["connection_write_failure"]
+                    .as_bool()
+                    .expect("expectation"),
+                "{id}: connection_write_failure"
+            );
+            assert_eq!(
+                is_unprompted_retryable(error.code),
+                case["unprompted_retryable"].as_bool().expect("expectation"),
+                "{id}: unprompted_retryable"
+            );
+            assert_eq!(
+                is_replayable_transport_failure(&error),
+                case["replayable"].as_bool().expect("expectation"),
+                "{id}: replayable"
+            );
+            assert_eq!(
+                name_of(connection_failure_as_unavailable(error).code),
+                case["normalized_code"].as_str().expect("expectation"),
+                "{id}: normalized_code"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

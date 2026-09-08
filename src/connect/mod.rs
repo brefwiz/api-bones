@@ -77,7 +77,8 @@ pub use ext::ConnectOptionExt;
 pub use page::{DEFAULT_LIMIT, MAX_LIMIT, OffsetPage, build_offset_page, build_page};
 pub use parse::parse_rfc3339;
 pub use retry_eligibility::{
-    is_connection_write_failure, is_replayable_transport_failure, is_unprompted_retryable,
+    connection_failure_as_unavailable, is_connection_write_failure,
+    is_replayable_transport_failure, is_unprompted_retryable,
 };
 pub use scoped::{CallCredential, ScopeCall, ScopedClient, TokenInjector};
 pub use timestamp::{chrono_opt_to_timestamp, chrono_to_timestamp};

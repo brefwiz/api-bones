@@ -131,6 +131,9 @@ option_if_let_else = "allow"         # nursery: map_or_else is less readable in 
 result_large_err = "allow"
 
 [dev-dependencies]
+# The parity corpus is JSON and the test that reads it must not depend on
+# which optional features a given build turned on.
+serde_json = "1.0"
 mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
 opentelemetry_sdk = { version = "0.32", features = ["trace", "rt-tokio"] }

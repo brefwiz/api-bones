@@ -34,8 +34,11 @@ export {
 export {
   MAX_RETRY_ATTEMPTS,
   RetryThrottle,
+  connectionFailureAsUnavailable,
   isConnectionWriteFailure,
+  isReplayableTransportFailure,
   isRetryableMethod,
+  isUnpromptedRetryable,
   makeConnectionFailureNormalizer,
   makeRetryInterceptor,
   rpcIdentity,

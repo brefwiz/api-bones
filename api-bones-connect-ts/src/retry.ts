@@ -23,88 +23,43 @@
 
 import { Code, ConnectError, type Interceptor } from "@connectrpc/connect";
 
+// The vocabulary lives in its Rust-paired module; retry.ts is the pipeline
+// that consumes it and has no Rust counterpart.
+import {
+  connectionFailureAsUnavailable,
+  isConnectionWriteFailure,
+  isReplayableTransportFailure,
+} from "./retry-eligibility.js";
+
 import type { BackoffOptions } from "./backoff.js";
 import { computeBackoffDelay, resolveBackoff } from "./backoff.js";
 import type { GeneratedMethodPolicy } from "./policy.js";
 
-/**
- * Codes retried without any server instruction.
- *
- * Only Unavailable: it is the one code that reliably means "this connection did
- * not carry the call". Aborted is deliberately absent — it signals a concurrency
- * or transaction conflict, and the correct response is to re-run the enclosing
- * transaction, not to replay one RPC inside it. ResourceExhausted is absent too;
- * it is handled below only under explicit server pushback, because retrying a
- * quota rejection on our own schedule is how a degraded service is converted
- * into a fully saturated one.
- */
-const UNPROMPTED_RETRYABLE_CODES: ReadonlySet<Code> = new Set([Code.Unavailable]);
+export {
+  connectionFailureAsUnavailable,
+  isConnectionWriteFailure,
+  isReplayableTransportFailure,
+  isUnpromptedRetryable,
+} from "./retry-eligibility.js";
 
 /**
- * Failures raised while writing the request onto the connection.
+ * Interceptor form of {@link connectionFailureAsUnavailable}.
  *
- * A keep-alive pool hands back a socket the peer has already closed, and the
- * write fails before any byte of the request is delivered. Both adapters
- * surface that as Internal — the code Connect uses for "the transport itself
- * broke" — so the codes above never see it and the call fails outright, even
- * though nothing ran on the server.
+ * The mapping itself is the paired vocabulary and lives in
+ * `retry-eligibility.ts`, where Rust has the same function. Only this wrapper
+ * is TypeScript-only, because Rust has no client interceptor pipeline for one
+ * to live in — a Rust caller applies the mapping directly.
  *
- * This is the safest replay there is. Unavailable, which is retried above, can
- * reach the client AFTER the server accepted the call; a socket that rejected
- * the write demonstrably carried nothing. Eligibility is still read from the
- * method's declared idempotency, so widening the code set never widens WHICH
- * methods may be replayed — only the failure shapes that count as "never left".
- */
-const CONNECTION_WRITE_FAILURE_SIGNATURES: readonly string[] = [
-  "write epipe",
-  "broken pipe",
-  "econnreset",
-  "connection reset",
-  "socket hang up",
-  "http2 stream closed",
-  "received goaway",
-];
-
-/**
- * Whether a failure happened before the request reached the server.
- *
- * Matched on the message because neither adapter preserves the underlying
- * `code` property once the reason is wrapped into a ConnectError.
- */
-export function isConnectionWriteFailure(err: ConnectError): boolean {
-  if (err.code !== Code.Internal) return false;
-  const message = err.rawMessage.toLowerCase();
-  return CONNECTION_WRITE_FAILURE_SIGNATURES.some((signature) => message.includes(signature));
-}
-
-/**
- * Re-codes a failure that never reached the server as `Unavailable`.
- *
- * Connect stamps anything that is not already a ConnectError as `Internal`, so
- * a socket reset mid-write arrives claiming the server has a bug. It is the
- * opposite claim: the request never got there. The difference is what a caller
- * acts on -- `Internal` says stop and investigate the server, `Unavailable`
- * says the hop failed and may be retried -- and it is what a caller asserting
- * on a refusal sees in place of the refusal.
- *
- * Belongs OUTSIDE the retry interceptor: `isConnectionWriteFailure` matches on
- * `Internal`, so re-coding before retry runs would make every one of these
- * unretryable. Only what escapes retry is re-coded.
+ * Installed OUTSIDE the retry interceptor: the mapping recognises these
+ * failures by their Internal code, so re-coding before retry runs would make
+ * every one of them unretryable. Only what escapes retry is re-coded.
  */
 export function makeConnectionFailureNormalizer(): Interceptor {
   return (next) => async (req) => {
     try {
       return await next(req);
     } catch (err) {
-      const connectErr = ConnectError.from(err);
-      if (!isConnectionWriteFailure(connectErr)) throw err;
-      throw new ConnectError(
-        connectErr.rawMessage,
-        Code.Unavailable,
-        connectErr.metadata,
-        undefined,
-        connectErr.cause,
-      );
+      throw connectionFailureAsUnavailable(ConnectError.from(err));
     }
   };
 }
@@ -225,8 +180,7 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
 
         const pushbackMs = serverPushbackMs(err);
         const retryable =
-          UNPROMPTED_RETRYABLE_CODES.has(err.code) ||
-          isConnectionWriteFailure(err) ||
+          isReplayableTransportFailure(err) ||
           (err.code === Code.ResourceExhausted && pushbackMs !== null);
         if (!retryable) throw err;
 

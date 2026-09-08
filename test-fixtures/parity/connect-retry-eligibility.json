@@ -1,0 +1,138 @@
+{
+  "_comment": [
+    "Shared parity corpus for the Connect retry-eligibility vocabulary.",
+    "Both language implementations answer THESE cases; neither keeps its own",
+    "copy. The signature list used to be transcribed into each language by",
+    "hand and agreed only because two authors typed the same seven strings —",
+    "one case per signature below is what turns that coincidence into a",
+    "contract.",
+    "",
+    "code/message are the inputs. The four expectations are the four questions",
+    "the vocabulary answers, and every language must answer all four the same."
+  ],
+  "cases": [
+    {
+      "id": "write-epipe",
+      "code": "internal",
+      "message": "write EPIPE (socket=16, authority=spiffe-server, freshly connected)",
+      "connection_write_failure": true,
+      "unprompted_retryable": false,
+      "replayable": true,
+      "normalized_code": "unavailable"
+    },
+    {
+      "id": "broken-pipe",
+      "code": "internal",
+      "message": "Broken pipe",
+      "connection_write_failure": true,
+      "unprompted_retryable": false,
+      "replayable": true,
+      "normalized_code": "unavailable"
+    },
+    {
+      "id": "econnreset",
+      "code": "internal",
+      "message": "read ECONNRESET",
+      "connection_write_failure": true,
+      "unprompted_retryable": false,
+      "replayable": true,
+      "normalized_code": "unavailable"
+    },
+    {
+      "id": "connection-reset",
+      "code": "internal",
+      "message": "connection reset by peer",
+      "connection_write_failure": true,
+      "unprompted_retryable": false,
+      "replayable": true,
+      "normalized_code": "unavailable"
+    },
+    {
+      "id": "socket-hang-up",
+      "code": "internal",
+      "message": "socket hang up",
+      "connection_write_failure": true,
+      "unprompted_retryable": false,
+      "replayable": true,
+      "normalized_code": "unavailable"
+    },
+    {
+      "id": "http2-stream-closed",
+      "code": "internal",
+      "message": "http2 stream closed",
+      "connection_write_failure": true,
+      "unprompted_retryable": false,
+      "replayable": true,
+      "normalized_code": "unavailable"
+    },
+    {
+      "id": "received-goaway",
+      "code": "internal",
+      "message": "received GOAWAY",
+      "connection_write_failure": true,
+      "unprompted_retryable": false,
+      "replayable": true,
+      "normalized_code": "unavailable"
+    },
+    {
+      "id": "server-side-internal",
+      "_why": "A genuine server fault stays Internal. Re-coding it would tell the caller to retry a bug.",
+      "code": "internal",
+      "message": "nil pointer dereference in handler",
+      "connection_write_failure": false,
+      "unprompted_retryable": false,
+      "replayable": false,
+      "normalized_code": "internal"
+    },
+    {
+      "id": "unavailable",
+      "_why": "The one code that reliably means this connection did not carry the call.",
+      "code": "unavailable",
+      "message": "connection refused",
+      "connection_write_failure": false,
+      "unprompted_retryable": true,
+      "replayable": true,
+      "normalized_code": "unavailable"
+    },
+    {
+      "id": "unauthenticated-refusal",
+      "_why": "A refusal the server actually sent. Untouched, or a caller cannot tell a refusal from a dead hop.",
+      "code": "unauthenticated",
+      "message": "no verified peer",
+      "connection_write_failure": false,
+      "unprompted_retryable": false,
+      "replayable": false,
+      "normalized_code": "unauthenticated"
+    },
+    {
+      "id": "aborted",
+      "_why": "A concurrency conflict. The fix is re-running the enclosing transaction, not replaying one RPC inside it.",
+      "code": "aborted",
+      "message": "transaction conflict",
+      "connection_write_failure": false,
+      "unprompted_retryable": false,
+      "replayable": false,
+      "normalized_code": "aborted"
+    },
+    {
+      "id": "resource-exhausted",
+      "_why": "Retrying a quota rejection on our own schedule is how a degraded service becomes a saturated one.",
+      "code": "resource_exhausted",
+      "message": "quota exceeded",
+      "connection_write_failure": false,
+      "unprompted_retryable": false,
+      "replayable": false,
+      "normalized_code": "resource_exhausted"
+    },
+    {
+      "id": "epipe-text-in-a-refusal",
+      "_why": "Signatures are only consulted for Internal. A refusal that happens to quote a socket error is still a refusal.",
+      "code": "permission_denied",
+      "message": "policy denied: upstream reported write EPIPE",
+      "connection_write_failure": false,
+      "unprompted_retryable": false,
+      "replayable": false,
+      "normalized_code": "permission_denied"
+    }
+  ]
+}
