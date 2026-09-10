@@ -61,15 +61,81 @@
 // before anyone remembers it exists; declaring the authority it needs
 // is the only way to make it reachable.
 //
-// `bones.v1.capability` groups one protobuf service under the stable goal it
-// provides. Enrollment tooling derives that capability's authority from the
-// service's authenticated RPC `requires` values. Consumers name the
-// capability; they never copy its provider-owned scope vocabulary.
+// `bones.v1.provided_capabilities` names the allocated capabilities one
+// protobuf service serves. Enrollment tooling derives each capability's
+// authority from the service's authenticated RPC `requires` values. Consumers
+// name the capability; they never copy its provider-owned scope vocabulary.
+//
+// Naming one here does not make it yours. A capability name is allocated by
+// the authority to an owner, and this option states which allocated names this
+// service serves — a declaration that the authority verifies against the
+// allocation, never one that creates it. A service naming a capability its
+// owner does not hold is refused when its workload is declared.
+//
+// Tier-zero names are the exception, and are genesis rather than allocated:
+// what every other workload attests against cannot hold a title issued by the
+// authority it bootstraps.
+//
+// Plural because a service may serve more than one allocated name, and because
+// which of them it serves at a given moment is not always all of them — an
+// entitlement decides that, and a singular field cannot express a subset.
+//
+// Usage:
+//
+//   service ReservationService {
+//     option (bones.v1.provided_capabilities) = "reservations.schedule";
+//     option (bones.v1.provided_capabilities) = "reservations.waitlist";
+//     // RPC declarations follow.
+//   }
+//
+// `bones.v1.capability` is the singular predecessor. It carries the same
+// meaning for one name and stays readable, so a service migrates when it
+// chooses rather than when this file changes. A service setting both is
+// refused rather than merged: two answers to what a service provides is the
+// condition the allocation exists to remove.
+//
+// `bones.v1.required_capabilities` names the capabilities a service
+// must have bound before it can serve — the same declaration, pointed
+// the other way. A service already states what it provides here, and
+// enrollment reads that from this descriptor; what it needs belongs
+// beside it rather than in a second document the binary does not
+// carry.
+//
+// The names are the platform's capability vocabulary, the one a
+// service manifest already uses and a runtime intent is already
+// compiled from. This option introduces no second one.
+//
+// Each entry carries the scopes the service intends to exercise against
+// that capability, for the same reason an RPC carries `authz.requires`: a
+// dependency is not "I reach this provider", it is "I reach this provider
+// and hold what its surface asks of me". A bare name cannot be reconciled
+// into a grant, so anything reconciling one had to read a second document,
+// and a service admitted on a reachable-but-ungranted dependency reports
+// itself able to serve and fails the first real call.
+//
+// The entry is the ask and never the answer. Which asks are granted, whether
+// a grant is enabled, and at what extent are the authority's to decide, and
+// they resolve when the credential refreshes rather than when the service was
+// built. A declaration that stated its own grant would be the provider
+// authorising itself — the condition an allocation exists to remove.
+//
+// The provided side carries no scopes, deliberately: what a served capability
+// requires of its callers is already declared once, on the RPCs that offer it,
+// and deriving it from there is what keeps one answer.
+//
+// Absent means this service requires nothing to serve, which is the
+// correct reading for a tier-zero component: what every other workload
+// attests against cannot itself wait on one of them.
 //
 // Usage:
 //
 //   service ReservationService {
 //     option (bones.v1.capability) = "reservations.schedule";
+//     option (bones.v1.required_capabilities) = {
+//       name: "platform.auth",
+//       scopes: ["auth:introspect"]
+//     };
+//     option (bones.v1.required_capabilities) = { name: "platform.config" };
 //     // RPC declarations follow.
 //   }
 
@@ -80,9 +146,19 @@ package bones.v1;
 import "google/protobuf/descriptor.proto";
 
 extend google.protobuf.ServiceOptions {
-  // Stable capability exposed by this service. Empty or absent means this
-  // service is not enrolled as a capability provider.
+  // Singular predecessor of `provided_capabilities`, still read. Empty or
+  // absent means this service is not enrolled as a capability provider.
   string capability = 5102349;
+
+  // Capabilities this service must have bound before it can serve, with
+  // the authority it intends to exercise against each. Absent means it
+  // requires none. See file header for semantics.
+  repeated RequiredCapability required_capabilities = 5102350;
+
+  // Allocated capabilities this service serves. Naming one does not allocate
+  // it. Absent means this service is not enrolled as a capability provider.
+  // See file header for semantics.
+  repeated string provided_capabilities = 5102351;
 }
 
 extend google.protobuf.MethodOptions {
@@ -94,6 +170,23 @@ extend google.protobuf.MethodOptions {
   // Declared authorization requirement for this RPC. Absent option
   // means the RPC is denied to every caller. See file header.
   AuthzRule authz = 5102348;
+}
+
+// One capability a service depends on, and the authority it intends to
+// exercise against it.
+//
+// This is a request, not a grant. See the file header.
+message RequiredCapability {
+  // Allocated capability name, in the platform's capability vocabulary.
+  // An entry naming nothing declares no dependency and is refused rather
+  // than skipped: a dependency the service cannot name is one nothing can
+  // bind, and dropping it would let the service serve without it.
+  string name = 1;
+
+  // Scopes the service intends to exercise against `name`. Empty means it
+  // reaches the provider without exercising any named authority — true of a
+  // dependency consumed only as transport or attestation.
+  repeated string scopes = 2;
 }
 
 // Whether an RPC requires a credential at all.
