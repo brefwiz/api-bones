@@ -46,7 +46,7 @@
     "@connectrpc/connect-node": "^2.0.0",
     "@connectrpc/connect-web": "^2.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.11"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",
