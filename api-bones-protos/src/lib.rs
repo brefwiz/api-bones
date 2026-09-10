@@ -178,6 +178,39 @@ mod tests {
         );
     }
 
+    /// A dependency is a name plus the authority the service intends to
+    /// exercise against it. A bare name cannot be reconciled into a grant, so
+    /// whatever reconciles one would have to read a second document, and a
+    /// service admitted on a reachable-but-ungranted dependency reports itself
+    /// able to serve and fails its first real call.
+    #[test]
+    fn annotations_proto_declares_capability_dependencies_with_their_authority() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("repeated RequiredCapability required_capabilities = 5102350;"),
+            "annotations.proto must carry dependencies as named asks, not bare names"
+        );
+        assert!(
+            body.contains("message RequiredCapability"),
+            "annotations.proto missing the RequiredCapability message"
+        );
+        for field in ["string name = 1;", "repeated string scopes = 2;"] {
+            assert!(body.contains(field), "RequiredCapability missing `{field}`");
+        }
+    }
+
+    /// What a service serves is plural because one surface may serve several
+    /// allocated names, and because an entitlement may leave only a subset of
+    /// them live at a given moment.
+    #[test]
+    fn annotations_proto_declares_provided_capabilities() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("repeated string provided_capabilities = 5102351;"),
+            "annotations.proto missing the provided capabilities option"
+        );
+    }
+
     #[test]
     fn queries_proto_declares_filter_op_enum() {
         let body = std::str::from_utf8(QUERIES_PROTO).expect("utf8");
