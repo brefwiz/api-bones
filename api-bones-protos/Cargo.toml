@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-protos"
-version = "0.4.2"
+version = "0.4.3"
 publish = ["brefwiz"]
 edition = "2024"
 rust-version = "1.88"
