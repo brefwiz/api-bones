@@ -33,7 +33,7 @@
     "@opentelemetry/sdk-trace-base": "^1.17.0",
     "@types/node": "^20.0.0",
     "typescript": "^5.0.0",
-    "vitest": "^4.1.0"
+    "vitest": "^5.0.0"
   },
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",
