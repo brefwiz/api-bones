@@ -14,6 +14,7 @@ import {
   createDiagnosticAgent,
   formatConnectionFacts,
   makeConnectionDiagnosticsInterceptor,
+  readTlsState,
   resolveTlsIdentity,
   type ConnectionFacts,
 } from "./node-diagnostics.js";
@@ -60,6 +61,10 @@ const facts = (over: Partial<ConnectionFacts> = {}): ConnectionFacts => ({
   serverKeepAliveHeader: "timeout=5",
   bytesWritten: 148,
   bytesRead: 0,
+  tlsEstablished: null,
+  alpnProtocol: null,
+  tlsAuthorized: null,
+  tlsAuthorizationError: null,
   ...over,
 });
 
@@ -248,5 +253,60 @@ describe("makeConnectionDiagnosticsInterceptor", () => {
     await expect(makeConnectionDiagnosticsInterceptor(recorder)(next)(unary)).rejects.toBe(
       original,
     );
+  });
+});
+
+describe("TLS state on a failed connection", () => {
+  it("separates a handshake that never completed from a peer that hung up", () => {
+    // The distinction this exists for: both look like a young, broken socket,
+    // and only one of them is the server's problem.
+    expect(formatConnectionFacts(facts({ tlsEstablished: false }))).toContain(
+      "TLS handshake had not completed",
+    );
+    const established = formatConnectionFacts(
+      facts({ tlsEstablished: true, alpnProtocol: "http/1.1" }),
+    );
+    expect(established).toContain("alpn=http/1.1");
+    expect(established).not.toContain("TLS handshake had not completed");
+  });
+
+  it("names what refused the peer's certificate", () => {
+    expect(
+      formatConnectionFacts(
+        facts({
+          tlsEstablished: true,
+          alpnProtocol: "h2",
+          tlsAuthorized: false,
+          tlsAuthorizationError: "unable to verify the first certificate",
+        }),
+      ),
+    ).toContain("peer unverified: unable to verify the first certificate");
+  });
+
+  it("says nothing about TLS for a plaintext socket", () => {
+    const line = formatConnectionFacts(facts());
+    expect(line).not.toContain("alpn=");
+    expect(line).not.toContain("TLS handshake");
+  });
+
+  it("reads a socket with no TLS half as having none", () => {
+    expect(readTlsState({ encrypted: false })).toEqual({
+      tlsEstablished: null,
+      alpnProtocol: null,
+      tlsAuthorized: null,
+      tlsAuthorizationError: null,
+    });
+  });
+
+  it("reports an unfinished handshake as no session rather than as absent TLS", () => {
+    // `getProtocol()` answering null is the runtime's own way of saying the
+    // session was never established; absent TLS answers null for a different
+    // reason, and the two must not read the same.
+    expect(readTlsState({ encrypted: true, getProtocol: () => null })).toMatchObject({
+      tlsEstablished: false,
+    });
+    expect(
+      readTlsState({ encrypted: true, getProtocol: () => "TLSv1.3", alpnProtocol: "h2" }),
+    ).toMatchObject({ tlsEstablished: true, alpnProtocol: "h2" });
   });
 });

@@ -92,6 +92,67 @@ export interface ConnectionFacts {
   readonly serverKeepAliveHeader: string | null;
   readonly bytesWritten: number;
   readonly bytesRead: number;
+  /**
+   * Whether the TLS handshake had finished when the request failed.
+   *
+   * A socket can be young, unreused and already broken, and those three facts
+   * alone cannot tell a handshake that never completed from a peer that hung up
+   * on a completed one. The first is the client's problem and the second the
+   * server's, so the distinction decides which side is even worth looking at.
+   *
+   * Null on a plaintext socket, where there is no handshake to report.
+   */
+  readonly tlsEstablished: boolean | null;
+  /** Negotiated ALPN, which is what decides whether this is an h1 or h2 path. */
+  readonly alpnProtocol: string | null;
+  /** Whether the peer's certificate verified, and what refused it if not. */
+  readonly tlsAuthorized: boolean | null;
+  readonly tlsAuthorizationError: string | null;
+}
+
+/** The TLS half of a socket, absent on a plaintext one. */
+interface TlsSocketFacets {
+  encrypted?: boolean;
+  authorized?: boolean;
+  authorizationError?: Error | string | null;
+  alpnProtocol?: string | false | null;
+  getProtocol?: () => string | null;
+}
+
+/**
+ * TLS state as the socket holds it right now.
+ *
+ * Read at failure rather than at handshake, because a socket that never
+ * completed one has nothing to report at handshake time -- which is precisely
+ * the case worth naming.
+ */
+export function readTlsState(
+  socket: unknown,
+): Pick<
+  ConnectionFacts,
+  "tlsEstablished" | "alpnProtocol" | "tlsAuthorized" | "tlsAuthorizationError"
+> {
+  const tls = socket as TlsSocketFacets | null;
+  if (tls === null || tls === undefined || tls.encrypted !== true) {
+    return {
+      tlsEstablished: null,
+      alpnProtocol: null,
+      tlsAuthorized: null,
+      tlsAuthorizationError: null,
+    };
+  }
+  // `getProtocol()` answers null until the handshake completes, and a version
+  // string after -- the one signal that separates "never got a session" from
+  // "had one and lost it".
+  const negotiated = typeof tls.getProtocol === "function" ? tls.getProtocol() : null;
+  const failure = tls.authorizationError ?? null;
+  return {
+    tlsEstablished: negotiated !== null,
+    alpnProtocol: typeof tls.alpnProtocol === "string" ? tls.alpnProtocol : null,
+    tlsAuthorized: typeof tls.authorized === "boolean" ? tls.authorized : null,
+    tlsAuthorizationError:
+      failure === null ? null : typeof failure === "string" ? failure : failure.message,
+  };
 }
 
 /** One line, log-greppable, naming the cause rather than the symptom. */
@@ -116,6 +177,16 @@ export function formatConnectionFacts(facts: ConnectionFacts): string {
     parts.push(`server connection: ${facts.serverConnectionHeader}`);
   }
   parts.push(`bytes w/r=${facts.bytesWritten}/${facts.bytesRead}`);
+  if (facts.tlsEstablished === false) {
+    // Said first among the TLS facts because it reframes everything above it:
+    // no session means the bytes never reached an application at all.
+    parts.push("TLS handshake had not completed");
+  } else if (facts.tlsEstablished === true) {
+    parts.push(`alpn=${facts.alpnProtocol ?? "none"}`);
+    if (facts.tlsAuthorized === false) {
+      parts.push(`peer unverified: ${facts.tlsAuthorizationError ?? "unknown"}`);
+    }
+  }
   return parts.join(", ");
 }
 
@@ -289,6 +360,7 @@ export function createDiagnosticAgent(
           serverKeepAliveHeader: current.keepAliveHeader,
           bytesWritten: wire.bytesWritten,
           bytesRead: wire.bytesRead,
+          ...readTlsState(wire),
         });
       });
     });

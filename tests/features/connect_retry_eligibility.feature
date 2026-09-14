@@ -15,9 +15,18 @@ Feature: Connect retry eligibility
 
     # Every signature gets a row, so the two hand-transcribed lists cannot
     # drift apart without a build going red.
+    #
+    # The last two carry what the Node transport records about the connection
+    # itself: whether a TLS session had ever been established, and what the
+    # peer's verification came back as. A reader needs those to tell a handshake
+    # that never finished from a peer that hung up on a finished one -- the two
+    # have different owners -- and a classifier that stopped recognising the
+    # line because it grew would send that reader nowhere.
     Examples: connection write failures
       | code     | message                                  | write_failure | unprompted | replayable | reported    |
       | internal | write EPIPE (socket=16, freshly connected) | true          | false      | true       | unavailable |
+      | internal | write EPIPE (socket=15, freshly connected, TLS handshake had not completed) | true | false | true | unavailable |
+      | internal | write EPIPE (socket=15, alpn=http/1.1, peer unverified: self-signed certificate) | true | false | true | unavailable |
       | internal | Broken pipe                              | true          | false      | true       | unavailable |
       | internal | read ECONNRESET                          | true          | false      | true       | unavailable |
       | internal | connection reset by peer                 | true          | false      | true       | unavailable |
