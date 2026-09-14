@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.3](https://git.brefwiz.com/brefwiz/api-bones/releases/tag/sdk/v0.3.3) - 2026-09-14
+
+### ❤️ Thanks to all contributors! ❤️
+
+@release-bot
+
+### Misc
+
+- chore(api-bones): release v6.14.1 [[#35](https://git.brefwiz.com/brefwiz/api-bones/pulls/35)]
+
 ## [0.3.2](https://git.brefwiz.com/brefwiz/api-bones/releases/tag/sdk/v0.3.2) - 2026-09-14
 
 ### ❤️ Thanks to all contributors! ❤️
