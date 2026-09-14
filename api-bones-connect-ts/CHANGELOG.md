@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.3.2](https://git.brefwiz.com/brefwiz/api-bones/releases/tag/sdk/v0.3.2) - 2026-09-10
+## [0.3.2](https://git.brefwiz.com/brefwiz/api-bones/releases/tag/sdk/v0.3.2) - 2026-09-14
 
 ### ❤️ Thanks to all contributors! ❤️
 
@@ -8,6 +8,7 @@
 
 ### Misc
 
+- fix/connect-node-records-tls-state [[#34](https://git.brefwiz.com/brefwiz/api-bones/pulls/34)]
 - feat(bones): a service declares the capabilities it serves and requires [[#32](https://git.brefwiz.com/brefwiz/api-bones/pulls/32)]
 - fix/publish-to-brefwiz-registry [[#30](https://git.brefwiz.com/brefwiz/api-bones/pulls/30)]
 
