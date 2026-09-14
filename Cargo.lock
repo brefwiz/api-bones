@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones"
-version = "6.13.0"
+version = "6.14.0"
 dependencies = [
  "arbitrary",
  "axum",
@@ -163,7 +163,7 @@ dependencies = [
 name = "api-bones-connect"
 version = "0.1.1"
 dependencies = [
- "api-bones 6.13.0",
+ "api-bones 6.14.0",
  "brefwiz-spiffe-client",
  "connectrpc 0.9.0",
  "http",
@@ -195,13 +195,13 @@ dependencies = [
 
 [[package]]
 name = "api-bones-protos"
-version = "0.4.2"
+version = "0.4.3"
 
 [[package]]
 name = "api-bones-reqwest"
 version = "5.0.0"
 dependencies = [
- "api-bones 6.13.0",
+ "api-bones 6.14.0",
  "mockito",
  "reqwest",
  "serde",
@@ -222,9 +222,9 @@ dependencies = [
 
 [[package]]
 name = "api-bones-test"
-version = "6.6.2"
+version = "6.6.3"
 dependencies = [
- "api-bones 6.13.0",
+ "api-bones 6.14.0",
  "async-nats",
  "axum",
  "axum-test",
@@ -246,7 +246,7 @@ dependencies = [
 name = "api-bones-tower"
 version = "4.5.1"
 dependencies = [
- "api-bones 6.13.0",
+ "api-bones 6.14.0",
  "http",
  "http-body",
  "opentelemetry",
