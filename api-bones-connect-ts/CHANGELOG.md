@@ -4,10 +4,11 @@
 
 ### ❤️ Thanks to all contributors! ❤️
 
-@gsalingu
+@gsalingu, @release-bot
 
 ### Misc
 
+- chore: release [[#33](https://git.brefwiz.com/brefwiz/api-bones/pulls/33)]
 - fix/connect-node-records-tls-state [[#34](https://git.brefwiz.com/brefwiz/api-bones/pulls/34)]
 - feat(bones): a service declares the capabilities it serves and requires [[#32](https://git.brefwiz.com/brefwiz/api-bones/pulls/32)]
 - fix/publish-to-brefwiz-registry [[#30](https://git.brefwiz.com/brefwiz/api-bones/pulls/30)]
