@@ -27,6 +27,14 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # Which entry of the TypeScript package carries workload identity. Rust has
+  # no entry split: the crate is server-only, so this surface is TS alone.
+  connect-workload-identity:
+    contract: tests/features/connect_workload_identity.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 library_crates:
   - api-bones
   - api-bones-progenitor
