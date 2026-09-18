@@ -56,7 +56,7 @@ jobs:
         uses: actions/checkout
         with:
           ref: ${{ steps.resolve.outputs.tag }}
-          fetch-depth: 0
+          depth: 0
       # A tag whose version disagrees with the manifest is a mis-mint, and
       # publishing it puts a version on the registry that no commit claims.
       - id: validate
