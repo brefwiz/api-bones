@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.14.2](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.14.1...api-bones-v6.14.2) - 2026-09-18
+
+### Fixed
+
+- *(ci)* checkout reads depth, not fetch-depth
+- *(deps)* rustls 0.23.45 for RUSTSEC-2026-0285
+- *(connect)* the root entry stays runtime-agnostic
+
+### Other
+
+- *(connect)* 0.3.3 — the root entry stays runtime-agnostic
+
 ## [6.14.1](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.14.0...api-bones-v6.14.1) - 2026-09-14
 
 ### Other

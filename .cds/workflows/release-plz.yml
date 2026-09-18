@@ -41,7 +41,7 @@ jobs:
       - id: checkout
         uses: actions/checkout
         with:
-          fetch-depth: 0
+          depth: 0
       - id: release-plz
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/release-plz@main
         with:
@@ -71,7 +71,7 @@ jobs:
       - id: checkout
         uses: actions/checkout
         with:
-          fetch-depth: 0
+          depth: 0
       - id: release-plz
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/release-plz@main
         with:

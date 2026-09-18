@@ -37,6 +37,18 @@ import { makeConnectionFailureNormalizer, makeRetryInterceptor } from "./retry.j
 import { startWatcherSafe } from "@brefwiz/spiffe-client";
 import { clientTlsIdentityFor, WATCHER_ATTEMPTS, WorkloadIdentityError } from "./workload-identity.js";
 
+// Workload API identity reads the local SPIFFE socket and validates X.509 with
+// node:crypto, so it ships with the Node transport. From the root entry it put
+// Node built-ins into every browser bundle that imported the policy helpers.
+export {
+  WorkloadIdentityError,
+  workloadClientTlsIdentity,
+  clientTlsIdentityFor,
+  trustDomainOf,
+  WATCHER_ATTEMPTS,
+} from "./workload-identity.js";
+export type { WorkloadIdentityErrorKind } from "./workload-identity.js";
+
 export interface NodeConnectTransportOptions {
   baseUrl: string;
   /**

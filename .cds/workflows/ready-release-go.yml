@@ -34,7 +34,7 @@ jobs:
       - id: checkout
         uses: actions/checkout
         with:
-          fetch-depth: 0
+          depth: 0
       - id: ready-release-go
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/ready-release-go@main
         with:

@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: MIT
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -91,5 +95,32 @@ describe("WorkloadIdentityError", () => {
 
   it("agrees with Rust on how many attempts count as absent", () => {
     expect(WATCHER_ATTEMPTS).toBe(3);
+  });
+});
+
+describe("workload identity and the runtime-agnostic entry", () => {
+  // Browser code imports the root for the policy and retry helpers. Workload
+  // identity reaches node:crypto, so anything that pulls it into the root's
+  // module graph breaks every browser bundle built on this package.
+  it("is not reachable from index.ts", () => {
+    const seen = new Set<string>();
+    const external = new Set<string>();
+    const walk = (file: string): void => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const source = readFileSync(file, "utf8");
+      for (const match of source.matchAll(/(?:import|export)[^"';]*?from\s*["']([^"']+)["']/g)) {
+        const spec = match[1];
+        if (spec.startsWith(".")) walk(resolve(dirname(file), spec.replace(/\.js$/, ".ts")));
+        else external.add(spec);
+      }
+    };
+    walk(resolve(dirname(fileURLToPath(import.meta.url)), "index.ts"));
+    expect([...seen].some((file) => file.endsWith("workload-identity.ts"))).toBe(false);
+    expect(
+      [...external].filter(
+        (spec) => spec.startsWith("node:") || spec.includes("connect-node") || spec.includes("spiffe"),
+      ),
+    ).toEqual([]);
   });
 });

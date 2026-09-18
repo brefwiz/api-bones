@@ -13,7 +13,13 @@ use world::RetryWorld;
 
 #[tokio::main]
 async fn main() {
-    let features = concat!(env!("CARGO_MANIFEST_DIR"), "/../features").to_owned();
+    // The Rust half of one contract, not the whole directory: the workload
+    // identity contract is about the TypeScript package's entry points.
+    let features = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../features/connect_retry_eligibility.feature"
+    )
+    .to_owned();
     // Nothing is skipped and nothing is isolated: every row of this contract is
     // a pure classification over one constructed error, so the scenarios share
     // no state and none of them needs holding back.
