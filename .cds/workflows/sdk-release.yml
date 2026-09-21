@@ -28,8 +28,10 @@ on:
 
 jobs:
   publish:
-    region: brefwiz-local
-    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
     env:
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
       CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}

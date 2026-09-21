@@ -24,11 +24,10 @@ on:
 
 jobs:
   cut-release-plz:
-    region: brefwiz-light
     runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
-      memory: "1536"
+      memory: "4096"
     env:
       # The package diff reads brefwiz-spiffe-client from the authenticated
       # brefwiz registry. That is a DEPENDENCY read; the publish below goes to
@@ -54,11 +53,10 @@ jobs:
           registry: brefwiz
           registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
   pr-release-plz:
-    region: brefwiz-light
     runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
-      memory: "1536"
+      memory: "4096"
     env:
       # The package diff reads brefwiz-spiffe-client from the authenticated
       # brefwiz registry. That is a DEPENDENCY read; the publish below goes to

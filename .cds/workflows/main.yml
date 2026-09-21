@@ -20,12 +20,15 @@ on:
 jobs:
   test:
     if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
-    region: brefwiz-ram
     runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-ram@main
-      # The RAM lane is a fixed profile, not a request: the worker backs the
-      # target dir with memory and the placement check requires this exact size.
-      memory: "40960"
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: ram-build
+      memory: "24576"
+    services:
+      # ram-build publishes no container engine of its own, and the
+      # sidecar is a declared service rather than an ambient one.
+      podman:
+        image: registry.brefwiz.com/proxy-quay.io/podman/stable@sha256:663e0dbf407987b7db3f20d3588c283a8228db17b282d2029a482d4d47e36964
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
@@ -55,8 +58,10 @@ jobs:
 
   ts:
     if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
-    region: brefwiz-local
-    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
     env:
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
       GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
@@ -105,9 +110,10 @@ jobs:
   # reads exactly like a clean workspace.
   duplication-typed:
     if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
-    region: brefwiz-light
     runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
     needs: [test, ts]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
@@ -129,8 +135,10 @@ jobs:
 
   cargo-package:
     if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
-    region: brefwiz-local
-    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
@@ -158,10 +166,10 @@ jobs:
         with:
           checkout: "false"
   checks:
-    region: brefwiz-light
     runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
-      memory: "1536"
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
       GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
@@ -186,8 +194,10 @@ jobs:
     # combined status it emits; every worker-heavy job below would just
     # reserve a runner to recompile unchanged code.
     if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
-    region: brefwiz-local
-    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
