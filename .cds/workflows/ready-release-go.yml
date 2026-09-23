@@ -28,8 +28,10 @@ on:
 
 jobs:
   api-bones-connect-ts:
-    region: brefwiz-light
-    runs-on: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci-light@main
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
     steps:
       - id: checkout
         uses: actions/checkout
