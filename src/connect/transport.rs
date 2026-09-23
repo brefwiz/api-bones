@@ -45,7 +45,8 @@ pub fn client_tls_config() -> Arc<RustlsClientConfig> {
 
 /// brefwiz Connect header conventions on connectrpc's `ClientConfig`.
 pub trait ConnectConfigExt {
-    /// Add `Authorization: Bearer <token>` as a default header.
+    /// Set `Authorization: Bearer <token>` as a default header, replacing any
+    /// prior `authorization` default header rather than appending to it.
     #[must_use]
     fn with_bearer(self, token: &str) -> Self;
     /// Add `x-org-id` as a default header.
@@ -58,7 +59,15 @@ pub trait ConnectConfigExt {
 
 impl ConnectConfigExt for ClientConfig {
     fn with_bearer(self, token: &str) -> Self {
-        self.with_default_header("authorization", format!("Bearer {token}"))
+        // `ClientConfig::with_default_header` appends, so calling this twice
+        // (e.g. to rotate a token) would otherwise leave both `authorization`
+        // values on the config; `HeaderMap::get` returns the first, so the
+        // stale credential would keep being sent. Replace instead of append.
+        let mut headers = self.default_headers().clone();
+        if let Ok(value) = http::HeaderValue::try_from(format!("Bearer {token}")) {
+            headers.insert(http::header::AUTHORIZATION, value);
+        }
+        self.with_default_headers(headers)
     }
 
     fn with_org(self, org_id: &str) -> Self {
@@ -142,6 +151,46 @@ mod tests {
         let headers = cfg.default_headers();
         let auth = headers.get("authorization").and_then(|v| v.to_str().ok());
         assert_eq!(auth, Some("Bearer tok123"));
+    }
+
+    #[test]
+    fn connect_config_ext_with_bearer_twice_replaces_not_appends() {
+        let uri: Uri = "http://localhost:8080".parse().unwrap();
+        let cfg = ClientConfig::new(uri)
+            .with_bearer("first")
+            .with_bearer("second");
+        let headers = cfg.default_headers();
+        assert_eq!(headers.get_all("authorization").iter().count(), 1);
+        let auth = headers.get("authorization").and_then(|v| v.to_str().ok());
+        assert_eq!(auth, Some("Bearer second"));
+    }
+
+    #[test]
+    fn connect_config_ext_with_bearer_replaces_preexisting_authorization() {
+        let uri: Uri = "http://localhost:8080".parse().unwrap();
+        let cfg = ClientConfig::new(uri)
+            .with_default_header("authorization", "Bearer stale")
+            .with_bearer("fresh");
+        let headers = cfg.default_headers();
+        assert_eq!(headers.get_all("authorization").iter().count(), 1);
+        let auth = headers.get("authorization").and_then(|v| v.to_str().ok());
+        assert_eq!(auth, Some("Bearer fresh"));
+    }
+
+    #[test]
+    fn connect_config_ext_with_bearer_preserves_unrelated_headers() {
+        let uri: Uri = "http://localhost:8080".parse().unwrap();
+        let cfg = ClientConfig::new(uri)
+            .with_org("org-abc")
+            .with_subject("sub-xyz")
+            .with_bearer("tok123");
+        let headers = cfg.default_headers();
+        let auth = headers.get("authorization").and_then(|v| v.to_str().ok());
+        assert_eq!(auth, Some("Bearer tok123"));
+        let org = headers.get("x-org-id").and_then(|v| v.to_str().ok());
+        assert_eq!(org, Some("org-abc"));
+        let subject = headers.get("x-subject-id").and_then(|v| v.to_str().ok());
+        assert_eq!(subject, Some("sub-xyz"));
     }
 
     #[test]

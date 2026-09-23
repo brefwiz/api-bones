@@ -41,21 +41,22 @@ ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# --profile ci selects the JUnit-emitting profile the test composite consumes.
 	# Without it the suite passes and the job still fails, on a missing artifact
 	# rather than a failing test.
-	# The contract lane is excluded: its test target is harness = false, and
-	# nextest enumerates targets with `--list`, which such a binary does not
-	# accept ("unexpected argument '--list' found"). ci-e2e-rust runs it.
-	cargo nextest run --workspace --exclude api-bones-contract-rust --all-features --profile ci
+	# Both cucumber lanes are excluded: their test targets are harness = false,
+	# and nextest enumerates targets with `--list`, which such a binary does
+	# not accept ("unexpected argument '--list' found"). ci-e2e-rust runs them.
+	cargo nextest run --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
 
-ci-e2e-rust: ## Answer the shared Gherkin contract from the Rust lane
+ci-e2e-rust: ## Answer the Gherkin contracts nextest cannot carry
 	# A cucumber suite is its own harness (harness = false), so nextest cannot
-	# carry it. The contract is a pure classification, so this needs no live
-	# stack and runs synchronously.
+	# carry it. Both contracts are pure classification/config assertions, so
+	# neither needs a live stack and both run synchronously.
 	cargo test -p api-bones-contract-rust --test connect_retry_eligibility
+	cargo test -p api-bones-internal-bdd --test connect_client_headers
 
 ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	# Excluded for the same reason as ci-test: nextest cannot enumerate a
 	# harness = false target.
-	cargo llvm-cov nextest --workspace --exclude api-bones-contract-rust --all-features --fail-under-functions 100
+	cargo llvm-cov nextest --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --fail-under-functions 100
 
 # Publish rehearsals, one per declared SDK language: the release operation
 # minus the upload, so a broken include or files list fails at PR time rather

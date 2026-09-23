@@ -140,6 +140,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "api-bones-internal-bdd"
+version = "0.0.0"
+dependencies = [
+ "api-bones",
+ "connectrpc",
+ "cucumber",
+ "http",
+ "tokio",
+]
+
+[[package]]
 name = "api-bones-progenitor"
 version = "4.4.1"
 dependencies = [

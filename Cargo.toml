@@ -12,6 +12,11 @@ members = [
     # an integration test of the crate it exercises, because the contract is
     # answered by two languages and each lane sits beside the corpus.
     "tests/rust",
+    # BDD proof for provider code no declared SDK surface reaches (SPEC.md
+    # `internal_behavior_owners`). A separate crate so its single-language
+    # feature directory stays its own corpus root, distinct from the
+    # dual-language one above.
+    "tests/internal-bdd",
 ]
 resolver = "2"
 

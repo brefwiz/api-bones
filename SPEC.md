@@ -35,6 +35,12 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+internal_behavior_owners:
+  # with_bearer sets transport-layer default headers no declared sdk_surface
+  # exposes -- callers reach it directly as library code, not through a
+  # generated contract.
+  - paths: [src/connect/transport.rs]
+    feature: tests/internal-bdd/tests/features/connect_client_headers.feature
 library_crates:
   - api-bones
   - api-bones-progenitor

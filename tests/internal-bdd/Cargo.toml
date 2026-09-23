@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+#
+# BDD proof for provider code no declared SDK surface reaches (SPEC.md
+# `internal_behavior_owners`). One crate per corpus root so its single-language
+# feature directory never merges with the dual-language `../rust` lane's.
+[package]
+name = "api-bones-internal-bdd"
+version = "0.0.0"
+edition = "2024"
+publish = false
+# Unpublished; declared so workspace members all resolve one.
+license = "MIT"
+
+[dependencies]
+api-bones = { path = "../..", features = ["connect"] }
+connectrpc = "0.9.1"
+http = "1.4.2"
+
+[dev-dependencies]
+cucumber = "0.23"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+
+[[test]]
+name = "connect_client_headers"
+harness = false
