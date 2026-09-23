@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.14.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.14.3...api-bones-v6.14.4) - 2026-09-23
+
+### Fixed
+
+- *(connect)* make with_bearer replace, not append, the authorization header
+
 ## [6.14.3](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.14.2...api-bones-v6.14.3) - 2026-09-23
 
 ### Fixed
