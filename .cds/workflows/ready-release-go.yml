@@ -30,8 +30,8 @@ jobs:
   api-bones-connect-ts:
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-      flavor: checks
-      memory: "4096"
+      flavor: image-build
+      memory: "12288"
     steps:
       - id: checkout
         uses: actions/checkout
