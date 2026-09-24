@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-test"
-version = "6.6.3"
+version = "6.6.4"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]

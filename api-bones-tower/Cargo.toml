@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-tower"
-version = "4.5.1"
+version = "4.5.2"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]

@@ -166,7 +166,7 @@ version = "0.4.3"
 
 [[package]]
 name = "api-bones-reqwest"
-version = "5.0.0"
+version = "5.0.1"
 dependencies = [
  "api-bones",
  "mockito",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-sdk-gen"
-version = "4.4.2"
+version = "4.4.3"
 dependencies = [
  "anyhow",
  "api-bones-progenitor",
@@ -189,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-test"
-version = "6.6.3"
+version = "6.6.4"
 dependencies = [
  "api-bones",
  "async-nats",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-tower"
-version = "4.5.1"
+version = "4.5.2"
 dependencies = [
  "api-bones",
  "http",
