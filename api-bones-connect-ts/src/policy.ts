@@ -19,6 +19,20 @@ export interface GeneratedBrowserCachePolicy {
   readonly maxAgeSeconds: number;
 }
 
+/**
+ * An anonymous read a product's BFF serves on its public lane: to any
+ * caller, from any site the origins rule admits, with no credential.
+ */
+export interface GeneratedPublicReadPolicy {
+  readonly maxAgeSeconds: number;
+  readonly origins: "ANY" | "OWNER_CONFIRMED";
+  readonly tenantField: {
+    readonly name: string;
+    readonly jsonName: string;
+    readonly number: number;
+  };
+}
+
 export interface GeneratedMethodPolicy {
   readonly rpc: string;
   readonly procedure: "unary" | "streaming";
@@ -26,6 +40,8 @@ export interface GeneratedMethodPolicy {
   readonly browserCache: GeneratedBrowserCachePolicy;
   readonly sensitivity: "NON_SENSITIVE" | "UNSPECIFIED";
   readonly maxEncodedUrlBytes: number;
+  /** Present only on a method served on the public lane. */
+  readonly publicRead?: GeneratedPublicReadPolicy;
 }
 
 export interface GeneratedMethodPolicyDocument {
@@ -35,6 +51,7 @@ export interface GeneratedMethodPolicyDocument {
 
 export const MAX_CONNECT_GET_URL_BYTES = 4096;
 export const MAX_PRIVATE_CACHE_TTL_SECONDS = 300;
+export const MAX_PUBLIC_READ_AGE_SECONDS = 300;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -64,7 +81,7 @@ export function parseMethodPolicy(value: unknown): GeneratedMethodPolicy | null 
   ) {
     return null;
   }
-  return {
+  const method: GeneratedMethodPolicy = {
     rpc: value.rpc,
     procedure: value.procedure,
     idempotency: value.idempotency,
@@ -74,6 +91,33 @@ export function parseMethodPolicy(value: unknown): GeneratedMethodPolicy | null 
     },
     sensitivity: value.sensitivity,
     maxEncodedUrlBytes: value.maxEncodedUrlBytes,
+  };
+  if (value.publicRead === undefined) return method;
+  const publicRead = parsePublicRead(value.publicRead);
+  return publicRead ? { ...method, publicRead } : null;
+}
+
+function parsePublicRead(value: unknown): GeneratedPublicReadPolicy | null {
+  if (!isRecord(value) || !isRecord(value.tenantField)) return null;
+  const tenant = value.tenantField;
+  if (
+    !isNonNegativeInteger(value.maxAgeSeconds) ||
+    value.maxAgeSeconds < 1 ||
+    value.maxAgeSeconds > MAX_PUBLIC_READ_AGE_SECONDS ||
+    (value.origins !== "ANY" && value.origins !== "OWNER_CONFIRMED") ||
+    typeof tenant.name !== "string" ||
+    tenant.name === "" ||
+    typeof tenant.jsonName !== "string" ||
+    tenant.jsonName === "" ||
+    !isNonNegativeInteger(tenant.number) ||
+    tenant.number < 1
+  ) {
+    return null;
+  }
+  return {
+    maxAgeSeconds: value.maxAgeSeconds,
+    origins: value.origins,
+    tenantField: { name: tenant.name, jsonName: tenant.jsonName, number: tenant.number },
   };
 }
 
@@ -112,4 +156,37 @@ export function eligibleBrowserReadPolicy(value: unknown): GeneratedMethodPolicy
     return null;
   }
   return method;
+}
+
+/**
+ * Return policy only for a public read the lane can serve: unary,
+ * side-effect free, non-sensitive, and not also a credentialed browser read.
+ */
+export function eligiblePublicReadPolicy(value: unknown): GeneratedMethodPolicy | null {
+  const method = parseMethodPolicy(value);
+  if (
+    !method?.publicRead ||
+    method.procedure !== "unary" ||
+    method.idempotency !== "NO_SIDE_EFFECTS" ||
+    method.sensitivity !== "NON_SENSITIVE" ||
+    method.browserCache.scope !== "NO_STORE" ||
+    method.maxEncodedUrlBytes <= 0
+  ) {
+    return null;
+  }
+  return method;
+}
+
+/**
+ * The public lane beside a product's session mount: `https://app.example/itinerwiz`
+ * serves its public reads at `https://app.example/public/itinerwiz`. Derived,
+ * never configured, the same way the BFF derives it.
+ */
+export function publicLaneUrl(baseUrl: string): string {
+  const url = new URL(baseUrl);
+  const mount = url.pathname.replace(/\/+$/, "");
+  url.pathname = `/public${mount}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/+$/, "");
 }

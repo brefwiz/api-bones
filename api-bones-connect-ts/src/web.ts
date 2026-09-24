@@ -23,8 +23,10 @@ import { createConnectTransport, createGrpcWebTransport } from "@connectrpc/conn
 import type { BackoffOptions } from "./backoff.js";
 import {
   eligibleBrowserReadPolicy,
+  eligiblePublicReadPolicy,
   indexGeneratedPolicy,
   MAX_CONNECT_GET_URL_BYTES,
+  publicLaneUrl,
   type SdkTransportProfile,
 } from "./policy.js";
 import { makeConnectionFailureNormalizer, makeRetryInterceptor, rpcIdentity } from "./retry.js";
@@ -158,7 +160,34 @@ function withCredentials(fetchImpl: typeof globalThis.fetch): typeof globalThis.
 }
 
 /**
+ * A request to the public lane carries nothing that identifies the caller:
+ * no cookie, no stored credential, and -- since it adds no header of its own
+ * -- nothing that would make a cross-origin browser ask permission first.
+ * Failures are classified the same way as on the credentialed path.
+ */
+function anonymous(fetchImpl: typeof globalThis.fetch): typeof globalThis.fetch {
+  return async (input, init) => {
+    try {
+      return await fetchImpl(input, { ...init, credentials: "omit" });
+    } catch (error) {
+      if (isRecord(error) && (error.name === "AbortError" || error.name === "TimeoutError")) {
+        const message = typeof error.message === "string" ? error.message : "request canceled";
+        throw new ConnectError(message, Code.Canceled, undefined, undefined, error);
+      }
+      throw ConnectError.from(error, Code.Unavailable);
+    }
+  };
+}
+
+/**
  * Build a Connect transport preconfigured for all brefwiz services.
+ *
+ * Under the `webapp` profile, a method the generated policy marks
+ * `publicRead` goes to the product's public lane (derived from `baseUrl`) as
+ * a credential-free Connect GET, whatever else the transport carries: no
+ * bearer, no CSRF token, no product interceptor. That is the one shape an
+ * embedded component on another site can use, and the only one the lane
+ * serves.
  *
  * @example
  * ```ts
@@ -208,10 +237,21 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
     ...transportOpts,
     useHttpGet: true,
   });
+  const publicTransport = createConnectTransport({
+    baseUrl: publicLaneUrl(baseUrl),
+    useBinaryFormat: useBinaryFormat ?? true,
+    useHttpGet: true,
+    interceptors: [makeConnectionFailureNormalizer()],
+    fetch: anonymous(opts.fetch ?? globalThis.fetch),
+  });
 
   return {
     async unary(method, signal, timeoutMs, header, input, contextValues) {
-      const methodPolicy = eligibleBrowserReadPolicy(policyByRpc.get(rpcIdentity(method)));
+      const declared = policyByRpc.get(rpcIdentity(method));
+      if (eligiblePublicReadPolicy(declared)) {
+        return publicTransport.unary(method, signal, timeoutMs, undefined, input, contextValues);
+      }
+      const methodPolicy = eligibleBrowserReadPolicy(declared);
       if (!methodPolicy) {
         return postTransport.unary(method, signal, timeoutMs, header, input, contextValues);
       }
