@@ -26,7 +26,7 @@ export interface GeneratedBrowserCachePolicy {
 export interface GeneratedPublicReadPolicy {
   readonly maxAgeSeconds: number;
   readonly origins: "ANY" | "OWNER_CONFIRMED";
-  readonly tenantField: {
+  readonly orgField: {
     readonly name: string;
     readonly jsonName: string;
     readonly number: number;
@@ -98,26 +98,26 @@ export function parseMethodPolicy(value: unknown): GeneratedMethodPolicy | null 
 }
 
 function parsePublicRead(value: unknown): GeneratedPublicReadPolicy | null {
-  if (!isRecord(value) || !isRecord(value.tenantField)) return null;
-  const tenant = value.tenantField;
+  if (!isRecord(value) || !isRecord(value.orgField)) return null;
+  const org = value.orgField;
   if (
     !isNonNegativeInteger(value.maxAgeSeconds) ||
     value.maxAgeSeconds < 1 ||
     value.maxAgeSeconds > MAX_PUBLIC_READ_AGE_SECONDS ||
     (value.origins !== "ANY" && value.origins !== "OWNER_CONFIRMED") ||
-    typeof tenant.name !== "string" ||
-    tenant.name === "" ||
-    typeof tenant.jsonName !== "string" ||
-    tenant.jsonName === "" ||
-    !isNonNegativeInteger(tenant.number) ||
-    tenant.number < 1
+    typeof org.name !== "string" ||
+    org.name === "" ||
+    typeof org.jsonName !== "string" ||
+    org.jsonName === "" ||
+    !isNonNegativeInteger(org.number) ||
+    org.number < 1
   ) {
     return null;
   }
   return {
     maxAgeSeconds: value.maxAgeSeconds,
     origins: value.origins,
-    tenantField: { name: tenant.name, jsonName: tenant.jsonName, number: tenant.number },
+    orgField: { name: org.name, jsonName: org.jsonName, number: org.number },
   };
 }
 

@@ -31,6 +31,6 @@ Feature: Connect public reads reach the public lane
     And the request sends the session
 
   Scenario: A public read the policy cannot trust never reaches the lane
-    Given a webapp transport for "https://app.example.com/itinerwiz" whose public read declares no tenant
+    Given a webapp transport for "https://app.example.com/itinerwiz" whose public read names no organization
     When it calls the public read "GetWeek"
     Then the request is a POST to "https://app.example.com/itinerwiz/pkg.v1.PublicService/GetWeek"

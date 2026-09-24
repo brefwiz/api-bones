@@ -11,7 +11,7 @@ import {
 } from "./policy.js";
 import { configureConnectTransport } from "./web.js";
 
-const tenantField = { name: "org_handle", jsonName: "orgHandle", number: 1 };
+const orgField = { name: "org_handle", jsonName: "orgHandle", number: 1 };
 
 const publicRead = (over: Record<string, unknown> = {}) => ({
   rpc: "/pkg.v1.PublicService/GetWeek",
@@ -20,7 +20,7 @@ const publicRead = (over: Record<string, unknown> = {}) => ({
   browserCache: { scope: "NO_STORE", maxAgeSeconds: 0 },
   sensitivity: "NON_SENSITIVE",
   maxEncodedUrlBytes: 4096,
-  publicRead: { maxAgeSeconds: 60, origins: "OWNER_CONFIRMED", tenantField },
+  publicRead: { maxAgeSeconds: 60, origins: "OWNER_CONFIRMED", orgField },
   ...over,
 });
 
@@ -34,11 +34,11 @@ const ordinary = {
 };
 
 describe("public read policy", () => {
-  it("reads a public read with its bound, origins and tenant", () => {
+  it("reads a public read with its bound, origins and organization", () => {
     expect(parseMethodPolicy(publicRead())?.publicRead).toEqual({
       maxAgeSeconds: 60,
       origins: "OWNER_CONFIRMED",
-      tenantField,
+      orgField,
     });
     expect(eligiblePublicReadPolicy(publicRead())).not.toBeNull();
     expect(eligiblePublicReadPolicy(ordinary)).toBeNull();
@@ -46,11 +46,11 @@ describe("public read policy", () => {
 
   it("fails closed on a public read it cannot trust", () => {
     for (const broken of [
-      { maxAgeSeconds: 0, origins: "ANY", tenantField },
-      { maxAgeSeconds: 301, origins: "ANY", tenantField },
-      { maxAgeSeconds: 60, origins: "UNSPECIFIED", tenantField },
+      { maxAgeSeconds: 0, origins: "ANY", orgField },
+      { maxAgeSeconds: 301, origins: "ANY", orgField },
+      { maxAgeSeconds: 60, origins: "UNSPECIFIED", orgField },
       { maxAgeSeconds: 60, origins: "ANY" },
-      { maxAgeSeconds: 60, origins: "ANY", tenantField: { ...tenantField, number: 0 } },
+      { maxAgeSeconds: 60, origins: "ANY", orgField: { ...orgField, number: 0 } },
     ]) {
       expect(parseMethodPolicy(publicRead({ publicRead: broken }))).toBeNull();
       expect(

@@ -21,7 +21,7 @@ interface LaneWorld extends World {
   seen: Headers;
 }
 
-const tenantField = { name: "org_handle", jsonName: "orgHandle", number: 1 };
+const orgField = { name: "org_handle", jsonName: "orgHandle", number: 1 };
 
 function policy(publicRead: Record<string, unknown>): unknown {
   return {
@@ -109,12 +109,12 @@ Then("its public lane is {string}", function (this: LaneWorld, lane: string) {
 Given(
   "a webapp transport for {string} holding a session and a bearer",
   function (this: LaneWorld, base: string) {
-    this.options = optionsFor(base, { maxAgeSeconds: 60, origins: "OWNER_CONFIRMED", tenantField });
+    this.options = optionsFor(base, { maxAgeSeconds: 60, origins: "OWNER_CONFIRMED", orgField });
   },
 );
 
 Given(
-  "a webapp transport for {string} whose public read declares no tenant",
+  "a webapp transport for {string} whose public read names no organization",
   function (this: LaneWorld, base: string) {
     this.options = optionsFor(base, { maxAgeSeconds: 60, origins: "OWNER_CONFIRMED" });
   },
