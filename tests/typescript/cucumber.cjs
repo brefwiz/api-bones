@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
 // The contracts live beside this lane, at ../features. The Rust lane answers
-// the retry-eligibility file too; workload identity is a TypeScript-only entry.
+// the retry-eligibility file too; workload identity and the public lane are
+// TypeScript-only entries.
 module.exports = {
   default: {
     paths: [
       "../features/connect_retry_eligibility.feature",
       "../features/connect_workload_identity.feature",
+      "../features/connect_public_read.feature",
     ],
-    import: ["steps/retry_eligibility.ts", "steps/workload_identity.ts"],
+    import: ["steps/retry_eligibility.ts", "steps/workload_identity.ts", "steps/public_read.ts"],
     strict: true,
     format: ["progress"],
     publishQuiet: true,

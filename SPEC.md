@@ -35,6 +35,14 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The browser transport's route for contract-declared public reads: only the
+  # web entry has a public lane to reach, so this surface is TS alone.
+  connect-public-read:
+    contract: tests/features/connect_public_read.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
   # with_bearer sets transport-layer default headers no declared sdk_surface
   # exposes -- callers reach it directly as library code, not through a

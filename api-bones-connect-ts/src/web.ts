@@ -134,20 +134,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Send credentials, and classify transport failures as Connect errors.
+ * Fetch with the given credentials mode, and classify transport failures as
+ * Connect errors.
  *
  * Without the catch, a network-level failure escapes as a raw fetch TypeError,
  * so callers see an opaque exception instead of a Connect code and cannot tell
  * "server said no" from "server unreachable". Abort and timeout map to
  * Canceled; everything else is Unavailable.
  */
-function withCredentials(fetchImpl: typeof globalThis.fetch): typeof globalThis.fetch {
+function classifiedFetch(
+  fetchImpl: typeof globalThis.fetch,
+  credentials: RequestCredentials,
+): typeof globalThis.fetch {
   return async (input, init) => {
     try {
       return await fetchImpl(input, {
         ...init,
-        credentials: "include",
-        cache: init?.method === "GET" ? "no-cache" : init?.cache,
+        credentials,
+        cache: init?.method === "GET" && credentials === "include" ? "no-cache" : init?.cache,
       });
     } catch (error) {
       if (isRecord(error) && (error.name === "AbortError" || error.name === "TimeoutError")) {
@@ -159,24 +163,19 @@ function withCredentials(fetchImpl: typeof globalThis.fetch): typeof globalThis.
   };
 }
 
+/** The session-bearing path: the opaque session cookie goes with every call. */
+function withCredentials(fetchImpl: typeof globalThis.fetch): typeof globalThis.fetch {
+  return classifiedFetch(fetchImpl, "include");
+}
+
 /**
- * A request to the public lane carries nothing that identifies the caller:
- * no cookie, no stored credential, and -- since it adds no header of its own
- * -- nothing that would make a cross-origin browser ask permission first.
- * Failures are classified the same way as on the credentialed path.
+ * The public lane's path: nothing that identifies the caller -- no cookie, no
+ * stored credential, and, since it adds no header of its own, nothing that
+ * would make a cross-origin browser ask permission first. Its answers are
+ * shared-cacheable, so the browser cache is left to honour them.
  */
 function anonymous(fetchImpl: typeof globalThis.fetch): typeof globalThis.fetch {
-  return async (input, init) => {
-    try {
-      return await fetchImpl(input, { ...init, credentials: "omit" });
-    } catch (error) {
-      if (isRecord(error) && (error.name === "AbortError" || error.name === "TimeoutError")) {
-        const message = typeof error.message === "string" ? error.message : "request canceled";
-        throw new ConnectError(message, Code.Canceled, undefined, undefined, error);
-      }
-      throw ConnectError.from(error, Code.Unavailable);
-    }
-  };
+  return classifiedFetch(fetchImpl, "omit");
 }
 
 /**
