@@ -179,10 +179,17 @@ export function eligiblePublicReadPolicy(value: unknown): GeneratedMethodPolicy 
 
 /**
  * The public lane beside a product's session mount: `https://app.example/itinerwiz`
- * serves its public reads at `https://app.example/public/itinerwiz`. Derived,
- * never configured, the same way the BFF derives it.
+ * serves its public reads at `https://app.example/public/itinerwiz`, and a
+ * same-origin `/itinerwiz` at `/public/itinerwiz`. Derived, never configured,
+ * the same way the BFF derives it. Query and fragment are dropped.
  */
 export function publicLaneUrl(baseUrl: string): string {
+  const absolute = /^[a-z][a-z0-9+.-]*:\/\//i.exec(baseUrl);
+  if (!absolute) {
+    const path = baseUrl.split(/[?#]/, 1)[0].replace(/\/+$/, "");
+    const mount = path === "" ? "" : path.startsWith("/") ? path : `/${path}`;
+    return `/public${mount}`;
+  }
   const url = new URL(baseUrl);
   const mount = url.pathname.replace(/\/+$/, "");
   url.pathname = `/public${mount}`;

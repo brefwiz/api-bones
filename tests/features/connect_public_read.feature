@@ -15,6 +15,7 @@ Feature: Connect public reads reach the public lane
       | base                              | lane                                     |
       | https://app.example.com/itinerwiz  | https://app.example.com/public/itinerwiz |
       | https://app.example.com/itinerwiz/ | https://app.example.com/public/itinerwiz |
+      | /itinerwiz                         | /public/itinerwiz                        |
 
   Scenario: A public read goes to the lane as an anonymous GET
     Given a webapp transport for "https://app.example.com/itinerwiz" holding a session and a bearer

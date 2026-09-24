@@ -236,19 +236,23 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
     ...transportOpts,
     useHttpGet: true,
   });
-  const publicTransport = createConnectTransport({
-    baseUrl: publicLaneUrl(baseUrl),
-    useBinaryFormat: useBinaryFormat ?? true,
-    useHttpGet: true,
-    interceptors: [makeConnectionFailureNormalizer()],
-    fetch: anonymous(opts.fetch ?? globalThis.fetch),
-  });
+  // Built on first use: a transport whose policy declares no public read
+  // never needs the lane at all.
+  let publicTransport: Transport | undefined;
+  const lane = (): Transport =>
+    (publicTransport ??= createConnectTransport({
+      baseUrl: publicLaneUrl(baseUrl),
+      useBinaryFormat: useBinaryFormat ?? true,
+      useHttpGet: true,
+      interceptors: [makeConnectionFailureNormalizer()],
+      fetch: anonymous(opts.fetch ?? globalThis.fetch),
+    }));
 
   return {
     async unary(method, signal, timeoutMs, header, input, contextValues) {
       const declared = policyByRpc.get(rpcIdentity(method));
       if (eligiblePublicReadPolicy(declared)) {
-        return publicTransport.unary(method, signal, timeoutMs, undefined, input, contextValues);
+        return lane().unary(method, signal, timeoutMs, undefined, input, contextValues);
       }
       const methodPolicy = eligibleBrowserReadPolicy(declared);
       if (!methodPolicy) {

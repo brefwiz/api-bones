@@ -79,6 +79,13 @@ describe("public read policy", () => {
     );
     expect(publicLaneUrl("https://app.example.com")).toBe("https://app.example.com/public");
   });
+
+  it("derives the lane from a same-origin base path too", () => {
+    expect(publicLaneUrl("/itinerwiz")).toBe("/public/itinerwiz");
+    expect(publicLaneUrl("/itinerwiz/?x=1")).toBe("/public/itinerwiz");
+    expect(publicLaneUrl("api")).toBe("/public/api");
+    expect(publicLaneUrl("")).toBe("/public");
+  });
 });
 
 const service = { typeName: "pkg.v1.PublicService" };
@@ -122,6 +129,20 @@ function recordingFetch(sent: Sent[]): typeof fetch {
 }
 
 describe("webapp transport", () => {
+  it("builds with a relative base URL and sends its public reads beside it", async () => {
+    const sent: Sent[] = [];
+    const transport = configureConnectTransport({
+      baseUrl: "/api",
+      profile: "webapp",
+      policy: { schemaVersion: 1, methods: [publicRead(), ordinary] },
+      fetch: recordingFetch(sent),
+    });
+    await transport.unary(unary("Book"), undefined, undefined, undefined, { value: "x" });
+    await transport.unary(unary("GetWeek"), undefined, undefined, undefined, { value: "x" });
+    expect(sent[0].url).toBe("/api/pkg.v1.PublicService/Book");
+    expect(sent[1].url.startsWith("/public/api/pkg.v1.PublicService/GetWeek?")).toBe(true);
+  });
+
   const policy = { schemaVersion: 1, methods: [publicRead(), ordinary] };
 
   it("sends a public read to the lane as an anonymous GET", async () => {
