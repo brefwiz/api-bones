@@ -24,11 +24,6 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
       memory: "24576"
-    # ram-build publishes no container engine of its own, so the engine
-    # the test composite reaches is a Pod-local sidecar.
-    services:
-      podman:
-        image: registry.brefwiz.com/proxy-quay.io/podman/stable@sha256:663e0dbf407987b7db3f20d3588c283a8228db17b282d2029a482d4d47e36964
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
