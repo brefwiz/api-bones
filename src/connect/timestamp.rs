@@ -4,10 +4,11 @@ use chrono::{DateTime, Utc};
 
 /// Convert a [`chrono::DateTime<Utc>`] to a [`Timestamp`] (`google.protobuf.Timestamp`).
 ///
-/// # Panics
+/// # Safety of the subsec cast
 ///
-/// Never in practice: `chrono` guarantees `timestamp_subsec_nanos()` is
-/// always `< 1_000_000_000`, which fits in an `i32` with room to spare.
+/// `chrono` guarantees `timestamp_subsec_nanos()` is always `< 1_000_000_000`,
+/// so the `as i32` truncation is lossless and the `as u32` → `i32` reinterpret
+/// cannot overflow.
 ///
 /// # Example
 ///
@@ -19,9 +20,8 @@ use chrono::{DateTime, Utc};
 /// ```
 #[must_use]
 pub fn chrono_to_timestamp(dt: DateTime<Utc>) -> Timestamp {
-    let subsec_nanos = i32::try_from(dt.timestamp_subsec_nanos())
-        .expect("chrono guarantees subsec_nanos < 1_000_000_000, which fits in i32");
-    Timestamp::from_unix(dt.timestamp(), subsec_nanos)
+    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
+    Timestamp::from_unix(dt.timestamp(), dt.timestamp_subsec_nanos() as i32)
 }
 
 /// Convert an `Option<DateTime<Utc>>` to an optional proto Timestamp.

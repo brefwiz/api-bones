@@ -702,14 +702,20 @@ mod tests {
         assert!(parse_link_next(entry).is_none());
     }
 
-    #[tokio::test]
-    async fn problem_json_or_json_problem_response_invalid_json_body() {
+    /// Shared body for `problem_json_or_json_*_invalid_json_body`: whatever
+    /// content-type or status a server claims, an unparseable body is
+    /// always reported to the caller as `400`.
+    async fn assert_invalid_json_body_is_bad_request(
+        upstream_status: u16,
+        content_type: &str,
+        body: &str,
+    ) {
         let mut server = mockito::Server::new_async().await;
         let _mock = server
             .mock("GET", "/")
-            .with_status(404)
-            .with_header("content-type", "application/problem+json")
-            .with_body("not json at all")
+            .with_status(usize::from(upstream_status))
+            .with_header("content-type", content_type)
+            .with_body(body)
             .create_async()
             .await;
 
@@ -723,23 +729,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn problem_json_or_json_success_invalid_json_body() {
-        let mut server = mockito::Server::new_async().await;
-        let _mock = server
-            .mock("GET", "/")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body("not json")
-            .create_async()
+    async fn problem_json_or_json_problem_response_invalid_json_body() {
+        assert_invalid_json_body_is_bad_request(404, "application/problem+json", "not json at all")
             .await;
+    }
 
-        let resp = reqwest::get(server.url()).await.unwrap();
-        drop(server);
-        let err: api_bones::ApiError = resp
-            .problem_json_or_json::<serde_json::Value>()
-            .await
-            .unwrap_err();
-        assert_eq!(err.status, 400);
+    #[tokio::test]
+    async fn problem_json_or_json_success_invalid_json_body() {
+        assert_invalid_json_body_is_bad_request(200, "application/json", "not json").await;
     }
 
     #[test]
