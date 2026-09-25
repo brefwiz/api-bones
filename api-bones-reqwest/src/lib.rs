@@ -440,9 +440,9 @@ mod tests {
             .send()
             .await
             .unwrap();
-        drop(server);
         assert_eq!(resp.status().as_u16(), 200);
         mock.assert_async().await;
+        drop(server);
     }
 
     #[tokio::test]
@@ -463,9 +463,9 @@ mod tests {
             .send()
             .await
             .unwrap();
-        drop(server);
         assert_eq!(resp.status().as_u16(), 201);
         mock.assert_async().await;
+        drop(server);
     }
 
     #[tokio::test]
@@ -486,9 +486,9 @@ mod tests {
             .send()
             .await
             .unwrap();
-        drop(server);
         assert_eq!(resp.status().as_u16(), 200);
         mock.assert_async().await;
+        drop(server);
     }
 
     #[tokio::test]
