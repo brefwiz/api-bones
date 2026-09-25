@@ -49,6 +49,13 @@ internal_behavior_owners:
   # generated contract.
   - paths: [src/connect/transport.rs]
     feature: tests/internal-bdd/tests/features/connect_client_headers.feature
+  # MAX_LIMIT/DEFAULT_LIMIT and the validation/clamping logic that reads them
+  # are library code no declared sdk_surface exposes -- callers reach them
+  # directly as PaginationParams/CursorPaginationParams/KeysetPaginationParams
+  # constructors and the Connect page builder, not through a generated
+  # contract.
+  - paths: [src/pagination.rs, src/connect/page.rs, src/fake_impls.rs]
+    feature: tests/internal-bdd/tests/features/pagination_max_limit.feature
 library_crates:
   - api-bones
   - api-bones-progenitor

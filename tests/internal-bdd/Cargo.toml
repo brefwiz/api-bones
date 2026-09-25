@@ -23,3 +23,7 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 [[test]]
 name = "connect_client_headers"
 harness = false
+
+[[test]]
+name = "pagination_max_limit"
+harness = false
