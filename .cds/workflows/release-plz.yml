@@ -52,25 +52,11 @@ jobs:
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
           registry: brefwiz
           registry-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
-  pr-release-plz:
-    runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-      flavor: checks
-      memory: "4096"
-    env:
-      # The package diff reads brefwiz-spiffe-client from the authenticated
-      # brefwiz registry. That is a DEPENDENCY read; the publish below goes to
-      # the same registry, so the same credential answers both — but they stay
-      # separately named because reading an index and writing a crate are
-      # different grants, and a repository that conflates them cannot be given
-      # one without the other.
-      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
-    steps:
-      - id: checkout
-        uses: actions/checkout
-        with:
-          depth: 0
-      - id: release-plz
+      # Shares this worker with the publish above: cut-release-plz and
+      # pr-release-plz held the same DAG position (same worker class, no
+      # needs, no dependents) running the same composite in two modes -- a
+      # bare concurrency split that bought nothing a second phase would not.
+      - id: release-plz-pr
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/release-plz@main
         with:
           checkout: "false"
