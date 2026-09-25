@@ -10,7 +10,6 @@
 use api_bones_reqwest::{RequestBuilderExt, ResponseExt};
 
 #[tokio::main]
-#[allow(clippy::significant_drop_tightening)]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // -----------------------------------------------------------------------
     // RequestBuilderExt — header attachment
@@ -113,6 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await;
 
     let resp4 = reqwest::get(format!("{}/missing", server.url())).await?;
+    drop(server);
     match resp4.problem_json_or_json::<serde_json::Value>().await {
         Ok(v) => println!("  unexpected ok: {v}"),
         Err(e) => {

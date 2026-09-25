@@ -365,7 +365,6 @@ pub async fn from_response(resp: reqwest::Response) -> api_bones::ApiError {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::significant_drop_tightening)]
 mod tests {
     use super::*;
 
@@ -441,6 +440,7 @@ mod tests {
             .send()
             .await
             .unwrap();
+        drop(server);
         assert_eq!(resp.status().as_u16(), 200);
         mock.assert_async().await;
     }
@@ -463,6 +463,7 @@ mod tests {
             .send()
             .await
             .unwrap();
+        drop(server);
         assert_eq!(resp.status().as_u16(), 201);
         mock.assert_async().await;
     }
@@ -485,6 +486,7 @@ mod tests {
             .send()
             .await
             .unwrap();
+        drop(server);
         assert_eq!(resp.status().as_u16(), 200);
         mock.assert_async().await;
     }
@@ -504,6 +506,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let rl = resp.rate_limit_info().unwrap();
         assert_eq!(rl.limit, 100);
         assert_eq!(rl.remaining, 42);
@@ -522,6 +525,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         assert!(resp.rate_limit_info().is_none());
     }
 
@@ -539,6 +543,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let rl = resp.rate_limit_info().unwrap();
         assert_eq!(rl.retry_after, None);
     }
@@ -558,6 +563,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         assert_eq!(
             resp.next_page_url(),
             Some("https://api.example.com/items?after=xyz".to_owned())
@@ -575,6 +581,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         assert!(resp.next_page_url().is_none());
     }
 
@@ -590,6 +597,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let body: serde_json::Value = resp.problem_json_or_json().await.unwrap();
         assert_eq!(body["value"], 42);
     }
@@ -608,6 +616,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err: api_bones::ApiError = resp
             .problem_json_or_json::<serde_json::Value>()
             .await
@@ -627,6 +636,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err: api_bones::ApiError = resp
             .problem_json_or_json::<serde_json::Value>()
             .await
@@ -677,6 +687,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         assert!(resp.next_page_url().is_none());
     }
 
@@ -703,6 +714,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err: api_bones::ApiError = resp
             .problem_json_or_json::<serde_json::Value>()
             .await
@@ -722,6 +734,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err: api_bones::ApiError = resp
             .problem_json_or_json::<serde_json::Value>()
             .await
@@ -788,6 +801,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err = from_response(resp).await;
         assert_eq!(err.status, 404);
         assert_eq!(err.detail, "gone");
@@ -805,6 +819,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err = from_response(resp).await;
         assert_eq!(err.status, 503);
         assert_eq!(err.detail, "service down");
@@ -824,6 +839,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err = from_response(resp).await;
         assert_eq!(err.status, 422);
         assert_eq!(err.detail, "bad input");
@@ -841,6 +857,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err = from_response(resp).await;
         assert_eq!(err.status, 400);
         assert_eq!(err.detail, "failed to parse problem+json response");
@@ -863,6 +880,7 @@ mod tests {
             .await;
 
         let resp = reqwest::get(server.url()).await.unwrap();
+        drop(server);
         let err = from_response(resp).await;
         assert_eq!(err.request_id, Some(id));
     }

@@ -1530,7 +1530,12 @@ mod tests {
 
     /// RAII guard that resets `ErrorTypeMode` on drop so subsequent tests
     /// always start from a clean slate.
-    struct ModeGuard(#[allow(dead_code)] std::sync::MutexGuard<'static, ()>);
+    struct ModeGuard {
+        // Held only for its lifetime -- dropping it releases `MODE_LOCK`.
+        // The leading underscore is what tells the compiler that, not an
+        // `#[allow(dead_code)]` on the field.
+        _guard: std::sync::MutexGuard<'static, ()>,
+    }
 
     impl Drop for ModeGuard {
         fn drop(&mut self) {
@@ -1545,7 +1550,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset_error_type_mode();
-        ModeGuard(guard)
+        ModeGuard { _guard: guard }
     }
 
     // -----------------------------------------------------------------------
@@ -1988,140 +1993,143 @@ mod tests {
     //   title(), urn_slug(), status_code(), from_type_uri() roundtrip
     // -----------------------------------------------------------------------
 
+    /// Every `ErrorCode` variant paired with its title, URN slug, and status.
+    /// Held at module level, not inside the test below, so the table itself
+    /// does not count against that one function's line budget.
+    const ALL_ERROR_CODE_CASES: &[(ErrorCode, &str, &str, u16)] = &[
+        (ErrorCode::BadRequest, "Bad Request", "bad-request", 400),
+        (
+            ErrorCode::ValidationFailed,
+            "Validation Failed",
+            "validation-failed",
+            400,
+        ),
+        (ErrorCode::Unauthorized, "Unauthorized", "unauthorized", 401),
+        (
+            ErrorCode::InvalidCredentials,
+            "Invalid Credentials",
+            "invalid-credentials",
+            401,
+        ),
+        (
+            ErrorCode::TokenExpired,
+            "Token Expired",
+            "token-expired",
+            401,
+        ),
+        (
+            ErrorCode::TokenInvalid,
+            "Token Invalid",
+            "token-invalid",
+            401,
+        ),
+        (ErrorCode::Forbidden, "Forbidden", "forbidden", 403),
+        (
+            ErrorCode::InsufficientPermissions,
+            "Insufficient Permissions",
+            "insufficient-permissions",
+            403,
+        ),
+        (
+            ErrorCode::ResourceNotFound,
+            "Resource Not Found",
+            "resource-not-found",
+            404,
+        ),
+        (
+            ErrorCode::MethodNotAllowed,
+            "Method Not Allowed",
+            "method-not-allowed",
+            405,
+        ),
+        (
+            ErrorCode::NotAcceptable,
+            "Not Acceptable",
+            "not-acceptable",
+            406,
+        ),
+        (
+            ErrorCode::RequestTimeout,
+            "Request Timeout",
+            "request-timeout",
+            408,
+        ),
+        (ErrorCode::Conflict, "Conflict", "conflict", 409),
+        (
+            ErrorCode::ResourceAlreadyExists,
+            "Resource Already Exists",
+            "resource-already-exists",
+            409,
+        ),
+        (ErrorCode::Gone, "Gone", "gone", 410),
+        (
+            ErrorCode::PreconditionFailed,
+            "Precondition Failed",
+            "precondition-failed",
+            412,
+        ),
+        (
+            ErrorCode::PayloadTooLarge,
+            "Payload Too Large",
+            "payload-too-large",
+            413,
+        ),
+        (
+            ErrorCode::UnsupportedMediaType,
+            "Unsupported Media Type",
+            "unsupported-media-type",
+            415,
+        ),
+        (
+            ErrorCode::UnprocessableEntity,
+            "Unprocessable Entity",
+            "unprocessable-entity",
+            422,
+        ),
+        (
+            ErrorCode::PreconditionRequired,
+            "Precondition Required",
+            "precondition-required",
+            428,
+        ),
+        (ErrorCode::RateLimited, "Rate Limited", "rate-limited", 429),
+        (
+            ErrorCode::RequestHeaderFieldsTooLarge,
+            "Request Header Fields Too Large",
+            "request-header-fields-too-large",
+            431,
+        ),
+        (
+            ErrorCode::InternalServerError,
+            "Internal Server Error",
+            "internal-server-error",
+            500,
+        ),
+        (
+            ErrorCode::NotImplemented,
+            "Not Implemented",
+            "not-implemented",
+            501,
+        ),
+        (ErrorCode::BadGateway, "Bad Gateway", "bad-gateway", 502),
+        (
+            ErrorCode::ServiceUnavailable,
+            "Service Unavailable",
+            "service-unavailable",
+            503,
+        ),
+        (
+            ErrorCode::GatewayTimeout,
+            "Gateway Timeout",
+            "gateway-timeout",
+            504,
+        ),
+    ];
+
     #[test]
-    #[allow(clippy::too_many_lines)]
     fn all_error_code_variants_title_slug_status() {
         let _g = lock_and_reset_mode();
-        let cases: &[(ErrorCode, &str, &str, u16)] = &[
-            (ErrorCode::BadRequest, "Bad Request", "bad-request", 400),
-            (
-                ErrorCode::ValidationFailed,
-                "Validation Failed",
-                "validation-failed",
-                400,
-            ),
-            (ErrorCode::Unauthorized, "Unauthorized", "unauthorized", 401),
-            (
-                ErrorCode::InvalidCredentials,
-                "Invalid Credentials",
-                "invalid-credentials",
-                401,
-            ),
-            (
-                ErrorCode::TokenExpired,
-                "Token Expired",
-                "token-expired",
-                401,
-            ),
-            (
-                ErrorCode::TokenInvalid,
-                "Token Invalid",
-                "token-invalid",
-                401,
-            ),
-            (ErrorCode::Forbidden, "Forbidden", "forbidden", 403),
-            (
-                ErrorCode::InsufficientPermissions,
-                "Insufficient Permissions",
-                "insufficient-permissions",
-                403,
-            ),
-            (
-                ErrorCode::ResourceNotFound,
-                "Resource Not Found",
-                "resource-not-found",
-                404,
-            ),
-            (
-                ErrorCode::MethodNotAllowed,
-                "Method Not Allowed",
-                "method-not-allowed",
-                405,
-            ),
-            (
-                ErrorCode::NotAcceptable,
-                "Not Acceptable",
-                "not-acceptable",
-                406,
-            ),
-            (
-                ErrorCode::RequestTimeout,
-                "Request Timeout",
-                "request-timeout",
-                408,
-            ),
-            (ErrorCode::Conflict, "Conflict", "conflict", 409),
-            (
-                ErrorCode::ResourceAlreadyExists,
-                "Resource Already Exists",
-                "resource-already-exists",
-                409,
-            ),
-            (ErrorCode::Gone, "Gone", "gone", 410),
-            (
-                ErrorCode::PreconditionFailed,
-                "Precondition Failed",
-                "precondition-failed",
-                412,
-            ),
-            (
-                ErrorCode::PayloadTooLarge,
-                "Payload Too Large",
-                "payload-too-large",
-                413,
-            ),
-            (
-                ErrorCode::UnsupportedMediaType,
-                "Unsupported Media Type",
-                "unsupported-media-type",
-                415,
-            ),
-            (
-                ErrorCode::UnprocessableEntity,
-                "Unprocessable Entity",
-                "unprocessable-entity",
-                422,
-            ),
-            (
-                ErrorCode::PreconditionRequired,
-                "Precondition Required",
-                "precondition-required",
-                428,
-            ),
-            (ErrorCode::RateLimited, "Rate Limited", "rate-limited", 429),
-            (
-                ErrorCode::RequestHeaderFieldsTooLarge,
-                "Request Header Fields Too Large",
-                "request-header-fields-too-large",
-                431,
-            ),
-            (
-                ErrorCode::InternalServerError,
-                "Internal Server Error",
-                "internal-server-error",
-                500,
-            ),
-            (
-                ErrorCode::NotImplemented,
-                "Not Implemented",
-                "not-implemented",
-                501,
-            ),
-            (ErrorCode::BadGateway, "Bad Gateway", "bad-gateway", 502),
-            (
-                ErrorCode::ServiceUnavailable,
-                "Service Unavailable",
-                "service-unavailable",
-                503,
-            ),
-            (
-                ErrorCode::GatewayTimeout,
-                "Gateway Timeout",
-                "gateway-timeout",
-                504,
-            ),
-        ];
-        for (code, title, slug, status) in cases {
+        for (code, title, slug, status) in ALL_ERROR_CODE_CASES {
             assert_eq!(code.title(), *title, "title mismatch for {slug}");
             assert_eq!(code.urn_slug(), *slug, "slug mismatch");
             assert_eq!(code.status_code(), *status, "status mismatch for {slug}");
