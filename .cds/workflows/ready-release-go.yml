@@ -81,7 +81,7 @@ jobs:
           worker output "tag" "$TAG"
           worker output "version" "${TAG#sdk/v}"
 
-  api-bones-connect-ts-publish:
+  sdk-ts-publish:
     needs: [api-bones-connect-ts]
     if: ${{ jobs.api-bones-connect-ts.outputs.released == 'true' && !failure() && !cancelled() }}
     runs-on:
