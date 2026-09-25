@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: MIT
 //! Offset pagination builder for Connect proto adapters (ADR-0096).
 
-/// Brefwiz standard default page size.
-pub const DEFAULT_LIMIT: u64 = 20;
-/// Brefwiz standard maximum page size.
-pub const MAX_LIMIT: u64 = 200;
+/// Brefwiz standard default page size (ADR platform/0096).
+///
+/// Re-exported from [`crate::pagination`] — the single source of truth for
+/// this value.
+pub use crate::pagination::DEFAULT_LIMIT;
+/// Brefwiz standard maximum page size (ADR platform/0096).
+///
+/// Re-exported from [`crate::pagination`] — the single source of truth for
+/// this value.
+pub use crate::pagination::MAX_LIMIT;
 
 /// Normalized offset-page result.
 ///

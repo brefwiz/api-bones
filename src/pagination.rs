@@ -27,6 +27,15 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "validator")]
 use validator::Validate;
 
+/// Brefwiz standard default page size (ADR platform/0096).
+pub const DEFAULT_LIMIT: u64 = 20;
+/// Brefwiz standard maximum page size (ADR platform/0096).
+///
+/// This is the one platform-wide ceiling for list-endpoint page sizes.
+/// Every provider and consumer validates against this constant instead of
+/// a copied literal.
+pub const MAX_LIMIT: u64 = 200;
+
 // ---------------------------------------------------------------------------
 // Offset-based pagination (flat, limit/offset contract)
 // ---------------------------------------------------------------------------
@@ -105,7 +114,7 @@ impl<T> PaginatedResponse<T> {
 
 /// Query parameters for offset-based list endpoints.
 ///
-/// `limit` must be between 1 and 100 (inclusive) and defaults to 20.
+/// `limit` must be between 1 and 200 (inclusive) and defaults to 20.
 /// `offset` defaults to 0.
 ///
 /// When the `validator` feature is enabled (the default), calling
@@ -127,12 +136,12 @@ impl<T> PaginatedResponse<T> {
 #[cfg_attr(feature = "validator", derive(Validate))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct PaginationParams {
-    /// Maximum number of items to return (1–100). Defaults to 20.
+    /// Maximum number of items to return (1–200). Defaults to 20.
     #[cfg_attr(feature = "serde", serde(default))]
-    #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
+    #[cfg_attr(feature = "validator", validate(range(min = 1, max = MAX_LIMIT)))]
     #[cfg_attr(
         feature = "proptest",
-        proptest(strategy = "proptest::option::of(1u64..=100u64)")
+        proptest(strategy = "proptest::option::of(1u64..=MAX_LIMIT)")
     )]
     pub limit: Option<u64>,
     /// Number of items to skip. Defaults to 0.
@@ -143,7 +152,7 @@ pub struct PaginationParams {
 impl Default for PaginationParams {
     fn default() -> Self {
         Self {
-            limit: Some(20),
+            limit: Some(DEFAULT_LIMIT),
             offset: Some(0),
         }
     }
@@ -153,7 +162,7 @@ impl Default for PaginationParams {
 impl PaginationParams {
     /// Create validated pagination params.
     ///
-    /// Returns `Err` if `limit` is outside 1–100.
+    /// Returns `Err` if `limit` is outside 1–200.
     ///
     /// # Examples
     ///
@@ -165,13 +174,13 @@ impl PaginationParams {
     /// assert_eq!(p.offset(), 0);
     ///
     /// assert!(PaginationParams::new(0, 0).is_err());
-    /// assert!(PaginationParams::new(101, 0).is_err());
+    /// assert!(PaginationParams::new(201, 0).is_err());
     /// ```
     pub fn new(limit: u64, offset: u64) -> Result<Self, crate::error::ValidationError> {
-        if !(1..=100).contains(&limit) {
+        if !(1..=MAX_LIMIT).contains(&limit) {
             return Err(crate::error::ValidationError {
                 field: "/limit".into(),
-                message: "must be between 1 and 100".into(),
+                message: format!("must be between 1 and {MAX_LIMIT}"),
                 rule: Some("range".into()),
             });
         }
@@ -198,7 +207,7 @@ impl PaginationParams {
     /// ```
     #[must_use]
     pub fn limit(&self) -> u64 {
-        self.limit.unwrap_or(20)
+        self.limit.unwrap_or(DEFAULT_LIMIT)
     }
 
     /// Resolved offset value (falls back to the default of 0).
@@ -336,12 +345,12 @@ impl CursorPagination {
 #[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
 #[allow(clippy::unnecessary_wraps)]
 fn default_cursor_limit() -> Option<u64> {
-    Some(20)
+    Some(DEFAULT_LIMIT)
 }
 
 /// Query parameters for cursor-based list endpoints.
 ///
-/// `limit` must be between 1 and 100 (inclusive) and defaults to 20.
+/// `limit` must be between 1 and 200 (inclusive) and defaults to 20.
 /// `after` is an opaque cursor token; omit it (or pass `None`) for the first page.
 ///
 /// Requires `std` or `alloc` (`after` field contains `String`).
@@ -353,12 +362,12 @@ fn default_cursor_limit() -> Option<u64> {
 #[cfg_attr(feature = "validator", derive(Validate))]
 #[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
 pub struct CursorPaginationParams {
-    /// Maximum number of items to return (1–100). Defaults to 20.
+    /// Maximum number of items to return (1–200). Defaults to 20.
     #[cfg_attr(feature = "serde", serde(default = "default_cursor_limit"))]
-    #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
+    #[cfg_attr(feature = "validator", validate(range(min = 1, max = MAX_LIMIT)))]
     #[cfg_attr(
         feature = "proptest",
-        proptest(strategy = "proptest::option::of(1u64..=100u64)")
+        proptest(strategy = "proptest::option::of(1u64..=MAX_LIMIT)")
     )]
     pub limit: Option<u64>,
     /// Opaque cursor for the next page. `None` requests the first page.
@@ -373,7 +382,7 @@ pub struct CursorPaginationParams {
 impl Default for CursorPaginationParams {
     fn default() -> Self {
         Self {
-            limit: Some(20),
+            limit: Some(DEFAULT_LIMIT),
             after: None,
         }
     }
@@ -383,7 +392,7 @@ impl Default for CursorPaginationParams {
 impl CursorPaginationParams {
     /// Create validated cursor pagination params.
     ///
-    /// Returns `Err` if `limit` is outside 1–100.
+    /// Returns `Err` if `limit` is outside 1–200.
     ///
     /// # Examples
     ///
@@ -394,13 +403,13 @@ impl CursorPaginationParams {
     /// assert_eq!(p.limit(), 50);
     ///
     /// assert!(CursorPaginationParams::new(0, None).is_err());
-    /// assert!(CursorPaginationParams::new(101, None).is_err());
+    /// assert!(CursorPaginationParams::new(201, None).is_err());
     /// ```
     pub fn new(limit: u64, after: Option<String>) -> Result<Self, crate::error::ValidationError> {
-        if !(1..=100).contains(&limit) {
+        if !(1..=MAX_LIMIT).contains(&limit) {
             return Err(crate::error::ValidationError {
                 field: "/limit".into(),
-                message: "must be between 1 and 100".into(),
+                message: format!("must be between 1 and {MAX_LIMIT}"),
                 rule: Some("range".into()),
             });
         }
@@ -425,7 +434,7 @@ impl CursorPaginationParams {
     /// ```
     #[must_use]
     pub fn limit(&self) -> u64 {
-        self.limit.unwrap_or(20)
+        self.limit.unwrap_or(DEFAULT_LIMIT)
     }
 
     /// The cursor token, if any.
@@ -447,7 +456,7 @@ impl CursorPaginationParams {
 ///
 /// - `after` — fetch items whose sort key is **greater than** this value
 /// - `before` — fetch items whose sort key is **less than** this value
-/// - `limit` — maximum number of items to return (1–100, default 20)
+/// - `limit` — maximum number of items to return (1–200, default 20)
 ///
 /// Typically only one of `after` / `before` is supplied per request.
 ///
@@ -471,9 +480,9 @@ pub struct KeysetPaginationParams<K> {
         serde(default, skip_serializing_if = "Option::is_none")
     )]
     pub before: Option<K>,
-    /// Maximum number of items to return (1–100). Defaults to 20.
+    /// Maximum number of items to return (1–200). Defaults to 20.
     #[cfg_attr(feature = "serde", serde(default = "default_keyset_limit"))]
-    #[cfg_attr(feature = "validator", validate(range(min = 1, max = 100)))]
+    #[cfg_attr(feature = "validator", validate(range(min = 1, max = MAX_LIMIT)))]
     pub limit: Option<u64>,
 }
 
@@ -483,7 +492,7 @@ impl<K> Default for KeysetPaginationParams<K> {
         Self {
             after: None,
             before: None,
-            limit: Some(20),
+            limit: Some(DEFAULT_LIMIT),
         }
     }
 }
@@ -492,7 +501,7 @@ impl<K> Default for KeysetPaginationParams<K> {
 impl<K> KeysetPaginationParams<K> {
     /// Create validated keyset pagination params.
     ///
-    /// Returns `Err` if `limit` is outside 1–100.
+    /// Returns `Err` if `limit` is outside 1–200.
     ///
     /// # Examples
     ///
@@ -503,17 +512,17 @@ impl<K> KeysetPaginationParams<K> {
     /// assert_eq!(p.limit(), 10);
     ///
     /// assert!(KeysetPaginationParams::<String>::new(0, None, None).is_err());
-    /// assert!(KeysetPaginationParams::<String>::new(101, None, None).is_err());
+    /// assert!(KeysetPaginationParams::<String>::new(201, None, None).is_err());
     /// ```
     pub fn new(
         limit: u64,
         after: Option<K>,
         before: Option<K>,
     ) -> Result<Self, crate::error::ValidationError> {
-        if !(1..=100).contains(&limit) {
+        if !(1..=MAX_LIMIT).contains(&limit) {
             return Err(crate::error::ValidationError {
                 field: "/limit".into(),
-                message: "must be between 1 and 100".into(),
+                message: format!("must be between 1 and {MAX_LIMIT}"),
                 rule: Some("range".into()),
             });
         }
@@ -536,14 +545,14 @@ impl<K> KeysetPaginationParams<K> {
     /// ```
     #[must_use]
     pub fn limit(&self) -> u64 {
-        self.limit.unwrap_or(20)
+        self.limit.unwrap_or(DEFAULT_LIMIT)
     }
 }
 
 #[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
 #[allow(clippy::unnecessary_wraps)]
 fn default_keyset_limit() -> Option<u64> {
-    Some(20)
+    Some(DEFAULT_LIMIT)
 }
 
 /// A page of results from a keyset-paginated endpoint.
@@ -686,16 +695,16 @@ mod axum_extractors {
 }
 
 // ---------------------------------------------------------------------------
-// arbitrary::Arbitrary manual impls — constrained limit (1–100)
+// arbitrary::Arbitrary manual impls — constrained limit (1–200)
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "arbitrary")]
 impl<'a> arbitrary::Arbitrary<'a> for PaginationParams {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         use arbitrary::Arbitrary;
-        // limit is None or Some(1..=100)
+        // limit is None or Some(1..=MAX_LIMIT)
         let limit = if bool::arbitrary(u)? {
-            Some(u.int_in_range(1u64..=100)?)
+            Some(u.int_in_range(1u64..=MAX_LIMIT)?)
         } else {
             None
         };
@@ -711,7 +720,7 @@ impl<'a> arbitrary::Arbitrary<'a> for CursorPaginationParams {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         use arbitrary::Arbitrary;
         let limit = if bool::arbitrary(u)? {
-            Some(u.int_in_range(1u64..=100)?)
+            Some(u.int_in_range(1u64..=MAX_LIMIT)?)
         } else {
             None
         };
@@ -819,7 +828,7 @@ mod tests {
     fn pagination_params_validate_max_limit() {
         use validator::Validate;
         let p = PaginationParams {
-            limit: Some(101),
+            limit: Some(201),
             offset: Some(0),
         };
         assert!(p.validate().is_err());
@@ -877,7 +886,7 @@ mod tests {
 
     #[test]
     fn pagination_params_new_limit_101_fails() {
-        let err = PaginationParams::new(101, 0).unwrap_err();
+        let err = PaginationParams::new(201, 0).unwrap_err();
         assert_eq!(err.field, "/limit");
     }
 
@@ -902,7 +911,7 @@ mod tests {
 
     #[test]
     fn cursor_pagination_params_new_limit_101_fails() {
-        let err = CursorPaginationParams::new(101, None).unwrap_err();
+        let err = CursorPaginationParams::new(201, None).unwrap_err();
         assert_eq!(err.field, "/limit");
     }
 
@@ -925,7 +934,7 @@ mod tests {
 
     #[test]
     fn keyset_pagination_params_new_limit_101_fails() {
-        let err = KeysetPaginationParams::<u64>::new(101, None, None).unwrap_err();
+        let err = KeysetPaginationParams::<u64>::new(201, None, None).unwrap_err();
         assert_eq!(err.field, "/limit");
     }
 
@@ -1097,7 +1106,7 @@ mod tests {
     fn cursor_pagination_params_validate_max_limit() {
         use validator::Validate;
         let p = CursorPaginationParams {
-            limit: Some(101),
+            limit: Some(201),
             after: None,
         };
         assert!(p.validate().is_err());
@@ -1202,7 +1211,7 @@ mod tests {
         #[cfg(feature = "validator")]
         #[tokio::test]
         async fn limit_101_rejected() {
-            assert_eq!(extract_offset("limit=101").await.unwrap_err(), 400);
+            assert_eq!(extract_offset("limit=201").await.unwrap_err(), 400);
         }
 
         #[tokio::test]
@@ -1222,7 +1231,7 @@ mod tests {
         #[cfg(feature = "validator")]
         #[tokio::test]
         async fn cursor_limit_101_rejected() {
-            assert_eq!(extract_cursor("limit=101").await.unwrap_err(), 400);
+            assert_eq!(extract_cursor("limit=201").await.unwrap_err(), 400);
         }
 
         #[tokio::test]
@@ -1360,7 +1369,7 @@ mod tests {
         data[1..9].copy_from_slice(&50u64.to_le_bytes());
         let mut u = Unstructured::new(&data);
         let p = PaginationParams::arbitrary(&mut u).unwrap();
-        assert!(p.limit.is_some_and(|l| (1..=100).contains(&l)));
+        assert!(p.limit.is_some_and(|l| (1..=MAX_LIMIT).contains(&l)));
     }
 
     #[cfg(all(feature = "arbitrary", any(feature = "std", feature = "alloc")))]
@@ -1382,6 +1391,6 @@ mod tests {
         data[1..9].copy_from_slice(&50u64.to_le_bytes());
         let mut u = Unstructured::new(&data);
         let p = CursorPaginationParams::arbitrary(&mut u).unwrap();
-        assert!(p.limit.is_some_and(|l| (1..=100).contains(&l)));
+        assert!(p.limit.is_some_and(|l| (1..=MAX_LIMIT).contains(&l)));
     }
 }
