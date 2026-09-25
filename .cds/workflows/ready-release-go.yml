@@ -3,15 +3,15 @@
 #
 # The Rust crates release themselves — release-plz opens its bump PR on every
 # push and publishes what an earlier merge already changed. The TypeScript
-# package had no equivalent: sdk-release.yml publishes to npm, but it fires on
-# an `sdk/v*` tag and nothing in the repo minted one. There is no auto-tag here
-# and release-plz owns Cargo manifests only, so every `sdk/v*` tag to date was
-# pushed by hand.
-#
-# That asymmetry is the bug. The two halves of this library are held in source
-# parity by parity-units.yml, and a Rust half that releases itself beside a
-# TypeScript half that waits for someone to remember lets the PUBLISHED halves
-# drift even while the source agrees.
+# package had no equivalent: it needed a publish step to fire on the tag
+# ready-release-go mints, but that tag is created through the forge API,
+# which emits no `push` event — a separate tag-triggered workflow waiting on
+# `on.push.tags` never runs, so the release PR merges green and the package
+# is never published (ADR platform/0220 surface-dispatch-wiring). The publish
+# must run in the SAME run that cuts the tag, wired as a job that `needs:`
+# the minting job — the shape ready-release-go's own `released`/`tag`/
+# `version` outputs exist for. See quorumauth's ready-release-go.yml for the
+# canonical wiring of a push-minted axis's publish job.
 #
 # ready-release-go owns the standing changelog PR and the tag mint. It does not
 # edit package.json: the version in api-bones-connect-ts/package.json is bumped
@@ -28,6 +28,13 @@ on:
 
 jobs:
   api-bones-connect-ts:
+    outputs:
+      released:
+        value: ${{ steps.resolve.outputs.released }}
+      tag:
+        value: ${{ steps.resolve.outputs.tag }}
+      version:
+        value: ${{ steps.resolve.outputs.version }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: image-build
@@ -44,9 +51,6 @@ jobs:
           forge-token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
           repo-owner: brefwiz
           repo-name: api-bones
-          # The lineage sdk-release.yml already publishes on, so the tag this
-          # mints is the one that fires the existing npm publish rather than a
-          # second, parallel notion of "the TypeScript release".
           tag-prefix: sdk/v
           pull-request-branch-prefix: next-release/api-bones-connect-ts-
           changelog-path: api-bones-connect-ts/CHANGELOG.md
@@ -55,3 +59,117 @@ jobs:
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
           git-email: "release-bot@brefwiz.com"
           gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
+      # The tag is created through the forge API by the step above, so there
+      # is no triggering ref to parse -- it is read back from the remote.
+      # ready-release-go self-selects: most pushes to main only open or
+      # update the standing release PR and mint nothing, and the absence of
+      # a tag at HEAD is how that case is recognised.
+      - id: resolve
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          git fetch --tags --force >/dev/null
+          TAG="$(git tag --points-at HEAD \
+            | grep -E '^sdk/v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | head -1 || true)"
+          if [ -z "$TAG" ]; then
+            echo "no sdk/vX.Y.Z tag at HEAD — this push released nothing"
+            worker output "released" "false"
+            exit 0
+          fi
+          worker output "released" "true"
+          worker output "tag" "$TAG"
+          worker output "version" "${TAG#sdk/v}"
+
+  api-bones-connect-ts-publish:
+    needs: [api-bones-connect-ts]
+    if: ${{ jobs.api-bones-connect-ts.outputs.released == 'true' && !failure() && !cancelled() }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
+    env:
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
+      # No NPM_TOKEN here. The publish credential is the composite's
+      # `npm-publish-token` input below; setting it as job env as well suggests
+      # the make target reads it, which is exactly the assumption that broke
+      # this release — the wrapper strips that name before running make.
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          ref: ${{ jobs.api-bones-connect-ts.outputs.tag }}
+          depth: 0
+      # A tag whose version disagrees with the manifest is a mis-mint, and
+      # publishing it puts a version on the registry that no commit claims.
+      - id: validate
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/validate-release-version@main
+        with:
+          checkout: "false"
+          tag: ${{ jobs.api-bones-connect-ts.outputs.version }}
+          version-file: api-bones-connect-ts/package.json
+      # Installed and built first, so the rehearsal below packs what would
+      # actually ship rather than an empty tree.
+      - id: build
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
+        with:
+          checkout: "false"
+          make-target: ci-npm-build
+          package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          npm-publish-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+          gh-packages-read-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+          registry-name: gitea
+          registry-scope: "@brefwiz"
+      # Proves each package packs before any of them is published: a publish
+      # that fails on the third package has already put the first two on the
+      # registry, and npm versions are immutable.
+      #
+      # `build: false` because the step above already did it. No token and no
+      # registry either: packing is fully local, so a credential here buys
+      # nothing and a registry URL only offers a way to name the wrong one.
+      - id: publish-readiness
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/publish-readiness-npm@main
+        with:
+          checkout: "false"
+          workspaces: api-bones-otel api-bones-axios api-bones-connect-ts
+          build: "false"
+      - id: publish
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-authenticated-make@main
+        with:
+          checkout: "false"
+          make-target: ci-npm-publish
+          package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          npm-publish-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+          gh-packages-read-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+          # Not optional here. Left unset, the wrapper resolves the @brefwiz
+          # scope to GitHub Packages by default and writes that into the .npmrc
+          # it hands make — which would publish these packages to the very
+          # registry this whole change exists to move them off, while every
+          # consumer resolves the scope from Gitea.
+          #
+          # Named, not spelled out as a URL: the owner declares the canonical
+          # endpoint for each name, and a URL passed by hand is validated
+          # against exactly that list — so the only thing a literal here can add
+          # is a way to be wrong.
+          registry-name: gitea
+          registry-scope: "@brefwiz"
+      - id: sign-release
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sign-release@main
+        with:
+          checkout: "false"
+          tag: ${{ jobs.api-bones-connect-ts.outputs.tag }}
+          repo: brefwiz/api-bones
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          cosign-key: ${{ vars.brefwiz-secrets.COSIGN_KEY }}
+          cosign-password: ${{ vars.brefwiz-secrets.COSIGN_PASSWORD }}
+      - id: gitea-release-create
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/gitea-release-create@main
+        with:
+          checkout: "false"
+          tag: ${{ jobs.api-bones-connect-ts.outputs.tag }}
+          repo: brefwiz/api-bones
+          token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          release-notes-extra: |
+            ### Artifacts published
+            - npm (brefwiz registry): @brefwiz/api-bones-connect, @brefwiz/api-bones-axios, @brefwiz/api-bones-otel
