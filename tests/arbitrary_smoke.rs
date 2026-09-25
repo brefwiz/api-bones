@@ -108,10 +108,10 @@ mod arbitrary_tests {
                 u = Unstructured::new(&raw);
             }
             if let Ok(p) = api_bones::pagination::PaginationParams::arbitrary(&mut u) {
-                // Constraint: limit must be None or Some(1..=100)
+                // Constraint: limit must be None or Some(1..=MAX_LIMIT)
                 if let Some(limit) = p.limit {
                     assert!(
-                        (1..=100).contains(&limit),
+                        (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
                         "PaginationParams.limit out of range: {limit}"
                     );
                 }
@@ -142,7 +142,7 @@ mod arbitrary_tests {
                 && let Some(limit) = p.limit
             {
                 assert!(
-                    (1..=100).contains(&limit),
+                    (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
                     "CursorPaginationParams.limit out of range: {limit}"
                 );
             }
@@ -274,7 +274,7 @@ mod proptest_tests {
         ) {
             if let Some(limit) = p.limit {
                 prop_assert!(
-                    (1..=100).contains(&limit),
+                    (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
                     "PaginationParams.limit out of range: {limit}"
                 );
             }
@@ -286,7 +286,7 @@ mod proptest_tests {
         ) {
             if let Some(limit) = p.limit {
                 prop_assert!(
-                    (1..=100).contains(&limit),
+                    (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
                     "CursorPaginationParams.limit out of range: {limit}"
                 );
             }

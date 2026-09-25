@@ -144,10 +144,10 @@ Implements the [IETF Health Check Response Format](https://datatracker.ietf.org/
 | Type | Description |
 |---|---|
 | `PaginatedResponse<T>` | Offset-based response envelope with `data` + `pagination` |
-| `PaginationParams` | Query params for offset pagination; fallible constructor enforces `limit` 1–100 |
+| `PaginationParams` | Query params for offset pagination; fallible constructor enforces `limit` 1–200 |
 | `CursorPaginatedResponse<T>` | Cursor-based response envelope |
 | `CursorPagination` | Cursor metadata (`has_more`, `next_cursor`) |
-| `CursorPaginationParams` | Query params for cursor endpoints; fallible constructor enforces `limit` 1–100 |
+| `CursorPaginationParams` | Query params for cursor endpoints; fallible constructor enforces `limit` 1–200 |
 | `KeysetPaginatedResponse<T>` | Keyset-based response envelope |
 | `KeysetPaginationParams` | Query params for keyset endpoints |
 

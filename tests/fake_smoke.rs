@@ -154,7 +154,7 @@ fn fake_pagination_params_limit_in_range() {
     smoke::<api_bones::PaginationParams, _>(200, |v| {
         if let Some(limit) = v.limit {
             assert!(
-                (1..=100).contains(&limit),
+                (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
                 "PaginationParams.limit out of range: {limit}"
             );
         }
@@ -176,7 +176,7 @@ fn fake_cursor_pagination_params_limit_in_range() {
     smoke::<api_bones::pagination::CursorPaginationParams, _>(200, |v| {
         if let Some(limit) = v.limit {
             assert!(
-                (1..=100).contains(&limit),
+                (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
                 "CursorPaginationParams.limit out of range: {limit}"
             );
         }

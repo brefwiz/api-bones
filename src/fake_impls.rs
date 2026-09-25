@@ -25,7 +25,7 @@
 //! - Timestamps (`AuditInfo`, `ResponseMeta`) are valid RFC 3339 `DateTime<Utc>` values
 //!   when the `chrono` feature is enabled, or valid RFC 3339 strings otherwise.
 //! - `PaginationParams::limit` and `CursorPaginationParams::limit` are `None` or
-//!   `Some(1..=100)`, consistent with the domain constraints.
+//!   `Some(1..=MAX_LIMIT)`, consistent with the domain constraints.
 //! - `SearchParams::query` is a non-empty string of at most 500 bytes.
 
 #[cfg(feature = "serde")]
@@ -301,7 +301,7 @@ impl<T: Dummy<Faker>> Dummy<Faker> for crate::pagination::PaginatedResponse<T> {
         let total_count = n as u64 + extra;
         Self {
             has_more: extra > 0,
-            limit: rng.random_range(1u64..=100),
+            limit: rng.random_range(1u64..=crate::pagination::MAX_LIMIT),
             offset: rng.random_range(0u64..=total_count.saturating_sub(n as u64)),
             total_count,
             items,
@@ -311,10 +311,10 @@ impl<T: Dummy<Faker>> Dummy<Faker> for crate::pagination::PaginatedResponse<T> {
 
 impl Dummy<Faker> for crate::pagination::PaginationParams {
     fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
-        // Constraint: None or Some(1..=100)
+        // Constraint: None or Some(1..=MAX_LIMIT)
         Self {
             limit: if rng.random_bool(0.5) {
-                Some(rng.random_range(1u64..=100))
+                Some(rng.random_range(1u64..=crate::pagination::MAX_LIMIT))
             } else {
                 None
             },
@@ -354,10 +354,10 @@ impl<T: Dummy<Faker>> Dummy<Faker> for crate::pagination::CursorPaginatedRespons
 
 impl Dummy<Faker> for crate::pagination::CursorPaginationParams {
     fn dummy_with_rng<R: Rng + ?Sized>(_: &Faker, rng: &mut R) -> Self {
-        // Constraint: None or Some(1..=100)
+        // Constraint: None or Some(1..=MAX_LIMIT)
         Self {
             limit: if rng.random_bool(0.5) {
-                Some(rng.random_range(1u64..=100))
+                Some(rng.random_range(1u64..=crate::pagination::MAX_LIMIT))
             } else {
                 None
             },
