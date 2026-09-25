@@ -1532,8 +1532,8 @@ mod tests {
     /// always start from a clean slate.
     struct ModeGuard {
         // Held only for its lifetime -- dropping it releases `MODE_LOCK`.
-        // The leading underscore is what tells the compiler that, not an
-        // `#[allow(dead_code)]` on the field.
+        // The leading underscore is what tells the compiler that, not a
+        // dead-code lint suppression on the field.
         _guard: std::sync::MutexGuard<'static, ()>,
     }
 
