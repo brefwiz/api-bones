@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.14.4...api-bones-v7.0.0) - 2026-09-25
+
+### Added
+
+- *(connect-ts)* [**breaking**] 0.5.0 — a public read names its organization in orgField
+- *(connect-ts)* the public lane is a declared surface with its own contract
+- *(connect-ts)* the webapp profile sends public reads to the public lane
+
+### Fixed
+
+- *(release)* shorten the publish job name so its node label is unique
+- *(release)* the npm publish runs in the same run that mints its tag
+- *(pagination)* update arbitrary/fake generators and smoke tests for the new maximum
+- *(pagination)* one platform maximum page size, not two contradicting numbers
+- *(connect-ts)* a same-origin base URL has a public lane too
+
+### Other
+
+- *(pagination)* prove the single MAX_LIMIT constant via internal-bdd
+- no Podman sidecar on a pull-request job
+- *(connect)* 0.4.0 — public reads reach the public lane
+
 ## [6.14.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.14.3...api-bones-v6.14.4) - 2026-09-23
 
 ### Fixed
