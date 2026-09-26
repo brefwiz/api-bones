@@ -65,6 +65,7 @@ mod etag;
 mod ext;
 mod page;
 mod parse;
+pub mod precondition_client;
 mod retry_eligibility;
 mod scoped;
 mod timestamp;
@@ -76,6 +77,9 @@ pub use etag::{check_if_match, etag_from_updated_at};
 pub use ext::ConnectOptionExt;
 pub use page::{DEFAULT_LIMIT, MAX_LIMIT, OffsetPage, build_offset_page, build_page};
 pub use parse::parse_rfc3339;
+pub use precondition_client::{
+    IF_MATCH_ANY, Idempotency, PreconditionedTransport, index_generated_policy,
+};
 pub use retry_eligibility::{
     connection_failure_as_unavailable, is_connection_write_failure,
     is_replayable_transport_failure, is_unprompted_retryable,

@@ -144,6 +144,8 @@ result_large_err = "allow"
 mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
 opentelemetry_sdk = { version = "0.32", features = ["trace", "rt-tokio"] }
+bytes = "1"
+http-body-util = "0.1"
 
 [[example]]
 name = "query_builder"
