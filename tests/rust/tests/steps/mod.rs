@@ -4,6 +4,8 @@
 //! The TypeScript half answers the same file; neither keeps its own copy of
 //! the rows.
 
+mod precondition;
+
 use crate::world::RetryWorld;
 use connectrpc::{ConnectError, ErrorCode};
 use cucumber::{given, then};

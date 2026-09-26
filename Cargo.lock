@@ -136,8 +136,11 @@ version = "0.0.0"
 dependencies = [
  "api-bones-connect",
  "brefwiz-cucumber-steps",
+ "bytes",
  "connectrpc",
  "cucumber",
+ "http",
+ "http-body-util",
  "tokio",
 ]
 
