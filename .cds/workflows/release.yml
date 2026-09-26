@@ -78,3 +78,23 @@ jobs:
             ### Artifacts published
             - Rust crates (crates.io), published per-crate by release-plz.
             - npm packages release on their own axis — see ready-release-go.yml.
+
+  # The run's verdict, reporting only. DAG contract: it requires every other
+  # job's result, failed and skipped ones included, and outputs the verdict
+  # manifest artifact. It `needs` every job and runs under always() so a
+  # failed predecessor does not stop it. Nothing needs it: it gates no job
+  # and no promotion.
+  verdict:
+    needs: [publish-config, release]
+    if: ${{ always() }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    steps:
+      - id: verdict
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
+        with:
+          jobs: |
+            publish-config||${{ needs.publish-config.result }}
+            release||${{ needs.release.result }}

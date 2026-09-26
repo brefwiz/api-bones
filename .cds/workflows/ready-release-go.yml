@@ -173,3 +173,23 @@ jobs:
           release-notes-extra: |
             ### Artifacts published
             - npm (brefwiz registry): @brefwiz/api-bones-connect, @brefwiz/api-bones-axios, @brefwiz/api-bones-otel
+
+  # The run's verdict, reporting only. DAG contract: it requires every other
+  # job's result, failed and skipped ones included, and outputs the verdict
+  # manifest artifact. It `needs` every job and runs under always() so a
+  # failed predecessor does not stop it. Nothing needs it: it gates no job
+  # and no promotion.
+  verdict:
+    needs: [api-bones-connect-ts, sdk-ts-publish]
+    if: ${{ always() }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    steps:
+      - id: verdict
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
+        with:
+          jobs: |
+            api-bones-connect-ts||${{ needs.api-bones-connect-ts.result }}
+            sdk-ts-publish|api-bones-connect-ts|${{ needs.sdk-ts-publish.result }}

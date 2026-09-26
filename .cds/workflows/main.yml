@@ -189,3 +189,26 @@ jobs:
           # composite takes inputs, not the job's ambient env.
           repository: ${{ cds.workflow_repository }}
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+
+  # The run's verdict, reporting only. DAG contract: it requires every other
+  # job's result, failed and skipped ones included, and outputs the verdict
+  # manifest artifact. It `needs` every job and runs under always() so a
+  # failed predecessor does not stop it. Nothing needs it: it gates no job
+  # and no promotion.
+  verdict:
+    needs: [test, ts, duplication-typed, cargo-package, checks]
+    if: ${{ always() && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    steps:
+      - id: verdict
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
+        with:
+          jobs: |
+            test||${{ needs.test.result }}
+            ts||${{ needs.ts.result }}
+            duplication-typed|test,ts|${{ needs.duplication-typed.result }}
+            cargo-package||${{ needs.cargo-package.result }}
+            checks||${{ needs.checks.result }}
