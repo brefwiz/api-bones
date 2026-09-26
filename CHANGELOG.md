@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v7.0.1...api-bones-v8.0.0) - 2026-09-26
+
+### Added
+
+- *(connect)* Rust client transport carries the same default If-Match
+- *(connect-ts)* default If-Match precondition on mutating Connect calls
+
+### Fixed
+
+- *(connect)* [**breaking**] the Connect If-Match check matches RFC 9110 and the HTTP-side ETag
+- *(connect)* drop a doc link to a private module
+- *(connect)* route the TS precondition canary through the real transport
+
+### Other
+
+- give the verdict job registry credentials, reorder main.yml for legibility
+- enrol every workflow in the shared verdict job
+- *(connect)* prove the If-Match precondition through Gherkin, not unit tests alone
+- *(connect)* declare connect-precondition as a dual-language SDK surface
+
 ## [7.0.1](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v7.0.0...api-bones-v7.0.1) - 2026-09-26
 
 ### Fixed

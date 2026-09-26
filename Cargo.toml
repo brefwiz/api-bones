@@ -30,7 +30,7 @@ pedantic = { level = "deny", priority = -1 }
 
 [package]
 name = "api-bones"
-version = "7.0.1"
+version = "8.0.0"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
