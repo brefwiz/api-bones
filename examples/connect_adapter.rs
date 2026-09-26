@@ -87,7 +87,7 @@ fn main() {
 
     // ── etag_from_updated_at ───────────────────────────────────────────────
     let etag = etag_from_updated_at(chrono::Utc::now());
-    assert!(etag.starts_with("W/\""), "etag={etag}");
+    assert!(etag.weak, "etag={etag}");
     println!("etag: {etag}");
 
     // ── check_if_match ─────────────────────────────────────────────────────

@@ -43,7 +43,9 @@
 //!
 //! // ETag / If-Match — generate and enforce optimistic-concurrency headers
 //! let etag = etag_from_updated_at(record.updated_at);
-//! check_if_match(&ctx, &etag)?; // FailedPrecondition if header absent, Aborted on mismatch
+//! // FailedPrecondition if header absent, InvalidArgument if malformed,
+//! // Aborted on mismatch (RFC 9110 weak comparison).
+//! check_if_match(&ctx, &etag)?;
 //! ```
 //!
 //! # Enforcement (ADR-0096)
