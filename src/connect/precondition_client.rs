@@ -9,7 +9,7 @@
 //! (`connect-method-policy.json`), so a Rust service, CLI, or test harness
 //! gets the same default a browser SDK gets.
 //!
-//! [`retry_eligibility`](crate::connect::retry_eligibility) notes this
+//! `retry_eligibility` notes this
 //! artifact "has no Rust equivalent yet" for retry eligibility; this module
 //! is that equivalent, scoped to the one field precondition needs.
 
