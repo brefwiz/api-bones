@@ -18,6 +18,68 @@ on:
       - "**"
 
 jobs:
+  cargo-package:
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: cargo-package
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/cargo-package@main
+        with:
+          checkout: "false"
+          patch-workspace-deps: "true"
+      # Shares this worker with the packaging proof above: both compile the
+      # workspace, so a separate job would reserve a second one to rebuild it.
+      - id: lib-crate-publish-gate
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/lib-crate-publish-gate@main
+        with:
+          checkout: "false"
+      # And with clippy: cargo-package and clippy held the same DAG position
+      # (same worker class, same `if`, no needs, no dependents) -- a bare
+      # concurrency split that bought nothing a phase would not.
+      - id: clippy
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
+        with:
+          checkout: "false"
+  checks:
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: checks
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
+        with:
+          checkout: "false"
+          # Both are required and neither can be inherited. Without `repository`
+          # the runner cannot resolve which repo it is and aborts before it
+          # reports anything; without the token, adr-conformance reads
+          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
+          # composite takes inputs, not the job's ambient env.
+          repository: ${{ cds.workflow_repository }}
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+
   test:
     if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     runs-on:
@@ -128,68 +190,6 @@ jobs:
           # meaning `read everything and found nothing`.
           typerel-artifact: typerel-typescript
 
-  cargo-package:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
-    runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-      flavor: default
-      memory: "16384"
-    env:
-      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
-      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
-      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
-      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
-      RUSTC_WRAPPER: sccache
-      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
-      CARGO_INCREMENTAL: "0"
-      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
-      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
-      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
-    steps:
-      - id: checkout
-        uses: actions/checkout
-      - id: cargo-package
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/cargo-package@main
-        with:
-          checkout: "false"
-          patch-workspace-deps: "true"
-      # Shares this worker with the packaging proof above: both compile the
-      # workspace, so a separate job would reserve a second one to rebuild it.
-      - id: lib-crate-publish-gate
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/lib-crate-publish-gate@main
-        with:
-          checkout: "false"
-      # And with clippy: cargo-package and clippy held the same DAG position
-      # (same worker class, same `if`, no needs, no dependents) -- a bare
-      # concurrency split that bought nothing a phase would not.
-      - id: clippy
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
-        with:
-          checkout: "false"
-  checks:
-    runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-      flavor: checks
-      memory: "4096"
-    env:
-      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
-      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-    steps:
-      - id: checkout
-        uses: actions/checkout
-      - id: checks
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
-        with:
-          checkout: "false"
-          # Both are required and neither can be inherited. Without `repository`
-          # the runner cannot resolve which repo it is and aborts before it
-          # reports anything; without the token, adr-conformance reads
-          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
-          # composite takes inputs, not the job's ambient env.
-          repository: ${{ cds.workflow_repository }}
-          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-
   # The run's verdict, reporting only. DAG contract: it requires every other
   # job's result, failed and skipped ones included, and outputs the verdict
   # manifest artifact. It `needs` every job and runs under always() so a
@@ -202,6 +202,9 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
+    env:
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
     steps:
       - id: verdict
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main

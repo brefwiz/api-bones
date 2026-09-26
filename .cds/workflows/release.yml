@@ -91,6 +91,9 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
+    env:
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
     steps:
       - id: verdict
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
