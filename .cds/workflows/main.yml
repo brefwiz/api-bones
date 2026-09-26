@@ -122,7 +122,6 @@ jobs:
     env:
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
       GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
-      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
     steps:
       - id: checkout
         uses: actions/checkout

@@ -90,7 +90,6 @@ jobs:
       memory: "16384"
     env:
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
       # No NPM_TOKEN here. The publish credential is the composite's
       # `npm-publish-token` input below; setting it as job env as well suggests
       # the make target reads it, which is exactly the assumption that broke

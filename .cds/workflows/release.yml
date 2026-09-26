@@ -52,8 +52,6 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
-    env:
-      CI_LOGS_TOKEN: ${{ vars.brefwiz-secrets.CI_LOGS_TOKEN }}
     steps:
       - id: checkout
         uses: actions/checkout
