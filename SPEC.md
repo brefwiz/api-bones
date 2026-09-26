@@ -27,15 +27,6 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
-  connect-precondition:
-    contract: tests/features/connect_precondition.feature
-    targets:
-      rust:
-        delivery: package
-        packages: [api-bones-connect]
-      typescript:
-        delivery: package
-        packages: ["@brefwiz/api-bones-connect"]
   # Which entry of the TypeScript package carries workload identity. Rust has
   # no entry split: the crate is server-only, so this surface is TS alone.
   connect-workload-identity:
@@ -48,6 +39,16 @@ sdk_surfaces:
   # web entry has a public lane to reach, so this surface is TS alone.
   connect-public-read:
     contract: tests/features/connect_public_read.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
+  # The default If-Match precondition, attached from the transport itself.
+  # Rust carries the same decision, but from outside the package this surface
+  # names (see internal_behavior_owners, below) -- so this surface is TS
+  # alone, the same way connect-workload-identity is.
+  connect-precondition:
+    contract: tests/features/connect_precondition.feature
     targets:
       typescript:
         delivery: package
@@ -65,6 +66,12 @@ internal_behavior_owners:
   # contract.
   - paths: [src/pagination.rs, src/connect/page.rs, src/fake_impls.rs]
     feature: tests/internal-bdd/tests/features/pagination_max_limit.feature
+  # The Rust half of the default If-Match precondition lives in the root
+  # crate, outside the api-bones-connect package root the TypeScript half
+  # answers to as its SDK contract (connect-precondition, below) -- so this
+  # half is library code no declared sdk_surface exposes.
+  - paths: [src/connect/mod.rs, src/connect/precondition_client.rs]
+    feature: tests/features/connect_precondition.feature
 library_crates:
   - api-bones
   - api-bones-progenitor
