@@ -72,6 +72,11 @@ internal_behavior_owners:
   # half is library code no declared sdk_surface exposes.
   - paths: [src/connect/mod.rs, src/connect/precondition_client.rs]
     feature: tests/features/connect_precondition.feature
+  # check_if_match/etag_from_updated_at are Connect adapter code no declared
+  # sdk_surface exposes -- callers reach them directly as library code, not
+  # through a generated contract.
+  - paths: [src/connect/etag.rs]
+    feature: tests/internal-bdd/tests/features/connect_if_match_precondition.feature
 library_crates:
   - api-bones
   - api-bones-progenitor

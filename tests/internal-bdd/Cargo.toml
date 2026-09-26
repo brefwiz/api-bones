@@ -15,6 +15,7 @@ license = "MIT"
 api-bones = { path = "../..", features = ["connect"] }
 connectrpc = "0.9.1"
 http = "1.4.2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
 cucumber = "0.23"
@@ -26,4 +27,8 @@ harness = false
 
 [[test]]
 name = "pagination_max_limit"
+harness = false
+
+[[test]]
+name = "connect_if_match_precondition"
 harness = false
