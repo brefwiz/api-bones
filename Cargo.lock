@@ -84,7 +84,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api-bones"
-version = "7.0.0"
+version = "7.0.1"
 dependencies = [
  "arbitrary",
  "axum",
@@ -166,7 +166,7 @@ version = "0.4.3"
 
 [[package]]
 name = "api-bones-reqwest"
-version = "5.0.2"
+version = "5.0.3"
 dependencies = [
  "api-bones",
  "mockito",
@@ -189,7 +189,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-test"
-version = "6.6.5"
+version = "6.6.6"
 dependencies = [
  "api-bones",
  "async-nats",
@@ -211,7 +211,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-tower"
-version = "4.5.3"
+version = "4.5.4"
 dependencies = [
  "api-bones",
  "http",

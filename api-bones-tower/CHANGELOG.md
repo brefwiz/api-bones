@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.5.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-tower-v4.5.3...api-bones-tower-v4.5.4) - 2026-09-26
+
+### Other
+
+- updated the following local packages: api-bones
+
 ## [4.5.3](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-tower-v4.5.2...api-bones-tower-v4.5.3) - 2026-09-25
 
 ### Other

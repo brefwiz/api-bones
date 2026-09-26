@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-reqwest"
-version = "5.0.2"
+version = "5.0.3"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
@@ -27,7 +27,7 @@ rust-version = "1.85"
 uuid = ["dep:uuid", "api-bones/uuid"]
 
 [dependencies]
-api-bones = { path = "..", version = "^7.0.0", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
+api-bones = { path = "..", version = "^7.0.1", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
 uuid = { version = "1.23", optional = true }
 serde = { version = "1.0", features = ["derive"] }

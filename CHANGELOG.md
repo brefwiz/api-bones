@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.1](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v7.0.0...api-bones-v7.0.1) - 2026-09-26
+
+### Fixed
+
+- *(pagination)* the crate builds on alloc alone again, and CI proves it every run
+- *(cds-job-shape)* merge twin jobs that held the same DAG position
+- *(lint-suppression)* reword the comment to not spell out an attribute
+- *(duplication)* parameterize the invalid-json-body test pair
+- *(upstream-source-custody)* remove five clean lint suppressions
+
 ## [7.0.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v6.14.4...api-bones-v7.0.0) - 2026-09-25
 
 ### Added
