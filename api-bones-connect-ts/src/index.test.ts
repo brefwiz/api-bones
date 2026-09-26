@@ -21,6 +21,11 @@ import {
   serverPushbackMs,
 } from "./retry.js";
 import { scopedCallOptions } from "./scoped.js";
+import {
+  IF_MATCH_ANY,
+  isPreconditionedMethod,
+  makePreconditionInterceptor,
+} from "./precondition.js";
 import type { GeneratedMethodPolicy } from "./policy.js";
 
 const method = (over: Record<string, unknown> = {}) => ({
@@ -330,5 +335,81 @@ describe("connection-failure normalisation", () => {
     const interceptor = makeConnectionFailureNormalizer();
     const next = async () => "ok" as never;
     await expect(interceptor(next as never)({} as never)).resolves.toBe("ok");
+  });
+});
+
+describe("precondition interceptor", () => {
+  const unaryPolicy = (idempotency: GeneratedMethodPolicy["idempotency"]): GeneratedMethodPolicy => ({
+    rpc: "/pkg.v1.Svc/Method",
+    procedure: "unary",
+    idempotency,
+    browserCache: { scope: "NO_STORE", maxAgeSeconds: 0 },
+    sensitivity: "UNSPECIFIED",
+    maxEncodedUrlBytes: 4096,
+  });
+
+  const fakeReq = (rpc: string) => ({
+    stream: false as const,
+    header: new Headers(),
+    method: {
+      name: rpc.split("/").pop(),
+      parent: { typeName: rpc.slice(1, rpc.lastIndexOf("/")) },
+    },
+  });
+
+  it("declares any non-read method preconditioned, fails closed on the rest", () => {
+    expect(isPreconditionedMethod(unaryPolicy("IDEMPOTENT"))).toBe(true);
+    expect(isPreconditionedMethod(unaryPolicy("UNSPECIFIED"))).toBe(true);
+    expect(isPreconditionedMethod(unaryPolicy("NO_SIDE_EFFECTS"))).toBe(false);
+    expect(isPreconditionedMethod(undefined)).toBe(false);
+    expect(isPreconditionedMethod({ ...unaryPolicy("IDEMPOTENT"), procedure: "streaming" }))
+      .toBe(false);
+  });
+
+  // The regression this exists to close: the UI called a guarded RPC with no
+  // If-Match, because nothing attached one by default. A client built with no
+  // options at all must now do it for every mutating call, unprompted.
+  it("attaches if-match: * to a mutating call by default", async () => {
+    const policyByRpc = new Map([["/pkg.v1.Svc/Update", unaryPolicy("IDEMPOTENT")]]);
+    const interceptor = makePreconditionInterceptor({ policyByRpc });
+    const req = fakeReq("/pkg.v1.Svc/Update");
+    const next = async (r: typeof req) => {
+      expect(r.header.get("if-match")).toBe(IF_MATCH_ANY);
+      return "ok" as never;
+    };
+    await interceptor(next as never)(req as never);
+  });
+
+  it("sends no if-match on a NO_SIDE_EFFECTS read", async () => {
+    const policyByRpc = new Map([["/pkg.v1.Svc/Get", unaryPolicy("NO_SIDE_EFFECTS")]]);
+    const interceptor = makePreconditionInterceptor({ policyByRpc });
+    const req = fakeReq("/pkg.v1.Svc/Get");
+    const next = async (r: typeof req) => {
+      expect(r.header.has("if-match")).toBe(false);
+      return "ok" as never;
+    };
+    await interceptor(next as never)(req as never);
+  });
+
+  it("never overrides a caller-supplied precondition", async () => {
+    const policyByRpc = new Map([["/pkg.v1.Svc/Update", unaryPolicy("IDEMPOTENT")]]);
+    const interceptor = makePreconditionInterceptor({ policyByRpc });
+    const req = fakeReq("/pkg.v1.Svc/Update");
+    req.header.set("if-match", "\"real-etag\"");
+    const next = async (r: typeof req) => {
+      expect(r.header.get("if-match")).toBe("\"real-etag\"");
+      return "ok" as never;
+    };
+    await interceptor(next as never)(req as never);
+  });
+
+  it("leaves an unannotated method untouched", async () => {
+    const interceptor = makePreconditionInterceptor({ policyByRpc: new Map() });
+    const req = fakeReq("/pkg.v1.Svc/Unknown");
+    const next = async (r: typeof req) => {
+      expect(r.header.has("if-match")).toBe(false);
+      return "ok" as never;
+    };
+    await interceptor(next as never)(req as never);
   });
 });

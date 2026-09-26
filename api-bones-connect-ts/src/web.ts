@@ -30,6 +30,7 @@ import {
   type SdkTransportProfile,
 } from "./policy.js";
 import { makeConnectionFailureNormalizer, makeRetryInterceptor, rpcIdentity } from "./retry.js";
+import { makePreconditionInterceptor } from "./precondition.js";
 
 export interface ConnectTransportOptions {
   baseUrl: string;
@@ -214,6 +215,9 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
     ...(getToken ? [makeAuthInterceptor(getToken)] : []),
     makeCsrfInterceptor(),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
+    // Ahead of retry: a mutating call carries its default precondition on
+    // every attempt, not just the first.
+    makePreconditionInterceptor({ policyByRpc }),
     // Outside the retry interceptor: `isConnectionWriteFailure` matches on the
     // Internal code, so re-coding any earlier would make these unretryable.
     makeConnectionFailureNormalizer(),

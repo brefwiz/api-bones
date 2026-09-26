@@ -56,3 +56,10 @@ export {
 } from "./retry.js";
 
 export { scopedCallOptions } from "./scoped.js";
+
+export {
+  IF_MATCH_ANY,
+  isPreconditionedMethod,
+  makePreconditionInterceptor,
+  type PreconditionInterceptorOptions,
+} from "./precondition.js";

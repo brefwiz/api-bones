@@ -34,6 +34,7 @@ import {
 } from "./node-diagnostics.js";
 import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
 import { makeConnectionFailureNormalizer, makeRetryInterceptor } from "./retry.js";
+import { makePreconditionInterceptor } from "./precondition.js";
 import { startWatcherSafe } from "@brefwiz/spiffe-client";
 import { clientTlsIdentityFor, WATCHER_ATTEMPTS, WorkloadIdentityError } from "./workload-identity.js";
 
@@ -207,6 +208,9 @@ export async function configureNodeConnectTransport(
     ...(opts.interceptors ?? []),
     ...(getToken ? [makeAuthInterceptor(getToken)] : []),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
+    // Ahead of retry: a mutating call carries its default precondition on
+    // every attempt, not just the first.
+    makePreconditionInterceptor({ policyByRpc }),
     // Outside the retry interceptor: `isConnectionWriteFailure` matches on the
     // Internal code, so re-coding any earlier would make these unretryable.
     makeConnectionFailureNormalizer(),
