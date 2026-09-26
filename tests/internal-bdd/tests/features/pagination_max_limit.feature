@@ -15,6 +15,7 @@ Feature: One platform maximum page size
   Scenario: PaginationParams rejects a limit above the platform maximum
     When a caller requests offset pagination with limit 201
     Then the request is rejected as out of range
+    And the rejection names the platform maximum of 200
 
   Scenario: The Connect page builder clamps an oversized limit to the platform maximum
     When a caller requests a Connect offset page with limit 9999

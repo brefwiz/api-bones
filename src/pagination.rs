@@ -21,7 +21,7 @@
 //! - Industry standard: Stripe, GitHub, Slack all use cursor-based for list endpoints
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use alloc::{string::String, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "validator")]

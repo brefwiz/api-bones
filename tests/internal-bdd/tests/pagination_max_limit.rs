@@ -14,6 +14,7 @@ use cucumber::{World, then, when};
 struct PageWorld {
     pagination_result: Option<Result<PaginationParams, api_bones::ValidationError>>,
     connect_limit: Option<u64>,
+    rejection: Option<api_bones::ValidationError>,
 }
 
 #[when(expr = "a caller requests offset pagination with limit {int}")]
@@ -39,6 +40,13 @@ fn then_rejected(world: &mut PageWorld) {
         .expect("no pagination request made yet")
         .expect_err("expected the request to be rejected");
     assert_eq!(err.rule.as_deref(), Some("range"));
+    world.rejection = Some(err);
+}
+
+#[then(expr = "the rejection names the platform maximum of {int}")]
+fn then_rejection_names_maximum(world: &mut PageWorld, maximum: u64) {
+    let err = world.rejection.take().expect("no rejection recorded yet");
+    assert_eq!(err.message, format!("must be between 1 and {maximum}"));
 }
 
 #[when(expr = "a caller requests a Connect offset page with limit {int}")]

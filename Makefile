@@ -21,7 +21,10 @@ fmt: ## Format code
 ci-format: ## Check formatting (CI)
 	cargo fmt --all -- --check
 
-ci-lint: ## Run Clippy (CI — zero warnings)
+ci-lint: ci-no-std ## Run Clippy (CI — zero warnings), and build every no_std feature set
+	# Clippy runs with --all-features, which turns std on: a no_std-only break
+	# never reaches it. ci-no-std builds those feature sets, and nothing else in
+	# CI does.
 	cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
 
 ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
