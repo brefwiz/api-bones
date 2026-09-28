@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: MIT
+# Publishes the npm package a package-lane tag names, at the tag's version.
+#
+# Triggered by the `npm/<slug>/vX.Y.Z` tag package-lanes-mint.yml mints on
+# every push to main. The tag is the version of record: the package.json
+# `version` field in the repository is never edited, and the tag's version is
+# stamped into the build tree only, at publish time. Publishing is idempotent,
+# so a re-run or a re-triggered tag never fails on a version already served.
+
+name: api-bones-package-release
+
+vars: [brefwiz-secrets, brefwiz-vars]
+
+on:
+  push:
+    tags:
+      - "npm/**"
+
+jobs:
+  publish:
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
+    steps:
+      - id: publish
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/package-lane-publish@main
+        with:
+          tag: ${{ git.ref_name }}
+          npm-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+          package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          github-packages-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
+
+  # The run's verdict, reporting only. DAG contract: it requires every other
+  # job's result, failed and skipped ones included, and outputs the verdict
+  # manifest artifact. It `needs` every job and runs under always() so a
+  # failed predecessor does not stop it. Nothing needs it: it gates no job
+  # and no promotion.
+  verdict:
+    needs: [publish]
+    if: ${{ always() }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    env:
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+    steps:
+      - id: verdict
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
+        with:
+          jobs: |
+            publish||${{ needs.publish.result }}

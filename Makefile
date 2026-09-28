@@ -3,7 +3,7 @@
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust ci-coverage \
 	ci-sdk-publish-rust-dry-run ci-sdk-publish-typescript-dry-run ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
-	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc ci-npm-build \
+	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
 	lockfile ci-lockfile-diff
 
 .DEFAULT_GOAL := help
@@ -187,12 +187,6 @@ TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
 # PUBLISHABLE sets, because it ships nothing.
 TS_TEST_PACKAGES := $(TS_PACKAGES) tests/typescript
 
-# The brefwiz npm registry, as the @brefwiz scope must resolve it: the Gitea
-# package endpoint. Other hostnames that look like a registry for this org do
-# not serve one, and naming them even to warn against them trips the gate that
-# bans them.
-NPM_SCOPE_REGISTRY := https://git.brefwiz.com/api/packages/brefwiz/npm/
-
 .PHONY: canonical-check
 canonical-check: ## Run the brefwiz canonical structural gates locally
 	@if [ -f .ci-workflows/ci-scripts/canonical-check.sh ]; then \
@@ -219,57 +213,6 @@ cds-lint: ## Validate .cds/workflows/ YAML via cdsctl — catches schema breakag
 
 .PHONY: ci-ts
 ci-ts: ts-lint ts-build ts-test ## CI: the whole TypeScript lane in one target
-
-.PHONY: ci-npm-publish
-ci-npm-publish: ## Publish every npm package to the brefwiz registry
-	# No credential handling here, deliberately. The npm-authenticated-make
-	# composite that invokes this target materializes the credential into an
-	# .npmrc, points npm at it through NPM_CONFIG_USERCONFIG, and then strips
-	# NPM_TOKEN from this process's environment on purpose — so a target that
-	# reads NPM_TOKEN sees nothing at all (not an empty value: unset), and a
-	# target that writes its own .npmrc is reimplementing what it was already
-	# handed. This one assembles no auth and names no registry host.
-	#
-	# Routing IS declared here, unlike auth. npm selects a registry per SCOPE,
-	# and the scope setting in the CI environment overrides a bare `registry`,
-	# so leaving @brefwiz unrouted sends these packages to GitHub Packages —
-	# where they used to live, and where consumers resolving the scope from
-	# Gitea cannot see them whatever credentials they hold. Each manifest's
-	# publishConfig.registry agrees with this; stating it here as well keeps it
-	# true for a manifest that gets regenerated.
-	#
-	# Published through the platform's idempotent publisher, not a bare `npm
-	# publish`. One tag publishes all three packages, but they version
-	# independently — so any release where only one of them changed reaches a
-	# package whose version is already on the registry, and npm versions are
-	# immutable. A bare publish fails there and takes the release with it.
-	#
-	# The alternative, bumping all three on every tag, mints versions nothing
-	# changed in. So the publisher decides from the registry's MESSAGE: an
-	# explicit "already published" is benign and skipped loudly, and every other
-	# failure — E401, E403, network — still fails the release. That distinction
-	# is the point; blanket-masking 4xx is how a rotated publish token once went
-	# unnoticed.
-	@set -eu; \
-	for pkg in $(TS_PACKAGES); do \
-		echo "==> publish $$pkg"; \
-		python3 /opt/ci-workflows/ci-scripts/npm-publish-idempotent.py "$$pkg" "$(NPM_SCOPE_REGISTRY)"; \
-		rm -f $$pkg/.npmrc; \
-	done
-
-.PHONY: ci-npm-build
-ci-npm-build: ## CI: install and build every npm package, ready to publish
-	# Split out of the publish so the packing rehearsal between them has
-	# something real to pack. publish-readiness-npm asks to be called from a job
-	# that has already installed and built; run before that, it packs a tree
-	# with no dist/ in it and proves nothing about what would ship. The .npmrc
-	# written here is scope routing only, and the publish half removes it.
-	@set -eu; \
-	for pkg in $(TS_PACKAGES); do \
-		echo "==> build $$pkg"; \
-		printf '@brefwiz:registry=%s\n' "$(NPM_SCOPE_REGISTRY)" > $$pkg/.npmrc; \
-		( cd $$pkg && npm ci --no-audit --no-fund && npm run build ); \
-	done
 
 ts-build: ## Build TypeScript packages
 	@set -e; for pkg in $(TS_PACKAGES); do \

@@ -5,10 +5,10 @@
 # Publishing itself is not here. The Rust crates go to crates.io through
 # release-plz, which owns its own workflow (release-plz.yml) because that is
 # what identifies it as the crate axis's release owner. The npm packages are a
-# separate axis with a separate version lineage and publish in
-# ready-release-go.yml, in the same run that mints their tag — a tag minted
-# through the forge API emits no push event, so a second workflow waiting on
-# it would never fire.
+# separate axis with a separate version lineage: package-lanes-mint.yml tags
+# each publishable package.json at HEAD on every push to main, and
+# package-release.yml publishes the tag it names — a real `npm/**` tag push,
+# so the tag-triggered workflow fires without needing a run to chain into.
 #
 # What remains is the tag's own obligation: prove the tag agrees with the
 # manifest before anything trusts it, and leave an audit trail against it.
@@ -75,7 +75,7 @@ jobs:
           release-notes-extra: |
             ### Artifacts published
             - Rust crates (crates.io), published per-crate by release-plz.
-            - npm packages release on their own axis — see ready-release-go.yml.
+            - npm packages release on their own axis — see package-lanes-mint.yml and package-release.yml.
 
   # The run's verdict, reporting only. DAG contract: it requires every other
   # job's result, failed and skipped ones included, and outputs the verdict

@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: MIT
+# The npm release axis for api-bones: mint a package-lane tag for every
+# publishable package.json that moved since its last release, on every push
+# to main.
+#
+# No package.json version is ever hand-bumped and no changelog PR waits on a
+# merge: each package is a lane of its own, discovered rather than declared,
+# and its version is derived from the commits since its last tag (a lane with
+# no tag yet is seeded at the version the registry already serves). Minting
+# only writes a signed tag (`npm/<slug>/vX.Y.Z`); the manifest is never
+# rewritten and nothing is committed or pushed here.
+#
+# The tag itself carries no push event when minted through the forge API, so
+# publishing runs in a separate workflow (package-release.yml) triggered by
+# the tag push CDS observes directly.
+
+name: api-bones-package-lanes-mint
+
+vars: [brefwiz-secrets, brefwiz-vars]
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  package-lanes:
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    steps:
+      - id: package-lanes
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/package-lane-mint@main
+        with:
+          sha: ${{ git.sha }}
+          gitea-token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
+          gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
+          gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
+
+  # The run's verdict, reporting only. DAG contract: it requires every other
+  # job's result, failed and skipped ones included, and outputs the verdict
+  # manifest artifact. It `needs` every job and runs under always() so a
+  # failed predecessor does not stop it. Nothing needs it: it gates no job
+  # and no promotion.
+  verdict:
+    needs: [package-lanes]
+    if: ${{ always() }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    env:
+      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+    steps:
+      - id: verdict
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
+        with:
+          jobs: |
+            package-lanes||${{ needs.package-lanes.result }}
