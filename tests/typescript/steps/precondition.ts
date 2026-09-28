@@ -13,7 +13,7 @@ import { Given, Then, When, World } from "@cucumber/cucumber";
 
 import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
 
-import { unaryMethodFixture, unaryPolicyDoc } from "./support.js";
+import { unaryMethodFixture, unaryPolicyDoc } from "./support.ts";
 
 const RPC_TYPE_NAME = "pkg.v1.PreconditionService";
 const RPC_METHOD = "Method";

@@ -17,7 +17,7 @@ import {
   isUnpromptedRetryable,
 } from "@brefwiz/api-bones-connect";
 
-import { CONNECT_CODE_NAMES, connectCodeOf } from "./support.js";
+import { CONNECT_CODE_NAMES, connectCodeOf } from "./support.ts";
 
 interface RetryWorld extends World {
   failure?: ConnectError;

@@ -15,7 +15,7 @@ import { Given, Then, When, World } from "@cucumber/cucumber";
 import type { RetryEvent } from "@brefwiz/api-bones-connect";
 import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
 
-import { CONNECT_CODE_NAMES, connectCodeOf, unaryMethodFixture, unaryPolicyDoc } from "./support.js";
+import { CONNECT_CODE_NAMES, connectCodeOf, unaryMethodFixture, unaryPolicyDoc } from "./support.ts";
 
 const RPC_TYPE_NAME = "pkg.v1.RetryObservabilityService";
 const RPC_METHOD = "Method";
