@@ -29,7 +29,12 @@ import {
   publicLaneUrl,
   type SdkTransportProfile,
 } from "./policy.js";
-import { makeConnectionFailureNormalizer, makeRetryInterceptor, rpcIdentity } from "./retry.js";
+import {
+  makeConnectionFailureNormalizer,
+  makeRetryInterceptor,
+  rpcIdentity,
+  type RetryEvent,
+} from "./retry.js";
 import { makePreconditionInterceptor } from "./precondition.js";
 
 export interface ConnectTransportOptions {
@@ -63,6 +68,13 @@ export interface ConnectTransportOptions {
   useGrpcWeb?: boolean;
   /** Retry options for transient unary failures. */
   retry?: BackoffOptions;
+  /**
+   * Observes each retried attempt: method, 1-based attempt number, error
+   * code and the delay before the next try. Never called for a call that
+   * succeeds on its first attempt or for a non-retryable method. A throwing
+   * observer is caught and ignored rather than failing the call.
+   */
+  onRetry?: (event: RetryEvent) => void;
   /** Product interceptors, including tracing, composed ahead of core interceptors. */
   interceptors?: readonly Interceptor[];
   /** Fetch override for browser adapters and focused transport tests. */
@@ -206,8 +218,17 @@ function anonymous(fetchImpl: typeof globalThis.fetch): typeof globalThis.fetch 
  * ```
  */
 export function configureConnectTransport(opts: ConnectTransportOptions): Transport {
-  const { baseUrl, profile, policy, getToken, onUnauthorized, useBinaryFormat, useGrpcWeb, retry } =
-    opts;
+  const {
+    baseUrl,
+    profile,
+    policy,
+    getToken,
+    onUnauthorized,
+    useBinaryFormat,
+    useGrpcWeb,
+    retry,
+    onRetry,
+  } = opts;
   const policyByRpc = indexGeneratedPolicy(policy);
 
   const interceptors: Interceptor[] = [
@@ -221,7 +242,7 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
     // Outside the retry interceptor: `isConnectionWriteFailure` matches on the
     // Internal code, so re-coding any earlier would make these unretryable.
     makeConnectionFailureNormalizer(),
-    makeRetryInterceptor({ policyByRpc, backoff: retry }),
+    makeRetryInterceptor({ policyByRpc, backoff: retry, onRetry }),
   ];
 
   const transportOpts = {

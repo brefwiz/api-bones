@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
+import type { DescMethodUnary } from "@bufbuild/protobuf";
+import { EmptySchema, StringValueSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { createServer } from "node:net";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,8 +20,10 @@ import {
   RetryThrottle,
   isConnectionWriteFailure,
   makeConnectionFailureNormalizer,
+  makeRetryInterceptor,
   isRetryableMethod,
   serverPushbackMs,
+  type RetryEvent,
 } from "./retry.js";
 import { scopedCallOptions } from "./scoped.js";
 import {
@@ -165,6 +170,56 @@ describe("node transport", () => {
     });
     expect(transport).toHaveProperty("unary");
   });
+
+  it("reports a retried attempt through the public onRetry option", async () => {
+    // A port nothing is listening on: the connection is refused before any
+    // byte of the request ships, the same shape the browser adapter's
+    // wiring test exercises with a thrown fetch.
+    const closedPort = await new Promise<number>((resolve, reject) => {
+      const probe = createServer();
+      probe.listen(0, "127.0.0.1", () => {
+        const address = probe.address();
+        probe.close((err) => {
+          if (err) reject(err);
+          else if (address && typeof address === "object") resolve(address.port);
+          else reject(new Error("no ephemeral port"));
+        });
+      });
+      probe.on("error", reject);
+    });
+
+    const service = { typeName: "pkg.v1.Svc" };
+    const getMethod = {
+      kind: "rpc",
+      name: "Get",
+      localName: "get",
+      parent: service,
+      methodKind: "unary",
+      input: StringValueSchema,
+      output: EmptySchema,
+      idempotency: 1, // NO_SIDE_EFFECTS
+      deprecated: false,
+    } as unknown as DescMethodUnary<typeof StringValueSchema, typeof EmptySchema>;
+
+    const events: RetryEvent[] = [];
+    const transport = await configureNodeConnectTransport({
+      baseUrl: `http://127.0.0.1:${closedPort}`,
+      profile: "service",
+      policy: { schemaVersion: 1, methods: [method({ rpc: "/pkg.v1.Svc/Get" })] },
+      retry: { initialDelayMs: 0, maxDelayMs: 0 },
+      onRetry: (event) => events.push(event),
+    });
+
+    await expect(
+      transport.unary(getMethod, undefined, undefined, undefined, { value: "x" }),
+    ).rejects.toThrow();
+
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect(event.method).toBe("/pkg.v1.Svc/Get");
+      expect(event.delayMs).toBe(0);
+    }
+  }, 10000);
 });
 
 describe("retry eligibility", () => {
@@ -230,6 +285,125 @@ describe("retry eligibility", () => {
     expect(throttle.canRetry).toBe(false);
     for (let i = 0; i < 20; i++) throttle.recordSuccess();
     expect(throttle.canRetry).toBe(true);
+  });
+});
+
+describe("retry interceptor observability", () => {
+  const policyByRpc = indexGeneratedPolicy({
+    schemaVersion: 1,
+    methods: [
+      {
+        rpc: "/pkg.v1.Svc/Method",
+        procedure: "unary",
+        idempotency: "NO_SIDE_EFFECTS",
+        browserCache: { scope: "NO_STORE", maxAgeSeconds: 0 },
+        sensitivity: "UNSPECIFIED",
+        maxEncodedUrlBytes: 4096,
+      },
+    ],
+  });
+
+  const req = {
+    stream: false,
+    method: { name: "Method", parent: { typeName: "pkg.v1.Svc" } },
+  };
+
+  const noSleep = async () => {};
+
+  it("reports each retried attempt, in order, before sleeping", async () => {
+    const events: RetryEvent[] = [];
+    let calls = 0;
+    const next = async () => {
+      calls++;
+      if (calls <= 2) throw new ConnectError("down", Code.Unavailable);
+      return "ok" as never;
+    };
+    const interceptor = makeRetryInterceptor({
+      policyByRpc,
+      sleep: noSleep,
+      onRetry: (event) => events.push(event),
+    });
+
+    await expect(interceptor(next as never)(req as never)).resolves.toBe("ok");
+
+    expect(events).toEqual([
+      {
+        method: "/pkg.v1.Svc/Method",
+        attempt: 1,
+        code: Code.Unavailable,
+        message: "down",
+        delayMs: expect.any(Number),
+      },
+      {
+        method: "/pkg.v1.Svc/Method",
+        attempt: 2,
+        code: Code.Unavailable,
+        message: "down",
+        delayMs: expect.any(Number),
+      },
+    ]);
+    for (const event of events) {
+      expect(event.delayMs).toBeGreaterThanOrEqual(0);
+      expect(event.delayMs).toBeLessThanOrEqual(30000);
+    }
+  });
+
+  it("does not report on a call that succeeds on its first attempt", async () => {
+    const events: RetryEvent[] = [];
+    const next = async () => "ok" as never;
+    const interceptor = makeRetryInterceptor({ policyByRpc, sleep: noSleep, onRetry: (e) => events.push(e) });
+
+    await interceptor(next as never)(req as never);
+
+    expect(events).toEqual([]);
+  });
+
+  it("does not report for a method the policy does not mark retryable", async () => {
+    const events: RetryEvent[] = [];
+    const next = async () => {
+      throw new ConnectError("down", Code.Unavailable);
+    };
+    const interceptor = makeRetryInterceptor({
+      policyByRpc: new Map(),
+      sleep: noSleep,
+      onRetry: (e) => events.push(e),
+    });
+
+    await expect(interceptor(next as never)(req as never)).rejects.toThrow("down");
+    expect(events).toEqual([]);
+  });
+
+  it("does not report a failure code that is not eligible for retry", async () => {
+    const events: RetryEvent[] = [];
+    const next = async () => {
+      throw new ConnectError("nope", Code.InvalidArgument);
+    };
+    const interceptor = makeRetryInterceptor({
+      policyByRpc,
+      sleep: noSleep,
+      onRetry: (e) => events.push(e),
+    });
+
+    await expect(interceptor(next as never)(req as never)).rejects.toThrow("nope");
+    expect(events).toEqual([]);
+  });
+
+  it("never lets a throwing observer break the retried call", async () => {
+    let calls = 0;
+    const next = async () => {
+      calls++;
+      if (calls === 1) throw new ConnectError("down", Code.Unavailable);
+      return "ok" as never;
+    };
+    const interceptor = makeRetryInterceptor({
+      policyByRpc,
+      sleep: noSleep,
+      onRetry: () => {
+        throw new Error("observer boom");
+      },
+    });
+
+    await expect(interceptor(next as never)(req as never)).resolves.toBe("ok");
   });
 });
 

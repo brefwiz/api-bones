@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import type { DescMethodUnary } from "@bufbuild/protobuf";
 import { EmptySchema, StringValueSchema } from "@bufbuild/protobuf/wkt";
+import { Code } from "@connectrpc/connect";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,6 +10,7 @@ import {
   parseMethodPolicy,
   publicLaneUrl,
 } from "./policy.js";
+import type { RetryEvent } from "./retry.js";
 import { configureConnectTransport } from "./web.js";
 
 const orgField = { name: "org_handle", jsonName: "orgHandle", number: 1 };
@@ -203,5 +205,42 @@ describe("webapp transport", () => {
     await transport.unary(unary("GetWeek"), undefined, undefined, undefined, { value: "x" });
 
     expect(sent[0].url.startsWith("https://app.example.com/itinerwiz/")).toBe(true);
+  });
+});
+
+describe("retry observability wiring", () => {
+  it("reports the retried attempt through the public onRetry option", async () => {
+    const events: RetryEvent[] = [];
+    let calls = 0;
+    const flakyFetch: typeof fetch = async () => {
+      calls++;
+      if (calls === 1) throw new Error("network down");
+      return new Response(new Uint8Array(), {
+        status: 200,
+        headers: { "content-type": "application/proto" },
+      });
+    };
+
+    const transport = configureConnectTransport({
+      baseUrl: "https://app.example.com/itinerwiz",
+      profile: "service",
+      policy: { schemaVersion: 1, methods: [publicRead({ publicRead: undefined })] },
+      retry: { initialDelayMs: 0, maxDelayMs: 0 },
+      onRetry: (event) => events.push(event),
+      fetch: flakyFetch,
+    });
+
+    await transport.unary(unary("GetWeek"), undefined, undefined, undefined, { value: "x" });
+
+    expect(events).toEqual([
+      {
+        method: "/pkg.v1.PublicService/GetWeek",
+        attempt: 1,
+        code: Code.Unavailable,
+        message: "network down",
+        delayMs: 0,
+      },
+    ]);
+    expect(calls).toBe(2);
   });
 });

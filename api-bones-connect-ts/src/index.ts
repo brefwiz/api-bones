@@ -51,6 +51,7 @@ export {
   makeRetryInterceptor,
   rpcIdentity,
   serverPushbackMs,
+  type RetryEvent,
   type RetryInterceptorOptions,
   type RetryThrottleOptions,
 } from "./retry.js";

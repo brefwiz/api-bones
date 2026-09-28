@@ -53,6 +53,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # `onRetry` is attached to the retry interceptor itself, and Rust has no
+  # client interceptor pipeline for one to live in -- so this surface is TS
+  # alone, the same way connect-workload-identity is.
+  connect-retry-observability:
+    contract: tests/features/connect_retry_observability.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
   # with_bearer sets transport-layer default headers no declared sdk_surface
   # exposes -- callers reach it directly as library code, not through a
