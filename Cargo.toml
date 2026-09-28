@@ -97,7 +97,7 @@ connectrpc  = { version = "0.7", features = ["client", "client-tls"], optional =
 buffa-types = { version = "0.7", features = ["json"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 tracing     = { version = "0.1", optional = true }
-opentelemetry = { version = "0.32", optional = true }
+opentelemetry = { version = "0.33", optional = true }
 
 [lints.rust]
 # Allow cfg(coverage) set by cargo-llvm-cov
