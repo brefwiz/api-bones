@@ -10,6 +10,7 @@ module.exports = {
       "../features/connect_public_read.feature",
       "../features/connect_precondition.feature",
       "../features/connect_retry_observability.feature",
+      "../features/native_client_generation.feature",
     ],
     import: [
       "steps/retry_eligibility.ts",
@@ -17,6 +18,7 @@ module.exports = {
       "steps/public_read.ts",
       "steps/precondition.ts",
       "steps/retry_observability.ts",
+      "steps/native_client_generation.ts",
     ],
     strict: true,
     format: ["progress"],

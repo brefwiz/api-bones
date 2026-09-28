@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: MIT
+syntax = "proto3";
+package fixture.native.v1;
+
+import "bones/v1/annotations.proto";
+import "fixtures/native-imported.proto";
+
+option (bones.v1.native_services) = {
+  name: "NativeQueue"
+  operations: { name: "publish" kind: NATIVE_OPERATION_KIND_PUBLISH }
+  operations: { name: "deliver" kind: NATIVE_OPERATION_KIND_DELIVER }
+  operations: { name: "acknowledge" kind: NATIVE_OPERATION_KIND_ACKNOWLEDGE }
+  operations: { name: "negative_acknowledge" kind: NATIVE_OPERATION_KIND_NEGATIVE_ACKNOWLEDGE }
+};

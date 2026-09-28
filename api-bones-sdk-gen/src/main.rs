@@ -4,6 +4,8 @@ use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use api_bones_sdk_gen::native;
+
 const PROGENITOR_VERSION: &str = env!("CARGO_PKG_VERSION");
 const OPENAPI_GENERATOR_VERSION: &str = "7.12.0";
 const OPENAPI_GENERATOR_JAR_URL: &str = "https://repo1.maven.org/maven2/org/openapitools/openapi-generator-cli/7.12.0/openapi-generator-cli-7.12.0.jar";
@@ -21,6 +23,24 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Generate a callable native client from a protoc descriptor set.
+    Native {
+        /// Binary FileDescriptorSet emitted by buf/protoc.
+        #[arg(long)]
+        descriptor_set: PathBuf,
+        /// Output Rust source file.
+        #[arg(long)]
+        rust_out: PathBuf,
+        /// Output TypeScript source file.
+        #[arg(long)]
+        typescript_out: PathBuf,
+        /// Optional machine-readable generation provenance.
+        #[arg(long)]
+        proof_out: Option<PathBuf>,
+        /// Refuse missing or stale outputs instead of rewriting them.
+        #[arg(long)]
+        check: bool,
+    },
     /// Dump the OpenAPI schema from a service binary
     Schema {
         /// Cargo binary name to invoke (e.g. generate-openapi)
@@ -80,6 +100,19 @@ enum Cmd {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Cmd::Native {
+            descriptor_set,
+            rust_out,
+            typescript_out,
+            proof_out,
+            check,
+        } => native::generate_descriptor_set(
+            &descriptor_set,
+            &rust_out,
+            &typescript_out,
+            proof_out.as_deref(),
+            check,
+        ),
         Cmd::Schema { server_bin, out } => cmd_schema(&server_bin, &out),
         Cmd::Rust {
             spec,

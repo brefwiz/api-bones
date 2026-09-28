@@ -13,10 +13,16 @@ license = "MIT"
 
 [dependencies]
 api-bones-connect = { path = "../../api-bones-connect" }
+api-bones-sdk-gen = { path = "../../api-bones-sdk-gen" }
 connectrpc = "0.9.1"
 http = "1.4.2"
 bytes = "1"
 http-body-util = "0.1"
+
+[build-dependencies]
+api-bones-sdk-gen = { path = "../../api-bones-sdk-gen" }
+protox = "0.9.1"
+prost = "0.14"
 
 [dev-dependencies]
 cucumber = "0.23"
@@ -30,4 +36,8 @@ harness = false
 
 [[test]]
 name = "connect_precondition"
+harness = false
+
+[[test]]
+name = "native_client_generation"
 harness = false

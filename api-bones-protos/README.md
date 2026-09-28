@@ -34,6 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## What's included
 
+`bones/v1/annotations.proto` also declares file-level native client metadata.
+Native operations remain outside protobuf service/method inventory and are
+consumed by `protoc-gen-bones-native` in normal buf generation.
+
 | File                              | Messages |
 |-----------------------------------|----------|
 | `bones/v1/pagination.proto`       | `PageRequest`, `PageResponse`, `OffsetPageRequest`, `OffsetPageResponse` |

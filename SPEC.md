@@ -18,6 +18,14 @@ sdk_languages: [rust, typescript]
 # No `owns:` — this surface names no RPC endpoint, and needs no canary: there
 # is no image here to run one against.
 sdk_surfaces:
+  native-client-generation:
+    contract: tests/features/native_client_generation.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-sdk-gen]
+      typescript:
+        delivery: conformance
   connect-retry-eligibility:
     contract: tests/features/connect_retry_eligibility.feature
     targets:

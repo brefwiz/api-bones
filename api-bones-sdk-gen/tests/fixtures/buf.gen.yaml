@@ -1,0 +1,10 @@
+version: v2
+plugins:
+  - local: protoc-gen-bones-native
+    out: .
+    opt: target=rust
+    strategy: all
+  - local: protoc-gen-bones-native
+    out: .
+    opt: target=typescript
+    strategy: all

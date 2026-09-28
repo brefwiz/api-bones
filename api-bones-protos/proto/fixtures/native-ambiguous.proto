@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: MIT
+syntax = "proto3";
+package fixture.native.invalid.v1;
+
+import "bones/v1/annotations.proto";
+
+option (bones.v1.native_services) = {
+  name: "Ambiguous"
+  operations: { name: "publish" kind: NATIVE_OPERATION_KIND_PUBLISH }
+  operations: { name: "publish" kind: NATIVE_OPERATION_KIND_DELIVER }
+};

@@ -1,0 +1,10 @@
+// SPDX-License-Identifier: MIT
+syntax = "proto3";
+package fixture.imported.v1;
+
+import "bones/v1/annotations.proto";
+
+option (bones.v1.native_services) = {
+  name: "ImportedOnly"
+  operations: { name: "publish" kind: NATIVE_OPERATION_KIND_PUBLISH }
+};

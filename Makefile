@@ -55,6 +55,7 @@ ci-e2e-rust: ## Answer the Gherkin contracts nextest cannot carry
 	# neither needs a live stack and both run synchronously.
 	cargo test -p api-bones-contract-rust --test connect_retry_eligibility
 	cargo test -p api-bones-contract-rust --test connect_precondition
+	cargo test -p api-bones-contract-rust --test native_client_generation
 	cargo test -p api-bones-internal-bdd --test connect_client_headers
 
 ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
@@ -186,6 +187,7 @@ TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
 # credentials already exist. It is excluded from publish/pack, which iterate
 # PUBLISHABLE sets, because it ships nothing.
 TS_TEST_PACKAGES := $(TS_PACKAGES) tests/typescript
+TS_BUILD_PACKAGES := $(TS_PACKAGES) tests/typescript
 
 .PHONY: canonical-check
 canonical-check: ## Run the brefwiz canonical structural gates locally
@@ -215,7 +217,7 @@ cds-lint: ## Validate .cds/workflows/ YAML via cdsctl — catches schema breakag
 ci-ts: ts-lint ts-build ts-test ## CI: the whole TypeScript lane in one target
 
 ts-build: ## Build TypeScript packages
-	@set -e; for pkg in $(TS_PACKAGES); do \
+	@set -e; for pkg in $(TS_BUILD_PACKAGES); do \
 		echo "==> build $$pkg"; \
 		( cd $$pkg && npm install --no-audit --no-fund && npm run build ); \
 	done

@@ -1,0 +1,5 @@
+// SPDX-License-Identifier: MIT
+syntax = "proto3";
+package fixture.invalid.collision;
+import "bones/v1/annotations.proto";
+option (bones.v1.native_services) = { name:"Collision" operations:{name:"foo_bar" kind:NATIVE_OPERATION_KIND_PUBLISH} operations:{name:"foo__bar" kind:NATIVE_OPERATION_KIND_DELIVER} };

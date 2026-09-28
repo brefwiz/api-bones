@@ -130,6 +130,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn annotations_proto_declares_native_service_without_rpc_semantics() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(body.contains("repeated NativeService native_services = 5102352;"));
+        for kind in [
+            "NATIVE_OPERATION_KIND_PUBLISH",
+            "NATIVE_OPERATION_KIND_DELIVER",
+            "NATIVE_OPERATION_KIND_ACKNOWLEDGE",
+            "NATIVE_OPERATION_KIND_NEGATIVE_ACKNOWLEDGE",
+        ] {
+            assert!(body.contains(kind), "annotations.proto missing `{kind}`");
+        }
+    }
+
     /// Authority is capability, not principal class. A service-vs-user
     /// axis cannot describe a delegated token (user subject, service
     /// actor, simultaneously), so a class gate on one can only be made

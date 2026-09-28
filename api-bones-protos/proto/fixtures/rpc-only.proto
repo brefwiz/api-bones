@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: MIT
+syntax = "proto3";
+package fixture.rpc.v1;
+
+service OrdinaryRpc {
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+message PingRequest {}
+message PingResponse {}

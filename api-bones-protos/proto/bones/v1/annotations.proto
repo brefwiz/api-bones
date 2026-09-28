@@ -145,6 +145,13 @@ package bones.v1;
 
 import "google/protobuf/descriptor.proto";
 
+extend google.protobuf.FileOptions {
+  // Native client surfaces in this proto file. File options keep native
+  // declarations out of protobuf service and method inventory entirely, so
+  // ordinary RPC generators cannot emit handlers for them.
+  repeated NativeService native_services = 5102352;
+}
+
 extend google.protobuf.ServiceOptions {
   // Singular predecessor of `provided_capabilities`, still read. Empty or
   // absent means this service is not enrolled as a capability provider.
@@ -187,6 +194,28 @@ message RequiredCapability {
   // reaches the provider without exercising any named authority — true of a
   // dependency consumed only as transport or attestation.
   repeated string scopes = 2;
+}
+
+// Native client contract attached to a file, outside RPC inventory.
+message NativeService {
+  // PascalCase client stem, unique within the file.
+  string name = 1;
+  repeated NativeOperation operations = 2;
+}
+
+// One callable operation implemented by the injected native transport.
+message NativeOperation {
+  // Stable lower_snake_case SDK method name.
+  string name = 1;
+  NativeOperationKind kind = 2;
+}
+
+enum NativeOperationKind {
+  NATIVE_OPERATION_KIND_UNSPECIFIED = 0;
+  NATIVE_OPERATION_KIND_PUBLISH = 1;
+  NATIVE_OPERATION_KIND_DELIVER = 2;
+  NATIVE_OPERATION_KIND_ACKNOWLEDGE = 3;
+  NATIVE_OPERATION_KIND_NEGATIVE_ACKNOWLEDGE = 4;
 }
 
 // Whether an RPC requires a credential at all.
