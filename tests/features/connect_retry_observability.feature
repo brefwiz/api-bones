@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-@library @connect
+@library @connect @ts-sdk-only
 Feature: Connect retry observability
 
   A caller can attach `onRetry` to either transport to see each retried

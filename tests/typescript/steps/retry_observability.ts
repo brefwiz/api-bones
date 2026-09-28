@@ -10,31 +10,15 @@
 
 import assert from "node:assert/strict";
 
-import type { DescMethodUnary } from "@bufbuild/protobuf";
-import { EmptySchema, StringValueSchema } from "@bufbuild/protobuf/wkt";
 import { Given, Then, When, World } from "@cucumber/cucumber";
 
-import { Code, type RetryEvent } from "@brefwiz/api-bones-connect";
+import type { RetryEvent } from "@brefwiz/api-bones-connect";
 import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
+
+import { CONNECT_CODE_NAMES, connectCodeOf, unaryMethodFixture, unaryPolicyDoc } from "./support.js";
 
 const RPC_TYPE_NAME = "pkg.v1.RetryObservabilityService";
 const RPC_METHOD = "Method";
-
-const CODES: Readonly<Record<string, Code>> = {
-  unavailable: Code.Unavailable,
-};
-
-const NAMES: ReadonlyMap<Code, string> = new Map(
-  Object.entries(CODES).map(([name, code]) => [code, name] as const),
-);
-
-function codeOf(name: string): Code {
-  const code = CODES[name];
-  if (code === undefined) {
-    throw new Error(`the contract names a code this step cannot build: ${name}`);
-  }
-  return code;
-}
 
 interface RetryObservabilityWorld extends World {
   failuresBeforeSuccess: number;
@@ -43,34 +27,15 @@ interface RetryObservabilityWorld extends World {
   succeeded: boolean;
 }
 
-function method(): DescMethodUnary<typeof StringValueSchema, typeof EmptySchema> {
-  return {
-    kind: "rpc",
-    name: RPC_METHOD,
-    localName: "method",
-    parent: { typeName: RPC_TYPE_NAME },
-    methodKind: "unary",
-    input: StringValueSchema,
-    output: EmptySchema,
-    idempotency: 0,
-    deprecated: false,
-  } as unknown as DescMethodUnary<typeof StringValueSchema, typeof EmptySchema>;
+function method() {
+  return unaryMethodFixture(RPC_TYPE_NAME, RPC_METHOD);
 }
 
 function policyDoc(retryable: boolean): unknown {
-  return {
-    schemaVersion: 1,
-    methods: [
-      {
-        rpc: `/${RPC_TYPE_NAME}/${RPC_METHOD}`,
-        procedure: "unary",
-        idempotency: retryable ? "NO_SIDE_EFFECTS" : "UNSPECIFIED",
-        browserCache: { scope: "NO_STORE", maxAgeSeconds: 0 },
-        sensitivity: "UNSPECIFIED",
-        maxEncodedUrlBytes: 4096,
-      },
-    ],
-  };
+  return unaryPolicyDoc(
+    `/${RPC_TYPE_NAME}/${RPC_METHOD}`,
+    retryable ? "NO_SIDE_EFFECTS" : "UNSPECIFIED",
+  );
 }
 
 /** Fails the caller's declared number of times, in network-failure shape, then succeeds. */
@@ -90,7 +55,7 @@ function flakyFetch(failuresBeforeSuccess: number): typeof fetch {
 Given(
   "a retryable method that fails twice with code {string} before succeeding",
   function (this: RetryObservabilityWorld, code: string) {
-    codeOf(code); // fails fast on a code this surface does not build
+    connectCodeOf(code); // fails fast on a code this surface does not build
     this.failuresBeforeSuccess = 2;
     this.retryable = true;
   },
@@ -99,7 +64,7 @@ Given(
 Given(
   "a retryable method that fails once with code {string} before succeeding",
   function (this: RetryObservabilityWorld, code: string) {
-    codeOf(code);
+    connectCodeOf(code);
     this.failuresBeforeSuccess = 1;
     this.retryable = true;
   },
@@ -115,7 +80,7 @@ Given(
   function (this: RetryObservabilityWorld, code: string) {
     // Never succeeds: eligibility is decided before any attempt runs, so the
     // call must fail on the first (and only) try.
-    codeOf(code);
+    connectCodeOf(code);
     this.failuresBeforeSuccess = Number.POSITIVE_INFINITY;
     this.retryable = false;
   },
@@ -171,6 +136,6 @@ Then(
     const event = this.events[attempt - 1];
     assert.ok(event, `no event recorded for attempt ${attempt}`);
     assert.equal(event.attempt, attempt);
-    assert.equal(NAMES.get(event.code), expectedCode);
+    assert.equal(CONNECT_CODE_NAMES.get(event.code), expectedCode);
   },
 );
