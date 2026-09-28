@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.1.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.0.4...api-bones-v8.1.0) - 2026-09-28
+
+### Added
+
+- *(connect-ts)* close the onRetry surface with a Gherkin contract
+- *(connect-ts)* 0.7.0 -- observe individual retry attempts via onRetry
+
+### Fixed
+
+- *(connect-ts)* resolve the shared step fixture by its real extension
+- *(connect-ts)* tag retry observability TS-only, dedupe step fixtures
+
 ## [8.0.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.0.3...api-bones-v8.0.4) - 2026-09-28
 
 ### Other
