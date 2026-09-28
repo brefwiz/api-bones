@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `bones/v1/queries.proto`          | `SortDirection`, `SortField`, `SortParams`, `FilterOp`, `FilterEntry`, `FilterParams`, `SearchParams` |
 | `bones/v1/errors.proto`           | `ValidationFailure` |
 | `bones/v1/ratelimit.proto`        | `RateLimitInfo` |
-| `bones/v1/annotations.proto`      | method options `errors`, `authz`; `AuthzKind`, `AuthzRule` |
+| `bones/v1/annotations.proto`      | method options `errors`, `authz`; service options `capability`, `required_capabilities`, `provided_capabilities`, `capability_labels`, `permission_labels`; `AuthzKind`, `AuthzRule`, `RequiredCapability`, `Label`, `CapabilityLabel`, `PermissionLabel` |
 
 See `proto/README.md` in the api-bones repo for the canonical
 schema inventory and the per-message Rust counterparts in the
