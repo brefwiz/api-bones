@@ -16,14 +16,14 @@ on:
   push:
     branches:
       - "**"
+      # main is not this workflow's: it only ever fast-forwards to an rc
+      # commit this workflow proved, and CDS reports every run of a workflow under
+      # one context, so a run there would write it over rc's verdict.
+      - '!main'
 
-# Tiers (merge train): a PR branch and `rc` run every job below; `main` only
-# fast-forwards to an `rc` tip whose run was green, and nothing here releases
-# from a `main` push (the release PR and tags drive publishing), so every job
-# carries `git.ref_name != 'main'`.
 jobs:
   cargo-package:
-    if: ${{ git.ref_name != 'main' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -62,7 +62,6 @@ jobs:
         with:
           checkout: "false"
   checks:
-    if: ${{ git.ref_name != 'main' }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -86,7 +85,7 @@ jobs:
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
 
   test:
-    if: ${{ git.ref_name != 'main' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
@@ -119,7 +118,7 @@ jobs:
 
 
   ts:
-    if: ${{ git.ref_name != 'main' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -170,7 +169,7 @@ jobs:
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
-    if: ${{ git.ref_name != 'main' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -201,7 +200,7 @@ jobs:
   # and no promotion.
   verdict:
     needs: [test, ts, duplication-typed, cargo-package, checks]
-    if: ${{ git.ref_name != 'main' && always() && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    if: ${{ always() && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
