@@ -121,7 +121,12 @@ impl Client {
     fn new(addr: SocketAddr, auth: CallCredential) -> Self {
         let uri: axum::http::Uri = format!("http://{addr}").parse().unwrap();
         Self {
-            transport: HttpClient::plaintext(),
+            // HTTP/2 prior knowledge: every call is a stream on the one pooled
+            // connection. Over HTTP/1.1 a finished connection re-enters the
+            // idle pool asynchronously, so a call issued right after the last
+            // one returned could open a second connection whatever the scoped
+            // handle does, and the one-connection assertion below raced it.
+            transport: HttpClient::plaintext_http2_only(),
             config: ClientConfig::new(uri),
             auth,
         }
