@@ -33,7 +33,11 @@ import {
   type NodeTlsIdentity,
 } from "./node-diagnostics.js";
 import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
-import { makeConnectionFailureNormalizer, makeRetryInterceptor } from "./retry.js";
+import {
+  makeConnectionFailureNormalizer,
+  makeRetryInterceptor,
+  type RetryEvent,
+} from "./retry.js";
 import { makePreconditionInterceptor } from "./precondition.js";
 import { startWatcherSafe } from "@brefwiz/spiffe-client";
 import { clientTlsIdentityFor, WATCHER_ATTEMPTS, WorkloadIdentityError } from "./workload-identity.js";
@@ -82,6 +86,13 @@ export interface NodeConnectTransportOptions {
   useBinaryFormat?: boolean;
   /** Retry options for transient unary failures. */
   retry?: BackoffOptions;
+  /**
+   * Observes each retried attempt: method, 1-based attempt number, error
+   * code and the delay before the next try. Never called for a call that
+   * succeeds on its first attempt or for a non-retryable method. A throwing
+   * observer is caught and ignored rather than failing the call.
+   */
+  onRetry?: (event: RetryEvent) => void;
   /** Product interceptors, composed ahead of the core ones. */
   interceptors?: readonly Interceptor[];
   /** HTTP version. Default "2" — services talk h2 to the mesh. */
@@ -165,7 +176,8 @@ function makeUnauthInterceptor(onUnauthorized: () => void): Interceptor {
 export async function configureNodeConnectTransport(
   opts: NodeConnectTransportOptions,
 ): Promise<Transport> {
-  const { baseUrl, profile, policy, getToken, onUnauthorized, useBinaryFormat, retry } = opts;
+  const { baseUrl, profile, policy, getToken, onUnauthorized, useBinaryFormat, retry, onRetry } =
+    opts;
 
   if (profile !== "service") {
     throw new Error(
@@ -214,7 +226,7 @@ export async function configureNodeConnectTransport(
     // Outside the retry interceptor: `isConnectionWriteFailure` matches on the
     // Internal code, so re-coding any earlier would make these unretryable.
     makeConnectionFailureNormalizer(),
-    makeRetryInterceptor({ policyByRpc, backoff: retry }),
+    makeRetryInterceptor({ policyByRpc, backoff: retry, onRetry }),
     // Inside the retry interceptor: a failure the policy lets us replay never
     // reaches a caller, so only the ones that actually surface get rewritten.
     ...(diagnostics ? [makeConnectionDiagnosticsInterceptor(diagnostics)] : []),

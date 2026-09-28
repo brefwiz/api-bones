@@ -145,6 +145,24 @@ export function serverPushbackMs(err: ConnectError, now: number = Date.now()): n
   return Math.max(0, at - now);
 }
 
+/**
+ * One retried attempt, reported just before the interceptor sleeps and
+ * replays the call.
+ *
+ * `attempt` is 1-based and counts the failed attempt that triggered this
+ * sleep (1 on the first retry, matching what a human reading a log expects).
+ * `delayMs` is the sleep the interceptor is about to take before the next
+ * attempt, whichever source set it — server pushback or computed backoff.
+ */
+export interface RetryEvent {
+  /** `/package.Service/Method`, matching {@link rpcIdentity}. */
+  readonly method: string;
+  readonly attempt: number;
+  readonly code: Code;
+  readonly message?: string;
+  readonly delayMs: number;
+}
+
 export interface RetryInterceptorOptions {
   /** Generated policy, indexed by RPC. An empty map disables retries entirely. */
   readonly policyByRpc: ReadonlyMap<string, GeneratedMethodPolicy>;
@@ -152,6 +170,15 @@ export interface RetryInterceptorOptions {
   readonly throttle?: RetryThrottleOptions;
   /** Injected so tests need no real delay. */
   readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * Observes each retried attempt, called synchronously right before the
+   * interceptor sleeps. Never called on the call's first attempt, on a
+   * non-retryable method, or when the failure isn't eligible for retry.
+   *
+   * An observer that throws is caught and ignored: instrumentation must never
+   * turn a successful retry into a failed call.
+   */
+  readonly onRetry?: (event: RetryEvent) => void;
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -189,7 +216,21 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
 
         // Server pushback outranks our own schedule: it is the only party that
         // knows when it will be ready.
-        await sleep(pushbackMs ?? computeBackoffDelay(attempt, backoff));
+        const delayMs = pushbackMs ?? computeBackoffDelay(attempt, backoff);
+        if (opts.onRetry) {
+          try {
+            opts.onRetry({
+              method: rpcIdentity(req.method),
+              attempt: attempt + 1,
+              code: err.code,
+              message: err.rawMessage,
+              delayMs,
+            });
+          } catch {
+            // Instrumentation is not allowed to affect the call it observes.
+          }
+        }
+        await sleep(delayMs);
         attempt++;
       }
     }
