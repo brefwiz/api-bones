@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.3](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.0.2...api-bones-v8.0.3) - 2026-09-28
+
+### Fixed
+
+- *(test)* the scoped-pool wire test runs over h2c, so its one-connection check cannot race
+
 ## [8.0.2](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.0.1...api-bones-v8.0.2) - 2026-09-28
 
 ### Other
