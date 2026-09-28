@@ -15,7 +15,7 @@ rust-version = "1.85"
 
 [dependencies]
 api-bones = { version = "6", path = "..", default-features = false, features = ["connect"] }
-connectrpc = { version = "0.7", optional = false }
+connectrpc = { version = "0.9", optional = false }
 
 [lints]
 workspace = true
