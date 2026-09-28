@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.0.1](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.0.0...api-bones-v8.0.1) - 2026-09-26
+
+### Fixed
+
+- *(connect-ts)* bump to 0.6.0 -- the precondition interceptor never published
+
+### Other
+
+- *(ci)* drop the retired CI logs mirror wiring
+
 ## [8.0.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v7.0.1...api-bones-v8.0.0) - 2026-09-26
 
 ### Added

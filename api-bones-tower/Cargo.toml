@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-tower"
-version = "4.5.5"
+version = "4.5.6"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
@@ -32,7 +32,7 @@ chrono = ["api-bones/chrono"]
 opentelemetry = ["api-bones/opentelemetry"]
 
 [dependencies]
-api-bones = { version = "^8.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
+api-bones = { version = "^8.0.1", path = "..", registry = "brefwiz", default-features = false, features = ["std", "serde"] }
 tower = { version = "0.5", features = ["util"] }
 http = { version = "1.0" }
 http-body = { version = "1.0" }
