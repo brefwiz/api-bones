@@ -243,6 +243,11 @@
 //      never granted an RPC surface with it;
 //   7. the same scope is declared twice, or is also required by an RPC (one
 //      scope, one declaration).
+//   8. its `scope` is an event scope and the registering workload's canonical
+//      stream name (service name uppercased, `-` replaced by `_`) equals that
+//      of another service already registered, as `order-book` and
+//      `order_book` both yield `ORDER_BOOK`: the first registrant keeps the
+//      stream and the later registration is refused.
 // Every declared broker scope carries exactly one `permission_labels`
 // entry, like an RPC-required scope.
 //
