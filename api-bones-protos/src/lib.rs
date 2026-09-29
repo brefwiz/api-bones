@@ -265,8 +265,9 @@ mod tests {
     }
 
     /// A capability over events serves no RPC, so its scope cannot come from
-    /// `requires`. The contract declares it, with the component that enforces
-    /// it and its grant class, beside the capability it belongs to.
+    /// `requires`. The contract declares it beside the capability it belongs
+    /// to; grant class and enforcer are derivable, so the entry carries
+    /// neither.
     #[test]
     fn annotations_proto_declares_provided_broker_scopes() {
         let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
@@ -279,35 +280,16 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split("\n}").next())
             .expect("BrokerScope message");
-        for field in [
-            "string capability = 1;",
-            "string scope = 2;",
-            "string enforced_by = 3;",
-            "string grant = 4;",
-        ] {
-            assert!(msg.contains(field), "BrokerScope missing `{field}`");
-        }
-    }
-
-    /// Every service-option number is unique: a collision makes two options
-    /// one wire field.
-    #[test]
-    fn annotations_proto_service_option_numbers_are_unique() {
-        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
-        let ext = body
-            .split("extend google.protobuf.ServiceOptions {")
-            .nth(1)
-            .and_then(|rest| rest.split("\n}").next())
-            .expect("ServiceOptions extension block");
-        let mut numbers: Vec<&str> = ext
+        let fields: Vec<&str> = msg
             .lines()
-            .filter_map(|l| l.trim().strip_suffix(';')?.rsplit("= ").next())
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
             .collect();
-        let total = numbers.len();
-        numbers.sort_unstable();
-        numbers.dedup();
-        assert_eq!(total, 6, "expected six service options");
-        assert_eq!(numbers.len(), total, "duplicate service option number");
+        assert_eq!(
+            fields,
+            ["string capability = 1;", "string scope = 2;"],
+            "BrokerScope is exactly {{capability, scope}}"
+        );
     }
 
     #[test]

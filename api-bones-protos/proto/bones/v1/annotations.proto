@@ -119,9 +119,11 @@
 // built. A declaration that stated its own grant would be the provider
 // authorising itself — the condition an allocation exists to remove.
 //
-// The provided side carries no scopes, deliberately: what a served capability
+// The provided side carries no scopes but one kind: what a served capability
 // requires of its callers is already declared once, on the RPCs that offer it,
-// and deriving it from there is what keeps one answer.
+// and deriving it from there is what keeps one answer. The one exception is a
+// broker scope (`provided_broker_scopes` below): no RPC requires it, so there
+// is nothing to derive it from.
 //
 // Absent means this service requires nothing to serve, which is the
 // correct reading for a tier-zero component: what every other workload
@@ -148,11 +150,12 @@
 //
 // Across one contract's descriptor set, every capability it provides
 // (via `capability` or `provided_capabilities`) and every scope its
-// authenticated RPCs `require` carries exactly one label, declared on
-// a service that provides that capability or requires that scope. A
-// second label for the same name is refused, not merged, and a label
-// for a name or scope the contract does not provide is refused: a
-// provider labels only its own authority.
+// authenticated RPCs require or it declares in `provided_broker_scopes`
+// carries exactly one label, declared on a service that provides that
+// capability, requires that scope, or declares it. A second label for the
+// same name is refused, not merged, and a label for a name or scope the
+// contract does not provide is refused: a provider labels only its own
+// authority.
 //
 // A permission label says what a holder can do ("Create and change
 // reservations"); a capability label names the area it belongs to
@@ -185,38 +188,59 @@
 // capability's scopes from RPC `requires` alone, so a capability over
 // events, which serves no RPC, would otherwise have no scope to confer.
 //
-// Each entry names the provided capability it belongs to, the scope, the
-// component that enforces it (`enforced_by`, e.g. "nats"), and the grant
-// class (`grant`). Only `capability` is admitted: the scope is granted by
-// capability consumption or an explicit capability grant, exactly like an
-// RPC-derived scope, and registered, granted, revoked and audited by the
-// same authority. Declaring one grants nothing.
+// Each entry names the provided capability it belongs to and the scope,
+// nothing else. Its grant class is `capability` by construction, so the
+// entry states none: the scope is granted by capability consumption or an
+// explicit capability grant, exactly like an RPC-derived scope, and
+// registered, granted, revoked and audited by the same authority. Its
+// enforcer is derivable, so the entry states none either: an event scope is
+// enforced by the mesh broker, a broker's own right by the broker that owns
+// its namespace. Declaring one grants nothing.
 //
-// The scope is a CanonicalClaim scope: byte-identical wherever it is
-// named, and beginning with the same name its capability's other scopes do.
-// Its shape is the enforcing component's, for example
-// `nats:stream:subscribe:<service>.events.>`; the component anchors it to an
-// organization, the contract does not.
+// A broker scope is a CanonicalClaim scope, byte-identical wherever it is
+// named. It lives in its capability's namespace, the provider's QuorumAuth
+// namespace, and carries no subject. An event scope is exactly
+// `<ns>:events:subscribe`, for example `quorumprofile:events:subscribe`:
+// the enforcing broker derives the subjects from the QuorumAuth-verified
+// namespace, never from the scope, and anchors them to the organization
+// (stream `EVENTS_<ns>`, subscription on
+// `brefwiz.mesh.*.<org>.<ns>.events.>`, plus the durable operations the
+// platform owns). That holds because a provider's event-subject service
+// segment equals its QuorumAuth namespace. A broker's own authority is a
+// named right in that broker's namespace, on a capability of its own, for
+// example `nats:mesh:provision` on `nats.provisioning`. Subject-shaped
+// broker vocabulary (`nats:stream:subscribe:<pattern>`) is the broker
+// operator's and is never declared here.
 //
-// Across one contract's descriptor set an entry is refused when its
-// `capability` is not one the contract provides, when `scope`,
-// `enforced_by` or `grant` is empty or `grant` is not `capability`, when the
-// same scope is declared twice, or when the scope is also required by an
-// RPC (one scope, one declaration). Every declared broker scope carries
-// exactly one `permission_labels` entry, like an RPC-required scope.
+// Across one contract's descriptor set an entry is refused when:
+//   - its `capability` is not one the contract provides;
+//   - its `scope` is empty;
+//   - its `scope` contains `.`, `*` or `>`: a broker scope carries no
+//     subject;
+//   - its `capability` also carries an RPC-required scope, that is some
+//     service providing it has an RPC whose `authz.requires` is
+//     non-empty: an event capability serves no RPC, so a consumer granted
+//     events is never granted an RPC surface with them;
+//   - the same scope is declared twice, or is also required by an RPC (one
+//     scope, one declaration).
+// Every declared broker scope carries exactly one `permission_labels`
+// entry, like an RPC-required scope.
 //
-// Usage:
+// Usage — a separate event capability, distinct from the RPC capability
+// `reservations.schedule`:
 //
-//   service ReservationService {
-//     option (bones.v1.provided_capabilities) = "reservations.schedule";
+//   service ReservationEvents {
+//     option (bones.v1.provided_capabilities) = "reservations.events";
 //     option (bones.v1.provided_broker_scopes) = {
-//       capability: "reservations.schedule",
-//       scope: "reservations:stream:subscribe:reservations.events.>",
-//       enforced_by: "nats",
-//       grant: "capability"
+//       capability: "reservations.events",
+//       scope: "reservations:events:subscribe"
+//     };
+//     option (bones.v1.capability_labels) = {
+//       name: "reservations.events",
+//       label: { text: "Reservation changes" }
 //     };
 //     option (bones.v1.permission_labels) = {
-//       scope: "reservations:stream:subscribe:reservations.events.>",
+//       scope: "reservations:events:subscribe",
 //       label: { text: "Follow reservation changes" }
 //     };
 //   }
@@ -245,7 +269,8 @@ extend google.protobuf.ServiceOptions {
   // Human labels for the capabilities this contract provides. See file header.
   repeated CapabilityLabel capability_labels = 5102352;
 
-  // Human labels for the scopes this contract's RPCs require. See file header.
+  // Human labels for every scope this contract's RPCs require or it declares
+  // in `provided_broker_scopes`. See file header.
   repeated PermissionLabel permission_labels = 5102353;
 
   // Scopes of a provided capability that a broker, not an RPC, enforces. See
@@ -301,9 +326,11 @@ message CapabilityLabel {
   Label label = 2;
 }
 
-// The label of one scope this contract's RPCs require.
+// The label of one scope this contract's RPCs require or it declares in
+// `provided_broker_scopes`.
 message PermissionLabel {
-  // A scope named in some `authz.requires` of this contract, byte-identical.
+  // A scope named in some `authz.requires` or `provided_broker_scopes` entry
+  // of this contract, byte-identical.
   string scope = 1;
 
   Label label = 2;
@@ -316,15 +343,10 @@ message BrokerScope {
   // `provided_capabilities` names it.
   string capability = 1;
 
-  // The CanonicalClaim scope, byte-identical to what the enforcing component
-  // checks. Not required by any RPC of this contract.
+  // The CanonicalClaim scope in the capability's namespace, carrying no
+  // subject: `<ns>:events:subscribe` for events. Never contains `.`, `*` or
+  // `>`, and is not required by any RPC of this contract.
   string scope = 2;
-
-  // The component that enforces the scope, e.g. "nats". Non-empty.
-  string enforced_by = 3;
-
-  // How a principal comes to hold the scope. Only "capability" is admitted.
-  string grant = 4;
 }
 
 // Whether an RPC requires a credential at all.
