@@ -22,8 +22,36 @@ on:
       - '!main'
 
 jobs:
+  rc-tree-proof:
+    # The CTO's ruling: identical tree to the merged PR head, that head's own
+    # required checks already green -- rc's own run of this workflow proves
+    # nothing a PR run has not already proven, so every other job below skips.
+    # Runs (and can only prove anything) on a push to rc; a PR run leaves it
+    # unproven, so nothing else here is ever gated on a PR run.
+    if: ${{ git.ref_name == 'rc' }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+      memory-request: 128Mi
+      cpu-request: 300m
+    outputs:
+      proven:
+        value: ${{ steps.check.outputs.proven }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+        with:
+          depth: 0
+      - id: check
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rc-tree-proof@main
+        with:
+          checkout: "false"
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+
   cargo-package:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    needs: [rc-tree-proof]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -62,6 +90,8 @@ jobs:
         with:
           checkout: "false"
   checks:
+    if: ${{ git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true' }}
+    needs: [rc-tree-proof]
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -85,7 +115,8 @@ jobs:
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
 
   test:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    needs: [rc-tree-proof]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
@@ -118,7 +149,8 @@ jobs:
 
 
   ts:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    needs: [rc-tree-proof]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -169,7 +201,7 @@ jobs:
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
-    if: ${{ !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -200,7 +232,7 @@ jobs:
   # and no promotion.
   verdict:
     needs: [test, ts, duplication-typed, cargo-package, checks]
-    if: ${{ always() && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') }}
+    if: ${{ (always() && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
