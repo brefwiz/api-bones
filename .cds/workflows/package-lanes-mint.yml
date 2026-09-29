@@ -53,6 +53,7 @@ jobs:
     env:
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
       REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+      CI_CDS_TOKEN: ${{ vars.brefwiz-secrets.CDS_RUN_READER_TOKEN }}
     steps:
       - id: verdict
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
