@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-protos-v0.4.3...api-bones-protos-v0.4.4) - 2026-09-29
+
+### Added
+
+- *(bones)* a provider labels the capabilities and permissions it defines
+
 ## [0.4.3](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-protos-v0.4.2...api-bones-protos-v0.4.3) - 2026-09-14
 
 ### Added
