@@ -213,14 +213,14 @@
 // The event form is recognized by shape; the enforcer is recognized by the
 // registry, never by the scope. A registered enforcer declaring an event
 // scope whose `<ns>` differs from its own service name is therefore still
-// refused, under item 4 below.
+// refused, under A1 below.
 //
 // For an event scope, `<ns>` is the provider's event-subject service segment,
 // and the platform's event broker derives everything else from it, never from
 // the scope's text: the platform's canonical stream name for that service
 // (the service name uppercased, `-` replaced by `_`), the subscription on
 // `<ns>.events.>` under the platform's event-subject prefix, anchored to the
-// organization, and the durable operations the platform owns. Because item 4
+// organization, and the durable operations the platform owns. Because A1
 // refuses any other `<ns>`, a provider can never declare, and so never
 // confer, another provider's events.
 //
@@ -236,29 +236,29 @@
 // item below holds.
 //
 // Admission refusals:
-//   4. its `scope` is an event scope, exactly `<ns>:events:subscribe`, and
+//   A1. its `scope` is an event scope, exactly `<ns>:events:subscribe`, and
 //      `<ns>` is not the registering workload's service name, even when that
 //      workload is a registered enforcer;
-//   5. its `scope` is any scope other than an event scope, and the
+//   A2. its `scope` is any scope other than an event scope, and the
 //      registering workload is not the registered enforcer of its namespace
 //      in the enforcer registry;
-//   8. its `scope` is an event scope, and the registering workload's
+//   A3. its `scope` is an event scope, and the registering workload's
 //      canonical stream name equals that of another service already
 //      registered, as `order-book` and `order_book` both yield `ORDER_BOOK`:
 //      the first registrant keeps the stream, and the later registration is
 //      refused.
 //
 // Structural well-formedness refusals:
-//   1. its `capability` is not one the contract provides;
-//   2. its `scope` has no namespace: it is empty, contains no `:`, or has
+//   S1. its `capability` is not one the contract provides;
+//   S2. its `scope` has no namespace: it is empty, contains no `:`, or has
 //      nothing before or nothing after its first `:`;
-//   3. its `scope` contains `.`, `*` or `>`: a broker scope carries no
+//   S3. its `scope` contains `.`, `*` or `>`: a broker scope carries no
 //      subject;
-//   6. its `capability` also carries an RPC-required scope, that is some
+//   S4. its `capability` also carries an RPC-required scope, that is some
 //      service providing it has an RPC whose `authz.requires` is non-empty:
 //      a broker-scope capability serves no RPC, so a grant of it can never
 //      widen to an RPC surface;
-//   7. the same scope is declared twice, or is also required by an RPC: one
+//   S5. the same scope is declared twice, or is also required by an RPC: one
 //      scope, one declaration.
 //
 // Usage — a separate event capability, distinct from the RPC capability
