@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-protos-v0.4.4...api-bones-protos-v0.4.5) - 2026-09-29
+
+### Added
+
+- *(bones)* a provider declares the broker-enforced scopes of a capability it provides
+
+### Fixed
+
+- *(bones)* state broker-scope admission once, group refusals, neutral names
+- *(bones)* refuse an event provider whose canonical stream name collides
+- *(bones)* broker scopes are service-bound and enforced at registration
+- *(bones)* broker scopes are namespaced, subject-free, on an event capability
+
+### Other
+
+- *(proto)* label broker-scope refusal groups A1-A3 and S1-S5
+
 ## [0.4.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-protos-v0.4.3...api-bones-protos-v0.4.4) - 2026-09-29
 
 ### Added
