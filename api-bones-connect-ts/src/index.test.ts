@@ -627,6 +627,7 @@ describe("replay of requests that never left the client", () => {
     serverConnectionHeader: null,
     serverKeepAliveHeader: null,
     bytesWritten: 411,
+    connected: true,
     bytesRead: 0,
     tlsEstablished: false,
     alpnProtocol: null,
@@ -687,6 +688,130 @@ describe("replay of requests that never left the client", () => {
     ]);
     expect(calls).toBe(1);
   });
+
+  describe("a connection that never opened", () => {
+    // Each surfaces as the code connect-node gives it; the mark comes from the
+    // socket's own facts (it never connected), not from the message.
+    const neverOpened: [string, Code, string][] = [
+      ["connection refused", Code.Unavailable, "connect ECONNREFUSED 10.0.0.1:443"],
+      ["DNS name not found", Code.Unavailable, "getaddrinfo ENOTFOUND svc.internal"],
+      ["DNS temporary failure", Code.Unavailable, "getaddrinfo EAI_AGAIN svc.internal"],
+      ["connect timeout", Code.Unavailable, "connect ETIMEDOUT 10.0.0.1:443"],
+      ["host unreachable", Code.Internal, "connect EHOSTUNREACH 10.0.0.1:443"],
+      ["network unreachable", Code.Internal, "connect ENETUNREACH 10.0.0.1:443"],
+    ];
+
+    const attempt = async (
+      code: Code,
+      message: string,
+      facts: Partial<ConnectionFacts>,
+      failures = 1,
+    ) => {
+      const recorder = new ConnectionFactsRecorder();
+      let calls = 0;
+      const base = async () => {
+        if (calls++ >= failures) return "ok" as never;
+        recorder.record(connection({ authority: "svc.internal", ...facts }));
+        throw new ConnectError(message, code);
+      };
+      const retry = makeRetryInterceptor({
+        policyByRpc: policyFor("UNSPECIFIED"),
+        sleep: async () => {},
+      });
+      const chain = retry(makeConnectionDiagnosticsInterceptor(recorder)(base as never));
+      const outcome = await chain({ ...req, url: "https://svc.internal/pkg.v1.Svc/Method" } as never)
+        .then(
+          () => "ok",
+          (err: unknown) => ConnectError.from(err).rawMessage,
+        );
+      return { outcome, calls };
+    };
+
+    it.each(neverOpened)("replays %s on an UNSPECIFIED method", async (_name, code, message) => {
+      const { outcome, calls } = await attempt(code, message, { connected: false });
+      expect(outcome).toBe("ok");
+      expect(calls).toBe(2);
+    });
+
+    it.each(neverOpened)("keeps the code and message of %s", async (_name, code, message) => {
+      const { outcome } = await attempt(code, message, { connected: false }, 10);
+      expect(outcome).toBe(message);
+    });
+
+    it("respects the retry budget when the connection never opens", async () => {
+      const { calls } = await attempt(Code.Unavailable, "connect ECONNREFUSED", { connected: false }, 10);
+      expect(calls).toBe(MAX_RETRY_ATTEMPTS + 1);
+    });
+
+    it("does not replay an Unavailable on a connection that had opened", async () => {
+      const { calls } = await attempt(Code.Unavailable, "connect ECONNREFUSED", { connected: true });
+      expect(calls).toBe(1);
+    });
+
+    it("does not treat another host's facts as evidence", async () => {
+      const { calls } = await attempt(
+        Code.Unavailable,
+        "unavailable",
+        { connected: false, authority: "other.internal" },
+      );
+      expect(calls).toBe(1);
+    });
+
+    it("does not replay an Unavailable that left no connection facts", async () => {
+      const recorder = new ConnectionFactsRecorder();
+      let calls = 0;
+      const base = async () => {
+        calls++;
+        throw new ConnectError("server said unavailable", Code.Unavailable);
+      };
+      const retry = makeRetryInterceptor({
+        policyByRpc: policyFor("UNSPECIFIED"),
+        sleep: async () => {},
+      });
+      const chain = retry(makeConnectionDiagnosticsInterceptor(recorder)(base as never));
+      await expect(chain(req as never)).rejects.toThrow("server said unavailable");
+      expect(calls).toBe(1);
+    });
+  });
+
+  it("replays a real refused connection on an UNSPECIFIED method", async () => {
+    const closedPort = await new Promise<number>((resolve, reject) => {
+      const probe = createServer();
+      probe.listen(0, "127.0.0.1", () => {
+        const address = probe.address();
+        probe.close(() => {
+          if (address && typeof address === "object") resolve(address.port);
+          else reject(new Error("no ephemeral port"));
+        });
+      });
+      probe.on("error", reject);
+    });
+    const events: RetryEvent[] = [];
+    const transport = await configureNodeConnectTransport({
+      baseUrl: `http://127.0.0.1:${closedPort}`,
+      profile: "service",
+      httpVersion: "1.1",
+      policy: { schemaVersion: 1, methods: [method({ rpc: "/pkg.v1.Svc/Get", idempotency: "UNSPECIFIED" })] },
+      retry: { initialDelayMs: 0, maxDelayMs: 0 },
+      onRetry: (event) => events.push(event),
+    });
+    const getMethod = {
+      kind: "rpc",
+      name: "Get",
+      localName: "get",
+      parent: { typeName: "pkg.v1.Svc" },
+      methodKind: "unary",
+      input: StringValueSchema,
+      output: EmptySchema,
+      idempotency: 0,
+      deprecated: false,
+    } as unknown as DescMethodUnary<typeof StringValueSchema, typeof EmptySchema>;
+
+    await expect(
+      transport.unary(getMethod, undefined, undefined, undefined, { value: "x" }),
+    ).rejects.toThrow();
+    expect(events).toHaveLength(MAX_RETRY_ATTEMPTS);
+  }, 10000);
 
   it("keeps today's behaviour for an IDEMPOTENT method", async () => {
     const replayed = await run("IDEMPOTENT", [afterBody]);
