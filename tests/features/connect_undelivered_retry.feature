@@ -15,26 +15,22 @@ Feature: Connect replays requests that never left the client
     Given a method declared "UNSPECIFIED"
     And its connection fails 2 times before the TLS handshake completed
     When the call is sent through the retry interceptor
-    Then the call succeeds
-    And the request was attempted 3 times
+    Then the call succeeds on attempt 3
 
   Scenario: A reset after the request was sent is not replayed for an undeclared method
     Given a method declared "UNSPECIFIED"
     And its connection fails 1 times after the request was sent
     When the call is sent through the retry interceptor
-    Then the call fails
-    And the request was attempted 1 times
+    Then the call fails on attempt 1
 
   Scenario: A declared idempotent method keeps replaying any connection failure
     Given a method declared "IDEMPOTENT"
     And its connection fails 1 times after the request was sent
     When the call is sent through the retry interceptor
-    Then the call succeeds
-    And the request was attempted 2 times
+    Then the call succeeds on attempt 2
 
   Scenario: The retry budget still bounds replays of undelivered requests
     Given a method declared "UNSPECIFIED"
     And its connection fails 10 times before the TLS handshake completed
     When the call is sent through the retry interceptor
-    Then the call fails
-    And the request was attempted 4 times
+    Then the call fails on attempt 4

@@ -4,23 +4,18 @@
  * There is no Rust half: the retry interceptor is an interceptor-pipeline
  * concept, and Rust has no client interceptor pipeline to attach one to.
  *
- * The failures are raised as the Node transport raises them -- an Internal
- * write failure -- carrying the not-delivered mark the transport sets only when
- * the connection proved the request never left. The proof is answered through
- * the package's exported retry interceptor and marker, not a copy of them.
+ * The failures are Internal write failures, as the Node transport raises them,
+ * carrying the not-delivered mark only when the connection proved the request
+ * never left. They are answered through the real transport entry point and the
+ * package's exported marker, not a copy of either.
  */
 
 import assert from "node:assert/strict";
 
 import { Given, Then, When, World } from "@cucumber/cucumber";
 
-import {
-  Code,
-  ConnectError,
-  indexGeneratedPolicy,
-  makeRetryInterceptor,
-  markNotDelivered,
-} from "@brefwiz/api-bones-connect";
+import { Code, ConnectError, markNotDelivered } from "@brefwiz/api-bones-connect";
+import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
 
 import { unaryMethodFixture, unaryPolicyDoc } from "./support.ts";
 
@@ -31,8 +26,8 @@ interface UndeliveredWorld extends World {
   idempotency: string;
   failures: number;
   undelivered: boolean;
-  attempts: number;
-  succeeded: boolean;
+  /** What the call settled on: the attempt that answered it, or the error it died with. */
+  outcome: { answered: boolean; attempt: number };
 }
 
 Given("a method declared {string}", function (this: UndeliveredWorld, idempotency: string) {
@@ -56,29 +51,47 @@ Given(
 );
 
 When("the call is sent through the retry interceptor", async function (this: UndeliveredWorld) {
-  const policyByRpc = indexGeneratedPolicy(
-    unaryPolicyDoc(`/${RPC_TYPE_NAME}/${RPC_METHOD}`, this.idempotency) as never,
-  );
-  const retry = makeRetryInterceptor({ policyByRpc, sleep: async () => {} });
-  this.attempts = 0;
-  const next = async () => {
-    if (this.attempts++ < this.failures) {
-      const failure = new ConnectError("write EPIPE", Code.Internal);
+  let attempts = 0;
+  // A fetch that can prove its connection never carried the request marks the
+  // failure it raises; each attempt numbers itself through the header or the
+  // error it produces, so the outcome asserted on is what the transport returned.
+  const fetchImpl: typeof fetch = async () => {
+    attempts += 1;
+    if (attempts <= this.failures) {
+      const failure = new ConnectError(`write EPIPE on attempt ${attempts}`, Code.Internal);
       throw this.undelivered ? markNotDelivered(failure) : failure;
     }
-    return "ok" as never;
+    return new Response(new Uint8Array(), {
+      status: 200,
+      headers: { "content-type": "application/proto", "x-attempt": String(attempts) },
+    });
   };
-  const req = { stream: false, method: unaryMethodFixture(RPC_TYPE_NAME, RPC_METHOD) };
+  const transport = configureConnectTransport({
+    baseUrl: "https://svc",
+    profile: "service",
+    policy: unaryPolicyDoc(`/${RPC_TYPE_NAME}/${RPC_METHOD}`, this.idempotency),
+    retry: { initialDelayMs: 0, maxDelayMs: 0 },
+    fetch: fetchImpl,
+  });
   try {
-    await retry(next as never)(req as never);
-    this.succeeded = true;
-  } catch {
-    this.succeeded = false;
+    const result = await transport.unary(
+      unaryMethodFixture(RPC_TYPE_NAME, RPC_METHOD),
+      undefined,
+      undefined,
+      undefined,
+      { value: "x" },
+    );
+    this.outcome = { answered: true, attempt: Number(result.header.get("x-attempt")) };
+  } catch (err) {
+    const message = ConnectError.from(err).rawMessage;
+    this.outcome = { answered: false, attempt: Number(message.split(" ").pop()) };
   }
 });
 
-// "the call succeeds" / "the call fails" are shared with the retry-observability
-// steps, which read the same `succeeded` flag off the world.
-Then("the request was attempted {int} times", function (this: UndeliveredWorld, attempts: number) {
-  assert.equal(this.attempts, attempts);
+Then("the call succeeds on attempt {int}", function (this: UndeliveredWorld, attempt: number) {
+  assert.deepEqual(this.outcome, { answered: true, attempt });
+});
+
+Then("the call fails on attempt {int}", function (this: UndeliveredWorld, attempt: number) {
+  assert.deepEqual(this.outcome, { answered: false, attempt });
 });
