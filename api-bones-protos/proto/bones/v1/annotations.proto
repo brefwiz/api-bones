@@ -178,6 +178,49 @@
 //     // RPC declarations follow.
 //   }
 
+// `bones.v1.provided_broker_scopes` declares scopes of a capability this
+// contract provides that no RPC requires, because a broker rather than an
+// RPC enforces them: the right to subscribe to the provider's own events,
+// or a broker's own provisioning authority. Enrollment derives a
+// capability's scopes from RPC `requires` alone, so a capability over
+// events, which serves no RPC, would otherwise have no scope to confer.
+//
+// Each entry names the provided capability it belongs to, the scope, the
+// component that enforces it (`enforced_by`, e.g. "nats"), and the grant
+// class (`grant`). Only `capability` is admitted: the scope is granted by
+// capability consumption or an explicit capability grant, exactly like an
+// RPC-derived scope, and registered, granted, revoked and audited by the
+// same authority. Declaring one grants nothing.
+//
+// The scope is a CanonicalClaim scope: byte-identical wherever it is
+// named, and beginning with the same name its capability's other scopes do.
+// Its shape is the enforcing component's, for example
+// `nats:stream:subscribe:<service>.events.>`; the component anchors it to an
+// organization, the contract does not.
+//
+// Across one contract's descriptor set an entry is refused when its
+// `capability` is not one the contract provides, when `scope`,
+// `enforced_by` or `grant` is empty or `grant` is not `capability`, when the
+// same scope is declared twice, or when the scope is also required by an
+// RPC (one scope, one declaration). Every declared broker scope carries
+// exactly one `permission_labels` entry, like an RPC-required scope.
+//
+// Usage:
+//
+//   service ReservationService {
+//     option (bones.v1.provided_capabilities) = "reservations.schedule";
+//     option (bones.v1.provided_broker_scopes) = {
+//       capability: "reservations.schedule",
+//       scope: "reservations:stream:subscribe:reservations.events.>",
+//       enforced_by: "nats",
+//       grant: "capability"
+//     };
+//     option (bones.v1.permission_labels) = {
+//       scope: "reservations:stream:subscribe:reservations.events.>",
+//       label: { text: "Follow reservation changes" }
+//     };
+//   }
+
 syntax = "proto3";
 
 package bones.v1;
@@ -204,6 +247,10 @@ extend google.protobuf.ServiceOptions {
 
   // Human labels for the scopes this contract's RPCs require. See file header.
   repeated PermissionLabel permission_labels = 5102353;
+
+  // Scopes of a provided capability that a broker, not an RPC, enforces. See
+  // file header.
+  repeated BrokerScope provided_broker_scopes = 5102354;
 }
 
 extend google.protobuf.MethodOptions {
@@ -260,6 +307,24 @@ message PermissionLabel {
   string scope = 1;
 
   Label label = 2;
+}
+
+// One scope of a provided capability that no RPC requires and a broker
+// enforces.
+message BrokerScope {
+  // A capability this contract provides, exactly as `capability` or
+  // `provided_capabilities` names it.
+  string capability = 1;
+
+  // The CanonicalClaim scope, byte-identical to what the enforcing component
+  // checks. Not required by any RPC of this contract.
+  string scope = 2;
+
+  // The component that enforces the scope, e.g. "nats". Non-empty.
+  string enforced_by = 3;
+
+  // How a principal comes to hold the scope. Only "capability" is admitted.
+  string grant = 4;
 }
 
 // Whether an RPC requires a credential at all.

@@ -257,9 +257,57 @@ mod tests {
             "string capability = 5102349;",
             "repeated RequiredCapability required_capabilities = 5102350;",
             "repeated string provided_capabilities = 5102351;",
+            "repeated CapabilityLabel capability_labels = 5102352;",
+            "repeated PermissionLabel permission_labels = 5102353;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
+    }
+
+    /// A capability over events serves no RPC, so its scope cannot come from
+    /// `requires`. The contract declares it, with the component that enforces
+    /// it and its grant class, beside the capability it belongs to.
+    #[test]
+    fn annotations_proto_declares_provided_broker_scopes() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("repeated BrokerScope provided_broker_scopes = 5102354;"),
+            "annotations.proto missing the provided_broker_scopes service option"
+        );
+        let msg = body
+            .split("message BrokerScope {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("BrokerScope message");
+        for field in [
+            "string capability = 1;",
+            "string scope = 2;",
+            "string enforced_by = 3;",
+            "string grant = 4;",
+        ] {
+            assert!(msg.contains(field), "BrokerScope missing `{field}`");
+        }
+    }
+
+    /// Every service-option number is unique: a collision makes two options
+    /// one wire field.
+    #[test]
+    fn annotations_proto_service_option_numbers_are_unique() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        let ext = body
+            .split("extend google.protobuf.ServiceOptions {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("ServiceOptions extension block");
+        let mut numbers: Vec<&str> = ext
+            .lines()
+            .filter_map(|l| l.trim().strip_suffix(';')?.rsplit("= ").next())
+            .collect();
+        let total = numbers.len();
+        numbers.sort_unstable();
+        numbers.dedup();
+        assert_eq!(total, 6, "expected six service options");
+        assert_eq!(numbers.len(), total, "duplicate service option number");
     }
 
     #[test]
