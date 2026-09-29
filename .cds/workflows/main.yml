@@ -52,7 +52,7 @@ jobs:
 
   cargo-package:
     needs: [rc-tree-proof]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') && !startsWith(cds.event.ref, 'refs/heads/auto-tag-release/') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -117,7 +117,7 @@ jobs:
 
   test:
     needs: [rc-tree-proof]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') && !startsWith(cds.event.ref, 'refs/heads/auto-tag-release/') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
@@ -151,7 +151,7 @@ jobs:
 
   ts:
     needs: [rc-tree-proof]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') && !startsWith(cds.event.ref, 'refs/heads/auto-tag-release/') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -202,12 +202,12 @@ jobs:
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') && !startsWith(cds.event.ref, 'refs/heads/auto-tag-release/') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
-    needs: [test, ts, rc-tree-proof]
+    needs: [test, ts]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
@@ -232,8 +232,8 @@ jobs:
   # failed predecessor does not stop it. Nothing needs it: it gates no job
   # and no promotion.
   verdict:
-    needs: [test, ts, duplication-typed, cargo-package, checks, rc-tree-proof]
-    if: ${{ (always()) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    needs: [test, ts, duplication-typed, cargo-package, checks]
+    if: ${{ (always()) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') && !startsWith(cds.event.ref, 'refs/heads/next-release/') && !startsWith(cds.event.ref, 'refs/heads/auto-tag-release/') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
