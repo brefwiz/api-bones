@@ -25,6 +25,7 @@ import {
 } from "@connectrpc/connect-node";
 
 import type { BackoffOptions } from "./backoff.js";
+import { ObservedHttp2SessionManager } from "./node-http2.js";
 import {
   ConnectionFactsRecorder,
   createDiagnosticAgent,
@@ -212,9 +213,9 @@ export async function configureNodeConnectTransport(
   // already closed is what turns a healthy call into `write EPIPE`. Own the
   // agent so the failure can name its own cause: a consumer that had to pass
   // one in would be carrying a knob for something the transport already knows.
-  // HTTP/2 multiplexes over a session connect-node owns and fails with
-  // GOAWAY/stream-closed, which already say why.
-  const diagnostics = httpVersion === "1.1" ? new ConnectionFactsRecorder() : null;
+  // HTTP/2 shares one session between calls; its session manager records, per
+  // call, whether the request provably never reached the peer.
+  const diagnostics = new ConnectionFactsRecorder();
 
   const interceptors: Interceptor[] = [
     ...(opts.interceptors ?? []),
@@ -229,7 +230,7 @@ export async function configureNodeConnectTransport(
     makeRetryInterceptor({ policyByRpc, backoff: retry, onRetry }),
     // Inside the retry interceptor: a failure the policy lets us replay never
     // reaches a caller, so only the ones that actually surface get rewritten.
-    ...(diagnostics ? [makeConnectionDiagnosticsInterceptor(diagnostics)] : []),
+    makeConnectionDiagnosticsInterceptor(diagnostics),
   ];
 
   const common = {
@@ -265,7 +266,7 @@ export async function configureNodeConnectTransport(
     tlsSource = () => clientTlsIdentityFor(watcher);
   }
 
-  if (diagnostics !== null) {
+  if (httpVersion === "1.1") {
     return createConnectTransport({
       ...common,
       httpVersion: "1.1",
@@ -274,12 +275,16 @@ export async function configureNodeConnectTransport(
       },
     });
   }
-  // h2 resolves the identity once, at composition: connect-node owns the
-  // session and there is no per-connection hook to re-resolve through. A
+  // h2 resolves the identity once, at composition: the session manager owns
+  // the session and there is no per-connection hook to re-resolve through. A
   // rotating identity therefore wants httpVersion "1.1" until that lands.
   return createConnectTransport({
     ...common,
     httpVersion: "2",
-    ...(tlsSource ? { nodeOptions: resolveTlsIdentity(tlsSource) } : {}),
+    sessionManager: new ObservedHttp2SessionManager(
+      baseUrl,
+      diagnostics,
+      tlsSource ? resolveTlsIdentity(tlsSource) : undefined,
+    ),
   });
 }

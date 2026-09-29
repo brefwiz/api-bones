@@ -63,6 +63,8 @@ const facts = (over: Partial<ConnectionFacts> = {}): ConnectionFacts => ({
   serverKeepAliveHeader: "timeout=5",
   bytesWritten: 148,
   connected: true,
+  unprocessed: false,
+  http2: false,
   bytesRead: 0,
   tlsEstablished: null,
   alpnProtocol: null,

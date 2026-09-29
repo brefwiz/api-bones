@@ -29,6 +29,7 @@
 // connect-node owns the session rather than accepting one, so there is nothing
 // here to instrument without patching it.
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import http from "node:http";
 import https from "node:https";
 import type { ClientRequest, IncomingMessage } from "node:http";
@@ -102,6 +103,23 @@ export interface ConnectionFacts {
    */
   readonly connected: boolean;
   /**
+   * Whether the peer itself declared the request unprocessed.
+   *
+   * HTTP/2 promises it: a refused stream, or a stream numbered above the last
+   * one a GOAWAY says was handled, was never acted on, however many request
+   * frames had already been written. Always false on HTTP/1.1, which has no
+   * such statement.
+   */
+  readonly unprocessed: boolean;
+  /**
+   * True for facts taken from an HTTP/2 session.
+   *
+   * A session is shared, so its byte counters say nothing about one request:
+   * on HTTP/2 only a connect failure or the peer's own statement proves a
+   * request never left.
+   */
+  readonly http2: boolean;
+  /**
    * Whether the TLS handshake had finished when the request failed.
    *
    * A socket can be young, unreused and already broken, and those three facts
@@ -167,14 +185,16 @@ export function readTlsState(
 /**
  * Whether the connection's own facts prove the request never left the client.
  *
- * A socket that never connected carried nothing. Past that, on a TLS socket the bytes written before the handshake completes are the
+ * A socket that never connected carried nothing, and a stream the peer declared
+ * unprocessed was never acted on. Past those, on a TLS socket the bytes written before the handshake completes are the
  * handshake itself, so a non-zero write count proves nothing there; only a
  * finished handshake lets request bytes onto the wire, and the absence of one
  * proves none did. On a plaintext socket every written byte is request, so an
  * empty write count is the proof.
  */
 export function requestNeverLeft(facts: ConnectionFacts): boolean {
-  if (!facts.connected) return true;
+  if (!facts.connected || facts.unprocessed) return true;
+  if (facts.http2) return false;
   if (facts.tlsEstablished === null) return facts.bytesWritten === 0;
   return !facts.tlsEstablished;
 }
@@ -202,6 +222,7 @@ export function formatConnectionFacts(facts: ConnectionFacts): string {
   }
   parts.push(`bytes w/r=${facts.bytesWritten}/${facts.bytesRead}`);
   if (!facts.connected) parts.push("connection never opened");
+  if (facts.unprocessed) parts.push("peer declared the stream unprocessed");
   if (facts.tlsEstablished === false) {
     // Said first among the TLS facts because it reframes everything above it:
     // no session means the bytes never reached an application at all.
@@ -250,6 +271,23 @@ type AgentInternals = http.Agent & {
  */
 export class ConnectionFactsRecorder {
   #pending: { at: number; facts: ConnectionFacts }[] = [];
+  readonly #scope = new AsyncLocalStorage<FactsSlot>();
+
+  /**
+   * Run one call so facts recorded on its behalf land in `slot`.
+   *
+   * HTTP/2 multiplexes many calls over one session, so pairing by arrival
+   * order would hand one call another's evidence. A slot pairs exactly: the
+   * session manager reads the slot of the call that reached it.
+   */
+  runScoped<T>(slot: FactsSlot, fn: () => Promise<T>): Promise<T> {
+    return this.#scope.run(slot, fn);
+  }
+
+  /** The slot of the call now executing, when it runs under {@link runScoped}. */
+  currentSlot(): FactsSlot | undefined {
+    return this.#scope.getStore();
+  }
 
   record(facts: ConnectionFacts): void {
     this.#pending.push({ at: Date.now(), facts });
@@ -273,13 +311,18 @@ export class ConnectionFactsRecorder {
 
 let socketSeq = 0;
 
+/** A connection id, unique within the process, shared by every transport version. */
+export function nextSocketId(): number {
+  socketSeq += 1;
+  return socketSeq;
+}
+
 function trackSocket(socket: TrackedSocket, authority: string): SocketRecord {
   const existing = socket[RECORD];
   if (existing) return existing;
 
-  socketSeq += 1;
   const record: SocketRecord = {
-    id: socketSeq,
+    id: nextSocketId(),
     authority,
     firstSeenAt: Date.now(),
     requestCount: 0,
@@ -393,6 +436,8 @@ export function createDiagnosticAgent(
           bytesWritten: wire.bytesWritten,
           bytesRead: wire.bytesRead,
           connected: current.connected,
+          unprocessed: false,
+          http2: false,
           ...readTlsState(wire),
         });
       });
@@ -433,8 +478,9 @@ export function makeConnectionDiagnosticsInterceptor(
 ): Interceptor {
   return (next) => async (req) => {
     const startedAt = Date.now();
+    const slot: FactsSlot = { facts: null };
     try {
-      return await next(req);
+      return await recorder.runScoped(slot, () => next(req));
     } catch (err) {
       if (!(err instanceof ConnectError)) throw err;
       const writeFailure = isConnectionWriteFailure(err);
@@ -442,14 +488,14 @@ export function makeConnectionDiagnosticsInterceptor(
       // The agent records on setImmediate; yield once so the facts for this
       // very failure are in the queue before we look.
       await new Promise<void>((resolve) => setImmediate(resolve));
-      const facts = recorder.take(startedAt);
+      const facts = slot.facts ?? recorder.take(startedAt);
       if (facts === null) throw err;
       if (!writeFailure) {
         // A server-sent Unavailable records nothing, so facts found here belong
         // to a sibling call unless the host matches; a mismatch is not evidence.
         const host = hostOf((req as { url?: unknown }).url);
         const sameHost = host === null || host === facts.authority;
-        throw !facts.connected && sameHost ? markNotDelivered(err) : err;
+        throw (!facts.connected || facts.unprocessed) && sameHost ? markNotDelivered(err) : err;
       }
       const explained = new ConnectError(
         `${err.rawMessage} (${formatConnectionFacts(facts)})`,
