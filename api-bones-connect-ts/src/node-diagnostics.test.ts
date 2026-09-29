@@ -62,6 +62,7 @@ const facts = (over: Partial<ConnectionFacts> = {}): ConnectionFacts => ({
   serverConnectionHeader: "keep-alive",
   serverKeepAliveHeader: "timeout=5",
   bytesWritten: 148,
+  connected: true,
   bytesRead: 0,
   tlsEstablished: null,
   alpnProtocol: null,
@@ -344,6 +345,11 @@ describe("delivery evidence", () => {
     const err = await failWith({ tlsEstablished: false, bytesWritten: 411 });
     expect(isNotDelivered(err)).toBe(true);
     expect(err.code).toBe(Code.Internal);
+  });
+
+  it("proves a socket that never connected carried nothing", () => {
+    expect(requestNeverLeft(facts({ connected: false, bytesWritten: 0 }))).toBe(true);
+    expect(formatConnectionFacts(facts({ connected: false }))).toContain("connection never opened");
   });
 
   it("does not mark a failure on an established session", async () => {

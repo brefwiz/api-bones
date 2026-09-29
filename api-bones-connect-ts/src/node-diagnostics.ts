@@ -94,6 +94,14 @@ export interface ConnectionFacts {
   readonly bytesWritten: number;
   readonly bytesRead: number;
   /**
+   * Whether the socket ever completed its TCP connect.
+   *
+   * False for a peer that refused, a host that did not resolve, a connect that
+   * timed out and a route that did not exist: the connection never opened, so
+   * nothing of the request can have reached anyone.
+   */
+  readonly connected: boolean;
+  /**
    * Whether the TLS handshake had finished when the request failed.
    *
    * A socket can be young, unreused and already broken, and those three facts
@@ -159,13 +167,14 @@ export function readTlsState(
 /**
  * Whether the connection's own facts prove the request never left the client.
  *
- * On a TLS socket the bytes written before the handshake completes are the
+ * A socket that never connected carried nothing. Past that, on a TLS socket the bytes written before the handshake completes are the
  * handshake itself, so a non-zero write count proves nothing there; only a
  * finished handshake lets request bytes onto the wire, and the absence of one
  * proves none did. On a plaintext socket every written byte is request, so an
  * empty write count is the proof.
  */
 export function requestNeverLeft(facts: ConnectionFacts): boolean {
+  if (!facts.connected) return true;
   if (facts.tlsEstablished === null) return facts.bytesWritten === 0;
   return !facts.tlsEstablished;
 }
@@ -192,6 +201,7 @@ export function formatConnectionFacts(facts: ConnectionFacts): string {
     parts.push(`server connection: ${facts.serverConnectionHeader}`);
   }
   parts.push(`bytes w/r=${facts.bytesWritten}/${facts.bytesRead}`);
+  if (!facts.connected) parts.push("connection never opened");
   if (facts.tlsEstablished === false) {
     // Said first among the TLS facts because it reframes everything above it:
     // no session means the bytes never reached an application at all.
@@ -214,6 +224,7 @@ interface SocketRecord {
   connectionHeader: string | null;
   keepAliveHeader: string | null;
   finAt: number | null;
+  connected: boolean;
 }
 
 const RECORD = Symbol.for("brefwiz.apiBonesConnect.socketRecord");
@@ -276,8 +287,14 @@ function trackSocket(socket: TrackedSocket, authority: string): SocketRecord {
     connectionHeader: null,
     keepAliveHeader: null,
     finAt: null,
+    // A socket first seen already open came from a pool; a fresh one is still
+    // connecting and reports through its `connect` event.
+    connected: !socket.connecting && socket.readyState !== "opening",
   };
   socket[RECORD] = record;
+  socket.once("connect", () => {
+    record.connected = true;
+  });
   // `end` is the peer's FIN. Landing on an idle pooled socket, it is the exact
   // event that turns the next write into EPIPE.
   socket.once("end", () => {
@@ -375,6 +392,7 @@ export function createDiagnosticAgent(
           serverKeepAliveHeader: current.keepAliveHeader,
           bytesWritten: wire.bytesWritten,
           bytesRead: wire.bytesRead,
+          connected: current.connected,
           ...readTlsState(wire),
         });
       });
@@ -386,13 +404,29 @@ export function createDiagnosticAgent(
   return agent;
 }
 
+/** The host a request URL addresses, in the form the agent records it. */
+function hostOf(url: unknown): string | null {
+  if (typeof url !== "string") return null;
+  try {
+    return new URL(url).hostname.replace(/^\[|\]$/g, "");
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Rewrites a connection-write failure to say why the connection was gone.
+ * Explains connection-write failures and marks failures that never opened a
+ * connection.
  *
- * Only that failure shape is touched. Every other error — including a
- * connection-write failure the retry interceptor already replayed away — passes
- * through untouched, so this never changes what a caller catches, only what the
- * message tells them.
+ * A connection-write failure is rewritten to say why the connection was gone,
+ * and marked as not delivered when its facts prove the request never left.
+ * Any other failure that could be the transport's own (Unavailable, or an
+ * Internal that is not a server fault) is only ever marked, and only when the
+ * facts recorded for THIS host show a socket that never connected -- refused,
+ * unresolved, timed out or unroutable -- so its message and code are untouched.
+ * Everything else, including a failure the retry interceptor already replayed
+ * away, passes through, so this never changes what a caller catches, only what
+ * the message tells them.
  */
 export function makeConnectionDiagnosticsInterceptor(
   recorder: ConnectionFactsRecorder,
@@ -402,12 +436,21 @@ export function makeConnectionDiagnosticsInterceptor(
     try {
       return await next(req);
     } catch (err) {
-      if (!(err instanceof ConnectError) || !isConnectionWriteFailure(err)) throw err;
+      if (!(err instanceof ConnectError)) throw err;
+      const writeFailure = isConnectionWriteFailure(err);
+      if (!writeFailure && err.code !== Code.Unavailable && err.code !== Code.Internal) throw err;
       // The agent records on setImmediate; yield once so the facts for this
       // very failure are in the queue before we look.
       await new Promise<void>((resolve) => setImmediate(resolve));
       const facts = recorder.take(startedAt);
       if (facts === null) throw err;
+      if (!writeFailure) {
+        // A server-sent Unavailable records nothing, so facts found here belong
+        // to a sibling call unless the host matches; a mismatch is not evidence.
+        const host = hostOf((req as { url?: unknown }).url);
+        const sameHost = host === null || host === facts.authority;
+        throw !facts.connected && sameHost ? markNotDelivered(err) : err;
+      }
       const explained = new ConnectError(
         `${err.rawMessage} (${formatConnectionFacts(facts)})`,
         Code.Internal,

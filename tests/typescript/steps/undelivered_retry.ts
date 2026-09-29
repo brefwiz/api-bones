@@ -26,6 +26,7 @@ interface UndeliveredWorld extends World {
   idempotency: string;
   failures: number;
   undelivered: boolean;
+  failureMessage?: string;
   /** What the call settled on: the attempt that answered it, or the error it died with. */
   outcome: { answered: boolean; attempt: number };
 }
@@ -39,6 +40,15 @@ Given(
   function (this: UndeliveredWorld, failures: number) {
     this.failures = failures;
     this.undelivered = true;
+  },
+);
+
+Given(
+  "its connection never opened {int} times with {string}",
+  function (this: UndeliveredWorld, failures: number, message: string) {
+    this.failures = failures;
+    this.undelivered = true;
+    this.failureMessage = message;
   },
 );
 
@@ -58,7 +68,10 @@ When("the call is sent through the retry interceptor", async function (this: Und
   const fetchImpl: typeof fetch = async () => {
     attempts += 1;
     if (attempts <= this.failures) {
-      const failure = new ConnectError(`write EPIPE on attempt ${attempts}`, Code.Internal);
+      const failure = new ConnectError(
+        `${this.failureMessage ?? "write EPIPE"} on attempt ${attempts}`,
+        this.failureMessage === undefined ? Code.Internal : Code.Unavailable,
+      );
       throw this.undelivered ? markNotDelivered(failure) : failure;
     }
     return new Response(new Uint8Array(), {
