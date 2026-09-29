@@ -292,6 +292,36 @@ mod tests {
         );
     }
 
+    /// Every service-option number is unique: a collision makes two options
+    /// one wire field. Nothing compiles this proto in this crate's CI, so this
+    /// is the only guard. Every declaration in the block must carry a number,
+    /// so an unparsed line cannot slip past the check.
+    #[test]
+    fn annotations_proto_service_option_numbers_are_unique() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        let ext = body
+            .split("extend google.protobuf.ServiceOptions {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("ServiceOptions extension block");
+        let mut numbers: Vec<u32> = ext
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .map(|l| {
+                l.strip_suffix(';')
+                    .and_then(|decl| decl.rsplit_once(" = "))
+                    .and_then(|(_, n)| n.trim().parse().ok())
+                    .unwrap_or_else(|| panic!("service option without a field number: `{l}`"))
+            })
+            .collect();
+        assert!(!numbers.is_empty(), "no service options parsed");
+        let total = numbers.len();
+        numbers.sort_unstable();
+        numbers.dedup();
+        assert_eq!(numbers.len(), total, "duplicate service option number");
+    }
+
     #[test]
     fn queries_proto_declares_filter_op_enum() {
         let body = std::str::from_utf8(QUERIES_PROTO).expect("utf8");
