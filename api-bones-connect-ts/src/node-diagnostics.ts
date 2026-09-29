@@ -36,6 +36,7 @@ import type { Socket } from "node:net";
 
 import { Code, ConnectError, type Interceptor } from "@connectrpc/connect";
 
+import { markNotDelivered } from "./delivery-evidence.js";
 import { isConnectionWriteFailure } from "./retry.js";
 
 /**
@@ -153,6 +154,20 @@ export function readTlsState(
     tlsAuthorizationError:
       failure === null ? null : typeof failure === "string" ? failure : failure.message,
   };
+}
+
+/**
+ * Whether the connection's own facts prove the request never left the client.
+ *
+ * On a TLS socket the bytes written before the handshake completes are the
+ * handshake itself, so a non-zero write count proves nothing there; only a
+ * finished handshake lets request bytes onto the wire, and the absence of one
+ * proves none did. On a plaintext socket every written byte is request, so an
+ * empty write count is the proof.
+ */
+export function requestNeverLeft(facts: ConnectionFacts): boolean {
+  if (facts.tlsEstablished === null) return facts.bytesWritten === 0;
+  return !facts.tlsEstablished;
 }
 
 /** One line, log-greppable, naming the cause rather than the symptom. */
@@ -393,13 +408,16 @@ export function makeConnectionDiagnosticsInterceptor(
       await new Promise<void>((resolve) => setImmediate(resolve));
       const facts = recorder.take(startedAt);
       if (facts === null) throw err;
-      throw new ConnectError(
+      const explained = new ConnectError(
         `${err.rawMessage} (${formatConnectionFacts(facts)})`,
         Code.Internal,
         err.metadata,
         undefined,
         err.cause,
       );
+      // The retry interceptor sits outside this one and replays a marked
+      // failure for any method: the evidence, not the message, is its input.
+      throw requestNeverLeft(facts) ? markNotDelivered(explained) : explained;
     }
   };
 }

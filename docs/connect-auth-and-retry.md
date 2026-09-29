@@ -48,5 +48,15 @@ assert_eq!(
 assert!(is_unprompted_retryable(connectrpc::ErrorCode::Unavailable));
 ```
 
+The TypeScript transport adds one exemption to the idempotency gate. When the
+Node transport's own connection facts prove a request never left the client (the
+TLS handshake had not completed, or a plaintext socket had written no byte), it
+marks the failure as not delivered, and the retry interceptor replays it for any
+method, declared idempotent or not: no server saw the call. The replay uses the
+same bounded attempt count, backoff and throttle as every other retry. Every
+failure that may have reached the server, such as a reset after the request was
+sent, keeps the idempotency gate. Custom transports that can prove the same
+mark a failure with `markNotDelivered`.
+
 Never use these predicates alone to replay a non-idempotent RPC. They answer
 whether transport failure permits replay, not whether operation semantics do.

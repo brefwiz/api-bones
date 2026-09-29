@@ -62,6 +62,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # Replay of requests that provably never left the client lives in the retry
+  # interceptor, and Rust has no client interceptor pipeline -- so this surface
+  # is TS alone, the same way connect-retry-observability is.
+  connect-undelivered-retry:
+    contract: tests/features/connect_undelivered_retry.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
   # with_bearer sets transport-layer default headers no declared sdk_surface
   # exposes -- callers reach it directly as library code, not through a

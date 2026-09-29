@@ -17,6 +17,12 @@ import {
 } from "./policy.js";
 import { configureNodeConnectTransport } from "./node.js";
 import {
+  ConnectionFactsRecorder,
+  makeConnectionDiagnosticsInterceptor,
+  type ConnectionFacts,
+} from "./node-diagnostics.js";
+import {
+  MAX_RETRY_ATTEMPTS,
   RetryThrottle,
   isConnectionWriteFailure,
   makeConnectionFailureNormalizer,
@@ -585,5 +591,129 @@ describe("precondition interceptor", () => {
       return "ok" as never;
     };
     await interceptor(next as never)(req as never);
+  });
+});
+
+describe("replay of requests that never left the client", () => {
+  const rpc = "/pkg.v1.Svc/Method";
+  const req = {
+    stream: false,
+    method: { name: "Method", parent: { typeName: "pkg.v1.Svc" } },
+  };
+  const policyFor = (idempotency: string) =>
+    indexGeneratedPolicy({
+      schemaVersion: 1,
+      methods: [
+        {
+          rpc,
+          procedure: "unary",
+          idempotency,
+          browserCache: { scope: "NO_STORE", maxAgeSeconds: 0 },
+          sensitivity: "UNSPECIFIED",
+          maxEncodedUrlBytes: 4096,
+        },
+      ],
+    });
+
+  const connection = (over: Partial<ConnectionFacts>): ConnectionFacts => ({
+    socketId: 1,
+    authority: "peer:443",
+    reused: false,
+    priorRequests: 0,
+    ageAtAssignMs: 0,
+    ageAtFailureMs: 3,
+    idleBeforeAssignMs: null,
+    finBeforeFailureMs: null,
+    serverConnectionHeader: null,
+    serverKeepAliveHeader: null,
+    bytesWritten: 411,
+    bytesRead: 0,
+    tlsEstablished: false,
+    alpnProtocol: null,
+    tlsAuthorized: null,
+    tlsAuthorizationError: null,
+    ...over,
+  });
+
+  /** The retry interceptor over the diagnostics one, the order the transport installs them. */
+  const run = async (
+    idempotency: string,
+    failures: { message: string; facts: Partial<ConnectionFacts> }[],
+  ) => {
+    const recorder = new ConnectionFactsRecorder();
+    let calls = 0;
+    const base = async () => {
+      const failure = failures[calls++];
+      if (failure === undefined) return "ok" as never;
+      recorder.record(connection(failure.facts));
+      throw new ConnectError(failure.message, Code.Internal);
+    };
+    const retry = makeRetryInterceptor({
+      policyByRpc: policyFor(idempotency),
+      sleep: async () => {},
+    });
+    const chain = retry(makeConnectionDiagnosticsInterceptor(recorder)(base as never));
+    const outcome = await chain(req as never).then(
+      () => "ok",
+      (err: unknown) => ConnectError.from(err).rawMessage,
+    );
+    return { outcome, calls };
+  };
+
+  const preHandshake = {
+    message: "write EPIPE",
+    facts: { tlsEstablished: false, bytesWritten: 411 },
+  };
+  const afterBody = {
+    message: "read ECONNRESET",
+    facts: { tlsEstablished: true, bytesWritten: 900 },
+  };
+
+  it("retries a pre-handshake EPIPE on an UNSPECIFIED method until it succeeds", async () => {
+    const { outcome, calls } = await run("UNSPECIFIED", [preHandshake, preHandshake]);
+    expect(outcome).toBe("ok");
+    expect(calls).toBe(3);
+  });
+
+  it("does not retry a reset that came after the request was sent", async () => {
+    const { outcome, calls } = await run("UNSPECIFIED", [afterBody]);
+    expect(outcome).toContain("read ECONNRESET");
+    expect(calls).toBe(1);
+  });
+
+  it("does not retry a write failure the connection cannot prove undelivered", async () => {
+    const { calls } = await run("UNSPECIFIED", [
+      { message: "write EPIPE", facts: { tlsEstablished: null, bytesWritten: 148 } },
+    ]);
+    expect(calls).toBe(1);
+  });
+
+  it("keeps today's behaviour for an IDEMPOTENT method", async () => {
+    const replayed = await run("IDEMPOTENT", [afterBody]);
+    expect(replayed.outcome).toBe("ok");
+    expect(replayed.calls).toBe(2);
+  });
+
+  it("stops at the attempt budget even when every failure is undelivered", async () => {
+    const { outcome, calls } = await run(
+      "UNSPECIFIED",
+      Array.from({ length: MAX_RETRY_ATTEMPTS + 5 }, () => preHandshake),
+    );
+    expect(outcome).toContain("write EPIPE");
+    expect(calls).toBe(MAX_RETRY_ATTEMPTS + 1);
+  });
+
+  it("still leaves streaming calls alone", async () => {
+    const recorder = new ConnectionFactsRecorder();
+    let calls = 0;
+    const base = async () => {
+      calls++;
+      recorder.record(connection({}));
+      throw new ConnectError("write EPIPE", Code.Internal);
+    };
+    const retry = makeRetryInterceptor({ policyByRpc: policyFor("UNSPECIFIED"), sleep: async () => {} });
+    const chain = retry(makeConnectionDiagnosticsInterceptor(recorder)(base as never));
+    await expect(chain({ ...req, stream: true } as never)).rejects.toThrow("write EPIPE");
+    expect(calls).toBe(1);
   });
 });
