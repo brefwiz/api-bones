@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.2.3...api-bones-v8.2.4) - 2026-09-29
+
+### Fixed
+
+- *(connect-ts)* declare the facts slot type
+- *(connect-ts)* mark and replay undelivered HTTP/2 requests, keep idle sessions alive
+
+### Other
+
+- *(connect-ts)* drive HTTP/2 goaway and keepalive tests through faithful peers
+
 ## [8.2.3](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.2.2...api-bones-v8.2.3) - 2026-09-29
 
 ### Fixed
