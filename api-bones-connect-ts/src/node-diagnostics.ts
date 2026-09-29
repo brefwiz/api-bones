@@ -257,6 +257,11 @@ type AgentInternals = http.Agent & {
   createConnection(options: object, callback: unknown): Socket;
 };
 
+/** Where the facts for one scoped call are delivered. */
+export interface FactsSlot {
+  facts: ConnectionFacts | null;
+}
+
 /**
  * Records connection facts and surrenders them once, to whoever asks first.
  *
