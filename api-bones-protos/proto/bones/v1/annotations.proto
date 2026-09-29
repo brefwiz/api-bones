@@ -138,6 +138,45 @@
 //     option (bones.v1.required_capabilities) = { name: "platform.config" };
 //     // RPC declarations follow.
 //   }
+//
+// `bones.v1.capability_labels` and `bones.v1.permission_labels` let a
+// provider label, in the same contract, the capabilities and scopes it
+// defines. The identifiers above are for machines; the person who
+// grants a capability or a scope reads a label, not the identifier.
+// Declaring the label beside what defines it means no consumer keeps a
+// map from identifier to text.
+//
+// Across one contract's descriptor set, every capability it provides
+// (via `capability` or `provided_capabilities`) and every scope its
+// authenticated RPCs `require` carries exactly one label, declared on
+// a service that provides that capability or requires that scope. A
+// second label for the same name is refused, not merged, and a label
+// for a name or scope the contract does not provide is refused: a
+// provider labels only its own authority.
+//
+// A permission label says what a holder can do ("Create and change
+// reservations"); a capability label names the area it belongs to
+// ("Reservations"). Neither names an internal service.
+//
+// Labels are presentation, not authority: declaring one grants
+// nothing and narrows nothing. What is granted stays exactly what
+// `capability`, `provided_capabilities`, and `AuthzRule.requires`
+// already say.
+//
+// Usage:
+//
+//   service ReservationService {
+//     option (bones.v1.capability) = "reservations.schedule";
+//     option (bones.v1.capability_labels) = {
+//       name: "reservations.schedule",
+//       label: { text: "Reservations", translations: { key: "fr" value: "Réservations" } }
+//     };
+//     option (bones.v1.permission_labels) = {
+//       scope: "reservation:write",
+//       label: { text: "Create and change reservations" }
+//     };
+//     // RPC declarations follow.
+//   }
 
 syntax = "proto3";
 
@@ -159,6 +198,12 @@ extend google.protobuf.ServiceOptions {
   // it. Absent means this service is not enrolled as a capability provider.
   // See file header for semantics.
   repeated string provided_capabilities = 5102351;
+
+  // Human labels for the capabilities this contract provides. See file header.
+  repeated CapabilityLabel capability_labels = 5102352;
+
+  // Human labels for the scopes this contract's RPCs require. See file header.
+  repeated PermissionLabel permission_labels = 5102353;
 }
 
 extend google.protobuf.MethodOptions {
@@ -187,6 +232,34 @@ message RequiredCapability {
   // reaches the provider without exercising any named authority — true of a
   // dependency consumed only as transport or attestation.
   repeated string scopes = 2;
+}
+
+// Text a person reads in place of an identifier.
+message Label {
+  // The label in the platform's source language, English. Mandatory and
+  // non-empty; plain text, one short phrase, never the identifier it labels.
+  string text = 1;
+
+  // Translations of `text`, keyed by BCP 47 language tag ("fr", "es", "he").
+  // A viewer whose language has no entry reads `text`.
+  map<string, string> translations = 2;
+}
+
+// The label of one capability this contract provides.
+message CapabilityLabel {
+  // A capability this contract provides, exactly as `capability` or
+  // `provided_capabilities` names it.
+  string name = 1;
+
+  Label label = 2;
+}
+
+// The label of one scope this contract's RPCs require.
+message PermissionLabel {
+  // A scope named in some `authz.requires` of this contract, byte-identical.
+  string scope = 1;
+
+  Label label = 2;
 }
 
 // Whether an RPC requires a credential at all.

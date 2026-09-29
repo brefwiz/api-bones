@@ -211,6 +211,57 @@ mod tests {
         );
     }
 
+    /// The identifiers a contract defines are for machines; the person who
+    /// grants them reads labels. A provider declares the label beside what
+    /// it defines, in the contract, so no consumer keeps a map from
+    /// identifier to text.
+    #[test]
+    fn annotations_proto_declares_capability_and_permission_labels() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("repeated CapabilityLabel capability_labels = 5102352;"),
+            "annotations.proto missing the capability_labels service option"
+        );
+        assert!(
+            body.contains("repeated PermissionLabel permission_labels = 5102353;"),
+            "annotations.proto missing the permission_labels service option"
+        );
+        for msg in [
+            "message Label",
+            "message CapabilityLabel",
+            "message PermissionLabel",
+        ] {
+            assert!(body.contains(msg), "annotations.proto missing `{msg}`");
+        }
+        for field in [
+            "string text = 1;",
+            "map<string, string> translations = 2;",
+            "string name = 1;",
+            "string scope = 1;",
+            "Label label = 2;",
+        ] {
+            assert!(
+                body.contains(field),
+                "annotations.proto label messages missing `{field}`"
+            );
+        }
+    }
+
+    /// The existing capability service-option numbers must stay put: a
+    /// renumber would silently change the wire meaning for every already
+    /// compiled provider.
+    #[test]
+    fn annotations_proto_keeps_the_existing_capability_option_numbers() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        for line in [
+            "string capability = 5102349;",
+            "repeated RequiredCapability required_capabilities = 5102350;",
+            "repeated string provided_capabilities = 5102351;",
+        ] {
+            assert!(body.contains(line), "annotations.proto missing `{line}`");
+        }
+    }
+
     #[test]
     fn queries_proto_declares_filter_op_enum() {
         let body = std::str::from_utf8(QUERIES_PROTO).expect("utf8");
