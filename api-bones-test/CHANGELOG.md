@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.6.18](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-test-v6.6.17...api-bones-test-v6.6.18) - 2026-09-29
+
+### Other
+
+- updated the following local packages: api-bones
+
 ## [6.6.17](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-test-v6.6.16...api-bones-test-v6.6.17) - 2026-09-29
 
 ### Other
