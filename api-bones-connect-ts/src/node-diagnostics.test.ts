@@ -9,11 +9,13 @@ import type { AddressInfo } from "node:net";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { isNotDelivered } from "./delivery-evidence.js";
 import {
   ConnectionFactsRecorder,
   createDiagnosticAgent,
   formatConnectionFacts,
   makeConnectionDiagnosticsInterceptor,
+  requestNeverLeft,
   readTlsState,
   resolveTlsIdentity,
   type ConnectionFacts,
@@ -308,5 +310,44 @@ describe("TLS state on a failed connection", () => {
     expect(
       readTlsState({ encrypted: true, getProtocol: () => "TLSv1.3", alpnProtocol: "h2" }),
     ).toMatchObject({ tlsEstablished: true, alpnProtocol: "h2" });
+  });
+});
+
+describe("delivery evidence", () => {
+  const unary = { stream: false } as never;
+  const failWith = async (over: Partial<ConnectionFacts>): Promise<ConnectError> => {
+    const recorder = new ConnectionFactsRecorder();
+    const next = async (): Promise<never> => {
+      recorder.record(facts(over));
+      throw new ConnectError("write EPIPE", Code.Internal);
+    };
+    try {
+      await makeConnectionDiagnosticsInterceptor(recorder)(next)(unary);
+    } catch (err) {
+      return ConnectError.from(err);
+    }
+    throw new Error("expected a failure");
+  };
+
+  it("proves a TLS socket that never finished its handshake carried no request", () => {
+    // 411 bytes written were the ClientHello, not the request.
+    expect(requestNeverLeft(facts({ tlsEstablished: false, bytesWritten: 411 }))).toBe(true);
+    expect(requestNeverLeft(facts({ tlsEstablished: true, bytesWritten: 411 }))).toBe(false);
+  });
+
+  it("proves a plaintext socket carried nothing only while it wrote nothing", () => {
+    expect(requestNeverLeft(facts({ tlsEstablished: null, bytesWritten: 0 }))).toBe(true);
+    expect(requestNeverLeft(facts({ tlsEstablished: null, bytesWritten: 200 }))).toBe(false);
+  });
+
+  it("marks a pre-handshake failure as not delivered", async () => {
+    const err = await failWith({ tlsEstablished: false, bytesWritten: 411 });
+    expect(isNotDelivered(err)).toBe(true);
+    expect(err.code).toBe(Code.Internal);
+  });
+
+  it("does not mark a failure on an established session", async () => {
+    const err = await failWith({ tlsEstablished: true, bytesWritten: 900 });
+    expect(isNotDelivered(err)).toBe(false);
   });
 });

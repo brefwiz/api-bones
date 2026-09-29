@@ -16,6 +16,14 @@
 // retried: unknown is treated as unsafe, so the blast radius of adding retries
 // grows only as fast as somebody deliberately declares a method safe.
 //
+// One class of failure is exempt from that gate: a request the transport can
+// PROVE never left the client (the connection died before its TLS handshake
+// finished, or before any request byte was written). No server saw the call, so
+// replaying it cannot run anything twice, whatever the method declares. That
+// proof is structured evidence recorded by the transport (`delivery-evidence.ts`),
+// never inferred from an error message, and the replay stays inside the same
+// bounded attempt count, backoff and throttle as every other retry.
+//
 // Why this matters concretely: single-use credential redemption (bootstrap-token
 // enrolment) is exactly the shape that must never be blind-retried. Connect can
 // surface Unavailable AFTER the server accepted the request, so a retry burns
@@ -31,10 +39,12 @@ import {
   isReplayableTransportFailure,
 } from "./retry-eligibility.js";
 
+import { isNotDelivered } from "./delivery-evidence.js";
 import type { BackoffOptions } from "./backoff.js";
 import { computeBackoffDelay, resolveBackoff } from "./backoff.js";
 import type { GeneratedMethodPolicy } from "./policy.js";
 
+export { isNotDelivered, markNotDelivered } from "./delivery-evidence.js";
 export {
   connectionFailureAsUnavailable,
   isConnectionWriteFailure,
@@ -164,7 +174,11 @@ export interface RetryEvent {
 }
 
 export interface RetryInterceptorOptions {
-  /** Generated policy, indexed by RPC. An empty map disables retries entirely. */
+  /**
+   * Generated policy, indexed by RPC. An empty map disables retries for every
+   * failure that may have reached the server; a failure the transport proved
+   * never left the client is still replayed.
+   */
   readonly policyByRpc: ReadonlyMap<string, GeneratedMethodPolicy>;
   readonly backoff?: BackoffOptions;
   readonly throttle?: RetryThrottleOptions;
@@ -194,7 +208,7 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
     // Streams reconnect on their own terms; replaying one here would restart a
     // subscription mid-flight rather than resume it.
     if (req.stream) return next(req);
-    if (!isRetryableMethod(opts.policyByRpc.get(rpcIdentity(req.method)))) return next(req);
+    const methodRetryable = isRetryableMethod(opts.policyByRpc.get(rpcIdentity(req.method)));
 
     let attempt = 0;
     for (;;) {
@@ -206,9 +220,14 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
         if (!(err instanceof ConnectError) || attempt >= MAX_RETRY_ATTEMPTS) throw err;
 
         const pushbackMs = serverPushbackMs(err);
+        // A request that provably never left the client is replay-safe whatever
+        // the method declares; every other failure may have run on the server,
+        // so it needs the method to have been declared safe.
         const retryable =
-          isReplayableTransportFailure(err) ||
-          (err.code === Code.ResourceExhausted && pushbackMs !== null);
+          isNotDelivered(err) ||
+          (methodRetryable &&
+            (isReplayableTransportFailure(err) ||
+              (err.code === Code.ResourceExhausted && pushbackMs !== null)));
         if (!retryable) throw err;
 
         throttle.recordFailure();
