@@ -193,63 +193,73 @@
 // nothing else. Its grant class is `capability` by construction, so the
 // entry states none: the scope is granted by capability consumption or an
 // explicit capability grant, exactly like an RPC-derived scope, and
-// registered, granted, revoked and audited by the same authority. Its
-// enforcer is derivable from the scope's shape, so the entry states none
-// either. Declaring one grants nothing.
+// registered, granted, revoked and audited by the same authority, the
+// registration authority. It names no enforcer either: the event form is
+// recognized by its shape, and the enforcer of any other scope by the
+// registration authority's enforcer registry. Declaring one grants nothing.
 //
 // A broker scope is a CanonicalClaim scope, byte-identical wherever it is
 // named, and carries no subject. Its namespace is the text before its first
-// `:`, the same parse QuorumAuth applies to every scope. It takes exactly
-// one of two forms, told apart by shape alone:
+// `:`, the same parse the registration authority applies to every scope.
 //
-//   - An event scope is exactly `<ns>:events:subscribe`, for example
-//     `quorumprofile:events:subscribe`, where `<ns>` is the service name of
-//     the provider workload registering the contract: the service segment of
-//     its SVID. The mesh broker enforces it. QuorumAuth refuses any other
-//     `<ns>` at registration, so a provider can never declare, and so never
-//     confer, another provider's events. Because that refusal holds, `<ns>`
-//     is the provider's event-subject service segment, and the enforcing
-//     broker derives everything else from it, never from the scope's text:
-//     the platform's canonical stream name for that service (the service
-//     name uppercased, `-` replaced by `_`), the subscription on
-//     `brefwiz.mesh.*.<org>.<ns>.events.>` anchored to the organization, and
-//     the durable operations the platform owns.
-//   - Every other scope is a broker's own right, `<ns>:<right>`, for example
-//     `nats:mesh:provision` on a capability of the broker's own,
-//     `nats.provisioning`. It is admitted only when the registering workload
-//     is the registered enforcer of `<ns>` in QuorumAuth's platform-held
-//     enforcer registry (today, the NATS broker's workload for `nats`).
+// Admission. A broker scope is admitted in exactly two forms:
+//   - `<ns>:events:subscribe`, an event scope, declared by the workload whose
+//     service name (the service segment of its SVID) is `<ns>`;
+//   - `<ns>:<right>`, a broker's own right, declared by the workload the
+//     enforcer registry names as the enforcer of `<ns>`.
+// Every other shape names a scope no broker enforces, and is refused as a
+// dead grant.
 //
-// A scope admitted under neither form is one no broker enforces, a dead
-// grant, and is refused. Subject-shaped broker vocabulary (`nats:stream:subscribe:<pattern>`)
-// is the broker operator's and is never declared here.
+// The event form is recognized by shape; the enforcer is recognized by the
+// registry, never by the scope. A registered enforcer declaring an event
+// scope whose `<ns>` differs from its own service name is therefore still
+// refused, under item 4 below.
 //
-// This is the complete refusal list; QuorumAuth at registration and every
+// For an event scope, `<ns>` is the provider's event-subject service segment,
+// and the platform's event broker derives everything else from it, never from
+// the scope's text: the platform's canonical stream name for that service
+// (the service name uppercased, `-` replaced by `_`), the subscription on
+// `<ns>.events.>` under the platform's event-subject prefix, anchored to the
+// organization, and the durable operations the platform owns. Because item 4
+// refuses any other `<ns>`, a provider can never declare, and so never
+// confer, another provider's events.
+//
+// A broker's own right lives in the broker's namespace, on a capability of
+// the broker's own: for example `broker:accounts:provision` on
+// `broker.provisioning`, declared by the broker's workload. Subject-shaped
+// broker vocabulary (`<broker>:stream:subscribe:<pattern>`) is the broker
+// operator's and is never declared here.
+//
+// Refusals. This is the complete list; the registration authority and every
 // static validator apply it identically. Across one contract's descriptor
-// set, registered by one provider workload, an entry is refused when:
+// set, registered by one provider workload, an entry is refused when any
+// item below holds.
+//
+// Admission refusals:
+//   4. its `scope` is an event scope, exactly `<ns>:events:subscribe`, and
+//      `<ns>` is not the registering workload's service name, even when that
+//      workload is a registered enforcer;
+//   5. its `scope` is any scope other than an event scope, and the
+//      registering workload is not the registered enforcer of its namespace
+//      in the enforcer registry;
+//   8. its `scope` is an event scope, and the registering workload's
+//      canonical stream name equals that of another service already
+//      registered, as `order-book` and `order_book` both yield `ORDER_BOOK`:
+//      the first registrant keeps the stream, and the later registration is
+//      refused.
+//
+// Structural well-formedness refusals:
 //   1. its `capability` is not one the contract provides;
 //   2. its `scope` has no namespace: it is empty, contains no `:`, or has
 //      nothing before or nothing after its first `:`;
 //   3. its `scope` contains `.`, `*` or `>`: a broker scope carries no
 //      subject;
-//   4. its `scope` is exactly `<ns>:events:subscribe` and `<ns>` is not the
-//      registering workload's service name (its SVID service segment);
-//   5. its `scope` is any other scope and the registering workload is not the
-//      registered enforcer of its namespace in QuorumAuth's enforcer
-//      registry: no broker would enforce it;
 //   6. its `capability` also carries an RPC-required scope, that is some
 //      service providing it has an RPC whose `authz.requires` is non-empty:
-//      a broker-scope capability serves no RPC, so a consumer granted it is
-//      never granted an RPC surface with it;
-//   7. the same scope is declared twice, or is also required by an RPC (one
-//      scope, one declaration).
-//   8. its `scope` is an event scope and the registering workload's canonical
-//      stream name (service name uppercased, `-` replaced by `_`) equals that
-//      of another service already registered, as `order-book` and
-//      `order_book` both yield `ORDER_BOOK`: the first registrant keeps the
-//      stream and the later registration is refused.
-// Every declared broker scope carries exactly one `permission_labels`
-// entry, like an RPC-required scope.
+//      a broker-scope capability serves no RPC, so a grant of it can never
+//      widen to an RPC surface;
+//   7. the same scope is declared twice, or is also required by an RPC: one
+//      scope, one declaration.
 //
 // Usage — a separate event capability, distinct from the RPC capability
 // `reservations.schedule`, registered by the workload whose service name is
