@@ -63,8 +63,9 @@
 //
 // `bones.v1.provided_capabilities` names the allocated capabilities one
 // protobuf service serves. Enrollment tooling derives each capability's
-// authority from the service's authenticated RPC `requires` values. Consumers
-// name the capability; they never copy its provider-owned scope vocabulary.
+// authority from the service's authenticated RPC `requires` values and from
+// its `provided_broker_scopes` entries. Consumers name the capability; they
+// never copy its provider-owned scope vocabulary.
 //
 // Naming one here does not make it yours. A capability name is allocated by
 // the authority to an owner, and this option states which allocated names this
@@ -119,9 +120,11 @@
 // built. A declaration that stated its own grant would be the provider
 // authorising itself — the condition an allocation exists to remove.
 //
-// The provided side carries no scopes, deliberately: what a served capability
+// The provided side carries no scopes but one kind: what a served capability
 // requires of its callers is already declared once, on the RPCs that offer it,
-// and deriving it from there is what keeps one answer.
+// and deriving it from there is what keeps one answer. The one exception is a
+// broker scope (`provided_broker_scopes` below): no RPC requires it, so there
+// is nothing to derive it from.
 //
 // Absent means this service requires nothing to serve, which is the
 // correct reading for a tier-zero component: what every other workload
@@ -148,11 +151,12 @@
 //
 // Across one contract's descriptor set, every capability it provides
 // (via `capability` or `provided_capabilities`) and every scope its
-// authenticated RPCs `require` carries exactly one label, declared on
-// a service that provides that capability or requires that scope. A
-// second label for the same name is refused, not merged, and a label
-// for a name or scope the contract does not provide is refused: a
-// provider labels only its own authority.
+// authenticated RPCs require or it declares in `provided_broker_scopes`
+// carries exactly one label, declared on a service that provides that
+// capability, requires that scope, or declares it. A second label for the
+// same name is refused, not merged, and a label for a name or scope the
+// contract does not provide is refused: a provider labels only its own
+// authority.
 //
 // A permission label says what a holder can do ("Create and change
 // reservations"); a capability label names the area it belongs to
@@ -160,8 +164,8 @@
 //
 // Labels are presentation, not authority: declaring one grants
 // nothing and narrows nothing. What is granted stays exactly what
-// `capability`, `provided_capabilities`, and `AuthzRule.requires`
-// already say.
+// `capability`, `provided_capabilities`, `AuthzRule.requires`, and
+// `provided_broker_scopes` already say.
 //
 // Usage:
 //
@@ -176,6 +180,105 @@
 //       label: { text: "Create and change reservations" }
 //     };
 //     // RPC declarations follow.
+//   }
+
+// `bones.v1.provided_broker_scopes` declares scopes of a capability this
+// contract provides that no RPC requires, because a broker rather than an
+// RPC enforces them: the right to subscribe to the provider's own events,
+// or a broker's own provisioning authority. Enrollment derives a
+// capability's scopes from RPC `requires` alone, so a capability over
+// events, which serves no RPC, would otherwise have no scope to confer.
+//
+// Each entry names the provided capability it belongs to and the scope,
+// nothing else. Its grant class is `capability` by construction, so the
+// entry states none: the scope is granted by capability consumption or an
+// explicit capability grant, exactly like an RPC-derived scope, and
+// registered, granted, revoked and audited by the same authority, the
+// registration authority. It names no enforcer either: the event form is
+// recognized by its shape, and the enforcer of any other scope by the
+// registration authority's enforcer registry. Declaring one grants nothing.
+//
+// A broker scope is a CanonicalClaim scope, byte-identical wherever it is
+// named, and carries no subject. Its namespace is the text before its first
+// `:`, the same parse the registration authority applies to every scope.
+//
+// Admission. A broker scope is admitted in exactly two forms:
+//   - `<ns>:events:subscribe`, an event scope, declared by the workload whose
+//     service name (the service segment of its SVID) is `<ns>`;
+//   - `<ns>:<right>`, a broker's own right, declared by the workload the
+//     enforcer registry names as the enforcer of `<ns>`.
+// Every other shape names a scope no broker enforces, and is refused as a
+// dead grant.
+//
+// The event form is recognized by shape; the enforcer is recognized by the
+// registry, never by the scope. A registered enforcer declaring an event
+// scope whose `<ns>` differs from its own service name is therefore still
+// refused, under A1 below.
+//
+// For an event scope, `<ns>` is the provider's event-subject service segment,
+// and the platform's event broker derives everything else from it, never from
+// the scope's text: the platform's canonical stream name for that service
+// (the service name uppercased, `-` replaced by `_`), the subscription on
+// `<ns>.events.>` under the platform's event-subject prefix, anchored to the
+// organization, and the durable operations the platform owns. Because A1
+// refuses any other `<ns>`, a provider can never declare, and so never
+// confer, another provider's events.
+//
+// A broker's own right lives in the broker's namespace, on a capability of
+// the broker's own: for example `broker:accounts:provision` on
+// `broker.provisioning`, declared by the broker's workload. Subject-shaped
+// broker vocabulary (`<broker>:stream:subscribe:<pattern>`) is the broker
+// operator's and is never declared here.
+//
+// Refusals. This is the complete list; the registration authority and every
+// static validator apply it identically. Across one contract's descriptor
+// set, registered by one provider workload, an entry is refused when any
+// item below holds.
+//
+// Admission refusals:
+//   A1. its `scope` is an event scope, exactly `<ns>:events:subscribe`, and
+//      `<ns>` is not the registering workload's service name, even when that
+//      workload is a registered enforcer;
+//   A2. its `scope` is any scope other than an event scope, and the
+//      registering workload is not the registered enforcer of its namespace
+//      in the enforcer registry;
+//   A3. its `scope` is an event scope, and the registering workload's
+//      canonical stream name equals that of another service already
+//      registered, as `order-book` and `order_book` both yield `ORDER_BOOK`:
+//      the first registrant keeps the stream, and the later registration is
+//      refused.
+//
+// Structural well-formedness refusals:
+//   S1. its `capability` is not one the contract provides;
+//   S2. its `scope` has no namespace: it is empty, contains no `:`, or has
+//      nothing before or nothing after its first `:`;
+//   S3. its `scope` contains `.`, `*` or `>`: a broker scope carries no
+//      subject;
+//   S4. its `capability` also carries an RPC-required scope, that is some
+//      service providing it has an RPC whose `authz.requires` is non-empty:
+//      a broker-scope capability serves no RPC, so a grant of it can never
+//      widen to an RPC surface;
+//   S5. the same scope is declared twice, or is also required by an RPC: one
+//      scope, one declaration.
+//
+// Usage — a separate event capability, distinct from the RPC capability
+// `reservations.schedule`, registered by the workload whose service name is
+// `reservations`:
+//
+//   service ReservationEvents {
+//     option (bones.v1.provided_capabilities) = "reservations.events";
+//     option (bones.v1.provided_broker_scopes) = {
+//       capability: "reservations.events",
+//       scope: "reservations:events:subscribe"
+//     };
+//     option (bones.v1.capability_labels) = {
+//       name: "reservations.events",
+//       label: { text: "Reservation changes" }
+//     };
+//     option (bones.v1.permission_labels) = {
+//       scope: "reservations:events:subscribe",
+//       label: { text: "Follow reservation changes" }
+//     };
 //   }
 
 syntax = "proto3";
@@ -202,8 +305,13 @@ extend google.protobuf.ServiceOptions {
   // Human labels for the capabilities this contract provides. See file header.
   repeated CapabilityLabel capability_labels = 5102352;
 
-  // Human labels for the scopes this contract's RPCs require. See file header.
+  // Human labels for every scope this contract's RPCs require or it declares
+  // in `provided_broker_scopes`. See file header.
   repeated PermissionLabel permission_labels = 5102353;
+
+  // Scopes of a provided capability that a broker, not an RPC, enforces. See
+  // file header.
+  repeated BrokerScope provided_broker_scopes = 5102354;
 }
 
 extend google.protobuf.MethodOptions {
@@ -254,12 +362,27 @@ message CapabilityLabel {
   Label label = 2;
 }
 
-// The label of one scope this contract's RPCs require.
+// The label of one scope this contract's RPCs require or it declares in
+// `provided_broker_scopes`.
 message PermissionLabel {
-  // A scope named in some `authz.requires` of this contract, byte-identical.
+  // A scope named in some `authz.requires` or `provided_broker_scopes` entry
+  // of this contract, byte-identical.
   string scope = 1;
 
   Label label = 2;
+}
+
+// One scope of a provided capability that no RPC requires and a broker
+// enforces.
+message BrokerScope {
+  // A capability this contract provides, exactly as `capability` or
+  // `provided_capabilities` names it.
+  string capability = 1;
+
+  // The CanonicalClaim scope, carrying no subject: `<ns>:events:subscribe`
+  // for the provider's own events, or `<ns>:<right>` for a broker's own right.
+  // The file header holds its forms and the complete refusal list.
+  string scope = 2;
 }
 
 // Whether an RPC requires a credential at all.

@@ -257,9 +257,69 @@ mod tests {
             "string capability = 5102349;",
             "repeated RequiredCapability required_capabilities = 5102350;",
             "repeated string provided_capabilities = 5102351;",
+            "repeated CapabilityLabel capability_labels = 5102352;",
+            "repeated PermissionLabel permission_labels = 5102353;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
+    }
+
+    /// A capability over events serves no RPC, so its scope cannot come from
+    /// `requires`. The contract declares it beside the capability it belongs
+    /// to; grant class and enforcer are derivable, so the entry carries
+    /// neither.
+    #[test]
+    fn annotations_proto_declares_provided_broker_scopes() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("repeated BrokerScope provided_broker_scopes = 5102354;"),
+            "annotations.proto missing the provided_broker_scopes service option"
+        );
+        let msg = body
+            .split("message BrokerScope {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("BrokerScope message");
+        let fields: Vec<&str> = msg
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        assert_eq!(
+            fields,
+            ["string capability = 1;", "string scope = 2;"],
+            "BrokerScope is exactly {{capability, scope}}"
+        );
+    }
+
+    /// Every service-option number is unique: a collision makes two options
+    /// one wire field. Nothing compiles this proto in this crate's CI, so this
+    /// is the only guard. Every declaration in the block must carry a number,
+    /// so an unparsed line cannot slip past the check.
+    #[test]
+    fn annotations_proto_service_option_numbers_are_unique() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        let ext = body
+            .split("extend google.protobuf.ServiceOptions {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("ServiceOptions extension block");
+        let mut numbers: Vec<u32> = ext
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .map(|l| {
+                l.strip_suffix(';')
+                    .and_then(|decl| decl.rsplit_once(" = "))
+                    .and_then(|(_, n)| n.trim().parse().ok())
+                    .unwrap_or_else(|| panic!("service option without a field number: `{l}`"))
+            })
+            .collect();
+        assert!(!numbers.is_empty(), "no service options parsed");
+        let total = numbers.len();
+        numbers.sort_unstable();
+        numbers.dedup();
+        assert_eq!(numbers.len(), total, "duplicate service option number");
     }
 
     #[test]
