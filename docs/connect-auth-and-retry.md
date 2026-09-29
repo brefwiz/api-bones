@@ -51,13 +51,20 @@ assert!(is_unprompted_retryable(connectrpc::ErrorCode::Unavailable));
 The TypeScript transport adds one exemption to the idempotency gate. When the
 Node transport's own connection facts prove a request never left the client (the
 socket never connected -- refused, unresolved, timed out or unroutable -- the TLS
-handshake had not completed, or a plaintext socket had written no byte), it
+handshake had not completed, or a plaintext socket had written no byte; on
+HTTP/2, no stream was opened, the peer refused the stream with `REFUSED_STREAM`,
+or it sent a GOAWAY naming a last processed stream below this one), it
 marks the failure as not delivered, and the retry interceptor replays it for any
 method, declared idempotent or not: no server saw the call. The replay uses the
 same bounded attempt count, backoff and throttle as every other retry. Every
 failure that may have reached the server, such as a reset after the request was
 sent, keeps the idempotency gate. Custom transports that can prove the same
 mark a failure with `markNotDelivered`.
+
+HTTP/2 sessions are kept alive: an idle session is pinged every 30 seconds and
+one that does not answer within 15 seconds is dropped, so the next call opens a
+fresh connection instead of writing onto one the peer already abandoned. This
+mirrors the interval, timeout and while-idle behaviour of the Rust client.
 
 Never use these predicates alone to replay a non-idempotent RPC. They answer
 whether transport failure permits replay, not whether operation semantics do.

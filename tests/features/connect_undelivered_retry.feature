@@ -6,8 +6,8 @@ Feature: Connect replays requests that never left the client
   a failure can reach the client after the server already acted. One class of
   failure is exempt: when the connection itself proves no byte of the request
   was ever sent -- the connection never opened, or the TLS handshake had not
-  completed -- no server saw the
-  call, so it is replayed whatever the method declares. The replay stays within
+  completed, or an HTTP/2 peer refused the stream or announced a shutdown
+  below it -- no server saw the call, so it is replayed whatever the method declares. The replay stays within
   the same bounded number of retries as any other. Interceptor-pipeline
   concept, so this surface is TypeScript-only: Rust has no client interceptor
   pipeline, and a Rust caller owns its own replay decision.
@@ -32,6 +32,24 @@ Feature: Connect replays requests that never left the client
       | connect ETIMEDOUT 10.0.0.1:443    |
       | connect EHOSTUNREACH 10.0.0.1:443 |
       | connect ENETUNREACH 10.0.0.1:443  |
+
+  Scenario: An HTTP/2 stream the peer refused is replayed for an undeclared method
+    Given a method declared "UNSPECIFIED"
+    And the peer refuses its stream 2 times with REFUSED_STREAM
+    When the call is sent through the retry interceptor
+    Then the call succeeds on attempt 3
+
+  Scenario: An HTTP/2 stream above the GOAWAY last stream id is replayed for an undeclared method
+    Given a method declared "UNSPECIFIED"
+    And the peer shuts its session down 2 times below its stream
+    When the call is sent through the retry interceptor
+    Then the call succeeds on attempt 3
+
+  Scenario: An HTTP/2 stream the peer already processed is not replayed for an undeclared method
+    Given a method declared "UNSPECIFIED"
+    And its stream fails 1 times after the peer processed it
+    When the call is sent through the retry interceptor
+    Then the call fails on attempt 1
 
   Scenario: A reset after the request was sent is not replayed for an undeclared method
     Given a method declared "UNSPECIFIED"

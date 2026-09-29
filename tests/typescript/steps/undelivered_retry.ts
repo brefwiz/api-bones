@@ -53,6 +53,32 @@ Given(
 );
 
 Given(
+  "the peer refuses its stream {int} times with REFUSED_STREAM",
+  function (this: UndeliveredWorld, failures: number) {
+    this.failures = failures;
+    this.undelivered = true;
+    this.failureMessage = "stream refused";
+  },
+);
+
+Given(
+  "the peer shuts its session down {int} times below its stream",
+  function (this: UndeliveredWorld, failures: number) {
+    this.failures = failures;
+    this.undelivered = true;
+    this.failureMessage = "session shut down below the stream";
+  },
+);
+
+Given(
+  "its stream fails {int} times after the peer processed it",
+  function (this: UndeliveredWorld, failures: number) {
+    this.failures = failures;
+    this.undelivered = false;
+  },
+);
+
+Given(
   "its connection fails {int} times after the request was sent",
   function (this: UndeliveredWorld, failures: number) {
     this.failures = failures;
