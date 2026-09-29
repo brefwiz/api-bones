@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.1](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.2.0...api-bones-v8.2.1) - 2026-09-29
+
+### Other
+
+- regenerate rc-tree-proof gate and verdict job, wire direct needs so gated jobs run
+
 ## [8.2.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.1.1...api-bones-v8.2.0) - 2026-09-29
 
 ### Added
