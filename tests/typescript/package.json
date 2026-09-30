@@ -7,7 +7,7 @@
   "scripts": {
     "generate:native": "../../scripts/generate-native-fixtures.sh",
     "build": "npm run generate:native && tsc --noEmit",
-    "test": "npm run generate:native && cucumber-js"
+    "test": "cucumber-js"
   },
   "devDependencies": {
     "@brefwiz/api-bones-connect": "file:../../api-bones-connect-ts",

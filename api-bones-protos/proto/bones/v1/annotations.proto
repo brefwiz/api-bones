@@ -149,7 +149,7 @@ extend google.protobuf.FileOptions {
   // Native client surfaces in this proto file. File options keep native
   // declarations out of protobuf service and method inventory entirely, so
   // ordinary RPC generators cannot emit handlers for them.
-  repeated NativeService native_services = 5102352;
+  repeated NativeService native_services = 5102354;
 }
 
 extend google.protobuf.ServiceOptions {

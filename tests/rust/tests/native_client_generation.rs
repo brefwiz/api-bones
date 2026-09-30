@@ -4,9 +4,11 @@ mod native_generated {
 }
 #[path = "steps/native.rs"]
 mod native_steps;
+#[path = "support/native_world.rs"]
+mod native_world;
 
 use brefwiz_cucumber_steps::TwoPass;
-use native_steps::NativeWorld;
+use native_world::NativeWorld;
 
 #[tokio::main]
 async fn main() {

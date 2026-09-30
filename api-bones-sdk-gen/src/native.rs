@@ -65,7 +65,7 @@ pub fn generate_descriptor_set_bytes(
     typescript_out: &Path,
     check: bool,
 ) -> Result<()> {
-    let services = services_from_descriptor_set(&bytes, None, false)?;
+    let services = services_from_descriptor_set(bytes, None, false)?;
     let rust = render_rust(&services);
     let typescript = render_typescript(&services);
     if check {

@@ -1,143 +1,16 @@
 // SPDX-License-Identifier: MIT
 use super::native_generated::*;
-use cucumber::{World, given, then, when};
+use super::native_world::{NativeWorld, NoopWake, Recording};
+use cucumber::{given, then, when};
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicBool, Ordering},
 };
 use std::time::{Duration, Instant};
 use std::{
     future::Future,
-    pin::Pin,
-    task::{Context, Poll, Wake, Waker},
+    task::{Context, Poll, Waker},
 };
-
-#[derive(Clone, Debug, Default)]
-struct Recording {
-    calls: Arc<Mutex<Vec<String>>>,
-    denied: bool,
-    options: Arc<Mutex<Option<CallOptions>>>,
-    publication: Arc<Mutex<Option<Publication>>>,
-    handle_bytes: Arc<Mutex<Option<Vec<u8>>>>,
-    fail_ack_once: Arc<AtomicBool>,
-    interrupt_ack_once: Arc<AtomicBool>,
-    fail_nak_once: Arc<AtomicBool>,
-}
-struct PendingAck;
-impl Future for PendingAck {
-    type Output = Result<(), NativeError>;
-    fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
-        Poll::Pending
-    }
-}
-struct NoopWake;
-impl Wake for NoopWake {
-    fn wake(self: Arc<Self>) {}
-}
-struct Once(Option<Delivery>);
-impl DeliveryStream for Once {
-    fn next(&mut self) -> BoxNativeFuture<'_, Option<Delivery>> {
-        let item = self.0.take();
-        Box::pin(async move { Ok(item) })
-    }
-}
-impl NativeTransport for Recording {
-    fn publish(
-        &self,
-        op: &'static str,
-        request: Publication,
-        options: CallOptions,
-    ) -> BoxNativeFuture<'_, PublishResult> {
-        self.calls.lock().unwrap().push(op.into());
-        *self.publication.lock().unwrap() = Some(request);
-        *self.options.lock().unwrap() = Some(options);
-        let denied = self.denied;
-        Box::pin(async move {
-            if denied {
-                Err(NativeError::PermissionDenied {
-                    code: "permission_denied".into(),
-                })
-            } else {
-                Ok(PublishResult { duplicate: false })
-            }
-        })
-    }
-    fn deliver(&self, op: &'static str, _: CallOptions) -> BoxNativeFuture<'_, BoxDeliveryStream> {
-        self.calls.lock().unwrap().push(op.into());
-        Box::pin(async {
-            Ok(Box::new(Once(Some(Delivery {
-                message_id: "m1".into(),
-                entity_id: "e1".into(),
-                payload: vec![1],
-                ack_handle: AckHandle::new(vec![7]),
-            }))) as BoxDeliveryStream)
-        })
-    }
-    fn acknowledge(
-        &self,
-        op: &'static str,
-        handle: AckHandle,
-        options: CallOptions,
-    ) -> BoxNativeFuture<'_, ()> {
-        self.calls.lock().unwrap().push(op.into());
-        *self.handle_bytes.lock().unwrap() = Some(handle.value);
-        *self.options.lock().unwrap() = Some(options);
-        let fail = self.fail_ack_once.swap(false, Ordering::Relaxed);
-        let interrupt = self.interrupt_ack_once.swap(false, Ordering::Relaxed);
-        if interrupt {
-            Box::pin(PendingAck)
-        } else {
-            Box::pin(async move {
-                if fail {
-                    Err(NativeError::Transport {
-                        code: "ack_failed".into(),
-                    })
-                } else {
-                    Ok(())
-                }
-            })
-        }
-    }
-    fn negative_acknowledge(
-        &self,
-        op: &'static str,
-        handle: AckHandle,
-        options: CallOptions,
-    ) -> BoxNativeFuture<'_, ()> {
-        self.calls.lock().unwrap().push(op.into());
-        *self.handle_bytes.lock().unwrap() = Some(handle.value);
-        *self.options.lock().unwrap() = Some(options);
-        let fail = self.fail_nak_once.swap(false, Ordering::Relaxed);
-        Box::pin(async move {
-            if fail {
-                Err(NativeError::Transport {
-                    code: "nak_failed".into(),
-                })
-            } else {
-                Ok(())
-            }
-        })
-    }
-}
-#[derive(Debug, Default, World)]
-pub struct NativeWorld {
-    transport: Option<Recording>,
-    error: Option<NativeError>,
-    handle: Option<AckHandle>,
-    first_generation: Option<(String, String)>,
-    second_generation: Option<(String, String)>,
-    generation_failed: bool,
-    generation_error: Option<String>,
-    stale_errors: Vec<String>,
-    identifier_errors: Vec<String>,
-    disambiguated: bool,
-    publish_result: Option<PublishResult>,
-    delivery: Option<Delivery>,
-    expected_cancel: Option<Arc<AtomicBool>>,
-    expected_deadline: Option<Instant>,
-    plugin_empty: bool,
-    plugin_multi: bool,
-}
 #[given("a generated native client backed by a recording transport")]
 fn recording(w: &mut NativeWorld) {
     w.transport = Some(Recording::default())
@@ -388,11 +261,11 @@ async fn nak_when(w: &mut NativeWorld) {
 #[when("first acknowledgement attempt fails")]
 async fn ack_fails(w: &mut NativeWorld) {
     let c = FixtureNativeV1NativeQueueClient::new(w.transport.clone().unwrap());
-    let error = c
-        .acknowledge(w.handle.as_ref().unwrap(), CallOptions::default())
-        .await
-        .unwrap_err();
-    assert!(matches!(error,NativeError::Transport{ref code} if code=="ack_failed"))
+    assert_transport_failure(
+        c.acknowledge(w.handle.as_ref().unwrap(), CallOptions::default()),
+        "ack_failed",
+    )
+    .await
 }
 #[when("first acknowledgement attempt is interrupted")]
 fn ack_interrupted(w: &mut NativeWorld) {
@@ -406,11 +279,19 @@ fn ack_interrupted(w: &mut NativeWorld) {
 #[when("first negative acknowledgement attempt fails")]
 async fn nak_fails(w: &mut NativeWorld) {
     let c = FixtureNativeV1NativeQueueClient::new(w.transport.clone().unwrap());
-    let error = c
-        .negative_acknowledge(w.handle.as_ref().unwrap(), CallOptions::default())
-        .await
-        .unwrap_err();
-    assert!(matches!(error,NativeError::Transport{ref code} if code=="nak_failed"))
+    assert_transport_failure(
+        c.negative_acknowledge(w.handle.as_ref().unwrap(), CallOptions::default()),
+        "nak_failed",
+    )
+    .await
+}
+
+async fn assert_transport_failure(
+    future: impl Future<Output = Result<(), NativeError>>,
+    expected_code: &str,
+) {
+    let error = future.await.unwrap_err();
+    assert!(matches!(error, NativeError::Transport { ref code } if code == expected_code));
 }
 #[then("reusing the acknowledgement handle is refused")]
 async fn reused(w: &mut NativeWorld) {

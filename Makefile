@@ -6,6 +6,9 @@
 	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
 	lockfile ci-lockfile-diff
 
+CODEGEN_INPUTS := api-bones-protos/proto
+include build/brefwiz-codegen.mk
+
 .DEFAULT_GOAL := help
 
 # Optional: path to a local advisory-db clone (used by ci-audit).
@@ -176,7 +179,7 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 
 # ─── TypeScript packages ────────────────────────────────────────────────────
 
-.PHONY: ts-build ts-test ts-lint
+.PHONY: ts-build ts-test ts-lint ts-native-generate
 # Every TypeScript package in the repo. Enumerated once and looped over rather
 # than named per target: these were hardcoded to api-bones-otel alone, so
 # api-bones-axios shipped without its build or tests ever running in CI despite
@@ -222,7 +225,10 @@ ts-build: ## Build TypeScript packages
 		( cd $$pkg && npm install --no-audit --no-fund && npm run build ); \
 	done
 
-ts-test: ## Test TypeScript packages
+ts-native-generate: ## Refresh native TypeScript contract fixture before direct Cucumber execution
+	cd tests/typescript && npm run generate:native
+
+ts-test: ts-native-generate ## Test TypeScript packages
 	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
 	: '@brefwiz/api-bones-connect through its published entry points, so the'
 	: 'package it depends on is built first.'

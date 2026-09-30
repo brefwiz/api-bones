@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn annotations_proto_declares_native_service_without_rpc_semantics() {
         let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
-        assert!(body.contains("repeated NativeService native_services = 5102352;"));
+        assert!(body.contains("repeated NativeService native_services = 5102354;"));
         for kind in [
             "NATIVE_OPERATION_KIND_PUBLISH",
             "NATIVE_OPERATION_KIND_DELIVER",

@@ -124,6 +124,7 @@ jobs:
       flavor: default
       memory: "16384"
     env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
       GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
     steps:

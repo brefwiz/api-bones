@@ -9,6 +9,7 @@ fn compile(files: &[PathBuf], include: &PathBuf) -> Vec<u8> {
 }
 
 fn main() {
+    println!("cargo:rerun-if-env-changed=BREFWIZ_CODEGEN_INPUTS_SHA");
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("manifest dir"));
     let root = manifest.join("../..");
     let include = root.join("api-bones-protos/proto");
