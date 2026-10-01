@@ -35,5 +35,8 @@
   "publishConfig": {
     "registry": "https://git.brefwiz.com/api/packages/brefwiz/npm/",
     "access": "public"
+  },
+  "overrides": {
+    "nanoid": "^3.3.18"
   }
 }
