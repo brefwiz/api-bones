@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [8.2.5](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.2.4...api-bones-v8.2.5) - 2026-10-01
+
+### Fixed
+
+- *(deps)* patch vulnerable test tooling dependencies
+
 ## [8.2.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.2.3...api-bones-v8.2.4) - 2026-09-29
 
 ### Fixed
