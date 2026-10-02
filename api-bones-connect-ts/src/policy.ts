@@ -51,7 +51,7 @@ export interface GeneratedMethodPolicy {
 }
 
 export interface GeneratedMethodPolicyDocument {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 1 | 2;
   readonly methods: readonly GeneratedMethodPolicy[];
 }
 
@@ -162,7 +162,11 @@ function parsePublicRead(value: unknown): GeneratedPublicReadPolicy | null {
  * silently granting the subset that happened to parse.
  */
 export function indexGeneratedPolicy(value: unknown): ReadonlyMap<string, GeneratedMethodPolicy> {
-  if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.methods)) {
+  if (
+    !isRecord(value) ||
+    (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
+    !Array.isArray(value.methods)
+  ) {
     return new Map();
   }
   const index = new Map<string, GeneratedMethodPolicy>();

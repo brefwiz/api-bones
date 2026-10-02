@@ -45,6 +45,13 @@ Given("a unary method declared {string}", function (this: PreconditionWorld, ide
   this.policy = policyDoc(idempotency);
 });
 
+Given(
+  "a unary method declared {string} in policy schema {int}",
+  function (this: PreconditionWorld, idempotency: string, version: number) {
+    this.policy = { ...(policyDoc(idempotency) as object), schemaVersion: version };
+  },
+);
+
 Given("a method with no policy entry at all", function (this: PreconditionWorld) {
   this.policy = { schemaVersion: 1, methods: [] };
 });

@@ -24,6 +24,12 @@ fn given_declared(world: &mut PreconditionWorld, idempotency: String) {
     world.declare_method(idempotency_of(&idempotency));
 }
 
+#[given(expr = "a unary method declared {string} in policy schema {int}")]
+fn given_schema_declared(world: &mut PreconditionWorld, idempotency: String, version: u32) {
+    idempotency_of(&idempotency);
+    world.declare_policy_document(version, &idempotency);
+}
+
 #[given(expr = "a method with no policy entry at all")]
 fn given_no_policy(world: &mut PreconditionWorld) {
     world.declare_no_policy();
