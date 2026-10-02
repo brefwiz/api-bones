@@ -28,7 +28,7 @@ jobs:
     # nothing a PR run has not already proven, so every other job below skips.
     # Runs (and can only prove anything) on a push to rc; a PR run leaves it
     # unproven, so nothing else here is ever gated on a PR run.
-    if: ${{ git.ref_name == 'rc' || startsWith(cds.event.ref, 'refs/heads/release-plz-') }}
+    if: ${{ git.ref_name == 'rc' || startsWith(git.ref, 'refs/heads/release-plz-') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -48,11 +48,11 @@ jobs:
         with:
           checkout: "false"
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-          event-ref: ${{ cds.event.ref }}
+          event-ref: ${{ git.ref }}
 
   cargo-package:
     needs: [rc-tree-proof]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -117,7 +117,7 @@ jobs:
 
   test:
     needs: [rc-tree-proof]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
@@ -151,7 +151,7 @@ jobs:
 
   ts:
     needs: [rc-tree-proof]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -202,12 +202,12 @@ jobs:
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
-    needs: [test, ts, rc-tree-proof]
+    needs: [test, ts]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
@@ -233,7 +233,7 @@ jobs:
   # and no promotion.
   verdict:
     needs: [test, ts, duplication-typed, cargo-package, checks, rc-tree-proof]
-    if: ${{ (always()) && (git.ref_name != 'rc' && !startsWith(cds.event.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (always()) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -250,6 +250,6 @@ jobs:
             rc-tree-proof||${{ needs.rc-tree-proof.result }}
             test|rc-tree-proof|${{ needs.test.result }}
             ts|rc-tree-proof|${{ needs.ts.result }}
-            duplication-typed|rc-tree-proof,test,ts|${{ needs.duplication-typed.result }}
+            duplication-typed|test,ts|${{ needs.duplication-typed.result }}
             cargo-package|rc-tree-proof|${{ needs.cargo-package.result }}
             checks|rc-tree-proof|${{ needs.checks.result }}
