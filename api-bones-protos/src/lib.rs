@@ -259,6 +259,7 @@ mod tests {
             "repeated string provided_capabilities = 5102351;",
             "repeated CapabilityLabel capability_labels = 5102352;",
             "repeated PermissionLabel permission_labels = 5102353;",
+            "repeated BrokerScope provided_broker_scopes = 5102354;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
@@ -289,6 +290,38 @@ mod tests {
             fields,
             ["string capability = 1;", "string scope = 2;"],
             "BrokerScope is exactly {{capability, scope}}"
+        );
+    }
+
+    /// Absence of the option must read as "never part of a default grant":
+    /// the zero value is UNSPECIFIED, and no other value may take number 0,
+    /// since an unset enum option decodes to it.
+    #[test]
+    fn annotations_proto_declares_capability_audience() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("CapabilityAudience capability_audience = 5102355;"),
+            "annotations.proto missing the capability_audience service option"
+        );
+        let msg = body
+            .split("enum CapabilityAudience {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("CapabilityAudience enum");
+        let values: Vec<&str> = msg
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        assert_eq!(
+            values,
+            [
+                "CAPABILITY_AUDIENCE_UNSPECIFIED = 0;",
+                "CAPABILITY_AUDIENCE_ADMINISTRATORS = 1;",
+                "CAPABILITY_AUDIENCE_MEMBERS = 2;",
+                "CAPABILITY_AUDIENCE_EVERYONE = 3;",
+            ],
+            "CapabilityAudience values and numbers are fixed"
         );
     }
 

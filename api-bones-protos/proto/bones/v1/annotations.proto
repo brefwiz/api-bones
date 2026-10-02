@@ -281,6 +281,30 @@
 //     };
 //   }
 
+// `bones.v1.capability_audience` declares which organization roles a
+// product's capability is granted to when an organization enables the
+// product. The provider states it in the contract, beside the capability it
+// serves, so enablement reads one descriptor and no second document maps a
+// capability to its default audience.
+//
+//   ADMINISTRATORS -> admin
+//   MEMBERS        -> admin, member
+//   EVERYONE       -> admin, member, viewer
+//
+// `admin` is always granted explicitly. Unset, or
+// CAPABILITY_AUDIENCE_UNSPECIFIED, means the capability is never part of a
+// default grant: it is reachable only through an explicit role-capability
+// grant. Declaring an audience is the provider's statement of who the
+// capability is for, never a grant by itself; the authority applies it
+// through the ordinary guarded grant path.
+//
+// Usage:
+//
+//   service ReservationService {
+//     option (bones.v1.provided_capabilities) = "reservations.schedule";
+//     option (bones.v1.capability_audience) = CAPABILITY_AUDIENCE_EVERYONE;
+//   }
+
 syntax = "proto3";
 
 package bones.v1;
@@ -312,6 +336,11 @@ extend google.protobuf.ServiceOptions {
   // Scopes of a provided capability that a broker, not an RPC, enforces. See
   // file header.
   repeated BrokerScope provided_broker_scopes = 5102354;
+
+  // Organization roles this service's capabilities are granted to when an
+  // organization enables the product. Absent or UNSPECIFIED means never part
+  // of a default grant. See file header.
+  CapabilityAudience capability_audience = 5102355;
 }
 
 extend google.protobuf.MethodOptions {
@@ -383,6 +412,22 @@ message BrokerScope {
   // for the provider's own events, or `<ns>:<right>` for a broker's own right.
   // The file header holds its forms and the complete refusal list.
   string scope = 2;
+}
+
+// Who a product's capability is granted to when an organization enables the
+// product. Each value includes every role of the values before it.
+enum CapabilityAudience {
+  // No declaration. The capability is never part of a default grant.
+  CAPABILITY_AUDIENCE_UNSPECIFIED = 0;
+
+  // Granted to the `admin` role.
+  CAPABILITY_AUDIENCE_ADMINISTRATORS = 1;
+
+  // Granted to the `admin` and `member` roles.
+  CAPABILITY_AUDIENCE_MEMBERS = 2;
+
+  // Granted to the `admin`, `member` and `viewer` roles.
+  CAPABILITY_AUDIENCE_EVERYONE = 3;
 }
 
 // Whether an RPC requires a credential at all.
