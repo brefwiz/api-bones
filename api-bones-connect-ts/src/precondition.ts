@@ -38,8 +38,8 @@ export const IF_MATCH_ANY = "*";
  * default.
  *
  * Fails closed: no policy entry, a streaming method, or an explicit
- * `NO_SIDE_EFFECTS` read are all left alone. Only a declared `IDEMPOTENT` or
- * `UNSPECIFIED` unary method — i.e. anything that isn't declared read-only —
+ * `NO_SIDE_EFFECTS` read are all left alone. Only a declared `IDEMPOTENT`,
+ * `NON_IDEMPOTENT` or `UNSPECIFIED` unary method — i.e. anything that isn't declared read-only —
  * gets the default precondition.
  */
 export function isPreconditionedMethod(policy: GeneratedMethodPolicy | undefined): boolean {

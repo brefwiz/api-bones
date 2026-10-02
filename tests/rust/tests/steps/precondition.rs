@@ -13,6 +13,7 @@ fn idempotency_of(name: &str) -> Idempotency {
     match name {
         "NO_SIDE_EFFECTS" => Idempotency::NoSideEffects,
         "IDEMPOTENT" => Idempotency::Idempotent,
+        "NON_IDEMPOTENT" => Idempotency::NonIdempotent,
         "UNSPECIFIED" => Idempotency::Unspecified,
         other => panic!("the contract names an idempotency this step cannot build: {other}"),
     }

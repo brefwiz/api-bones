@@ -29,16 +29,20 @@ pub const IF_MATCH_ANY: &str = "*";
 pub enum Idempotency {
     NoSideEffects,
     Idempotent,
+    /// A write declared knowingly not retry-safe.
+    NonIdempotent,
     Unspecified,
 }
 
 impl Idempotency {
-    fn parse(s: &str) -> Option<Self> {
+    /// An unknown value reads as the most conservative contract
+    /// (`NonIdempotent`): mutating, so preconditioned.
+    fn parse(s: &str) -> Self {
         match s {
-            "NO_SIDE_EFFECTS" => Some(Self::NoSideEffects),
-            "IDEMPOTENT" => Some(Self::Idempotent),
-            "UNSPECIFIED" => Some(Self::Unspecified),
-            _ => None,
+            "NO_SIDE_EFFECTS" => Self::NoSideEffects,
+            "IDEMPOTENT" => Self::Idempotent,
+            "UNSPECIFIED" => Self::Unspecified,
+            _ => Self::NonIdempotent,
         }
     }
 
@@ -80,7 +84,7 @@ pub fn index_generated_policy(json: &str) -> HashMap<String, Idempotency> {
             entry
                 .get("idempotency")
                 .and_then(serde_json::Value::as_str)
-                .and_then(Idempotency::parse),
+                .map(Idempotency::parse),
         ) else {
             return HashMap::new();
         };
@@ -165,6 +169,36 @@ mod tests {
         let index = index_generated_policy(policy_json());
         assert_eq!(index.len(), 2);
         assert!(index["/pkg.v1.Svc/Update"].is_preconditioned());
+        assert!(!index["/pkg.v1.Svc/Get"].is_preconditioned());
+    }
+
+    #[test]
+    fn non_idempotent_is_preconditioned() {
+        let json = r#"{"schemaVersion": 1, "methods": [
+            {"rpc": "/pkg.v1.Svc/Charge", "procedure": "unary", "idempotency": "NON_IDEMPOTENT"}
+        ]}"#;
+        let index = index_generated_policy(json);
+        assert_eq!(index["/pkg.v1.Svc/Charge"], Idempotency::NonIdempotent);
+        assert!(index["/pkg.v1.Svc/Charge"].is_preconditioned());
+    }
+
+    #[test]
+    fn unknown_idempotency_reads_as_mutating_without_failing_the_policy() {
+        let json = r#"{"schemaVersion": 1, "methods": [
+            {"rpc": "/pkg.v1.Svc/Get", "procedure": "unary", "idempotency": "NO_SIDE_EFFECTS"},
+            {"rpc": "/pkg.v1.Svc/Future", "procedure": "unary", "idempotency": "SOMETHING_NEW"}
+        ]}"#;
+        let index = index_generated_policy(json);
+        assert_eq!(index.len(), 2);
+        assert!(index["/pkg.v1.Svc/Future"].is_preconditioned());
+    }
+
+    #[test]
+    fn sensitivity_does_not_affect_the_idempotency_reader() {
+        let json = r#"{"schemaVersion": 1, "methods": [
+            {"rpc": "/pkg.v1.Svc/Get", "procedure": "unary", "idempotency": "NO_SIDE_EFFECTS", "sensitivity": "SENSITIVE"}
+        ]}"#;
+        let index = index_generated_policy(json);
         assert!(!index["/pkg.v1.Svc/Get"].is_preconditioned());
     }
 

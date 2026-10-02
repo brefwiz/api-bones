@@ -19,12 +19,14 @@ Feature: Connect default precondition
       | idempotency     | caller_header | sent_header |
       | IDEMPOTENT       | none          | *           |
       | UNSPECIFIED      | none          | *           |
+      | NON_IDEMPOTENT   | none          | *           |
       | NO_SIDE_EFFECTS  | none          | none        |
 
     # A caller that already tracked a real ETag is never second-guessed.
     Examples: a caller-supplied precondition is never overridden
       | idempotency  | caller_header | sent_header  |
       | IDEMPOTENT   | real-etag     | real-etag    |
+      | NON_IDEMPOTENT | real-etag   | real-etag    |
 
   Scenario: An unannotated method is left exactly as it was before this existed
     Given a method with no policy entry at all

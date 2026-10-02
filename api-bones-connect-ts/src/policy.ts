@@ -36,9 +36,15 @@ export interface GeneratedPublicReadPolicy {
 export interface GeneratedMethodPolicy {
   readonly rpc: string;
   readonly procedure: "unary" | "streaming";
-  readonly idempotency: "NO_SIDE_EFFECTS" | "IDEMPOTENT" | "UNSPECIFIED";
+  /**
+   * `NON_IDEMPOTENT` is a write declared knowingly not retry-safe;
+   * `UNSPECIFIED` is the legacy undeclared form. Both are mutating, never a
+   * GET and never retried.
+   */
+  readonly idempotency: "NO_SIDE_EFFECTS" | "IDEMPOTENT" | "NON_IDEMPOTENT" | "UNSPECIFIED";
   readonly browserCache: GeneratedBrowserCachePolicy;
-  readonly sensitivity: "NON_SENSITIVE" | "UNSPECIFIED";
+  /** `SENSITIVE` and the legacy `UNSPECIFIED` are never cached or sent as GET. */
+  readonly sensitivity: "NON_SENSITIVE" | "SENSITIVE" | "UNSPECIFIED";
   readonly maxEncodedUrlBytes: number;
   /** Present only on a method served on the public lane. */
   readonly publicRead?: GeneratedPublicReadPolicy;
@@ -63,19 +69,46 @@ function isNonNegativeInteger(value: unknown): value is number {
   );
 }
 
+function parseIdempotency(value: unknown): GeneratedMethodPolicy["idempotency"] | null {
+  if (typeof value !== "string") return null;
+  switch (value) {
+    case "NO_SIDE_EFFECTS":
+    case "IDEMPOTENT":
+    case "NON_IDEMPOTENT":
+    case "UNSPECIFIED":
+      return value;
+    default:
+      // A value this reader does not know is read as the most conservative
+      // contract: mutating, never a GET, never retried.
+      return "NON_IDEMPOTENT";
+  }
+}
+
+function parseSensitivity(value: unknown): GeneratedMethodPolicy["sensitivity"] | null {
+  if (typeof value !== "string") return null;
+  switch (value) {
+    case "NON_SENSITIVE":
+    case "SENSITIVE":
+    case "UNSPECIFIED":
+      return value;
+    default:
+      return "SENSITIVE";
+  }
+}
+
 export function parseMethodPolicy(value: unknown): GeneratedMethodPolicy | null {
   if (!isRecord(value) || !isRecord(value.browserCache)) return null;
   const cache = value.browserCache;
+  const idempotency = parseIdempotency(value.idempotency);
+  const sensitivity = parseSensitivity(value.sensitivity);
   if (
     typeof value.rpc !== "string" ||
     !value.rpc.startsWith("/") ||
     (value.procedure !== "unary" && value.procedure !== "streaming") ||
-    (value.idempotency !== "NO_SIDE_EFFECTS" &&
-      value.idempotency !== "IDEMPOTENT" &&
-      value.idempotency !== "UNSPECIFIED") ||
+    idempotency === null ||
     (cache.scope !== "PRIVATE" && cache.scope !== "NO_STORE") ||
     !isNonNegativeInteger(cache.maxAgeSeconds) ||
-    (value.sensitivity !== "NON_SENSITIVE" && value.sensitivity !== "UNSPECIFIED") ||
+    sensitivity === null ||
     !isNonNegativeInteger(value.maxEncodedUrlBytes) ||
     value.maxEncodedUrlBytes > MAX_CONNECT_GET_URL_BYTES
   ) {
@@ -84,12 +117,12 @@ export function parseMethodPolicy(value: unknown): GeneratedMethodPolicy | null 
   const method: GeneratedMethodPolicy = {
     rpc: value.rpc,
     procedure: value.procedure,
-    idempotency: value.idempotency,
+    idempotency,
     browserCache: {
       scope: cache.scope,
       maxAgeSeconds: cache.maxAgeSeconds,
     },
-    sensitivity: value.sensitivity,
+    sensitivity,
     maxEncodedUrlBytes: value.maxEncodedUrlBytes,
   };
   if (value.publicRead === undefined) return method;
