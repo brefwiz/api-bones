@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-protos"
-version = "0.4.6"
+version = "0.4.7"
 
 [[package]]
 name = "api-bones-reqwest"
