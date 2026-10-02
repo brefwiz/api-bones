@@ -96,4 +96,8 @@ message OffsetPageResponse {
 
   // Number of items skipped before this page.
   uint64 offset = 4;
+
+  // Opaque revision of the listed collection as of this page, usable as an
+  // ETag for conditional reads.
+  string revision = 5;
 }
