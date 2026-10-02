@@ -107,8 +107,49 @@ describe("policy", () => {
   it("refuses browser reads for sensitive or side-effecting methods", () => {
     expect(eligibleBrowserReadPolicy(method({ sensitivity: "UNSPECIFIED" }))).toBeNull();
     expect(eligibleBrowserReadPolicy(method({ idempotency: "IDEMPOTENT" }))).toBeNull();
+    expect(eligibleBrowserReadPolicy(method({ idempotency: "NON_IDEMPOTENT" }))).toBeNull();
+    expect(eligibleBrowserReadPolicy(method({ sensitivity: "SENSITIVE" }))).toBeNull();
     expect(eligibleBrowserReadPolicy(method({ browserCache: { scope: "NO_STORE", maxAgeSeconds: 0 } })))
       .toBeNull();
+  });
+});
+
+describe("explicit policy declarations", () => {
+  it("parses NON_IDEMPOTENT and SENSITIVE as declared", () => {
+    const index = indexGeneratedPolicy({
+      schemaVersion: 1,
+      methods: [method({ idempotency: "NON_IDEMPOTENT", sensitivity: "SENSITIVE" })],
+    });
+    const parsed = index.get("/svc.v1.S/Get");
+    expect(parsed?.idempotency).toBe("NON_IDEMPOTENT");
+    expect(parsed?.sensitivity).toBe("SENSITIVE");
+  });
+
+  it("reads an unknown value as mutating and sensitive without crashing", () => {
+    const index = indexGeneratedPolicy({
+      schemaVersion: 1,
+      methods: [method({ idempotency: "FUTURE_VALUE", sensitivity: "FUTURE_VALUE" })],
+    });
+    const parsed = index.get("/svc.v1.S/Get");
+    expect(parsed?.idempotency).toBe("NON_IDEMPOTENT");
+    expect(parsed?.sensitivity).toBe("SENSITIVE");
+    expect(isPreconditionedMethod(parsed)).toBe(true);
+    expect(isRetryableMethod(parsed)).toBe(false);
+    expect(eligibleBrowserReadPolicy(parsed)).toBeNull();
+  });
+
+  it("still fails closed on a non-string declaration", () => {
+    expect(indexGeneratedPolicy({ schemaVersion: 1, methods: [method({ idempotency: 7 })] }).size)
+      .toBe(0);
+  });
+
+  it("treats NON_IDEMPOTENT as mutating, preconditioned and never retried", () => {
+    const policy = indexGeneratedPolicy({
+      schemaVersion: 1,
+      methods: [method({ idempotency: "NON_IDEMPOTENT" })],
+    }).get("/svc.v1.S/Get");
+    expect(isPreconditionedMethod(policy)).toBe(true);
+    expect(isRetryableMethod(policy)).toBe(false);
   });
 });
 
