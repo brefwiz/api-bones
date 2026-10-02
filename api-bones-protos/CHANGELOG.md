@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-protos-v0.4.5...api-bones-protos-v0.4.6) - 2026-10-02
+
+### Added
+
+- *(protos)* add bones.v1.capability_audience service option
+
 ## [0.4.5](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-protos-v0.4.4...api-bones-protos-v0.4.5) - 2026-09-29
 
 ### Added
