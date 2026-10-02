@@ -71,7 +71,7 @@ pub fn index_generated_policy(json: &str) -> HashMap<String, Idempotency> {
         return HashMap::new();
     };
     let mut index = HashMap::new();
-    let Some(1) = doc.get("schemaVersion").and_then(serde_json::Value::as_u64) else {
+    let Some(1 | 2) = doc.get("schemaVersion").and_then(serde_json::Value::as_u64) else {
         return HashMap::new();
     };
     let Some(methods) = doc.get("methods").and_then(serde_json::Value::as_array) else {
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn fails_closed_on_malformed_or_duplicate_entries() {
         assert!(index_generated_policy("not json").is_empty());
-        assert!(index_generated_policy(r#"{"schemaVersion": 2, "methods": []}"#).is_empty());
+        assert!(index_generated_policy(r#"{"schemaVersion": 3, "methods": []}"#).is_empty());
         let dup = r#"{"schemaVersion": 1, "methods": [
             {"rpc": "/pkg.v1.Svc/Update", "procedure": "unary", "idempotency": "IDEMPOTENT"},
             {"rpc": "/pkg.v1.Svc/Update", "procedure": "unary", "idempotency": "IDEMPOTENT"}

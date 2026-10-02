@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use api_bones_connect::{Idempotency, PreconditionedTransport};
+use api_bones_connect::{Idempotency, PreconditionedTransport, index_generated_policy};
 use connectrpc::ConnectError;
 use connectrpc::client::{BoxFuture, ClientBody, ClientTransport};
 use cucumber::World;
@@ -51,6 +51,18 @@ pub struct PreconditionWorld {
 }
 
 impl PreconditionWorld {
+    pub fn declare_policy_document(&mut self, version: u32, idempotency: &str) {
+        let document = format!(
+            r#"{{"schemaVersion": {version}, "methods": [{{
+                "rpc": "{PRECONDITION_METHOD}",
+                "procedure": "unary", "idempotency": "{idempotency}",
+                "browserCache": {{"scope": "NO_STORE", "maxAgeSeconds": 0}},
+                "sensitivity": "SENSITIVE", "maxEncodedUrlBytes": 4096
+            }}]}}"#
+        );
+        self.policy = Some(index_generated_policy(&document));
+    }
+
     pub fn declare_method(&mut self, idempotency: Idempotency) {
         let mut policy = HashMap::new();
         policy.insert(PRECONDITION_METHOD.to_owned(), idempotency);

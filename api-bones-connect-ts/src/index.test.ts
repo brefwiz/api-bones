@@ -76,24 +76,28 @@ describe("backoff", () => {
 });
 
 describe("policy", () => {
-  it("indexes a well-formed document", () => {
-    const index = indexGeneratedPolicy({ schemaVersion: 1, methods: [method()] });
+  it.each([1, 2])("indexes a well-formed schema %s document", (schemaVersion) => {
+    const index = indexGeneratedPolicy({ schemaVersion, methods: [method()] });
     expect(index.size).toBe(1);
+  });
+
+  it.each([0, 3, null, undefined, "2"])("fails closed on unsupported schema %s", (schemaVersion) => {
+    expect(indexGeneratedPolicy({ schemaVersion, methods: [method()] }).size).toBe(0);
   });
 
   // Fail-closed is the security property: a partially-parseable policy must
   // grant nothing, not the subset that happened to parse.
-  it("fails closed to an empty index on a duplicate rpc", () => {
+  it.each([1, 2])("fails closed to an empty index on a duplicate rpc in schema %s", (schemaVersion) => {
     const index = indexGeneratedPolicy({
-      schemaVersion: 1,
+      schemaVersion,
       methods: [method(), method()],
     });
     expect(index.size).toBe(0);
   });
 
-  it("fails closed on a malformed entry", () => {
+  it.each([1, 2])("fails closed on a malformed entry in schema %s", (schemaVersion) => {
     const index = indexGeneratedPolicy({
-      schemaVersion: 1,
+      schemaVersion,
       methods: [method(), method({ browserCache: { scope: "BOGUS", maxAgeSeconds: 1 } })],
     });
     expect(index.size).toBe(0);
@@ -115,9 +119,9 @@ describe("policy", () => {
 });
 
 describe("explicit policy declarations", () => {
-  it("parses NON_IDEMPOTENT and SENSITIVE as declared", () => {
+  it.each([1, 2])("parses NON_IDEMPOTENT and SENSITIVE as declared in schema %s", (schemaVersion) => {
     const index = indexGeneratedPolicy({
-      schemaVersion: 1,
+      schemaVersion,
       methods: [method({ idempotency: "NON_IDEMPOTENT", sensitivity: "SENSITIVE" })],
     });
     const parsed = index.get("/svc.v1.S/Get");
@@ -125,9 +129,9 @@ describe("explicit policy declarations", () => {
     expect(parsed?.sensitivity).toBe("SENSITIVE");
   });
 
-  it("reads an unknown value as mutating and sensitive without crashing", () => {
+  it.each([1, 2])("reads unknown declarations conservatively in schema %s", (schemaVersion) => {
     const index = indexGeneratedPolicy({
-      schemaVersion: 1,
+      schemaVersion,
       methods: [method({ idempotency: "FUTURE_VALUE", sensitivity: "FUTURE_VALUE" })],
     });
     const parsed = index.get("/svc.v1.S/Get");
