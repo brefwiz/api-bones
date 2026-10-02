@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.2.6...api-bones-v9.0.0) - 2026-10-02
+
+### Added
+
+- *(connect)* read NON_IDEMPOTENT and SENSITIVE method-policy values
+
+### Other
+
+- *(connect)* NON_IDEMPOTENT methods get the default precondition in both languages
+
 ## [8.2.6](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.2.5...api-bones-v8.2.6) - 2026-10-02
 
 ### Fixed
