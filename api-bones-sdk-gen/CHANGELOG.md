@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.4](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-sdk-gen-v4.4.3...api-bones-sdk-gen-v4.4.4) - 2026-10-03
+
+### Other
+
+- *(api-bones-sdk-gen)* the crate ships a README
+
 ## [4.4.3](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-sdk-gen-v4.4.2...api-bones-sdk-gen-v4.4.3) - 2026-09-24
 
 ### Fixed
