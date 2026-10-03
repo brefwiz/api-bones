@@ -248,8 +248,8 @@ jobs:
         with:
           jobs: |
             rc-tree-proof||${{ needs.rc-tree-proof.result }}
-            test|rc-tree-proof|${{ needs.test.result }}
-            ts|rc-tree-proof|${{ needs.ts.result }}
+            test|rc-tree-proof,checks|${{ needs.test.result }}
+            ts|rc-tree-proof,checks|${{ needs.ts.result }}
             duplication-typed|test,ts|${{ needs.duplication-typed.result }}
-            cargo-package|rc-tree-proof|${{ needs.cargo-package.result }}
+            cargo-package|rc-tree-proof,checks|${{ needs.cargo-package.result }}
             checks|rc-tree-proof|${{ needs.checks.result }}
