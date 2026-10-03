@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.6.22](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-test-v6.6.21...api-bones-test-v6.6.22) - 2026-10-03
+
+### Other
+
+- *(api-bones-test)* the crate ships a README
+- *(api-bones-test)* the feature table says axum, reqwest and nats each enable builders
+
 ## [6.6.21](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-test-v6.6.20...api-bones-test-v6.6.21) - 2026-10-02
 
 ### Other

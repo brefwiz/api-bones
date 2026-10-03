@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-test"
-version = "6.6.21"
+version = "6.6.22"
 dependencies = [
  "api-bones",
  "async-nats",
