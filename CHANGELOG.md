@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.1] - 2026-10-03
+
+### Fixed
+
+- *(connect)* accept canonical method policy schema v2
+
 ## [9.0.0](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-v8.2.6...api-bones-v9.0.0) - 2026-10-02
 
 ### Added

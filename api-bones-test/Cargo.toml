@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-test"
-version = "6.6.22"
+version = "6.6.23"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
@@ -40,7 +40,7 @@ nats = [
 ]
 
 [dependencies]
-api-bones = { path = "..", version = "^9.0.0", registry = "brefwiz", features = ["chrono", "uuid", "serde", "std"] }
+api-bones = { path = "..", version = "^9.0.1", registry = "brefwiz", features = ["chrono", "uuid", "serde", "std"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1.23", features = ["v4"] }
