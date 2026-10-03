@@ -7,6 +7,7 @@ authors = ["Gregoire Salingue"]
 license = "MIT"
 description = "CLI for generating Brefwiz Rust + TypeScript SDKs with default-on ApiResponse envelope handling"
 repository = "https://github.com/brefwiz/api-bones"
+readme = "README.md"
 
 [[bin]]
 name = "api-bones-sdk-gen"
