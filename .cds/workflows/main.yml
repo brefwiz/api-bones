@@ -50,6 +50,31 @@ jobs:
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
           event-ref: ${{ git.ref }}
 
+  checks:
+    if: ${{ git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true' }}
+    needs: [rc-tree-proof]
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: checks
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
+        with:
+          checkout: "false"
+          # Both are required and neither can be inherited. Without `repository`
+          # the runner cannot resolve which repo it is and aborts before it
+          # reports anything; without the token, adr-conformance reads
+          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
+          # composite takes inputs, not the job's ambient env.
+          repository: ${{ cds.workflow_repository }}
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+
   cargo-package:
     needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
@@ -90,31 +115,6 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
         with:
           checkout: "false"
-  checks:
-    if: ${{ git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true' }}
-    needs: [rc-tree-proof]
-    runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-      flavor: checks
-      memory: "4096"
-    env:
-      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
-      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-    steps:
-      - id: checkout
-        uses: actions/checkout
-      - id: checks
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
-        with:
-          checkout: "false"
-          # Both are required and neither can be inherited. Without `repository`
-          # the runner cannot resolve which repo it is and aborts before it
-          # reports anything; without the token, adr-conformance reads
-          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
-          # composite takes inputs, not the job's ambient env.
-          repository: ${{ cds.workflow_repository }}
-          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-
   test:
     needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
