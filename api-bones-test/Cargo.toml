@@ -9,6 +9,7 @@ description = "Test helpers for api-bones: builders and response-assertion utili
 repository = "https://github.com/brefwiz/api-bones"
 homepage = "https://github.com/brefwiz/api-bones"
 documentation = "https://docs.rs/api-bones-test"
+readme = "README.md"
 
 keywords = ["testing", "rest", "http", "api", "axum"]
 categories = ["development-tools::testing"]
