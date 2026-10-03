@@ -51,7 +51,7 @@ jobs:
           event-ref: ${{ git.ref }}
 
   cargo-package:
-    needs: [rc-tree-proof]
+    needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
@@ -116,7 +116,7 @@ jobs:
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
 
   test:
-    needs: [rc-tree-proof]
+    needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
@@ -150,7 +150,7 @@ jobs:
 
 
   ts:
-    needs: [rc-tree-proof]
+    needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
