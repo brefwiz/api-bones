@@ -9,9 +9,9 @@
 //! | Feature | Adds |
 //! |---------|------|
 //! | `builders` (default) | [`builders`] — pure-Rust builders, no IO |
-//! | `axum` | [`axum`] — `axum-test` assertion helpers and `TestServer` |
-//! | `reqwest` | [`reqwest`] — reqwest assertion helpers |
-//! | `nats` | [`nats`] — `JetStream` `AuditCapture` fixture |
+//! | `axum` | [`axum`] — `axum-test` assertion helpers and `TestServer`; enables `builders` |
+//! | `reqwest` | [`reqwest`] — reqwest assertion helpers; enables `builders` |
+//! | `nats` | [`nats`] — `JetStream` `AuditCapture` fixture; enables `builders` |
 //!
 //! # Quick start — builders
 //!
