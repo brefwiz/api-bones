@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Breaking: public response and error types use api-bones 9 and are incompatible with api-bones 6 types. Release tooling derives the corresponding major version bump.
+
 ## [5.0.20] - 2026-10-04
 
 ### Fixed
