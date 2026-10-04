@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.2] - 2026-10-04
+
+### Fixed
+
+- *(release)* [**breaking**] declare public dependency compatibility releases
+- *(deps)* use canonical Renovate preset
+- *(ci)* collect failures across Rust test lanes
+- *(ci)* publish release with repository release identity
+
 ## [9.0.1] - 2026-10-03
 
 ### Fixed
