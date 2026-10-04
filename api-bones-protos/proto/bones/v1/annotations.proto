@@ -281,6 +281,55 @@
 //     };
 //   }
 
+// `bones.v1.capability_scopes` groups a provider's RPC scopes into
+// task-level permission groups. Each entry is one capability and the set of
+// scopes holding it confers. A scope is the unit a gate enforces; a group is
+// the unit a person grants, named for a job an operator understands
+// ("Take and change bookings") rather than for an area of the API. The
+// provider declares its groups in its own contract, beside the RPCs they
+// cover, so no second document maps a group to its scopes.
+//
+// Repeated, one entry per group, so one service may declare several groups.
+// Each `capability` is a capability this contract provides, exactly as
+// `capability` or `provided_capabilities` names it, and is labelled through
+// `capability_labels` like any other. Each listed scope is labelled through
+// `permission_labels`. A scope may appear in more than one group: grants are
+// a union, so overlap widens nothing.
+//
+// This option carries no validation of its own. The rules below belong to the
+// contract compiler and to the static check that runs on the contract, and
+// both apply them identically. Across one contract's descriptor set, an
+// entry set is refused when any item holds:
+//   - a listed scope is required by no RPC and declared in no
+//     `provided_broker_scopes` entry (a dead grant);
+//   - an RPC-required scope appears in no group (an unreachable RPC);
+//   - a group names a capability the contract does not provide, or lists no
+//     scope, or two entries name the same capability;
+//   - a group or a listed scope carries no label.
+//
+// Declaring a group grants nothing: which roles hold it is the authority's to
+// decide, through the ordinary guarded grant path.
+//
+// Usage:
+//
+//   service ReservationService {
+//     option (bones.v1.provided_capabilities) = "reservations.view";
+//     option (bones.v1.provided_capabilities) = "reservations.manage";
+//     option (bones.v1.capability_scopes) = {
+//       capability: "reservations.view",
+//       scopes: ["reservation:read"]
+//     };
+//     option (bones.v1.capability_scopes) = {
+//       capability: "reservations.manage",
+//       scopes: ["reservation:read", "reservation:write"]
+//     };
+//     option (bones.v1.capability_labels) = {
+//       name: "reservations.manage",
+//       label: { text: "Take and change reservations" }
+//     };
+//     // The other labels, and the RPC declarations, follow.
+//   }
+
 // `bones.v1.capability_audience` declares which organization roles a
 // product's capability is granted to when an organization enables the
 // product. The provider states it in the contract, beside the capability it
@@ -341,6 +390,10 @@ extend google.protobuf.ServiceOptions {
   // organization enables the product. Absent or UNSPECIFIED means never part
   // of a default grant. See file header.
   CapabilityAudience capability_audience = 5102355;
+
+  // Task-level permission groups: each names a provided capability and the
+  // scopes it confers. See file header.
+  repeated CapabilityScopes capability_scopes = 5102356;
 }
 
 extend google.protobuf.MethodOptions {
@@ -412,6 +465,17 @@ message BrokerScope {
   // for the provider's own events, or `<ns>:<right>` for a broker's own right.
   // The file header holds its forms and the complete refusal list.
   string scope = 2;
+}
+
+// One permission group: a provided capability and the scopes it confers.
+message CapabilityScopes {
+  // A capability this contract provides, exactly as `capability` or
+  // `provided_capabilities` names it.
+  string capability = 1;
+
+  // The scopes holding the capability confers, byte-identical to how
+  // `authz.requires` or `provided_broker_scopes` names them.
+  repeated string scopes = 2;
 }
 
 // Who a product's capability is granted to when an organization enables the

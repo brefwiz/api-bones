@@ -269,6 +269,8 @@ mod tests {
             "repeated CapabilityLabel capability_labels = 5102352;",
             "repeated PermissionLabel permission_labels = 5102353;",
             "repeated BrokerScope provided_broker_scopes = 5102354;",
+            "CapabilityAudience capability_audience = 5102355;",
+            "repeated CapabilityScopes capability_scopes = 5102356;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
@@ -299,6 +301,32 @@ mod tests {
             fields,
             ["string capability = 1;", "string scope = 2;"],
             "BrokerScope is exactly {{capability, scope}}"
+        );
+    }
+
+    /// A permission group is a capability and the scopes it confers; one
+    /// service declares several, so the option is repeated.
+    #[test]
+    fn annotations_proto_declares_capability_scopes() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("repeated CapabilityScopes capability_scopes = 5102356;"),
+            "annotations.proto missing the capability_scopes service option"
+        );
+        let msg = body
+            .split("message CapabilityScopes {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("CapabilityScopes message");
+        let fields: Vec<&str> = msg
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        assert_eq!(
+            fields,
+            ["string capability = 1;", "repeated string scopes = 2;"],
+            "CapabilityScopes is exactly {{capability, scopes[]}}"
         );
     }
 
