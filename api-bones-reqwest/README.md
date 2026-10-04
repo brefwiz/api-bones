@@ -4,11 +4,17 @@ Reqwest client extensions for [api-bones](https://github.com/brefwiz/api-bones) 
 
 Provides `ErrorResponseExt` and retry logic for reqwest-based API clients.
 
+## Compatibility
+
+Public response types use api-bones 9. This dependency change requires the
+api-bones-reqwest 6 breaking release; consumers must use api-bones 9 when
+passing these types between crates.
+
 ## Usage
 
 ```toml
 [dependencies]
-api-bones-reqwest = "2"
+api-bones-reqwest = "6"
 ```
 
 ## License

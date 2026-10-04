@@ -12,3 +12,9 @@
 # file); what this file owns is which crates release, not where they go.
 [workspace]
 release = true
+
+[[package]]
+name = "api-bones-reqwest"
+
+[[package]]
+name = "api-bones-test"
