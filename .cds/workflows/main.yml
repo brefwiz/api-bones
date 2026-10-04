@@ -50,8 +50,33 @@ jobs:
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
           event-ref: ${{ git.ref }}
 
-  cargo-package:
+  checks:
+    if: ${{ git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true' }}
     needs: [rc-tree-proof]
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: checks
+      memory: "4096"
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: checks
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
+        with:
+          checkout: "false"
+          # Both are required and neither can be inherited. Without `repository`
+          # the runner cannot resolve which repo it is and aborts before it
+          # reports anything; without the token, adr-conformance reads
+          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
+          # composite takes inputs, not the job's ambient env.
+          repository: ${{ cds.workflow_repository }}
+          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+
+  cargo-package:
+    needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
@@ -62,7 +87,6 @@ jobs:
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
       REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
       RUSTC_WRAPPER: sccache
       SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
       CARGO_INCREMENTAL: "0"
@@ -90,33 +114,8 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
         with:
           checkout: "false"
-  checks:
-    if: ${{ git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true' }}
-    needs: [rc-tree-proof]
-    runs-on:
-      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
-      flavor: checks
-      memory: "4096"
-    env:
-      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
-      GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-    steps:
-      - id: checkout
-        uses: actions/checkout
-      - id: checks
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/checks@main
-        with:
-          checkout: "false"
-          # Both are required and neither can be inherited. Without `repository`
-          # the runner cannot resolve which repo it is and aborts before it
-          # reports anything; without the token, adr-conformance reads
-          # brefwiz-architecture's catalog unauthenticated and gets a 404. A
-          # composite takes inputs, not the job's ambient env.
-          repository: ${{ cds.workflow_repository }}
-          gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
-
   test:
-    needs: [rc-tree-proof]
+    needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
@@ -127,7 +126,6 @@ jobs:
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
       REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
       RUSTC_WRAPPER: sccache
       SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
       CARGO_INCREMENTAL: "0"
@@ -150,7 +148,7 @@ jobs:
 
 
   ts:
-    needs: [rc-tree-proof]
+    needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
@@ -158,7 +156,6 @@ jobs:
       memory: "16384"
     env:
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-      GH_PACKAGES_READ_TOKEN: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
     steps:
       - id: checkout
         uses: actions/checkout
@@ -248,8 +245,8 @@ jobs:
         with:
           jobs: |
             rc-tree-proof||${{ needs.rc-tree-proof.result }}
-            test|rc-tree-proof|${{ needs.test.result }}
-            ts|rc-tree-proof|${{ needs.ts.result }}
+            test|rc-tree-proof,checks|${{ needs.test.result }}
+            ts|rc-tree-proof,checks|${{ needs.ts.result }}
             duplication-typed|test,ts|${{ needs.duplication-typed.result }}
-            cargo-package|rc-tree-proof|${{ needs.cargo-package.result }}
+            cargo-package|rc-tree-proof,checks|${{ needs.cargo-package.result }}
             checks|rc-tree-proof|${{ needs.checks.result }}

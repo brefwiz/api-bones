@@ -29,7 +29,6 @@ jobs:
           tag: ${{ git.ref_name }}
           npm-token: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
           package-reader-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
-          github-packages-token: ${{ vars.brefwiz-secrets.GH_PACKAGES_READ_TOKEN }}
 
   # The run's verdict, reporting only. DAG contract: it requires every other
   # job's result, failed and skipped ones included, and outputs the verdict
