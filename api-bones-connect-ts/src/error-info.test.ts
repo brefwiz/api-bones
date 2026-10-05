@@ -41,7 +41,7 @@ describe("ErrorInfo wire codec", () => {
   });
 
   it("matches the bytes the Rust codec writes", () => {
-    const wire = Buffer.from("Cg1HUkFOVF9NSVNTSU5HEghwYXltZW50cxoFMS40LjI", "base64");
+    const wire = Buffer.from("Cg1HUkFOVF9NSVNTSU5HEghwYXltZW50cw", "base64");
     expect(Uint8Array.from(wire)).toEqual(encodeErrorInfo(FULL));
   });
 

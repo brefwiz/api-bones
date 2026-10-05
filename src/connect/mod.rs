@@ -76,7 +76,10 @@ pub mod transport;
 mod uuid;
 
 pub use domain_error::{DomainErrorKind, IntoDomainErrorKind, domain_to_connect};
-pub use error_info::{CarriesErrorInfo, ERROR_INFO_TYPE, ErrorInfo, error_info, with_error_info};
+pub use error_info::{
+    CarriesErrorInfo, ERROR_INFO_TYPE, ErrorInfo, MAX_ERROR_INFOS, error_info, error_infos,
+    with_error_info,
+};
 pub use etag::{check_if_match, etag_from_updated_at};
 pub use ext::ConnectOptionExt;
 pub use page::{DEFAULT_LIMIT, MAX_LIMIT, OffsetPage, build_offset_page, build_page};
