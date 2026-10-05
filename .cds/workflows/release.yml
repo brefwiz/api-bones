@@ -70,8 +70,8 @@ jobs:
         with:
           checkout: "false"
           tag: ${{ git.ref_name }}
-          repo: ${{ cds.workflow_repository }}
-          token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
+          repo: brefwiz/api-bones
+          token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
           release-notes-extra: |
             ### Artifacts published
             - Rust crates (crates.io), published per-crate by release-plz.
