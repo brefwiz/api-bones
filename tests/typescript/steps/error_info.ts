@@ -37,19 +37,13 @@ function expected(value: string): string | undefined {
 }
 
 Given(
-  "a refusal {string} whose ErrorInfo detail has code {string}, emitter {string} and version {string}",
-  function (
-    this: ErrorInfoWorld,
-    connectCode: string,
-    code: string,
-    emitter: string,
-    version: string,
-  ) {
+  "a refusal {string} whose ErrorInfo detail has code {string} and emitter {string}",
+  function (this: ErrorInfoWorld, connectCode: string, code: string, emitter: string) {
     const failure = new ConnectError(BASE_MESSAGE, connectCodeOf(connectCode));
     failure.details = [
       {
         type: ERROR_INFO_TYPE,
-        value: encodeErrorInfo({ code, emitter, emitterVersion: version }),
+        value: encodeErrorInfo({ code, emitter }),
       },
     ];
     this.failure = failure;

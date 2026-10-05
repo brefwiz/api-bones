@@ -26,9 +26,11 @@ export {
 export {
   BonesError,
   ERROR_INFO_TYPE,
+  MAX_ERROR_INFOS,
   decodeErrorInfo,
   encodeErrorInfo,
   errorInfoOf,
+  errorInfosOf,
   errorToken,
   messageWithToken,
   type CarriesErrorInfo,

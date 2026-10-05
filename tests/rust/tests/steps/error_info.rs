@@ -11,21 +11,9 @@ use cucumber::{given, then, when};
 
 const BASE_MESSAGE: &str = "refused";
 
-#[given(
-    expr = "a refusal {string} whose ErrorInfo detail has code {string}, emitter {string} and version {string}"
-)]
-fn given_refusal(
-    world: &mut ErrorInfoWorld,
-    connect_code: String,
-    code: String,
-    emitter: String,
-    version: String,
-) {
-    let info = ErrorInfo {
-        code,
-        emitter,
-        emitter_version: version,
-    };
+#[given(expr = "a refusal {string} whose ErrorInfo detail has code {string} and emitter {string}")]
+fn given_refusal(world: &mut ErrorInfoWorld, connect_code: String, code: String, emitter: String) {
+    let info = ErrorInfo { code, emitter };
     let failure = ConnectError::new(super::code_of(&connect_code), BASE_MESSAGE);
     world.failure = Some(with_error_info(failure, &info));
 }

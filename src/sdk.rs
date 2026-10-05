@@ -4,5 +4,6 @@
 //! See [`ErrorInfo`] for the wire shape and the text token.
 
 pub use crate::connect::{
-    CarriesErrorInfo, ERROR_INFO_TYPE, ErrorInfo, error_info, with_error_info,
+    CarriesErrorInfo, ERROR_INFO_TYPE, ErrorInfo, MAX_ERROR_INFOS, error_info, error_infos,
+    with_error_info,
 };

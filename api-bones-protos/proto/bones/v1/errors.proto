@@ -51,7 +51,7 @@ message ValidationFailure {
 // read the emitted error code rather than only the coarse Connect code.
 //
 // SDK error types render the three values as a text token,
-// `[bones-error code=<code> emitter=<emitter>@<emitter_version>]`, so the
+// `[bones-error code=<code> emitter=<emitter>]`, so the
 // code survives any reporter that keeps only text.
 message ErrorInfo {
   // The emitted error code: the name of the value in the emitter's error
@@ -64,7 +64,8 @@ message ErrorInfo {
   // transport layer of the emitting service; empty until then.
   string emitter = 2;
 
-  // The emitter's build version, e.g. `1.4.2`. Letters, digits, `.`, `+` and
-  // `-`, at most 64 characters. Stamped together with `emitter`.
-  string emitter_version = 3;
+  // Never reused: the emitter's version is not carried on the wire, since
+  // it would let any caller fingerprint service versions.
+  reserved 3;
+  reserved "emitter_version";
 }

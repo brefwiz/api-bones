@@ -412,9 +412,10 @@ mod tests {
             [
                 "string code = 1;",
                 "string emitter = 2;",
-                "string emitter_version = 3;"
+                "reserved 3;",
+                "reserved \"emitter_version\";"
             ],
-            "ErrorInfo is exactly {{code, emitter, emitter_version}}"
+            "ErrorInfo is exactly {{code, emitter}}, with field 3 reserved"
         );
     }
 

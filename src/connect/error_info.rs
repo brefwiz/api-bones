@@ -5,21 +5,21 @@
 //! `permission_denied`, ...), which is too coarse to say *why* the emitter
 //! refused. The emitter names the reason with an error code, and attaches it
 //! to the Connect error as a `bones.v1.ErrorInfo` detail. The emitting
-//! deployable and its build version ride along so a reader knows whose code
-//! it is.
+//! deployable rides along so a reader knows whose code it is.
 //!
 //! The reading side has two parts:
 //!
 //! - [`error_info`] decodes the detail from a [`ConnectError`].
 //! - [`CarriesErrorInfo`] is what an SDK error type implements. Its
 //!   [`display_with_token`](CarriesErrorInfo::display_with_token) appends the
-//!   canonical text token `[bones-error code=<CODE> emitter=<name>@<version>]`
+//!   canonical text token `[bones-error code=<CODE> emitter=<name>]`
 //!   to the error text, so the code survives any reporter that keeps only
 //!   text (a panic message, a failed assertion, a log line).
 //!
-//! The token is only rendered for values that match the token grammar, because
-//! the values arrive from the remote peer and must not be able to forge or
-//! break the surrounding text.
+//! The values arrive from the remote peer and must not be able to forge or
+//! break the surrounding text, so a detail whose code or emitter breaks the
+//! token grammar is treated as absent, and at most [`MAX_ERROR_INFOS`] details
+//! of an error are examined.
 
 use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD};
@@ -31,7 +31,8 @@ pub const ERROR_INFO_TYPE: &str = "bones.v1.ErrorInfo";
 const TYPE_URL_PREFIX: &str = "type.googleapis.com/";
 const MAX_CODE_LEN: usize = 128;
 const MAX_EMITTER_LEN: usize = 128;
-const MAX_VERSION_LEN: usize = 64;
+/// The most `ErrorInfo` details of one error that are examined.
+pub const MAX_ERROR_INFOS: usize = 4;
 
 /// The wire shape of `bones.v1.ErrorInfo`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -40,8 +41,6 @@ pub struct ErrorInfo {
     pub code: String,
     /// The emitting deployable. Empty until a transport layer stamps it.
     pub emitter: String,
-    /// The emitting deployable's build version. Empty until stamped.
-    pub emitter_version: String,
 }
 
 impl ErrorInfo {
@@ -51,7 +50,6 @@ impl ErrorInfo {
         Self {
             code: code.into(),
             emitter: String::new(),
-            emitter_version: String::new(),
         }
     }
 
@@ -61,7 +59,6 @@ impl ErrorInfo {
         let mut out = Vec::new();
         put_string(&mut out, 1, &self.code);
         put_string(&mut out, 2, &self.emitter);
-        put_string(&mut out, 3, &self.emitter_version);
         out
     }
 
@@ -91,7 +88,6 @@ impl ErrorInfo {
                     match field {
                         1 => info.code = text()?,
                         2 => info.emitter = text()?,
-                        3 => info.emitter_version = text()?,
                         _ => {}
                     }
                 }
@@ -111,17 +107,21 @@ impl ErrorInfo {
         }
     }
 
-    /// The canonical text token, or `None` when the code, emitter or version
-    /// is empty or does not match the token grammar.
+    /// Whether the code is grammar-valid and the emitter is grammar-valid or
+    /// not yet stamped.
+    #[must_use]
+    pub fn is_well_formed(&self) -> bool {
+        valid_code(&self.code) && (self.emitter.is_empty() || valid_emitter(&self.emitter))
+    }
+
+    /// The canonical text token, or `None` when the code or emitter is empty
+    /// or does not match the token grammar.
     #[must_use]
     pub fn token(&self) -> Option<String> {
-        if valid_code(&self.code)
-            && valid_emitter(&self.emitter)
-            && valid_version(&self.emitter_version)
-        {
+        if valid_code(&self.code) && valid_emitter(&self.emitter) {
             Some(format!(
-                "[bones-error code={} emitter={}@{}]",
-                self.code, self.emitter, self.emitter_version
+                "[bones-error code={} emitter={}]",
+                self.code, self.emitter
             ))
         } else {
             None
@@ -129,36 +129,47 @@ impl ErrorInfo {
     }
 }
 
-/// Decode the `bones.v1.ErrorInfo` detail of a Connect error, if it has one.
+/// The well-formed `bones.v1.ErrorInfo` details of a Connect error, in order.
+///
+/// Only the first [`MAX_ERROR_INFOS`] `ErrorInfo` details are examined, and a
+/// detail whose code or emitter breaks the token grammar is dropped.
+#[must_use]
+pub fn error_infos(err: &ConnectError) -> Vec<ErrorInfo> {
+    err.details
+        .iter()
+        .filter(|detail| is_error_info(detail))
+        .take(MAX_ERROR_INFOS)
+        .filter_map(|detail| {
+            let encoded = detail.value.as_deref()?;
+            let bytes = STANDARD_NO_PAD
+                .decode(encoded)
+                .or_else(|_| STANDARD.decode(encoded))
+                .ok()?;
+            ErrorInfo::decode(&bytes)
+        })
+        .filter(ErrorInfo::is_well_formed)
+        .collect()
+}
+
+/// The first well-formed `bones.v1.ErrorInfo` detail of a Connect error. A
+/// detail that breaks the token grammar is treated as absent.
 #[must_use]
 pub fn error_info(err: &ConnectError) -> Option<ErrorInfo> {
-    err.details.iter().find_map(|detail| {
-        let name = detail
-            .type_url
-            .strip_prefix(TYPE_URL_PREFIX)
-            .unwrap_or(&detail.type_url);
-        if name != ERROR_INFO_TYPE {
-            return None;
-        }
-        let encoded = detail.value.as_deref()?;
-        let bytes = STANDARD_NO_PAD
-            .decode(encoded)
-            .or_else(|_| STANDARD.decode(encoded))
-            .ok()?;
-        ErrorInfo::decode(&bytes)
-    })
+    error_infos(err).into_iter().next()
+}
+
+fn is_error_info(detail: &ErrorDetail) -> bool {
+    detail
+        .type_url
+        .strip_prefix(TYPE_URL_PREFIX)
+        .unwrap_or(&detail.type_url)
+        == ERROR_INFO_TYPE
 }
 
 /// Attach `info` to `err`, replacing any `ErrorInfo` detail already there.
 #[must_use]
 pub fn with_error_info(mut err: ConnectError, info: &ErrorInfo) -> ConnectError {
-    err.details.retain(|detail| {
-        detail
-            .type_url
-            .strip_prefix(TYPE_URL_PREFIX)
-            .unwrap_or(&detail.type_url)
-            != ERROR_INFO_TYPE
-    });
+    err.details.retain(|detail| !is_error_info(detail));
     err.with_detail(info.to_detail())
 }
 
@@ -219,13 +230,6 @@ fn valid_emitter(s: &str) -> bool {
         })
 }
 
-fn valid_version(s: &str) -> bool {
-    !s.is_empty()
-        && s.len() <= MAX_VERSION_LEN
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '+' || c == '-')
-}
-
 fn put_string(out: &mut Vec<u8>, field: u8, value: &str) {
     if value.is_empty() {
         return;
@@ -264,7 +268,6 @@ mod tests {
         ErrorInfo {
             code: "GRANT_MISSING".into(),
             emitter: "payments".into(),
-            emitter_version: "1.4.2".into(),
         }
     }
 
@@ -372,7 +375,7 @@ mod tests {
     fn token_renders_the_canonical_text() {
         assert_eq!(
             full().token().as_deref(),
-            Some("[bones-error code=GRANT_MISSING emitter=payments@1.4.2]")
+            Some("[bones-error code=GRANT_MISSING emitter=payments]")
         );
     }
 
@@ -385,18 +388,13 @@ mod tests {
         };
         assert_eq!(bad(|i| i.code.clear()), None);
         assert_eq!(bad(|i| i.emitter.clear()), None);
-        assert_eq!(bad(|i| i.emitter_version.clear()), None);
         assert_eq!(bad(|i| i.code = "lower".into()), None);
         assert_eq!(bad(|i| i.code = "1BAD".into()), None);
         assert_eq!(bad(|i| i.code = "A".repeat(129)), None);
         assert_eq!(bad(|i| i.emitter = "Upper".into()), None);
         assert_eq!(bad(|i| i.emitter = "a b".into()), None);
         assert_eq!(bad(|i| i.emitter = "a".repeat(129)), None);
-        assert_eq!(bad(|i| i.emitter_version = "1 2".into()), None);
-        assert_eq!(bad(|i| i.emitter_version = "1]".into()), None);
-        assert_eq!(bad(|i| i.emitter_version = "1".repeat(65)), None);
         assert!(bad(|i| i.code = "A".repeat(128)).is_some());
-        assert!(bad(|i| i.emitter_version = "1.0.0-rc.1+build".into()).is_some());
     }
 
     #[test]
@@ -406,10 +404,48 @@ mod tests {
             &ErrorInfo {
                 code: "OK] fake [bones-error code=X".into(),
                 emitter: "e".into(),
-                emitter_version: "1".into(),
             },
         );
         assert_eq!(err.display_with_token("failed"), "failed");
+        assert_eq!(err.code(), None, "a malformed detail is treated as absent");
+        assert_eq!(error_info(&err), None);
+    }
+
+    #[test]
+    fn a_malformed_emitter_makes_the_detail_absent() {
+        let err = with_error_info(
+            ConnectError::new(ErrorCode::Internal, "x"),
+            &ErrorInfo {
+                code: "OK".into(),
+                emitter: "Not Valid".into(),
+            },
+        );
+        assert_eq!(error_info(&err), None);
+    }
+
+    #[test]
+    fn only_a_bounded_number_of_details_is_examined() {
+        let bad = ErrorInfo::from_code("lower").to_detail();
+        let mut err = ConnectError::new(ErrorCode::Internal, "x");
+        for _ in 0..MAX_ERROR_INFOS {
+            err = err.with_detail(bad.clone());
+        }
+        err = err.with_detail(full().to_detail());
+        assert_eq!(error_info(&err), None, "the valid detail is past the cap");
+
+        let mut err = ConnectError::new(ErrorCode::Internal, "x");
+        for _ in 0..=MAX_ERROR_INFOS {
+            err = err.with_detail(full().to_detail());
+        }
+        assert_eq!(error_infos(&err).len(), MAX_ERROR_INFOS);
+    }
+
+    #[test]
+    fn the_removed_version_field_is_ignored_on_the_wire() {
+        // field 3 is reserved: an old writer's value is skipped, not read.
+        let mut bytes = ErrorInfo::from_code("A").encode();
+        bytes.extend([0x1a, 0x05, b'1', b'.', b'4', b'.', b'2']);
+        assert_eq!(ErrorInfo::decode(&bytes), Some(ErrorInfo::from_code("A")));
     }
 
     #[test]
@@ -419,7 +455,7 @@ mod tests {
         assert_eq!(err.emitter().as_deref(), Some("payments"));
         assert_eq!(
             err.display_with_token("not found"),
-            "not found [bones-error code=GRANT_MISSING emitter=payments@1.4.2]"
+            "not found [bones-error code=GRANT_MISSING emitter=payments]"
         );
     }
 

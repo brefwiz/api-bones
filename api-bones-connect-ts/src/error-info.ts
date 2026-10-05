@@ -6,16 +6,17 @@
  * `permission_denied`, ...), which is too coarse to say why the emitter
  * refused. The emitter names the reason with an error code and attaches it to
  * the Connect error as a `bones.v1.ErrorInfo` detail, together with the
- * emitting deployable and its build version.
+ * emitting deployable.
  *
  * This is the TypeScript half of `src/connect/error_info.rs`; both answer
  * `tests/features/connect_error_info.feature`.
  *
  * {@link BonesError.message} ends with the canonical token
- * `[bones-error code=<CODE> emitter=<name>@<version>]`, so the code survives
- * any reporter that keeps only text. The token is rendered only for values
- * that match its grammar: the values arrive from the remote peer and must not
- * be able to forge or break the surrounding text.
+ * `[bones-error code=<CODE> emitter=<name>]`, so the code survives
+ * any reporter that keeps only text. The values arrive from the remote peer and
+ * must not be able to forge or break the surrounding text, so a detail whose
+ * code or emitter breaks the token grammar is treated as absent, and at most
+ * {@link MAX_ERROR_INFOS} details of an error are examined.
  */
 
 import type { ConnectError } from "@connectrpc/connect";
@@ -27,7 +28,9 @@ const TYPE_URL_PREFIX = "type.googleapis.com/";
 
 const CODE_PATTERN = /^[A-Z][A-Z0-9_]{0,127}$/;
 const EMITTER_PATTERN = /^[a-z0-9][a-z0-9._-]{0,127}$/;
-const VERSION_PATTERN = /^[0-9A-Za-z.+-]{1,64}$/;
+
+/** The most `ErrorInfo` details of one error that are examined. */
+export const MAX_ERROR_INFOS = 4;
 
 /** The wire shape of `bones.v1.ErrorInfo`. Empty strings mean "not stamped". */
 export interface ErrorInfo {
@@ -35,8 +38,6 @@ export interface ErrorInfo {
   code: string;
   /** The emitting deployable. */
   emitter: string;
-  /** The emitting deployable's build version. */
-  emitterVersion: string;
 }
 
 /** What an SDK error type exposes so a caller never parses text for the code. */
@@ -65,7 +66,6 @@ export function encodeErrorInfo(info: ErrorInfo): Uint8Array {
   const out: number[] = [];
   putString(out, 1, info.code);
   putString(out, 2, info.emitter);
-  putString(out, 3, info.emitterVersion);
   return Uint8Array.from(out);
 }
 
@@ -84,7 +84,7 @@ function takeVarint(bytes: Uint8Array, at: number): [number, number] | undefined
  * yields `undefined`.
  */
 export function decodeErrorInfo(bytes: Uint8Array): ErrorInfo | undefined {
-  const info: ErrorInfo = { code: "", emitter: "", emitterVersion: "" };
+  const info: ErrorInfo = { code: "", emitter: "" };
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let at = 0;
   while (at < bytes.length) {
@@ -121,7 +121,6 @@ export function decodeErrorInfo(bytes: Uint8Array): ErrorInfo | undefined {
           }
           if (field === 1) info.code = text;
           else if (field === 2) info.emitter = text;
-          else info.emitterVersion = text;
         }
         break;
       }
@@ -133,32 +132,49 @@ export function decodeErrorInfo(bytes: Uint8Array): ErrorInfo | undefined {
   return info;
 }
 
-/** Decode the `bones.v1.ErrorInfo` detail of a Connect error, if it has one. */
-export function errorInfoOf(err: ConnectError): ErrorInfo | undefined {
+/** Whether the code is grammar-valid and the emitter is grammar-valid or not yet stamped. */
+function isWellFormed(info: ErrorInfo): boolean {
+  return CODE_PATTERN.test(info.code) && (info.emitter === "" || EMITTER_PATTERN.test(info.emitter));
+}
+
+/**
+ * The well-formed `bones.v1.ErrorInfo` details of a Connect error, in order.
+ *
+ * Only the first {@link MAX_ERROR_INFOS} such details are examined, and one
+ * whose code or emitter breaks the token grammar is dropped.
+ */
+export function errorInfosOf(err: ConnectError): ErrorInfo[] {
+  const found: ErrorInfo[] = [];
+  let examined = 0;
   for (const detail of err.details) {
     const { type, value } = detail as { type?: unknown; value?: unknown };
     if (typeof type !== "string" || !(value instanceof Uint8Array)) continue;
     const name = type.startsWith(TYPE_URL_PREFIX) ? type.slice(TYPE_URL_PREFIX.length) : type;
     if (name !== ERROR_INFO_TYPE) continue;
+    if (examined++ >= MAX_ERROR_INFOS) break;
     const info = decodeErrorInfo(value);
-    if (info) return info;
+    if (info && isWellFormed(info)) found.push(info);
   }
-  return undefined;
+  return found;
+}
+
+/** The first well-formed `bones.v1.ErrorInfo` detail of a Connect error, if it has one. */
+export function errorInfoOf(err: ConnectError): ErrorInfo | undefined {
+  return errorInfosOf(err)[0];
 }
 
 /**
- * The canonical text token, or `undefined` when the code, emitter or version
+ * The canonical text token, or `undefined` when the code or emitter
  * is empty or does not match the token grammar.
  */
 export function errorToken(info: ErrorInfo): string | undefined {
   if (
     !CODE_PATTERN.test(info.code) ||
-    !EMITTER_PATTERN.test(info.emitter) ||
-    !VERSION_PATTERN.test(info.emitterVersion)
+    !EMITTER_PATTERN.test(info.emitter)
   ) {
     return undefined;
   }
-  return `[bones-error code=${info.code} emitter=${info.emitter}@${info.emitterVersion}]`;
+  return `[bones-error code=${info.code} emitter=${info.emitter}]`;
 }
 
 /** `message` followed by the canonical token, when there is a token to render. */
@@ -177,8 +193,6 @@ export class BonesError extends Error implements CarriesErrorInfo {
   readonly code: string | undefined;
   /** The emitting deployable. */
   readonly emitter: string | undefined;
-  /** The emitting deployable's build version. */
-  readonly emitterVersion: string | undefined;
   /** The Connect failure this wraps. */
   readonly cause: ConnectError;
 
@@ -188,7 +202,6 @@ export class BonesError extends Error implements CarriesErrorInfo {
     this.cause = cause;
     this.code = info?.code || undefined;
     this.emitter = info?.emitter || undefined;
-    this.emitterVersion = info?.emitterVersion || undefined;
   }
 
   /** The SDK error for a Connect failure, the way `ConnectError.from` is for any reason. */

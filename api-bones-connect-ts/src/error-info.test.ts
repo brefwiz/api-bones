@@ -8,12 +8,14 @@ import {
   decodeErrorInfo,
   encodeErrorInfo,
   errorInfoOf,
+  errorInfosOf,
+  MAX_ERROR_INFOS,
   errorToken,
   messageWithToken,
   type ErrorInfo,
 } from "./error-info.js";
 
-const FULL: ErrorInfo = { code: "GRANT_MISSING", emitter: "payments", emitterVersion: "1.4.2" };
+const FULL: ErrorInfo = { code: "GRANT_MISSING", emitter: "payments" };
 
 function failureWith(info: ErrorInfo, type = ERROR_INFO_TYPE): ConnectError {
   const err = new ConnectError("refused", Code.PermissionDenied);
@@ -27,14 +29,14 @@ describe("ErrorInfo wire codec", () => {
   });
 
   it("omits empty fields", () => {
-    expect(encodeErrorInfo({ code: "", emitter: "", emitterVersion: "" })).toEqual(new Uint8Array());
-    expect(encodeErrorInfo({ code: "X", emitter: "", emitterVersion: "" })).toEqual(
+    expect(encodeErrorInfo({ code: "", emitter: "" })).toEqual(new Uint8Array());
+    expect(encodeErrorInfo({ code: "X", emitter: "" })).toEqual(
       Uint8Array.from([0x0a, 0x01, 0x58]),
     );
   });
 
   it("uses multi-byte lengths for long values", () => {
-    const info = { code: "A".repeat(300), emitter: "", emitterVersion: "" };
+    const info = { code: "A".repeat(300), emitter: "" };
     expect(decodeErrorInfo(encodeErrorInfo(info))).toEqual(info);
   });
 
@@ -47,7 +49,7 @@ describe("ErrorInfo wire codec", () => {
     const bytes = Uint8Array.from([
       0x48, 0x05, 0x0a, 0x01, 0x41, 0x55, 1, 2, 3, 4, 0x59, 1, 2, 3, 4, 5, 6, 7, 8,
     ]);
-    expect(decodeErrorInfo(bytes)).toEqual({ code: "A", emitter: "", emitterVersion: "" });
+    expect(decodeErrorInfo(bytes)).toEqual({ code: "A", emitter: "" });
   });
 
   it("rejects malformed input", () => {
@@ -69,6 +71,32 @@ describe("errorInfoOf", () => {
     expect(errorInfoOf(failureWith(FULL, `type.googleapis.com/${ERROR_INFO_TYPE}`))).toEqual(FULL);
   });
 
+  it("treats a malformed detail as absent", () => {
+    expect(errorInfoOf(failureWith({ ...FULL, code: "lower" }))).toBeUndefined();
+    expect(errorInfoOf(failureWith({ ...FULL, emitter: "Not Valid" }))).toBeUndefined();
+    expect(new BonesError(failureWith({ ...FULL, code: "lower" })).code).toBeUndefined();
+  });
+
+  it("examines a bounded number of details", () => {
+    const bad = encodeErrorInfo({ code: "lower", emitter: "" });
+    const err = new ConnectError("refused", Code.Internal);
+    err.details = [
+      ...Array.from({ length: MAX_ERROR_INFOS }, () => ({ type: ERROR_INFO_TYPE, value: bad })),
+      { type: ERROR_INFO_TYPE, value: encodeErrorInfo(FULL) },
+    ];
+    expect(errorInfoOf(err)).toBeUndefined();
+    err.details = Array.from({ length: MAX_ERROR_INFOS + 1 }, () => ({
+      type: ERROR_INFO_TYPE,
+      value: encodeErrorInfo(FULL),
+    }));
+    expect(errorInfosOf(err)).toHaveLength(MAX_ERROR_INFOS);
+  });
+
+  it("ignores the retired version field", () => {
+    const bytes = Uint8Array.from([...encodeErrorInfo({ code: "A", emitter: "" }), 0x1a, 1, 0x31]);
+    expect(decodeErrorInfo(bytes)).toEqual({ code: "A", emitter: "" });
+  });
+
   it("ignores other details", () => {
     expect(errorInfoOf(failureWith(FULL, "bones.v1.ValidationFailure"))).toBeUndefined();
     expect(errorInfoOf(new ConnectError("x", Code.Internal))).toBeUndefined();
@@ -77,22 +105,18 @@ describe("errorInfoOf", () => {
 
 describe("errorToken", () => {
   it("renders the canonical token", () => {
-    expect(errorToken(FULL)).toBe("[bones-error code=GRANT_MISSING emitter=payments@1.4.2]");
+    expect(errorToken(FULL)).toBe("[bones-error code=GRANT_MISSING emitter=payments]");
   });
 
   it.each([
     { ...FULL, code: "" },
     { ...FULL, emitter: "" },
-    { ...FULL, emitterVersion: "" },
     { ...FULL, code: "lower" },
     { ...FULL, code: "1BAD" },
     { ...FULL, code: "A".repeat(129) },
     { ...FULL, emitter: "Upper" },
     { ...FULL, emitter: "a b" },
     { ...FULL, emitter: "a".repeat(129) },
-    { ...FULL, emitterVersion: "1 2" },
-    { ...FULL, emitterVersion: "1]" },
-    { ...FULL, emitterVersion: "1".repeat(65) },
     { ...FULL, code: "OK] [bones-error code=FORGED" },
   ])("renders nothing for a value outside the grammar: %o", (info) => {
     expect(errorToken(info)).toBeUndefined();
@@ -100,14 +124,13 @@ describe("errorToken", () => {
 
   it("accepts the limits of the grammar", () => {
     expect(errorToken({ ...FULL, code: "A".repeat(128) })).toBeDefined();
-    expect(errorToken({ ...FULL, emitterVersion: "1.0.0-rc.1+build" })).toBeDefined();
   });
 });
 
 describe("messageWithToken", () => {
   it("appends the token when there is one", () => {
     expect(messageWithToken("refused", FULL)).toBe(
-      "refused [bones-error code=GRANT_MISSING emitter=payments@1.4.2]",
+      "refused [bones-error code=GRANT_MISSING emitter=payments]",
     );
   });
 
@@ -122,8 +145,7 @@ describe("BonesError", () => {
     const err = new BonesError(failureWith(FULL));
     expect(err.code).toBe("GRANT_MISSING");
     expect(err.emitter).toBe("payments");
-    expect(err.emitterVersion).toBe("1.4.2");
-    expect(err.message.endsWith("[bones-error code=GRANT_MISSING emitter=payments@1.4.2]")).toBe(true);
+    expect(err.message.endsWith("[bones-error code=GRANT_MISSING emitter=payments]")).toBe(true);
     expect(err.cause).toBeInstanceOf(ConnectError);
     expect(err).toBeInstanceOf(Error);
   });
@@ -137,7 +159,7 @@ describe("BonesError", () => {
   });
 
   it("keeps an unstamped code readable without a token", () => {
-    const err = new BonesError(failureWith({ ...FULL, emitter: "", emitterVersion: "" }));
+    const err = new BonesError(failureWith({ ...FULL, emitter: "" }));
     expect(err.code).toBe("GRANT_MISSING");
     expect(err.emitter).toBeUndefined();
     expect(err.message).not.toContain("[bones-error");
