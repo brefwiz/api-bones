@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [7.0.0] - 2026-10-05
-
 ### Fixed
 
 - **Breaking:** release on a new major version because public assertion and fixture types now come from `api-bones` 9 rather than 6. Consumers must use compatible `api-bones` 9 types.
