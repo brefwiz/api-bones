@@ -4,6 +4,13 @@ Test helpers for [api-bones](https://github.com/brefwiz/api-bones) consumers:
 builders for api-bones types and assertion helpers for axum and reqwest
 responses, so services share one test vocabulary.
 
+## Compatibility
+
+Builders and response assertions expose api-bones 9 types, including
+`PaginatedResponse` and `RateLimitInfo`. Consumers that exchange these public
+types must use the same api-bones 9 compatibility line: Cargo treats types from
+different major versions as distinct.
+
 | Feature | Adds |
 |---------|------|
 | `builders` (default) | pure-Rust builders, no IO |
