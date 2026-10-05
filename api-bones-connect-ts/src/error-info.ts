@@ -190,4 +190,9 @@ export class BonesError extends Error implements CarriesErrorInfo {
     this.emitter = info?.emitter || undefined;
     this.emitterVersion = info?.emitterVersion || undefined;
   }
+
+  /** The SDK error for a Connect failure, the way `ConnectError.from` is for any reason. */
+  static from(reason: ConnectError): BonesError {
+    return new BonesError(reason);
+  }
 }

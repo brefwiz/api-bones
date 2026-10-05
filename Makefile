@@ -55,7 +55,9 @@ ci-e2e-rust: ## Answer the Gherkin contracts nextest cannot carry
 	# neither needs a live stack and both run synchronously.
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_precondition
+	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_error_info
 	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_client_headers
+	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_domain_error_code
 
 ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	# Excluded for the same reason as ci-test: nextest cannot enumerate a

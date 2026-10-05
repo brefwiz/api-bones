@@ -22,17 +22,14 @@ const BASE_MESSAGE = "refused";
 
 interface ErrorInfoWorld extends World {
   failure?: ConnectError;
-  read?: BonesError;
+  readCode?: string;
+  readEmitter?: string;
+  readText?: string;
 }
 
 function failureOf(world: ErrorInfoWorld): ConnectError {
   if (!world.failure) throw new Error("no refusal given");
   return world.failure;
-}
-
-function readOf(world: ErrorInfoWorld): BonesError {
-  if (!world.read) throw new Error("the refusal was not read");
-  return world.read;
 }
 
 function expected(value: string): string | undefined {
@@ -76,23 +73,25 @@ Given(
 );
 
 When("the refusal is read as an SDK error", function (this: ErrorInfoWorld) {
-  this.read = new BonesError(failureOf(this));
+  const read = BonesError.from(failureOf(this));
+  this.readCode = read.code;
+  this.readEmitter = read.emitter;
+  this.readText = read.message;
 });
 
 Then("its error code is {string}", function (this: ErrorInfoWorld, value: string) {
-  assert.equal(readOf(this).code, expected(value));
+  assert.equal(this.readCode, expected(value));
 });
 
 Then("its emitter is {string}", function (this: ErrorInfoWorld, value: string) {
-  assert.equal(readOf(this).emitter, expected(value));
+  assert.equal(this.readEmitter, expected(value));
 });
 
 Then("its text ends with {string}", function (this: ErrorInfoWorld, value: string) {
-  const text = readOf(this).message;
   const token = expected(value);
   if (token === undefined) {
-    assert.ok(!text.includes("[bones-error"), `text: ${text}`);
+    assert.equal(this.readText?.includes("[bones-error"), false);
   } else {
-    assert.ok(text.endsWith(token), `text: ${text}`);
+    assert.equal(this.readText?.endsWith(token), true);
   }
 });

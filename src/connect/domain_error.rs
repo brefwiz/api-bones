@@ -144,19 +144,15 @@ mod tests {
         );
     }
 
-    struct CodedErr(DomainErrorKind, Option<&'static str>);
+    struct CodedErr(TestErr, &'static str);
 
     impl IntoDomainErrorKind for CodedErr {
         fn kind(&self) -> DomainErrorKind {
-            match &self.0 {
-                DomainErrorKind::NotFound => DomainErrorKind::NotFound,
-                DomainErrorKind::Conflict(s) => DomainErrorKind::Conflict(s.clone()),
-                DomainErrorKind::Internal(s) => DomainErrorKind::Internal(s.clone()),
-            }
+            self.0.kind()
         }
 
         fn code(&self) -> Option<&'static str> {
-            self.1
+            Some(self.1)
         }
     }
 
@@ -173,7 +169,7 @@ mod tests {
             DomainErrorKind::Conflict("dup".into()),
             DomainErrorKind::Internal("secret detail".into()),
         ] {
-            let err = domain_to_connect(&CodedErr(kind, Some("GRANT_MISSING")));
+            let err = domain_to_connect(&CodedErr(TestErr(kind), "GRANT_MISSING"));
             let info = crate::connect::error_info(&err).expect("ErrorInfo detail");
             assert_eq!(info.code, "GRANT_MISSING");
             assert!(info.emitter.is_empty(), "the emitter is stamped later");
