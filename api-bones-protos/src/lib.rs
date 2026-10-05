@@ -392,6 +392,33 @@ mod tests {
         assert_eq!(numbers.len(), total, "duplicate service option number");
     }
 
+    /// The field numbers are the wire contract the hand-written codecs in
+    /// the Rust and TypeScript packages encode against.
+    #[test]
+    fn errors_proto_declares_error_info() {
+        let body = std::str::from_utf8(ERRORS_PROTO).expect("utf8");
+        let msg = body
+            .split("message ErrorInfo {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("ErrorInfo message");
+        let fields: Vec<&str> = msg
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        assert_eq!(
+            fields,
+            [
+                "string code = 1;",
+                "string emitter = 2;",
+                "reserved 3;",
+                "reserved \"emitter_version\";"
+            ],
+            "ErrorInfo is exactly {{code, emitter}}, with field 3 reserved"
+        );
+    }
+
     #[test]
     fn queries_proto_declares_filter_op_enum() {
         let body = std::str::from_utf8(QUERIES_PROTO).expect("utf8");

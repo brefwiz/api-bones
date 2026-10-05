@@ -4,6 +4,7 @@
 //! The TypeScript half answers the same file; neither keeps its own copy of
 //! the rows.
 
+mod error_info;
 mod precondition;
 
 use crate::world::RetryWorld;

@@ -71,7 +71,22 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The emitted error code a refusal carries: read back from the Connect error
+  # detail, exposed on the SDK error type, and rendered as a text token. The
+  # Rust half lives in the root crate, outside the package this surface names
+  # (see internal_behavior_owners, below) -- so this surface is TS alone, the
+  # same way connect-precondition is.
+  connect-error-info:
+    contract: tests/features/connect_error_info.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
+  # domain_to_connect attaches the error code a domain error names; callers
+  # reach it directly as library code, not through a generated contract.
+  - paths: [src/connect/domain_error.rs]
+    feature: tests/internal-bdd/tests/features/connect_domain_error_code.feature
   # with_bearer sets transport-layer default headers no declared sdk_surface
   # exposes -- callers reach it directly as library code, not through a
   # generated contract.
@@ -90,6 +105,12 @@ internal_behavior_owners:
   # half is library code no declared sdk_surface exposes.
   - paths: [src/connect/mod.rs, src/connect/precondition_client.rs]
     feature: tests/features/connect_precondition.feature
+  # The Rust half of connect-error-info (above): the ErrorInfo codec, the
+  # detail reader and the carries-error-info trait live in the root crate,
+  # outside the api-bones-connect package root the TypeScript half answers to
+  # as its SDK contract.
+  - paths: [src/connect/error_info.rs, src/sdk.rs]
+    feature: tests/features/connect_error_info.feature
   # check_if_match/etag_from_updated_at are Connect adapter code no declared
   # sdk_surface exposes -- callers reach them directly as library code, not
   # through a generated contract.

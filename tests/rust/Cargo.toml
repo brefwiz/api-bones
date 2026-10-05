@@ -31,3 +31,7 @@ harness = false
 [[test]]
 name = "connect_precondition"
 harness = false
+
+[[test]]
+name = "connect_error_info"
+harness = false
