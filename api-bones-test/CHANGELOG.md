@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- Breaking: public builder and assertion types use api-bones 9 and are incompatible with api-bones 6 types. Release tooling derives the corresponding major version bump.
-
 ## [6.6.24] - 2026-10-04
 
 ### Fixed
