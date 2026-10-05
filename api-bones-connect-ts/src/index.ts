@@ -24,6 +24,18 @@ export {
 } from "./backoff.js";
 
 export {
+  BonesError,
+  ERROR_INFO_TYPE,
+  decodeErrorInfo,
+  encodeErrorInfo,
+  errorInfoOf,
+  errorToken,
+  messageWithToken,
+  type CarriesErrorInfo,
+  type ErrorInfo,
+} from "./error-info.js";
+
+export {
   MAX_CONNECT_GET_URL_BYTES,
   MAX_PRIVATE_CACHE_TTL_SECONDS,
   MAX_PUBLIC_READ_AGE_SECONDS,

@@ -176,6 +176,9 @@ pub mod openapi;
 #[cfg(feature = "connect")]
 pub mod connect;
 
+#[cfg(feature = "connect")]
+pub mod sdk;
+
 #[cfg(feature = "opentelemetry")]
 pub mod propagation;
 

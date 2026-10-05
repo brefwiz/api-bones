@@ -108,3 +108,18 @@ impl PreconditionWorld {
             .map(|v| v.to_str().unwrap().to_owned())
     }
 }
+
+/// The failure under test, and what the SDK error type read from it.
+#[derive(Debug, Default, World)]
+pub struct ErrorInfoWorld {
+    pub failure: Option<ConnectError>,
+    pub read: Option<ReadError>,
+}
+
+/// What an SDK error type built from the failure exposes.
+#[derive(Debug)]
+pub struct ReadError {
+    pub code: Option<String>,
+    pub emitter: Option<String>,
+    pub text: String,
+}

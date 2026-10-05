@@ -71,7 +71,23 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The emitted error code a refusal carries: read back from the Connect error
+  # detail, exposed on the SDK error type, and rendered as a text token. Both
+  # languages answer the same contract.
+  connect-error-info:
+    contract: tests/features/connect_error_info.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-connect]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
+  # domain_to_connect attaches the error code a domain error names; callers
+  # reach it directly as library code, not through a generated contract.
+  - paths: [src/connect/domain_error.rs]
+    feature: tests/internal-bdd/tests/features/connect_domain_error_code.feature
   # with_bearer sets transport-layer default headers no declared sdk_surface
   # exposes -- callers reach it directly as library code, not through a
   # generated contract.

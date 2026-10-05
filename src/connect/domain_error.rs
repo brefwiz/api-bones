@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+use super::error_info::{ErrorInfo, with_error_info};
 use connectrpc::ConnectError;
 
 /// Canonical error-kind shape for domain errors that need to cross the Connect RPC boundary.
@@ -48,6 +49,15 @@ pub enum DomainErrorKind {
 /// ```
 pub trait IntoDomainErrorKind {
     fn kind(&self) -> DomainErrorKind;
+
+    /// The error code this error is emitted under, e.g. the name of the
+    /// variant in the service's proto error enum. When present,
+    /// [`domain_to_connect`] attaches it to the Connect error as a
+    /// `bones.v1.ErrorInfo` detail so the caller can read why the call was
+    /// refused. Defaults to `None`.
+    fn code(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 /// Map any domain error implementing [`IntoDomainErrorKind`] to a [`ConnectError`].
@@ -63,6 +73,9 @@ pub trait IntoDomainErrorKind {
 /// Internal errors are logged at `ERROR` level before the `ConnectError` is
 /// returned. The detail string is never forwarded to callers.
 ///
+/// When [`IntoDomainErrorKind::code`] returns a code, the returned error also
+/// carries it as a `bones.v1.ErrorInfo` detail (see [`ErrorInfo`](super::ErrorInfo)).
+///
 /// # Example
 ///
 /// ```rust
@@ -77,13 +90,17 @@ pub trait IntoDomainErrorKind {
 /// let err: ConnectError = domain_to_connect(&NotFoundErr);
 /// ```
 pub fn domain_to_connect<E: IntoDomainErrorKind>(err: &E) -> ConnectError {
-    match err.kind() {
+    let mapped = match err.kind() {
         DomainErrorKind::NotFound => ConnectError::not_found("not found"),
         DomainErrorKind::Conflict(msg) => ConnectError::already_exists(msg),
         DomainErrorKind::Internal(detail) => {
             tracing::error!(error = %detail, "internal domain error");
             ConnectError::internal("internal error")
         }
+    };
+    match err.code() {
+        Some(code) => with_error_info(mapped, &ErrorInfo::from_code(code)),
+        None => mapped,
     }
 }
 
@@ -125,6 +142,43 @@ mod tests {
             s.contains("already_exists") || s.contains("AlreadyExists"),
             "expected already_exists code, got: {s}"
         );
+    }
+
+    struct CodedErr(DomainErrorKind, Option<&'static str>);
+
+    impl IntoDomainErrorKind for CodedErr {
+        fn kind(&self) -> DomainErrorKind {
+            match &self.0 {
+                DomainErrorKind::NotFound => DomainErrorKind::NotFound,
+                DomainErrorKind::Conflict(s) => DomainErrorKind::Conflict(s.clone()),
+                DomainErrorKind::Internal(s) => DomainErrorKind::Internal(s.clone()),
+            }
+        }
+
+        fn code(&self) -> Option<&'static str> {
+            self.1
+        }
+    }
+
+    #[test]
+    fn no_code_attaches_no_detail() {
+        let err = domain_to_connect(&TestErr(DomainErrorKind::NotFound));
+        assert!(err.details.is_empty());
+    }
+
+    #[test]
+    fn a_code_is_attached_for_every_kind() {
+        for kind in [
+            DomainErrorKind::NotFound,
+            DomainErrorKind::Conflict("dup".into()),
+            DomainErrorKind::Internal("secret detail".into()),
+        ] {
+            let err = domain_to_connect(&CodedErr(kind, Some("GRANT_MISSING")));
+            let info = crate::connect::error_info(&err).expect("ErrorInfo detail");
+            assert_eq!(info.code, "GRANT_MISSING");
+            assert!(info.emitter.is_empty(), "the emitter is stamped later");
+            assert!(!debug_str(&err).contains("secret detail"));
+        }
     }
 
     #[test]

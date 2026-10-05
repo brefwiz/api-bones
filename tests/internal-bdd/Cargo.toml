@@ -32,3 +32,7 @@ harness = false
 [[test]]
 name = "connect_if_match_precondition"
 harness = false
+
+[[test]]
+name = "connect_domain_error_code"
+harness = false

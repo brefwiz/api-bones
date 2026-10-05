@@ -6,8 +6,8 @@
 // Connect protocol ships its own top-level error envelope
 // (`{ code, message, details }`) — we do NOT redefine it here. What
 // IS canonical: the typed error-detail messages that services attach
-// to that envelope under `details`. `ValidationFailure` is the first;
-// more land as consumers need them.
+// to that envelope under `details`. `ValidationFailure` is the first,
+// `ErrorInfo` the second; more land as consumers need them.
 //
 // Usage on the wire (Connect HTTP+JSON):
 //
@@ -44,4 +44,27 @@ message ValidationFailure {
   // `format`, `range`). Empty when the failure doesn't map to a
   // discrete rule.
   string rule = 3;
+}
+
+// Why a call was refused, in the emitter's own vocabulary. Attached to the
+// Connect error envelope under `details`, once per error, so the caller can
+// read the emitted error code rather than only the coarse Connect code.
+//
+// SDK error types render the three values as a text token,
+// `[bones-error code=<code> emitter=<emitter>@<emitter_version>]`, so the
+// code survives any reporter that keeps only text.
+message ErrorInfo {
+  // The emitted error code: the name of the value in the emitter's error
+  // enum, e.g. `GRANT_MISSING`. Upper-case letters, digits and underscores,
+  // starting with a letter, at most 128 characters.
+  string code = 1;
+
+  // The deployable that emitted the error, e.g. `payments`. Lower-case
+  // letters, digits, `.`, `_` and `-`, at most 128 characters. Stamped by the
+  // transport layer of the emitting service; empty until then.
+  string emitter = 2;
+
+  // The emitter's build version, e.g. `1.4.2`. Letters, digits, `.`, `+` and
+  // `-`, at most 64 characters. Stamped together with `emitter`.
+  string emitter_version = 3;
 }
