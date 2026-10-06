@@ -263,3 +263,19 @@ api-bones = { version = "6.5.0", default-features = false }
 ## License
 
 MIT — see [LICENSE](LICENSE)
+
+## Outbound telemetry and identity
+
+The Rust propagation helper and Tower trace layer, and the TypeScript OTEL helper
+and Connect interceptor, propagate active trace context, baggage and ordinary
+custom propagation families. They never introduce or replace `authorization`,
+`x-org-id`, `x-org-path` or `x-subject-id`, case-insensitively, even when absent.
+Identity setters own those headers. Telemetry does not supply credentials.
+
+TypeScript propagators receive a private staging object rather than the original
+carrier. Use the OpenTelemetry setter: own primitive string data properties are
+merged; accessors, non-string values and prototype keys are ignored. Custom
+propagators depending on original carrier identity or type intentionally observe
+this isolation boundary. Retained staging references cannot mutate the request.
+Explicit captured context remains supported. Permitted writes before a propagator
+error survive; Rust contains unwinding panics, while abort-on-panic still aborts.

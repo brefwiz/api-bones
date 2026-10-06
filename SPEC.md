@@ -18,6 +18,16 @@ sdk_languages: [rust, typescript]
 # No `owns:` — this surface names no RPC endpoint, and needs no canary: there
 # is no image here to run one against.
 sdk_surfaces:
+  trace-context-propagation:
+    contract: tests/features/trace_context_propagation.feature
+    owns: []
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones, api-bones-tower]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-otel"]
   connect-retry-eligibility:
     contract: tests/features/connect_retry_eligibility.feature
     targets:

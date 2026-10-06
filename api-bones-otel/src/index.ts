@@ -8,6 +8,13 @@ import type { Interceptor } from "@connectrpc/connect";
 // Trace context injection helpers
 // ---------------------------------------------------------------------------
 
+const identityHeaders = new Set(["authorization", "x-org-id", "x-org-path", "x-subject-id"]);
+
+function permittedHeader(key: string): boolean {
+  return !identityHeaders.has(key.toLowerCase()) &&
+    key !== "__proto__" && key !== "prototype" && key !== "constructor";
+}
+
 /**
  * Capture the currently active OpenTelemetry context for later use.
  *
@@ -25,7 +32,15 @@ export function captureTraceContext(): Context {
  * into a carrier (plain object, Headers, or Map-like).
  *
  * This is a generic helper compatible with any HTTP client library.
- * With no active span or propagator configured, this is a no-op.
+ * Installed propagators may carry baggage and ordinary custom header families.
+ * Identity headers (`authorization`, `x-org-id`, `x-org-path`, `x-subject-id`)
+ * are reserved case-insensitively, even when absent. Propagators receive a
+ * private plain staging object, never the caller carrier. Only own primitive
+ * string data properties are copied; accessors and prototype keys are ignored.
+ * Custom propagators relying on the caller carrier's identity or type must use
+ * the supplied setter instead. Retaining staging cannot mutate the caller later.
+ * Permitted writes before an injection error survive. With no propagator,
+ * this is a no-op.
  *
  * @param carrier - A plain object, Headers instance, or Map-like object with `.set(key, value)`
  * @param ctx - Optional explicit context. If omitted, uses `context.active()`
@@ -44,21 +59,33 @@ export function injectTraceContext(
   carrier: Record<string, string> | Headers | Map<string, string>,
   ctx?: Context,
 ): void {
+  const staged: Record<string, string> = Object.create(null);
   try {
-    const targetContext = ctx ?? captureTraceContext();
-    propagation.inject(targetContext, carrier, {
-      set: (c: Record<string, string> | Headers | Map<string, string>, key: string, value: string) => {
-        if (c instanceof Headers) {
-          c.set(key, value);
-        } else if (c instanceof Map) {
-          c.set(key, value);
-        } else {
-          c[key as keyof typeof c] = value as never;
+    propagation.inject(ctx ?? captureTraceContext(), staged, {
+      set: (target, key, value) => {
+        if (typeof key === "string" && typeof value === "string" && permittedHeader(key)) {
+          Object.defineProperty(target, key, { value, enumerable: true, configurable: true, writable: true });
         }
       },
     });
   } catch {
-    // Silently ignore errors — injecting trace context should never break a request
+    // Keep permitted writes already staged; instrumentation stays best effort.
+  }
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(staged))) {
+    if (!("value" in descriptor) || typeof descriptor.value !== "string" || !permittedHeader(key)) {
+      continue;
+    }
+    try {
+      if (carrier instanceof Headers || carrier instanceof Map) {
+        carrier.set(key, descriptor.value);
+      } else {
+        Object.defineProperty(carrier, key, {
+          value: descriptor.value, enumerable: true, configurable: true, writable: true,
+        });
+      }
+    } catch {
+      // One refused destination write must not prevent other permitted writes.
+    }
   }
 }
 

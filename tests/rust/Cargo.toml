@@ -12,6 +12,11 @@ publish = false
 license = "MIT"
 
 [dependencies]
+api-bones = { path = "../..", features = ["opentelemetry"] }
+api-bones-tower = { path = "../../api-bones-tower", features = ["opentelemetry"] }
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["trace"] }
+tower = { version = "0.5", features = ["util"] }
 api-bones-connect = { path = "../../api-bones-connect" }
 connectrpc = "0.9.1"
 http = "1.4.2"
@@ -34,4 +39,8 @@ harness = false
 
 [[test]]
 name = "connect_error_info"
+harness = false
+
+[[test]]
+name = "trace_context_propagation"
 harness = false

@@ -28,6 +28,9 @@ struct HeaderMapInjector<'a>(&'a mut HeaderMap);
 
 impl Injector for HeaderMapInjector<'_> {
     fn set(&mut self, key: &str, value: String) {
+        if crate::identity_headers::is_identity_header(key) {
+            return;
+        }
         if let (Ok(name), Ok(val)) = (
             http::header::HeaderName::try_from(key),
             http::header::HeaderValue::try_from(value),
@@ -45,7 +48,13 @@ impl Injector for HeaderMapInjector<'_> {
 /// by ensuring the callee's span links to the caller's span instead of starting
 /// a new (orphan-root) trace.
 ///
-/// If there is no active span context, no headers are added.
+/// The installed propagator may also carry baggage or custom telemetry families.
+/// It cannot introduce or replace `authorization`, `x-org-id`, `x-org-path` or
+/// `x-subject-id`, regardless of casing or whether the header was already present.
+/// These belong to request identity, not instrumentation. Invalid header writes
+/// are ignored. A propagator panic is contained when the runtime unwinds; allowed
+/// writes completed before that panic remain. Abort-on-panic runtimes still abort.
+/// With the standard trace propagator and no active span, no trace headers are added.
 ///
 /// # Example
 ///
@@ -58,14 +67,40 @@ impl Injector for HeaderMapInjector<'_> {
 /// // headers may now contain "traceparent" and "tracestate" headers
 /// ```
 pub fn inject_current(headers: &mut HeaderMap) {
-    global::get_text_map_propagator(|propagator| {
-        propagator.inject_context(&Context::current(), &mut HeaderMapInjector(headers));
-    });
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        global::get_text_map_propagator(|propagator| {
+            propagator.inject_context(&Context::current(), &mut HeaderMapInjector(headers));
+        });
+    }));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn telemetry_respects_present_and_absent_identity() {
+        for present in [false, true] {
+            let mut headers = HeaderMap::new();
+            for key in ["authorization", "x-org-id", "x-org-path", "x-subject-id"] {
+                if present {
+                    headers.insert(key, "caller".parse().unwrap());
+                }
+                HeaderMapInjector(&mut headers).set(&key.to_uppercase(), "telemetry".into());
+                assert_eq!(
+                    headers.get(key).map(|v| v.to_str().unwrap()),
+                    if present { Some("caller") } else { None }
+                );
+            }
+            HeaderMapInjector(&mut headers).set("baggage", "sample=kept".into());
+            HeaderMapInjector(&mut headers).set("x-custom-context", "kept".into());
+            HeaderMapInjector(&mut headers).set("invalid header", "ignored".into());
+            HeaderMapInjector(&mut headers).set("x-invalid-value", "\n".into());
+            assert_eq!(headers["baggage"], "sample=kept");
+            assert_eq!(headers["x-custom-context"], "kept");
+            assert!(!headers.contains_key("x-invalid-value"));
+        }
+    }
 
     #[test]
     fn no_traceparent_without_active_span() {

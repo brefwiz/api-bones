@@ -179,6 +179,16 @@ pub mod connect;
 #[cfg(feature = "connect")]
 pub mod sdk;
 
+#[cfg(all(
+    feature = "http",
+    any(
+        feature = "connect",
+        feature = "opentelemetry",
+        all(any(feature = "std", feature = "alloc"), feature = "uuid")
+    )
+))]
+mod identity_headers;
+
 #[cfg(feature = "opentelemetry")]
 pub mod propagation;
 

@@ -268,7 +268,7 @@ impl OrgId {
     /// ```
     pub fn try_from_headers(headers: &http::HeaderMap) -> Result<Self, OrgIdHeaderError> {
         let raw = headers
-            .get("x-org-id")
+            .get(crate::identity_headers::ORG_ID)
             .ok_or(OrgIdHeaderError::Missing)?
             .to_str()
             .map_err(|_| OrgIdHeaderError::NotUtf8)?;
@@ -376,7 +376,7 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for OrgPath {
     crate::ready_from_request_parts!(|parts: axum::http::request::Parts| {
         let raw = parts
             .headers
-            .get("x-org-path")
+            .get(crate::identity_headers::ORG_PATH)
             .ok_or_else(|| {
                 crate::error::ApiError::bad_request("missing required header: x-org-path")
             })?

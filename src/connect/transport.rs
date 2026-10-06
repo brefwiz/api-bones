@@ -65,17 +65,17 @@ impl ConnectConfigExt for ClientConfig {
         // stale credential would keep being sent. Replace instead of append.
         let mut headers = self.default_headers().clone();
         if let Ok(value) = http::HeaderValue::try_from(format!("Bearer {token}")) {
-            headers.insert(http::header::AUTHORIZATION, value);
+            headers.insert(crate::identity_headers::AUTHORIZATION, value);
         }
         self.with_default_headers(headers)
     }
 
     fn with_org(self, org_id: &str) -> Self {
-        self.with_default_header("x-org-id", org_id.to_owned())
+        self.with_default_header(crate::identity_headers::ORG_ID, org_id.to_owned())
     }
 
     fn with_subject(self, s: &str) -> Self {
-        self.with_default_header("x-subject-id", s.to_owned())
+        self.with_default_header(crate::identity_headers::SUBJECT_ID, s.to_owned())
     }
 }
 

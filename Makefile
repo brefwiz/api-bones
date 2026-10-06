@@ -56,6 +56,7 @@ ci-e2e-rust: ## Answer the Gherkin contracts nextest cannot carry
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_precondition
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_error_info
+	cargo test --no-fail-fast -p api-bones-contract-rust --test trace_context_propagation
 	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_client_headers
 	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_domain_error_code
 	cargo test --no-fail-fast -p api-bones-internal-bdd --test pagination_max_limit

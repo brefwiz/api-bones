@@ -13,6 +13,7 @@ module.exports = {
       "../features/connect_retry_observability.feature",
       "../features/connect_undelivered_retry.feature",
       "../features/connect_error_info.feature",
+      "../features/trace_context_propagation.feature",
     ],
     import: [
       "steps/retry_eligibility.ts",
@@ -22,6 +23,7 @@ module.exports = {
       "steps/retry_observability.ts",
       "steps/undelivered_retry.ts",
       "steps/error_info.ts",
+      "steps/propagation.ts",
     ],
     strict: true,
     format: ["progress"],

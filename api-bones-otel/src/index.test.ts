@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { context, trace, propagation, ROOT_CONTEXT, SpanContext, TraceFlags } from "@opentelemetry/api";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { context, trace, propagation, ROOT_CONTEXT, SpanContext, TraceFlags, type TextMapPropagator, type TextMapSetter, type TextMapGetter, type Context } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import type { UnaryRequest } from "@connectrpc/connect";
 import { addTraceContextInterceptor, captureTraceContext, injectTraceContext } from "./index";
@@ -196,5 +196,69 @@ describe("addTraceContextInterceptor", () => {
 
     // Request should pass through successfully even without an active span
     expect(response.message).toBeDefined();
+  });
+});
+
+
+describe("propagation carrier isolation", () => {
+  let retained: Record<string, unknown> | undefined;
+  let getterCalls = 0;
+  const hostile: TextMapPropagator = {
+    inject<C>(_ctx: Context, carrier: C, setter: TextMapSetter<C>) {
+      const staged = carrier as Record<string, unknown>;
+      retained = staged;
+      setter.set(carrier, "x-before-error", "kept");
+      for (const key of ["Authorization", "X-Org-Id", "X-Org-Path", "X-Subject-Id"]) {
+        setter.set(carrier, key, "setter-identity");
+        staged[key] = "direct-identity";
+      }
+      staged["x-direct-context"] = "kept";
+      staged["x-non-string"] = { toString() { throw new Error("coercion must not run"); } };
+      Object.defineProperty(staged, "x-accessor", { get() { getterCalls++; throw new Error("getter must not run"); }, enumerable: true });
+      Object.defineProperty(staged, "__proto__", { value: "poison", enumerable: true });
+      Object.defineProperty(staged, "constructor", { value: "poison", enumerable: true });
+      staged.prototype = "poison";
+      Object.setPrototypeOf(staged, { "x-inherited": "poison" });
+      throw new Error("extension failed");
+    },
+    extract<C>(ctx: Context, _carrier: C, _getter: TextMapGetter<C>) { return ctx; },
+    fields: () => [],
+  };
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    retained = undefined;
+    getterCalls = 0;
+    propagation.disable();
+    expect(propagation.setGlobalPropagator(hostile)).toBe(true);
+  });
+  afterEach(() => {
+    propagation.disable();
+    propagation.setGlobalPropagator(propagator);
+  });
+  it.each(["object", "headers", "map"])("protects present and absent identity on %s carriers", (kind) => {
+    for (const present of [false, true]) {
+      const initial: Record<string, string> = present ? { authorization: "caller", "x-org-id": "caller", "x-org-path": "caller", "x-subject-id": "caller" } : {};
+      const carrier = kind === "headers" ? new Headers(initial) : kind === "map" ? new Map(Object.entries(initial)) : { ...initial };
+      const prototype = Object.getPrototypeOf(carrier);
+      injectTraceContext(carrier);
+      const read = (key: string) => carrier instanceof Headers || carrier instanceof Map ? carrier.get(key) : (carrier as Record<string, string>)[key];
+      for (const key of ["authorization", "x-org-id", "x-org-path", "x-subject-id"]) {
+        expect(read(key) ?? undefined).toBe(present ? "caller" : undefined);
+        expect(read(key.toUpperCase()) ?? undefined).toBe(kind === "headers" && present ? "caller" : undefined);
+      }
+      expect(read("x-before-error")).toBe("kept");
+      expect(read("x-direct-context")).toBe("kept");
+      for (const key of ["x-accessor", "x-non-string", "x-inherited"]) expect(read(key) ?? undefined).toBeUndefined();
+      for (const key of ["__proto__", "prototype", "constructor"]) {
+        expect(carrier instanceof Headers || carrier instanceof Map ? carrier.has(key) : Object.hasOwn(carrier, key)).toBe(false);
+      }
+      expect(getterCalls).toBe(0);
+      expect(Object.getPrototypeOf(carrier)).toBe(prototype);
+      expect(retained).not.toBe(carrier);
+      retained!["authorization"] = "late-identity";
+      retained!["x-direct-context"] = "late-context";
+      expect(read("authorization") ?? undefined).toBe(present ? "caller" : undefined);
+      expect(read("x-direct-context")).toBe("kept");
+    }
   });
 });
