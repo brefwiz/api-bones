@@ -51,9 +51,13 @@ export {
   workloadClientTlsIdentity,
   clientTlsIdentityFor,
   trustDomainOf,
+  workloadPeer,
+  workloadPeerFor,
+  peerSpiffeId,
+  MANAGED_APPLICATION_PORT,
   WATCHER_ATTEMPTS,
 } from "./workload-identity.js";
-export type { WorkloadIdentityErrorKind } from "./workload-identity.js";
+export type { WorkloadIdentityErrorKind, WorkloadPeer } from "./workload-identity.js";
 
 export interface NodeConnectTransportOptions {
   baseUrl: string;

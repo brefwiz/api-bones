@@ -117,19 +117,13 @@ proto-breaking: ## Check api-bones-protos/proto/ for breaking changes vs origin/
 # until the parent version is live on crates.io — the verify step substitutes the
 # path dep with the registry version. They are packaged (checking include-list
 # completeness, the main failure mode) but compiled via ci-test / ci-lint instead.
-PUBLISHABLE_ROOT   := api-bones
-PUBLISHABLE_SATS   := api-bones-connect api-bones-tower api-bones-reqwest api-bones-progenitor api-bones-sdk-gen api-bones-test api-bones-protos
-PUBLISHABLE_CRATES := $(PUBLISHABLE_ROOT) $(PUBLISHABLE_SATS)
+UNIT_CLOSURE_SCRIPT ?= $(firstword $(wildcard /opt/ci-workflows/build/cargo_package_unit_closure.py ../ci-workflows/build/cargo_package_unit_closure.py))
 
-ci-release-readiness: ## CI: package-verify root, package-only satellites (catches broken include paths)
-	@set -eu; \
-	echo "==> packaging + verifying $(PUBLISHABLE_ROOT)..."; \
-	cargo package -p "$(PUBLISHABLE_ROOT)" --allow-dirty; \
-	for crate in $(PUBLISHABLE_SATS); do \
-		echo "==> packaging (no-verify) $$crate..."; \
-		cargo package -p "$$crate" --allow-dirty --no-verify; \
-	done; \
-	echo "==> all publishable crates packaged."
+ci-release-readiness: ## CI: package the release unit against itself, in dependency order
+	@# release-plz releases every publishable crate here in one run, the root
+	@# first: each satellite is packaged and compiled against the tarballs the
+	@# same run produces, never against a registry that has not seen them yet.
+	python3 $(UNIT_CLOSURE_SCRIPT)
 
 .PHONY: lockfile
 lockfile: ## Regenerate Cargo.lock
