@@ -31,7 +31,9 @@ export const WATCHER_ATTEMPTS = 3;
 /** Why a transport could not take its identity from the Workload API. */
 export type WorkloadIdentityErrorKind =
   | "workload_api_unavailable"
-  | "unusable_trust_domain";
+  | "unusable_trust_domain"
+  | "invalid_workload_name"
+  | "unusable_peer_identity";
 
 /**
  * A terminal, nameable reason the Workload API could not supply an identity.
@@ -110,4 +112,102 @@ export async function workloadClientTlsIdentity(): Promise<NodeTlsIdentity> {
   }
 
   return clientTlsIdentityFor(watcher);
+}
+
+/** Port every managed workload serves its application traffic on. */
+export const MANAGED_APPLICATION_PORT = 8080;
+
+/**
+ * A named workload in this workload's own organization, reachable over mTLS.
+ *
+ * Everything a caller needs is derived: the address from the name, the
+ * identity from this workload's own SVID, the trust from that identity.
+ */
+export interface WorkloadPeer {
+  /** `https://<workload>:<managed application port>`. */
+  readonly url: string;
+  /**
+   * The peer's SPIFFE ID, and the one audience a credential sent to it names.
+   */
+  readonly spiffeId: string;
+  /**
+   * This workload's SVID as client certificate, and the server verified
+   * against {@link WorkloadPeer.spiffeId} alone. Resolved per connection, so a
+   * rotating SVID needs no transport rebuild.
+   */
+  readonly tls: () => NodeTlsIdentity;
+}
+
+/** A single RFC-1123 DNS label: it is interpolated into a URL and a SPIFFE ID. */
+const DNS_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+
+/**
+ * The SPIFFE ID of `workload` in the same trust domain and organization as
+ * `ownSpiffeId`: the trailing `/svc/<self>` becomes `/svc/<workload>`.
+ */
+export function peerSpiffeId(ownSpiffeId: string, workload: string): string {
+  const match = /^(spiffe:\/\/[^/]+(?:\/.+)?)\/svc\/[^/]+$/.exec(ownSpiffeId);
+  if (match === null) {
+    throw new WorkloadIdentityError(
+      `SVID ${ownSpiffeId} does not end in /svc/<workload>; cannot derive a peer from it`,
+      "unusable_peer_identity",
+    );
+  }
+  return `${match[1]}/svc/${workload}`;
+}
+
+/**
+ * Build the peer from `watcher`'s own SVID. Split from {@link workloadPeer} so
+ * the derivation is testable against a watcher built in-process.
+ *
+ * @throws {WorkloadIdentityError} for a name that is not a DNS label, or an
+ * SVID a peer cannot be derived from.
+ */
+export function workloadPeerFor(
+  watcher: SvidWatcher,
+  workload: string,
+): WorkloadPeer {
+  if (!DNS_LABEL.test(workload)) {
+    throw new WorkloadIdentityError(
+      `workload name ${JSON.stringify(workload)} must be a valid RFC-1123 DNS label`,
+      "invalid_workload_name",
+    );
+  }
+  const spiffeId = peerSpiffeId(watcher.current().spiffeId, workload);
+
+  return {
+    url: `https://${workload}:${MANAGED_APPLICATION_PORT}`,
+    spiffeId,
+    tls: () => {
+      const options = tlsClientConfigFromWatcher(watcher, [spiffeId]);
+      return {
+        cert: options.cert,
+        key: options.key,
+        ca: options.ca,
+        allowPartialTrustChain: options.allowPartialTrustChain,
+        rejectUnauthorized: options.rejectUnauthorized,
+        checkServerIdentity: options.checkServerIdentity,
+      };
+    },
+  };
+}
+
+/**
+ * Reach the workload `service` in this workload's organization.
+ *
+ * @throws {WorkloadIdentityError} when the name is not a DNS label, no
+ * Workload API answers, or its SVID names no derivable peer.
+ */
+export async function workloadPeer(service: string): Promise<WorkloadPeer> {
+  const watcher = await startWatcherSafe(undefined, WATCHER_ATTEMPTS);
+
+  if (watcher === null) {
+    throw new WorkloadIdentityError(
+      `SPIFFE Workload API unavailable after ${WATCHER_ATTEMPTS} attempts; ` +
+        `this workload has no in-fleet identity`,
+      "workload_api_unavailable",
+    );
+  }
+
+  return workloadPeerFor(watcher, service);
 }

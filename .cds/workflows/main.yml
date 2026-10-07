@@ -96,11 +96,13 @@ jobs:
     steps:
       - id: checkout
         uses: actions/checkout
-      - id: cargo-package
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/cargo-package@main
+      # Every publishable crate ships in one release-plz run, so the unit is
+      # packaged against itself rather than against the registry.
+      - id: release-readiness
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/make-target@main
         with:
           checkout: "false"
-          patch-workspace-deps: "true"
+          make-target: ci-release-readiness
       # Shares this worker with the packaging proof above: both compile the
       # workspace, so a separate job would reserve a second one to rebuild it.
       - id: lib-crate-publish-gate
