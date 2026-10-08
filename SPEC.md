@@ -111,6 +111,10 @@ internal_behavior_owners:
   # as its SDK contract.
   - paths: [src/connect/error_info.rs, src/sdk.rs]
     feature: tests/features/connect_error_info.feature
+  # ConnectCode is the wire-level Connect error code; callers reach it
+  # directly as library code, not through a generated contract.
+  - paths: [src/connect/code.rs, src/connect/mod.rs]
+    feature: tests/internal-bdd/tests/features/connect_code.feature
   # check_if_match/etag_from_updated_at are Connect adapter code no declared
   # sdk_surface exposes -- callers reach them directly as library code, not
   # through a generated contract.
