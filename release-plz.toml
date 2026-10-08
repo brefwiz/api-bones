@@ -13,8 +13,24 @@
 [workspace]
 release = true
 
+# Explicit ownership keeps every published member in the release unit.
+[[package]]
+name = "api-bones"
+
+[[package]]
+name = "api-bones-progenitor"
+
+[[package]]
+name = "api-bones-protos"
+
 [[package]]
 name = "api-bones-reqwest"
 
 [[package]]
+name = "api-bones-sdk-gen"
+
+[[package]]
 name = "api-bones-test"
+
+[[package]]
+name = "api-bones-tower"
