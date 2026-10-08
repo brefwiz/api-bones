@@ -46,9 +46,12 @@ Given("a unary method declared {string}", function (this: PreconditionWorld, ide
 });
 
 Given(
-  "a unary method declared {string} in policy schema {word}",
+  "a unary method declared {string} in policy schema {string}",
   function (this: PreconditionWorld, idempotency: string, version: string) {
-    this.policy = { ...(policyDoc(idempotency) as object), schemaVersion: Number(version) };
+    assert.match(version, /^\d+$/);
+    const schemaVersion = Number(version);
+    assert.ok(Number.isSafeInteger(schemaVersion));
+    this.policy = { ...(policyDoc(idempotency) as object), schemaVersion };
   },
 );
 

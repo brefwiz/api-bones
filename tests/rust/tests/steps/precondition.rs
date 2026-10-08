@@ -24,9 +24,12 @@ fn given_declared(world: &mut PreconditionWorld, idempotency: String) {
     world.declare_method(idempotency_of(&idempotency));
 }
 
-#[given(expr = "a unary method declared {string} in policy schema {int}")]
-fn given_schema_declared(world: &mut PreconditionWorld, idempotency: String, version: u32) {
+#[given(expr = "a unary method declared {string} in policy schema {string}")]
+fn given_schema_declared(world: &mut PreconditionWorld, idempotency: String, version: String) {
     idempotency_of(&idempotency);
+    let version = version
+        .parse::<u32>()
+        .expect("policy schema is an unsigned integer");
     world.declare_policy_document(version, &idempotency);
 }
 
