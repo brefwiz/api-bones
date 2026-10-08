@@ -62,6 +62,7 @@
 //! A CI grep gate (`connect-bones-check`) additionally bans raw
 //! `Uuid::parse_str(` and `Timestamp::from_unix(` calls in adapter modules.
 
+mod code;
 mod domain_error;
 mod error_info;
 mod etag;
@@ -75,6 +76,7 @@ mod timestamp;
 pub mod transport;
 mod uuid;
 
+pub use code::{ConnectCode, ParseConnectCodeError};
 pub use domain_error::{DomainErrorKind, IntoDomainErrorKind, domain_to_connect};
 pub use error_info::{
     CarriesErrorInfo, ERROR_INFO_TYPE, ErrorInfo, MAX_ERROR_INFOS, error_info, error_infos,
