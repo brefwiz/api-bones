@@ -12,7 +12,7 @@ use core::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// A Connect protocol error code, identified by its snake_case wire string.
+/// A Connect protocol error code, identified by its `snake_case` wire string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum ConnectCode {
@@ -71,7 +71,7 @@ impl ConnectCode {
         Self::Unauthenticated,
     ];
 
-    /// The snake_case string this code carries on the wire.
+    /// The `snake_case` string this code carries on the wire.
     #[must_use]
     pub const fn as_wire(&self) -> &'static str {
         match self {
@@ -152,13 +152,12 @@ impl<'de> Deserialize<'de> for ConnectCode {
 }
 
 impl From<connectrpc::ErrorCode> for ConnectCode {
-    /// Codes the transport crate adds beyond the Connect protocol set map to
-    /// [`ConnectCode::Unknown`].
+    /// `Unknown` and any code the transport crate adds beyond the Connect
+    /// protocol set map to [`ConnectCode::Unknown`].
     fn from(code: connectrpc::ErrorCode) -> Self {
         use connectrpc::ErrorCode as E;
         match code {
             E::Canceled => Self::Canceled,
-            E::Unknown => Self::Unknown,
             E::InvalidArgument => Self::InvalidArgument,
             E::DeadlineExceeded => Self::DeadlineExceeded,
             E::NotFound => Self::NotFound,
@@ -180,24 +179,23 @@ impl From<connectrpc::ErrorCode> for ConnectCode {
 
 impl From<ConnectCode> for connectrpc::ErrorCode {
     fn from(code: ConnectCode) -> Self {
-        use connectrpc::ErrorCode as E;
         match code {
-            ConnectCode::Canceled => E::Canceled,
-            ConnectCode::Unknown => E::Unknown,
-            ConnectCode::InvalidArgument => E::InvalidArgument,
-            ConnectCode::DeadlineExceeded => E::DeadlineExceeded,
-            ConnectCode::NotFound => E::NotFound,
-            ConnectCode::AlreadyExists => E::AlreadyExists,
-            ConnectCode::PermissionDenied => E::PermissionDenied,
-            ConnectCode::ResourceExhausted => E::ResourceExhausted,
-            ConnectCode::FailedPrecondition => E::FailedPrecondition,
-            ConnectCode::Aborted => E::Aborted,
-            ConnectCode::OutOfRange => E::OutOfRange,
-            ConnectCode::Unimplemented => E::Unimplemented,
-            ConnectCode::Internal => E::Internal,
-            ConnectCode::Unavailable => E::Unavailable,
-            ConnectCode::DataLoss => E::DataLoss,
-            ConnectCode::Unauthenticated => E::Unauthenticated,
+            ConnectCode::Canceled => Self::Canceled,
+            ConnectCode::Unknown => Self::Unknown,
+            ConnectCode::InvalidArgument => Self::InvalidArgument,
+            ConnectCode::DeadlineExceeded => Self::DeadlineExceeded,
+            ConnectCode::NotFound => Self::NotFound,
+            ConnectCode::AlreadyExists => Self::AlreadyExists,
+            ConnectCode::PermissionDenied => Self::PermissionDenied,
+            ConnectCode::ResourceExhausted => Self::ResourceExhausted,
+            ConnectCode::FailedPrecondition => Self::FailedPrecondition,
+            ConnectCode::Aborted => Self::Aborted,
+            ConnectCode::OutOfRange => Self::OutOfRange,
+            ConnectCode::Unimplemented => Self::Unimplemented,
+            ConnectCode::Internal => Self::Internal,
+            ConnectCode::Unavailable => Self::Unavailable,
+            ConnectCode::DataLoss => Self::DataLoss,
+            ConnectCode::Unauthenticated => Self::Unauthenticated,
         }
     }
 }
