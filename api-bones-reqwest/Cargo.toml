@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-reqwest"
-version = "6.0.0"
+version = "5.0.20"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
