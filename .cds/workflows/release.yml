@@ -73,7 +73,7 @@ jobs:
           repo: ${{ cds.workflow_repository }}
           token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
           release-notes-extra: |
-            ### Artifacts published
+            **Artifacts published**
             - Rust crates (crates.io), published per-crate by release-plz.
             - npm packages release on their own axis — see package-lanes-mint.yml and package-release.yml.
 
