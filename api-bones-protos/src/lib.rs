@@ -271,6 +271,9 @@ mod tests {
             "repeated BrokerScope provided_broker_scopes = 5102354;",
             "CapabilityAudience capability_audience = 5102355;",
             "repeated CapabilityScopes capability_scopes = 5102356;",
+            "repeated AttributeDimension attributes = 5102358;",
+            "McpProjection mcp = 5102359;",
+            "string attr = 5102360;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
@@ -328,6 +331,49 @@ mod tests {
             ["string capability = 1;", "repeated string scopes = 2;"],
             "CapabilityScopes is exactly {{capability, scopes[]}}"
         );
+    }
+
+    /// The attribute dimension and MCP projection messages carry exactly the
+    /// fields the contract fixes; a drifted field number changes wire meaning.
+    #[test]
+    fn annotations_proto_declares_attribute_and_mcp_messages() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        for (name, expected) in [
+            (
+                "message AttributeDimension {",
+                &[
+                    "string name = 1;",
+                    "AttributeType type = 2;",
+                    "AttributePolarity polarity = 3;",
+                    "AttributeMatching matching = 4;",
+                    "string separator = 5;",
+                ][..],
+            ),
+            (
+                "message McpProjection {",
+                &["McpShape shape = 1;", "string title = 2;"][..],
+            ),
+        ] {
+            let msg = body
+                .split(name)
+                .nth(1)
+                .and_then(|rest| rest.split("\n}").next())
+                .expect("message");
+            let fields: Vec<&str> = msg
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with("//"))
+                .collect();
+            assert_eq!(fields, expected, "{name} field set drifted");
+        }
+        for value in [
+            "ATTRIBUTE_TYPE_UNSPECIFIED = 0;",
+            "ATTRIBUTE_POLARITY_UNSPECIFIED = 0;",
+            "ATTRIBUTE_MATCHING_UNSPECIFIED = 0;",
+            "MCP_SHAPE_UNSPECIFIED = 0;",
+        ] {
+            assert!(body.contains(value), "annotations.proto missing `{value}`");
+        }
     }
 
     /// Absence of the option must read as "never part of a default grant":
