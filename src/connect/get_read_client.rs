@@ -239,9 +239,11 @@ mod tests {
         ]
     }"#;
 
+    type Sent = (Method, Uri, http::HeaderMap, Bytes);
+
     #[derive(Clone, Default)]
     struct Recorder {
-        seen: Arc<Mutex<Vec<(Method, Uri, http::HeaderMap, Bytes)>>>,
+        seen: Arc<Mutex<Vec<Sent>>>,
     }
 
     impl ClientTransport for Recorder {
@@ -279,7 +281,7 @@ mod tests {
         GetReadTransport::new(recorder.clone(), index_read_policy(POLICY))
     }
 
-    fn last(recorder: &Recorder) -> (Method, Uri, http::HeaderMap, Bytes) {
+    fn last(recorder: &Recorder) -> Sent {
         recorder.seen.lock().unwrap().last().cloned().unwrap()
     }
 
