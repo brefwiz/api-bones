@@ -60,41 +60,49 @@ impl ReadPolicy {
 /// sensitivity or URL budget is absent or unreadable is simply not eligible.
 #[must_use]
 pub fn index_read_policy(json: &str) -> HashMap<String, ReadPolicy> {
-    let Some(methods) = super::precondition_client::policy_methods(json) else {
+    let Ok(document) = serde_json::from_str::<PolicyDocument>(json) else {
         return HashMap::new();
     };
+    if !matches!(document.schema_version, 1 | 2) {
+        return HashMap::new();
+    }
     let mut seen = std::collections::HashSet::new();
     let mut index = HashMap::new();
-    for entry in &methods {
-        let (Some(rpc), Some(procedure), Some(idempotency)) = (
-            entry.get("rpc").and_then(serde_json::Value::as_str),
-            entry.get("procedure").and_then(serde_json::Value::as_str),
-            entry.get("idempotency").and_then(serde_json::Value::as_str),
-        ) else {
-            return HashMap::new();
-        };
-        if !matches!(procedure, "unary" | "streaming")
-            || !rpc.starts_with('/')
-            || !seen.insert(rpc.to_owned())
-        {
+    for method in document.methods {
+        let known_procedure = matches!(method.procedure.as_str(), "unary" | "streaming");
+        if !known_procedure || !method.rpc.starts_with('/') || !seen.insert(method.rpc.clone()) {
             return HashMap::new();
         }
-        let max_url_bytes = entry
-            .get("maxEncodedUrlBytes")
-            .and_then(serde_json::Value::as_u64)
+        let max_url_bytes = method
+            .max_encoded_url_bytes
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(0);
-        let non_sensitive =
-            entry.get("sensitivity").and_then(serde_json::Value::as_str) == Some("NON_SENSITIVE");
-        if procedure == "unary"
-            && idempotency == "NO_SIDE_EFFECTS"
-            && non_sensitive
-            && max_url_bytes > 0
-        {
-            index.insert(rpc.to_owned(), ReadPolicy { max_url_bytes });
+        let eligible = method.procedure == "unary"
+            && method.idempotency == "NO_SIDE_EFFECTS"
+            && method.sensitivity.as_deref() == Some("NON_SENSITIVE")
+            && max_url_bytes > 0;
+        if eligible {
+            index.insert(method.rpc, ReadPolicy { max_url_bytes });
         }
     }
     index
+}
+
+#[derive(serde::Deserialize)]
+struct PolicyDocument {
+    #[serde(rename = "schemaVersion")]
+    schema_version: u64,
+    methods: Vec<PolicyMethod>,
+}
+
+#[derive(serde::Deserialize)]
+struct PolicyMethod {
+    rpc: String,
+    procedure: String,
+    idempotency: String,
+    sensitivity: Option<String>,
+    #[serde(rename = "maxEncodedUrlBytes")]
+    max_encoded_url_bytes: Option<u64>,
 }
 
 /// A [`ClientTransport`] that sends a policy-eligible unary read as a Connect

@@ -56,22 +56,6 @@ impl Idempotency {
     }
 }
 
-/// The `methods` array of a `connect-method-policy.json` document, or `None`
-/// when the document is not JSON, names a schema version this reader does not
-/// know, or has no `methods` array.
-pub(super) fn policy_methods(json: &str) -> Option<Vec<serde_json::Value>> {
-    let doc = serde_json::from_str::<serde_json::Value>(json).ok()?;
-    let (1 | 2) = doc
-        .get("schemaVersion")
-        .and_then(serde_json::Value::as_u64)?
-    else {
-        return None;
-    };
-    doc.get("methods")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-}
-
 /// Parse `connect-method-policy.json` into an RPC-identity → idempotency
 /// index.
 ///
@@ -83,11 +67,17 @@ pub(super) fn policy_methods(json: &str) -> Option<Vec<serde_json::Value>> {
 /// exactly as it did before this existed.
 #[must_use]
 pub fn index_generated_policy(json: &str) -> HashMap<String, Idempotency> {
-    let mut index = HashMap::new();
-    let Some(methods) = policy_methods(json) else {
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(json) else {
         return HashMap::new();
     };
-    for entry in &methods {
+    let mut index = HashMap::new();
+    let Some(1 | 2) = doc.get("schemaVersion").and_then(serde_json::Value::as_u64) else {
+        return HashMap::new();
+    };
+    let Some(methods) = doc.get("methods").and_then(serde_json::Value::as_array) else {
+        return HashMap::new();
+    };
+    for entry in methods {
         let (Some(rpc), Some(procedure), Some(idempotency)) = (
             entry.get("rpc").and_then(serde_json::Value::as_str),
             entry.get("procedure").and_then(serde_json::Value::as_str),
