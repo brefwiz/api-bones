@@ -22,8 +22,8 @@
 //!   public lane (`/public` ahead of the mount) as an **anonymous** GET, and
 //!   only through a separate anonymous transport the caller supplies: the
 //!   credentialed transport never sees a public read. The request also keeps
-//!   only protocol headers, so no bearer, cookie, CSRF token or product header
-//!   travels. The lane serves nothing else, so the URL budget does not apply.
+//!   only protocol headers and `origin`, so no bearer, cookie, CSRF token,
+//!   product header or forwarded-for chain travels. The lane serves nothing else, so the URL budget does not apply.
 //!
 //! Every other request, including every streaming call, passes through
 //! untouched. The message always travels as base64url in the Connect GET
@@ -987,6 +987,7 @@ mod tests {
             ("cookie", "sid=1"),
             ("x-csrf-token", "c"),
             ("x-product", "p"),
+            ("x-forwarded-for", "203.0.113.7"),
             ("origin", "https://embedder.example"),
             ("connect-timeout-ms", "1500"),
             ("accept-encoding", "gzip"),
@@ -1030,7 +1031,13 @@ mod tests {
         assert!(body.is_empty());
         assert_eq!(header_names(&headers), PROTOCOL_HEADERS);
         assert_eq!(headers.get("origin").unwrap(), "https://embedder.example");
-        for name in ["authorization", "cookie", "x-csrf-token", "x-product"] {
+        for name in [
+            "authorization",
+            "cookie",
+            "x-csrf-token",
+            "x-product",
+            "x-forwarded-for",
+        ] {
             assert!(headers.get(name).is_none(), "{name} reached the lane");
         }
     }

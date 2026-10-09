@@ -86,10 +86,10 @@ Feature: Connect GET for policy-eligible reads
 
   Scenario: A public read goes to the anonymous lane and carries no credential
     Given a public read "Open" served at the mount "/product"
-    When the client calls "Open" with a protobuf message and a bearer token, a cookie, a CSRF token and a product header
+    When the client calls "Open" with a protobuf message, an origin, protocol headers and every kind of caller header
     Then the request is a GET to "/public/product/pkg.v1.Svc/Open"
     And the request went to the anonymous lane
-    And the request carries no authorization, cookie, x-csrf-token or x-product header
+    And the request carries exactly the protocol headers and the origin
 
   Scenario: A public read keeps the origin it names and nothing that identifies the caller
     Given a public read "Open" served at the mount "/product"
@@ -97,6 +97,12 @@ Feature: Connect GET for policy-eligible reads
     Then the request is a GET to "/public/product/pkg.v1.Svc/Open"
     And the request went to the anonymous lane
     And the request carries the origin "https://embedder.example" and no authorization or cookie header
+
+  Scenario: A public read that names no origin reaches the lane with none
+    Given a public read "Open" served at the mount "/product"
+    When the client calls "Open" with a protobuf message and a bearer token
+    Then the request is a GET to "/public/product/pkg.v1.Svc/Open"
+    And the request carries no origin header
 
   Scenario: A public read is never sent as a credentialed GET
     Given a public read "Open" served at the mount "/product"
@@ -106,6 +112,6 @@ Feature: Connect GET for policy-eligible reads
   Scenario: A malformed public read never reaches the lane
     Given a public read "Open" served at the mount "/product"
     And the public read declaration is malformed
-    When the client calls "Open" with a protobuf message and a bearer token, a cookie, a CSRF token and a product header
+    When the client calls "Open" with a protobuf message, an origin, protocol headers and every kind of caller header
     Then the request is a POST to "/product/pkg.v1.Svc/Open"
     And the request went to the credentialed transport
