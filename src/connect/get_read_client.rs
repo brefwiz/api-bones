@@ -60,18 +60,12 @@ impl ReadPolicy {
 /// sensitivity or URL budget is absent or unreadable is simply not eligible.
 #[must_use]
 pub fn index_read_policy(json: &str) -> HashMap<String, ReadPolicy> {
-    let Ok(doc) = serde_json::from_str::<serde_json::Value>(json) else {
-        return HashMap::new();
-    };
-    let Some(1 | 2) = doc.get("schemaVersion").and_then(serde_json::Value::as_u64) else {
-        return HashMap::new();
-    };
-    let Some(methods) = doc.get("methods").and_then(serde_json::Value::as_array) else {
+    let Some(methods) = super::precondition_client::policy_methods(json) else {
         return HashMap::new();
     };
     let mut seen = std::collections::HashSet::new();
     let mut index = HashMap::new();
-    for entry in methods {
+    for entry in &methods {
         let (Some(rpc), Some(procedure), Some(idempotency)) = (
             entry.get("rpc").and_then(serde_json::Value::as_str),
             entry.get("procedure").and_then(serde_json::Value::as_str),

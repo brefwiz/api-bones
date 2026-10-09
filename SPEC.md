@@ -123,7 +123,7 @@ internal_behavior_owners:
   # The Rust half of the browser transport's GET selection for eligible
   # reads: transport code callers wrap around a generated client directly,
   # outside any declared sdk_surface.
-  - paths: [src/connect/get_read_client.rs]
+  - paths: [src/connect/get_read_client.rs, src/connect/mod.rs]
     feature: tests/internal-bdd/tests/features/connect_get_reads.feature
 library_crates:
   - api-bones
