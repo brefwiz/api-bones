@@ -91,6 +91,13 @@ Feature: Connect GET for policy-eligible reads
     And the request went to the anonymous lane
     And the request carries no authorization, cookie, x-csrf-token or x-product header
 
+  Scenario: A public read keeps the origin it names and nothing that identifies the caller
+    Given a public read "Open" served at the mount "/product"
+    When the client calls "Open" with a protobuf message from the origin "https://embedder.example", a bearer token and a cookie
+    Then the request is a GET to "/public/product/pkg.v1.Svc/Open"
+    And the request went to the anonymous lane
+    And the request carries the origin "https://embedder.example" and no authorization or cookie header
+
   Scenario: A public read is never sent as a credentialed GET
     Given a public read "Open" served at the mount "/product"
     When the client calls "Open" with a protobuf message and a bearer token on the credentialed transport

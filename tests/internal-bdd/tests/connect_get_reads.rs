@@ -271,6 +271,24 @@ async fn when_call_all_credentials(world: &mut GetWorld, method: String) {
 }
 
 #[when(
+    expr = "the client calls {string} with a protobuf message from the origin {string}, a bearer token and a cookie"
+)]
+async fn when_call_with_origin(world: &mut GetWorld, method: String, origin: String) {
+    world
+        .send(
+            &format!("/pkg.v1.Svc/{method}"),
+            "application/proto",
+            b"\x0a\x03abc".to_vec(),
+            &[
+                ("origin", &origin),
+                ("authorization", "Bearer secret"),
+                ("cookie", "sid=1"),
+            ],
+        )
+        .await;
+}
+
+#[when(
     expr = "the client calls {string} with a protobuf message and a bearer token on the credentialed transport"
 )]
 async fn when_call_credentialed(world: &mut GetWorld, method: String) {
@@ -345,6 +363,13 @@ fn then_no_credentials(world: &mut GetWorld) {
     for name in ["authorization", "cookie", "x-csrf-token", "x-product"] {
         assert!(headers.get(name).is_none(), "{name} travelled");
     }
+}
+
+#[then(expr = "the request carries the origin {string} and no authorization or cookie header")]
+fn then_origin_only(world: &mut GetWorld, origin: String) {
+    let (_, _, headers) = world.last();
+    assert_eq!(headers.get("origin").unwrap(), origin.as_str());
+    assert!(headers.get("authorization").is_none() && headers.get("cookie").is_none());
 }
 
 #[then(expr = "the call to {string} was a GET with no if-match header")]

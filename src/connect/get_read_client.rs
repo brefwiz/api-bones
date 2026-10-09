@@ -55,12 +55,18 @@ const MAX_PRIVATE_CACHE_TTL_SECONDS: u64 = 300;
 /// Longest cache lifetime a public read may declare.
 const MAX_PUBLIC_READ_AGE_SECONDS: u64 = 300;
 
-/// Headers a public read keeps: protocol negotiation only, nothing that
-/// identifies the caller.
-const PUBLIC_LANE_HEADERS: [&str; 3] = [
+/// Headers a public read keeps: protocol negotiation, and `origin`. Nothing
+/// that identifies the caller survives.
+///
+/// `origin` is not a credential: a browser sets it itself on a cross-origin
+/// request, it names the embedding site and never the caller, and the lane's
+/// origin rule needs it to admit or refuse that site. The lane still carries
+/// no identity.
+const PUBLIC_LANE_HEADERS: [&str; 4] = [
     "connect-protocol-version",
     "connect-timeout-ms",
     "accept-encoding",
+    "origin",
 ];
 
 /// What the generated policy grants one method as a GET read.
@@ -458,7 +464,8 @@ where
 /// `credentialed`, which never sees a public read. The request sent on the
 /// lane is rewritten to `/public<mount>/pkg.Service/Method`, keeps only
 /// protocol headers (`connect-protocol-version`, `connect-timeout-ms`,
-/// `accept-encoding`) and carries its message in the query. A public read that
+/// `accept-encoding`) and the `origin` the caller names, and carries its
+/// message in the query. A public read that
 /// cannot be expressed as a GET is sent as the original POST through
 /// `credentialed`, never through the lane.
 #[derive(Clone)]
@@ -980,6 +987,7 @@ mod tests {
             ("cookie", "sid=1"),
             ("x-csrf-token", "c"),
             ("x-product", "p"),
+            ("origin", "https://embedder.example"),
             ("connect-timeout-ms", "1500"),
             ("accept-encoding", "gzip"),
         ] {
@@ -994,10 +1002,11 @@ mod tests {
         names
     }
 
-    const PROTOCOL_HEADERS: [&str; 3] = [
+    const PROTOCOL_HEADERS: [&str; 4] = [
         "accept-encoding",
         "connect-protocol-version",
         "connect-timeout-ms",
+        "origin",
     ];
 
     #[tokio::test]
@@ -1020,6 +1029,10 @@ mod tests {
         );
         assert!(body.is_empty());
         assert_eq!(header_names(&headers), PROTOCOL_HEADERS);
+        assert_eq!(headers.get("origin").unwrap(), "https://embedder.example");
+        for name in ["authorization", "cookie", "x-csrf-token", "x-product"] {
+            assert!(headers.get(name).is_none(), "{name} reached the lane");
+        }
     }
 
     #[tokio::test]
