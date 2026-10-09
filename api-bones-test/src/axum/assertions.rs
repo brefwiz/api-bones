@@ -5,6 +5,7 @@ use api_bones::pagination::PaginatedResponse;
 use api_bones::ratelimit::RateLimitInfo;
 use api_bones::response::ApiResponse;
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::Response;
 use axum_test::TestResponse;
 use serde::de::DeserializeOwned;
 
@@ -120,3 +121,6 @@ pub fn assert_status(resp: &TestResponse, expected: StatusCode) {
         "status mismatch: expected {expected}, got {actual}"
     );
 }
+
+/// Suppress "unused import" — `Response` is re-exported for caller convenience.
+fn _use_response(_: Response) {}

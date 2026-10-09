@@ -44,3 +44,7 @@ harness = false
 [[test]]
 name = "connect_get_reads"
 harness = false
+
+[[test]]
+name = "error_type_mode"
+harness = false

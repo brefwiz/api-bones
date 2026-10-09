@@ -20,10 +20,7 @@ use chrono::{DateTime, Utc};
 /// ```
 #[must_use]
 pub fn chrono_to_timestamp(dt: DateTime<Utc>) -> Timestamp {
-    Timestamp::from_unix(
-        dt.timestamp(),
-        i32::try_from(dt.timestamp_subsec_nanos()).unwrap_or(i32::MAX),
-    )
+    Timestamp::from_unix(dt.timestamp(), dt.timestamp_subsec_nanos() as i32)
 }
 
 /// Convert an `Option<DateTime<Utc>>` to an optional proto Timestamp.
