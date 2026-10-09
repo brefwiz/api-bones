@@ -354,6 +354,21 @@
 //     option (bones.v1.capability_audience) = CAPABILITY_AUDIENCE_EVERYONE;
 //   }
 
+// `bones.v1.bff_hidden` marks a service the browser BFF does not serve. A
+// service without it is served: every one of its RPCs is a method the BFF's
+// contract lists, and a browser session may call it. Setting it to true keeps
+// the service's RPCs out of that contract, so the BFF answers them with
+// "method not in contract" and only workloads reach them. The contract
+// generator and the check that compares the generated contract with the
+// protos both read this option, so the scope is declared once, on the
+// service it describes.
+//
+// Usage:
+//
+//   service ReservationWorkerService {
+//     option (bones.v1.bff_hidden) = true;
+//   }
+
 syntax = "proto3";
 
 package bones.v1;
@@ -394,6 +409,10 @@ extend google.protobuf.ServiceOptions {
   // Task-level permission groups: each names a provided capability and the
   // scopes it confers. See file header.
   repeated CapabilityScopes capability_scopes = 5102356;
+
+  // True keeps this service out of the browser BFF's method contract. Absent
+  // or false means the BFF serves every RPC of the service. See file header.
+  bool bff_hidden = 5102357;
 }
 
 extend google.protobuf.MethodOptions {

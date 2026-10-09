@@ -271,6 +271,7 @@ mod tests {
             "repeated BrokerScope provided_broker_scopes = 5102354;",
             "CapabilityAudience capability_audience = 5102355;",
             "repeated CapabilityScopes capability_scopes = 5102356;",
+            "bool bff_hidden = 5102357;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
@@ -327,6 +328,17 @@ mod tests {
             fields,
             ["string capability = 1;", "repeated string scopes = 2;"],
             "CapabilityScopes is exactly {{capability, scopes[]}}"
+        );
+    }
+
+    /// Absence of `bff_hidden` must read as "served by the browser BFF": the
+    /// option is a bool, so an unset service decodes to false.
+    #[test]
+    fn annotations_proto_declares_bff_hidden_as_an_opt_out_bool() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("bool bff_hidden = 5102357;"),
+            "annotations.proto missing the bff_hidden service option"
         );
     }
 
