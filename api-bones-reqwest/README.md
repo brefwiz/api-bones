@@ -15,7 +15,7 @@ Release-plz derives the required api-bones-reqwest 6.0.0 breaking release.
 
 ```toml
 [dependencies]
-api-bones-reqwest = "2"
+api-bones-reqwest = "6"
 ```
 
 ## License
