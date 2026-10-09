@@ -34,7 +34,7 @@ Feature: Connect GET for policy-eligible reads
     Given a policy declaring "<method>" as "<idempotency>" with sensitivity "<sensitivity>", cache scope "<scope>" and a URL budget of 512
     When the client calls "<method>" with a protobuf message
     Then the request is a POST to "/pkg.v1.Svc/<method>"
-    And the request keeps its content type
+    And the request keeps its content type "application/proto"
 
     Examples: methods the policy does not grant
       | method  | idempotency     | sensitivity   | scope    |
@@ -57,7 +57,7 @@ Feature: Connect GET for policy-eligible reads
     Given a policy declaring "Get" as "NO_SIDE_EFFECTS" with sensitivity "NON_SENSITIVE", cache scope "PRIVATE" and a URL budget of 200
     When the client calls "Get" with a protobuf message of 400 bytes
     Then the request is a POST to "/pkg.v1.Svc/Get"
-    And the request keeps its content type
+    And the request keeps its content type "application/proto"
 
   Scenario: A policy with one malformed entry grants no read at all
     Given a policy declaring "Get" as "NO_SIDE_EFFECTS" with sensitivity "NON_SENSITIVE", cache scope "PRIVATE" and a URL budget of 512
@@ -84,13 +84,21 @@ Feature: Connect GET for policy-eligible reads
       | outer |
       | inner |
 
-  Scenario: A public read goes to the public lane anonymously
-    Given a public read "Open" served at the mount "/itinerwiz"
-    When the client calls "Open" with a protobuf message and a bearer token
-    Then the request is a GET to "/public/itinerwiz/pkg.v1.Svc/Open"
-    And the request carries no authorization header
+  Scenario: A public read goes to the anonymous lane and carries no credential
+    Given a public read "Open" served at the mount "/product"
+    When the client calls "Open" with a protobuf message and a bearer token, a cookie, a CSRF token and a product header
+    Then the request is a GET to "/public/product/pkg.v1.Svc/Open"
+    And the request went to the anonymous lane
+    And the request carries no authorization, cookie, x-csrf-token or x-product header
 
   Scenario: A public read is never sent as a credentialed GET
-    Given a public read "Open" served at the mount "/itinerwiz"
+    Given a public read "Open" served at the mount "/product"
     When the client calls "Open" with a protobuf message and a bearer token on the credentialed transport
-    Then the request is a POST to "/itinerwiz/pkg.v1.Svc/Open"
+    Then the request is a POST to "/product/pkg.v1.Svc/Open"
+
+  Scenario: A malformed public read never reaches the lane
+    Given a public read "Open" served at the mount "/product"
+    And the public read declaration is malformed
+    When the client calls "Open" with a protobuf message and a bearer token, a cookie, a CSRF token and a product header
+    Then the request is a POST to "/product/pkg.v1.Svc/Open"
+    And the request went to the credentialed transport

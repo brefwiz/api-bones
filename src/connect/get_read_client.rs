@@ -19,10 +19,11 @@
 //!   content type and content encoding move into the query. A call whose URL
 //!   would exceed the method's budget stays a POST.
 //! - [`PublicReadTransport`] sends a `publicRead` method to the product's
-//!   public lane (`/public` ahead of the mount) as an **anonymous** GET: the
-//!   request keeps only protocol headers, so no bearer, cookie, CSRF token or
-//!   product header travels. The lane serves nothing else, so the URL budget
-//!   does not apply.
+//!   public lane (`/public` ahead of the mount) as an **anonymous** GET, and
+//!   only through a separate anonymous transport the caller supplies: the
+//!   credentialed transport never sees a public read. The request also keeps
+//!   only protocol headers, so no bearer, cookie, CSRF token or product header
+//!   travels. The lane serves nothing else, so the URL budget does not apply.
 //!
 //! Every other request, including every streaming call, passes through
 //! untouched. The message always travels as base64url in the Connect GET
@@ -325,18 +326,20 @@ fn anonymous_headers(headers: &HeaderMap) -> HeaderMap {
     kept
 }
 
-async fn send_planned<T>(
-    inner: T,
+async fn send_planned<A, C>(
+    target: A,
+    fallback: C,
     request: Request<ClientBody>,
     plan: Plan,
     lane: Lane,
-) -> Result<Response<T::ResponseBody>, T::Error>
+) -> Result<Response<C::ResponseBody>, C::Error>
 where
-    T: ClientTransport,
-    T::Error: From<ConnectError>,
+    C: ClientTransport,
+    C::Error: From<ConnectError>,
+    A: ClientTransport<ResponseBody = C::ResponseBody, Error = C::Error>,
 {
     let (mut parts, body) = request.into_parts();
-    let payload = body.collect().await.map_err(T::Error::from)?.to_bytes();
+    let payload = body.collect().await.map_err(C::Error::from)?.to_bytes();
     let content_encoding = parts.headers.get(CONTENT_ENCODING).map(|v| v.to_str().ok());
     let query = match content_encoding {
         None => get_query(&plan, None, &payload),
@@ -351,8 +354,9 @@ where
         .and_then(|query| with_path(&parts.uri, &path, &query))
         .filter(|uri| lane == Lane::Public || uri.to_string().len() <= plan.policy.max_url_bytes());
     let Some(uri) = uri else {
-        // Not expressible as a GET within the grant: the original POST.
-        return inner
+        // Not expressible as a GET within the grant: the original POST, through
+        // the transport that would have carried it had it not been a read.
+        return fallback
             .send(Request::from_parts(parts, full_body(payload)))
             .await;
     };
@@ -366,24 +370,32 @@ where
         parts.headers.remove(CONTENT_ENCODING);
         parts.headers.remove(CONTENT_LENGTH);
     }
-    inner
+    target
         .send(Request::from_parts(parts, full_body(Bytes::new())))
         .await
 }
 
-fn dispatch<T>(
-    inner: &T,
+fn dispatch<A, C>(
+    target: &A,
+    fallback: &C,
     policy: &HashMap<String, ReadPolicy>,
     lane: Lane,
     request: Request<ClientBody>,
-) -> BoxFuture<'static, Result<Response<T::ResponseBody>, T::Error>>
+) -> BoxFuture<'static, Result<Response<C::ResponseBody>, C::Error>>
 where
-    T: ClientTransport,
-    T::Error: From<ConnectError>,
+    C: ClientTransport,
+    C::Error: From<ConnectError>,
+    A: ClientTransport<ResponseBody = C::ResponseBody, Error = C::Error>,
 {
     match plan(&request, policy) {
-        None => inner.send(request),
-        Some(plan) => Box::pin(send_planned(inner.clone(), request, plan, lane)),
+        None => fallback.send(request),
+        Some(plan) => Box::pin(send_planned(
+            target.clone(),
+            fallback.clone(),
+            request,
+            plan,
+            lane,
+        )),
     }
 }
 
@@ -427,49 +439,68 @@ where
         &self,
         request: Request<ClientBody>,
     ) -> BoxFuture<'static, Result<Response<Self::ResponseBody>, Self::Error>> {
-        dispatch(&self.inner, &self.policy, Lane::Credentialed, request)
+        dispatch(
+            &self.inner,
+            &self.inner,
+            &self.policy,
+            Lane::Credentialed,
+            request,
+        )
     }
 }
 
 /// A [`ClientTransport`] that sends a `publicRead` method to the product's
 /// public lane as an anonymous Connect GET.
 ///
-/// The request is rewritten to `/public<mount>/pkg.Service/Method`, keeps only
+/// Built from two transports. Public reads go **only** through
+/// `anonymous_lane`, which must hold no credential of any kind (no default
+/// headers, no client certificate); everything else goes through
+/// `credentialed`, which never sees a public read. The request sent on the
+/// lane is rewritten to `/public<mount>/pkg.Service/Method`, keeps only
 /// protocol headers (`connect-protocol-version`, `connect-timeout-ms`,
-/// `accept-encoding`), and carries its message in the query. Connection-level
-/// identity belongs to the wrapped transport, so wrap one that holds none.
-/// Anything the public policy does not grant passes through unchanged.
+/// `accept-encoding`) and carries its message in the query. A public read that
+/// cannot be expressed as a GET is sent as the original POST through
+/// `credentialed`, never through the lane.
 #[derive(Clone)]
-pub struct PublicReadTransport<T> {
-    inner: T,
+pub struct PublicReadTransport<C, A> {
+    credentialed: C,
+    anonymous_lane: A,
     policy: Arc<HashMap<String, ReadPolicy>>,
 }
 
-impl<T> PublicReadTransport<T> {
-    /// Wrap `inner`, sending public reads per `policy` (see
-    /// [`index_public_read_policy`]).
+impl<C, A> PublicReadTransport<C, A> {
+    /// Send public reads per `policy` (see [`index_public_read_policy`])
+    /// through `anonymous_lane`, and every other call through `credentialed`.
     #[must_use]
-    pub fn new(inner: T, policy: HashMap<String, ReadPolicy>) -> Self {
+    pub fn new(credentialed: C, anonymous_lane: A, policy: HashMap<String, ReadPolicy>) -> Self {
         Self {
-            inner,
+            credentialed,
+            anonymous_lane,
             policy: Arc::new(policy),
         }
     }
 }
 
-impl<T> ClientTransport for PublicReadTransport<T>
+impl<C, A> ClientTransport for PublicReadTransport<C, A>
 where
-    T: ClientTransport,
-    T::Error: From<ConnectError>,
+    C: ClientTransport,
+    C::Error: From<ConnectError>,
+    A: ClientTransport<ResponseBody = C::ResponseBody, Error = C::Error>,
 {
-    type ResponseBody = T::ResponseBody;
-    type Error = T::Error;
+    type ResponseBody = C::ResponseBody;
+    type Error = C::Error;
 
     fn send(
         &self,
         request: Request<ClientBody>,
     ) -> BoxFuture<'static, Result<Response<Self::ResponseBody>, Self::Error>> {
-        dispatch(&self.inner, &self.policy, Lane::Public, request)
+        dispatch(
+            &self.anonymous_lane,
+            &self.credentialed,
+            &self.policy,
+            Lane::Public,
+            request,
+        )
     }
 }
 
@@ -935,16 +966,15 @@ mod tests {
         assert!(recorder.seen.lock().unwrap().is_empty());
     }
 
-    #[tokio::test]
-    async fn a_public_read_goes_to_the_lane_anonymously() {
-        let recorder = Recorder::default();
-        let transport =
-            PublicReadTransport::new(recorder.clone(), index_public_read_policy(&policy()));
-        let mut request = post(
-            "/itinerwiz/pkg.v1.Svc/Open",
-            "application/proto",
-            b"\x0a\x03abc",
-        );
+    fn public(credentialed: &Recorder, lane: &Recorder) -> PublicReadTransport<Recorder, Recorder> {
+        PublicReadTransport::new(
+            credentialed.clone(),
+            lane.clone(),
+            index_public_read_policy(&policy()),
+        )
+    }
+
+    fn with_credentials(mut request: Request<ClientBody>) -> Request<ClientBody> {
         for (name, value) in [
             ("authorization", "Bearer t"),
             ("cookie", "sid=1"),
@@ -955,61 +985,169 @@ mod tests {
         ] {
             request.headers_mut().insert(name, value.parse().unwrap());
         }
-        transport.send(request).await.unwrap();
-        let (method, uri, headers, body) = last(&recorder);
+        request
+    }
+
+    fn header_names(headers: &HeaderMap) -> Vec<String> {
+        let mut names: Vec<_> = headers.keys().map(|n| n.as_str().to_owned()).collect();
+        names.sort();
+        names
+    }
+
+    const PROTOCOL_HEADERS: [&str; 3] = [
+        "accept-encoding",
+        "connect-protocol-version",
+        "connect-timeout-ms",
+    ];
+
+    #[tokio::test]
+    async fn a_public_read_goes_to_the_anonymous_lane_only() {
+        let (credentialed, lane) = (Recorder::default(), Recorder::default());
+        let request = with_credentials(post(
+            "/product/pkg.v1.Svc/Open",
+            "application/proto",
+            b"\x0a\x03abc",
+        ));
+        public(&credentialed, &lane).send(request).await.unwrap();
+        assert!(credentialed.seen.lock().unwrap().is_empty());
+        let (method, uri, headers, body) = last(&lane);
         assert_eq!(method, Method::GET);
-        assert_eq!(uri.path(), "/public/itinerwiz/pkg.v1.Svc/Open");
+        assert_eq!(uri.authority().unwrap(), "svc");
+        assert_eq!(uri.path(), "/public/product/pkg.v1.Svc/Open");
         assert_eq!(
             uri.query().unwrap(),
             "connect=v1&base64=1&encoding=proto&message=CgNhYmM"
         );
         assert!(body.is_empty());
-        let mut names: Vec<_> = headers.keys().map(|n| n.as_str().to_owned()).collect();
-        names.sort();
-        assert_eq!(
-            names,
-            [
-                "accept-encoding",
-                "connect-protocol-version",
-                "connect-timeout-ms"
-            ]
-        );
+        assert_eq!(header_names(&headers), PROTOCOL_HEADERS);
     }
 
     #[tokio::test]
-    async fn a_public_read_ignores_the_url_budget_and_other_methods_pass_through() {
-        let recorder = Recorder::default();
-        let transport =
-            PublicReadTransport::new(recorder.clone(), index_public_read_policy(&policy()));
-        transport
+    async fn the_lane_path_is_public_alone_with_an_empty_mount() {
+        let (credentialed, lane) = (Recorder::default(), Recorder::default());
+        public(&credentialed, &lane)
+            .send(post("/pkg.v1.Svc/Open", "application/proto", b"a"))
+            .await
+            .unwrap();
+        assert_eq!(last(&lane).1.path(), "/public/pkg.v1.Svc/Open");
+    }
+
+    #[tokio::test]
+    async fn the_lane_keeps_the_scheme_and_authority_of_an_absolute_url() {
+        let (credentialed, lane) = (Recorder::default(), Recorder::default());
+        let request = post_at(
+            "https://app.example.com:8443/product/pkg.v1.Svc/Open?x=1",
+            "application/proto",
+            b"a".to_vec(),
+        );
+        public(&credentialed, &lane).send(request).await.unwrap();
+        let uri = last(&lane).1;
+        assert_eq!(uri.scheme_str(), Some("https"));
+        assert_eq!(uri.authority().unwrap(), "app.example.com:8443");
+        assert_eq!(uri.path(), "/public/product/pkg.v1.Svc/Open");
+        assert!(!uri.query().unwrap().contains("x=1"));
+    }
+
+    #[tokio::test]
+    async fn a_public_json_read_is_base64url_on_the_lane() {
+        let (credentialed, lane) = (Recorder::default(), Recorder::default());
+        public(&credentialed, &lane)
+            .send(post(
+                "/pkg.v1.Svc/Open",
+                "application/json",
+                br#"{"id":"?>"}"#,
+            ))
+            .await
+            .unwrap();
+        let query = last(&lane).1.query().unwrap().to_owned();
+        assert!(query.contains("encoding=json"));
+        let message = query.rsplit("message=").next().unwrap();
+        let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(message)
+            .unwrap();
+        assert_eq!(decoded, br#"{"id":"?>"}"#);
+    }
+
+    #[tokio::test]
+    async fn a_compressed_public_read_names_its_compression_and_drops_the_header() {
+        let (credentialed, lane) = (Recorder::default(), Recorder::default());
+        let mut request = post("/pkg.v1.Svc/Open", "application/proto", b"\x1f\x8b");
+        request
+            .headers_mut()
+            .insert(CONTENT_ENCODING, "gzip".parse().unwrap());
+        public(&credentialed, &lane).send(request).await.unwrap();
+        let (method, uri, headers, _) = last(&lane);
+        assert_eq!(method, Method::GET);
+        assert_eq!(
+            uri.query().unwrap(),
+            "connect=v1&base64=1&compression=gzip&encoding=proto&message=H4s"
+        );
+        assert!(headers.get(CONTENT_ENCODING).is_none());
+        assert!(headers.get(CONTENT_TYPE).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_public_read_ignores_the_url_budget() {
+        let (credentialed, lane) = (Recorder::default(), Recorder::default());
+        public(&credentialed, &lane)
             .send(post("/pkg.v1.Svc/Open", "application/proto", &[9u8; 2000]))
             .await
             .unwrap();
-        assert_eq!(last(&recorder).0, Method::GET);
+        assert_eq!(last(&lane).0, Method::GET);
+        assert!(credentialed.seen.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn every_other_call_goes_through_the_credentialed_transport_untouched() {
+        let (credentialed, lane) = (Recorder::default(), Recorder::default());
+        let transport = public(&credentialed, &lane);
         for name in ["Get", "Update", "Unknown"] {
-            let mut request = post(&format!("/pkg.v1.Svc/{name}"), "application/proto", b"p");
-            request
-                .headers_mut()
-                .insert("authorization", "Bearer t".parse().unwrap());
+            let request = with_credentials(post(
+                &format!("/pkg.v1.Svc/{name}"),
+                "application/proto",
+                b"p",
+            ));
             transport.send(request).await.unwrap();
-            let (method, uri, headers, _) = last(&recorder);
+            let (method, uri, headers, _) = last(&credentialed);
             assert_eq!(method, Method::POST, "{name}");
             assert!(uri.query().is_none());
             assert!(headers.get("authorization").is_some());
         }
+        assert!(lane.seen.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
-    async fn a_public_read_with_a_bad_compression_token_stays_the_original_post() {
-        let recorder = Recorder::default();
-        let transport =
-            PublicReadTransport::new(recorder.clone(), index_public_read_policy(&policy()));
-        let mut request = post("/pkg.v1.Svc/Open", "application/proto", b"p");
+    async fn a_public_read_that_cannot_be_a_get_never_reaches_the_lane() {
+        let (credentialed, lane) = (Recorder::default(), Recorder::default());
+        let mut request = with_credentials(post("/pkg.v1.Svc/Open", "application/proto", b"p"));
         request
             .headers_mut()
             .insert(CONTENT_ENCODING, "gz&ip".parse().unwrap());
-        transport.send(request).await.unwrap();
-        assert_eq!(last(&recorder).0, Method::POST);
+        public(&credentialed, &lane).send(request).await.unwrap();
+        assert!(lane.seen.lock().unwrap().is_empty());
+        let (method, _, headers, _) = last(&credentialed);
+        assert_eq!(method, Method::POST);
+        assert!(headers.get("authorization").is_some());
+    }
+
+    #[test]
+    fn a_public_read_on_a_private_or_sensitive_method_is_not_public() {
+        let with_public = |scope: &str, sensitivity: &str| {
+            let base = entry("Open", "NO_SIDE_EFFECTS", sensitivity, scope, 512);
+            let base = base.trim_end().trim_end_matches('}').to_owned();
+            document(&[format!(
+                r#"{base}, "publicRead": {{"maxAgeSeconds": 60, "origins": "ANY",
+                    "orgField": {{"name": "org", "jsonName": "org", "number": 1}}}}}}"#
+            )])
+        };
+        assert_eq!(
+            index_public_read_policy(&with_public("NO_STORE", "NON_SENSITIVE")).len(),
+            1
+        );
+        assert!(index_public_read_policy(&with_public("PRIVATE", "NON_SENSITIVE")).is_empty());
+        assert!(index_public_read_policy(&with_public("NO_STORE", "SENSITIVE")).is_empty());
+        // And a public read never becomes a credentialed one.
+        assert!(index_read_policy(&with_public("PRIVATE", "NON_SENSITIVE")).is_empty());
     }
 
     #[tokio::test]

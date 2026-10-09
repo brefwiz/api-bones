@@ -39,6 +39,7 @@ impl ClientTransport for Recorder {
 #[derive(Default, World)]
 struct GetWorld {
     recorder: Recorder,
+    lane: Recorder,
     entries: Vec<String>,
     mount: String,
     precondition_layer: Option<String>,
@@ -92,6 +93,7 @@ impl GetWorld {
                 .map(|_| ()),
             None => PublicReadTransport::new(
                 GetReadTransport::new(recorder, reads),
+                self.lane.clone(),
                 index_public_read_policy(&json),
             )
             .send(request)
@@ -102,8 +104,12 @@ impl GetWorld {
     }
 
     fn last(&self) -> (Method, http::Uri, http::HeaderMap) {
-        let seen = self.recorder.seen.lock().unwrap();
-        let request = seen.last().expect("no request reached the transport");
+        let lane = self.lane.seen.lock().unwrap();
+        let credentialed = self.recorder.seen.lock().unwrap();
+        let request = lane
+            .last()
+            .or_else(|| credentialed.last())
+            .expect("no request reached a transport");
         (
             request.method().clone(),
             request.uri().clone(),
@@ -166,6 +172,12 @@ fn given_broken(world: &mut GetWorld, rpc: String) {
 #[given(expr = "the default precondition transport with the GET transport as its {word}")]
 fn given_precondition(world: &mut GetWorld, layer: String) {
     world.precondition_layer = Some(layer);
+}
+
+#[given("the public read declaration is malformed")]
+fn given_malformed_public(world: &mut GetWorld) {
+    let last = world.entries.last_mut().expect("no public read declared");
+    *last = last.replace("\"number\": 1", "\"number\": 0");
 }
 
 #[given(expr = "a public read {string} served at the mount {string}")]
@@ -240,6 +252,25 @@ async fn when_call_bearer(world: &mut GetWorld, method: String) {
 }
 
 #[when(
+    expr = "the client calls {string} with a protobuf message and a bearer token, a cookie, a CSRF token and a product header"
+)]
+async fn when_call_all_credentials(world: &mut GetWorld, method: String) {
+    world
+        .send(
+            &format!("/pkg.v1.Svc/{method}"),
+            "application/proto",
+            b"\x0a\x03abc".to_vec(),
+            &[
+                ("authorization", "Bearer secret"),
+                ("cookie", "sid=1"),
+                ("x-csrf-token", "csrf"),
+                ("x-product", "p"),
+            ],
+        )
+        .await;
+}
+
+#[when(
     expr = "the client calls {string} with a protobuf message and a bearer token on the credentialed transport"
 )]
 async fn when_call_credentialed(world: &mut GetWorld, method: String) {
@@ -290,14 +321,30 @@ fn then_no_content_type(world: &mut GetWorld) {
     assert!(world.last().2.get("content-type").is_none());
 }
 
-#[then("the request keeps its content type")]
-fn then_content_type(world: &mut GetWorld) {
-    assert!(world.last().2.get("content-type").is_some());
+#[then(expr = "the request keeps its content type {string}")]
+fn then_content_type(world: &mut GetWorld, expected: String) {
+    let (_, _, headers) = world.last();
+    assert_eq!(headers.get("content-type").unwrap(), expected.as_str());
 }
 
-#[then("the request carries no authorization header")]
-fn then_no_authorization(world: &mut GetWorld) {
-    assert!(world.last().2.get("authorization").is_none());
+#[then("the request went to the anonymous lane")]
+fn then_anonymous_lane(world: &mut GetWorld) {
+    assert_eq!(world.lane.seen.lock().unwrap().len(), 1);
+    assert!(world.recorder.seen.lock().unwrap().is_empty());
+}
+
+#[then("the request went to the credentialed transport")]
+fn then_credentialed_transport(world: &mut GetWorld) {
+    assert_eq!(world.recorder.seen.lock().unwrap().len(), 1);
+    assert!(world.lane.seen.lock().unwrap().is_empty());
+}
+
+#[then("the request carries no authorization, cookie, x-csrf-token or x-product header")]
+fn then_no_credentials(world: &mut GetWorld) {
+    let (_, _, headers) = world.last();
+    for name in ["authorization", "cookie", "x-csrf-token", "x-product"] {
+        assert!(headers.get(name).is_none(), "{name} travelled");
+    }
 }
 
 #[then(expr = "the call to {string} was a GET with no if-match header")]
