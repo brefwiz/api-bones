@@ -24,7 +24,7 @@ rust-version = "1.85"
 publish = false
 
 [dependencies]
-api-bones = { version = "^10.0.0", path = "..", default-features = false, features = ["connect"] }
+api-bones = { version = "^11.0.0", path = "..", default-features = false, features = ["connect"] }
 connectrpc = { version = "0.9.1", optional = false }
 brefwiz-spiffe-client = { version = "0.43", registry = "brefwiz" }
 http = "1"

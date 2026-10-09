@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [11.0.0] - 2026-10-09
+
+### Added
+
+- *(bones)* [**breaking**] resource and call_shape options; call shape leaves McpProjection
+- *(connect)* the anonymous lane keeps the caller's origin
+
+### Other
+
+- *(connect)* the anonymous lane carries exactly the protocol headers and the origin
+
+### Breaking changes merged after the version was prepared
+
+- feat(bones)!: resource and call_shape options; call shape leaves McpProjection
+- feat(bones)!: resource and call_shape options; call shape leaves McpProjection
+
 ## [10.0.0] - 2026-10-09
 
 ### Added

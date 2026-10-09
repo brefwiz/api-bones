@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-09
+
+### Added
+
+- *(bones)* [**breaking**] resource and call_shape options; call shape leaves McpProjection
+
 ### Added
 
 - *(protos)* `resource` message option and `call_shape` method option with the `CallShape` enum
@@ -15,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **BREAKING** *(protos)* `McpProjection.shape` and the `McpShape` enum are removed (field 1 and name `shape` reserved); the call shape moves to the `bones.v1.call_shape` method option, which every projection reads. `McpProjection` keeps only `title`.
+
+### Breaking changes merged after the version was prepared
+
+- feat(bones)!: resource and call_shape options; call shape leaves McpProjection
+- feat(bones)!: resource and call_shape options; call shape leaves McpProjection
 
 ## [0.4.9] - 2026-10-09
 
