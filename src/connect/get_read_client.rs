@@ -193,10 +193,11 @@ fn index_where(json: &str, grants: impl Fn(&PolicyMethod) -> bool) -> HashMap<St
         .collect()
 }
 
-/// Index the methods of `connect-method-policy.json` that may be sent as a
-/// **credentialed** GET: unary, `NO_SIDE_EFFECTS`, `NON_SENSITIVE`, privately
-/// cacheable for at most 300 seconds, with a positive URL budget, and not a
-/// public read.
+/// Index the methods that may be sent as a credentialed GET.
+///
+/// A method qualifies when it is unary, `NO_SIDE_EFFECTS`, `NON_SENSITIVE`,
+/// privately cacheable for at most 300 seconds, has a positive URL budget, and
+/// is not a public read.
 ///
 /// Fails CLOSED to an empty map, like the TypeScript reader: a malformed or
 /// duplicated entry anywhere in the document, an unknown schema version, a
@@ -212,10 +213,11 @@ pub fn index_read_policy(json: &str) -> HashMap<String, ReadPolicy> {
     })
 }
 
-/// Index the methods that may be sent to the public lane as an anonymous GET:
-/// unary, `NO_SIDE_EFFECTS`, `NON_SENSITIVE`, `NO_STORE`, with a positive URL
-/// budget and a well-formed `publicRead`. Fails closed exactly like
-/// [`index_read_policy`].
+/// Index the methods that may be sent to the public lane as an anonymous GET.
+///
+/// A method qualifies when it is unary, `NO_SIDE_EFFECTS`, `NON_SENSITIVE`,
+/// `NO_STORE`, has a positive URL budget and a well-formed `publicRead`. Fails
+/// closed exactly like [`index_read_policy`].
 #[must_use]
 pub fn index_public_read_policy(json: &str) -> HashMap<String, ReadPolicy> {
     index_where(json, |method| {
@@ -683,7 +685,7 @@ mod tests {
             format!(r#"{{"methods": [{entries}]}}"#),
             r#"{"schemaVersion": 2}"#.to_owned(),
             r#"{"schemaVersion": 2, "methods": {}}"#.to_owned(),
-            document(&[entries.clone(), entries.clone()]),
+            document(&[entries.clone(), entries]),
         ] {
             assert!(index_read_policy(&json).is_empty(), "{json}");
         }
