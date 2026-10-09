@@ -363,7 +363,6 @@ impl IfNoneMatch {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "axum")]
-#[allow(clippy::result_large_err)]
 mod axum_support {
     use super::{ETag, IfMatch, IfNoneMatch};
     use crate::error::ApiError;

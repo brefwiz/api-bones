@@ -20,8 +20,7 @@ use chrono::{DateTime, Utc};
 /// ```
 #[must_use]
 pub fn chrono_to_timestamp(dt: DateTime<Utc>) -> Timestamp {
-    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-    Timestamp::from_unix(dt.timestamp(), dt.timestamp_subsec_nanos() as i32)
+    Timestamp::from_unix(dt.timestamp(), i32::try_from(dt.timestamp_subsec_nanos()).unwrap_or(i32::MAX))
 }
 
 /// Convert an `Option<DateTime<Utc>>` to an optional proto Timestamp.

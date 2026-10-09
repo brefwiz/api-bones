@@ -17,6 +17,13 @@ name: api-bones-release-plz
 
 vars: [brefwiz-secrets, brefwiz-vars]
 
+concurrencies:
+  - name: api-bones-release-plz
+    pool: 1
+    order: newest_first
+    cancel-in-progress: false
+concurrency: api-bones-release-plz
+
 on:
   push:
     branches:

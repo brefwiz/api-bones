@@ -225,6 +225,12 @@ static ERROR_TYPE_MODE: std::sync::RwLock<Option<ErrorTypeMode>> = std::sync::Rw
 /// Resolve the mode from environment variables and compile-time settings.
 #[cfg(feature = "std")]
 fn resolve_error_type_mode() -> ErrorTypeMode {
+    resolve_error_type_mode_with(|key| std::env::var(key).ok())
+}
+
+/// Resolve the mode, reading runtime settings through `env`.
+#[cfg(feature = "std")]
+fn resolve_error_type_mode_with(env: impl Fn(&str) -> Option<String>) -> ErrorTypeMode {
     // 1. Compile-time base URL → URL mode (never set in CI/test; excluded from
     //    coverage instrumentation to avoid false "missed function" reports)
     #[cfg(not(coverage))]
@@ -236,7 +242,7 @@ fn resolve_error_type_mode() -> ErrorTypeMode {
         };
     }
     // 2. Runtime base URL → URL mode
-    if let Ok(url) = std::env::var("SHARED_TYPES_ERROR_TYPE_BASE_URL")
+    if let Some(url) = env("SHARED_TYPES_ERROR_TYPE_BASE_URL")
         && !url.is_empty()
     {
         return ErrorTypeMode::Url { base_url: url };
@@ -251,7 +257,7 @@ fn resolve_error_type_mode() -> ErrorTypeMode {
         };
     }
     // 4. Runtime URN namespace → URN mode
-    if let Ok(ns) = std::env::var("SHARED_TYPES_URN_NAMESPACE")
+    if let Some(ns) = env("SHARED_TYPES_URN_NAMESPACE")
         && !ns.is_empty()
     {
         return ErrorTypeMode::Urn { namespace: ns };
@@ -989,7 +995,6 @@ impl PartialEq for ApiError {
 mod uuid_urn_option {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    #[allow(clippy::ref_option)] // serde `with` module requires &Option<T> — not caller-controlled
     pub fn serialize<S: Serializer>(uuid: &Option<uuid::Uuid>, s: S) -> Result<S::Ok, S::Error> {
         match uuid {
             Some(id) => s.serialize_str(&format!("urn:uuid:{id}")),
@@ -1927,39 +1932,23 @@ mod tests {
     // error_type_mode() runtime env-var branches
     // -----------------------------------------------------------------------
 
-    #[allow(unsafe_code)]
     #[test]
     fn error_type_mode_url_from_runtime_env() {
-        let _g = lock_and_reset_mode();
-        // Safety: single-threaded test; env var cleaned up after.
-        unsafe {
-            std::env::set_var(
-                "SHARED_TYPES_ERROR_TYPE_BASE_URL",
-                "https://env.example.com/errors",
-            );
-        }
-        let mode = error_type_mode();
+        let mode = resolve_error_type_mode_with(|key| {
+            (key == "SHARED_TYPES_ERROR_TYPE_BASE_URL")
+                .then(|| "https://env.example.com/errors".to_owned())
+        });
         assert!(
             matches!(mode, ErrorTypeMode::Url { base_url } if base_url == "https://env.example.com/errors")
         );
-        unsafe {
-            std::env::remove_var("SHARED_TYPES_ERROR_TYPE_BASE_URL");
-        }
     }
 
-    #[allow(unsafe_code)]
     #[test]
     fn error_type_mode_urn_from_runtime_env() {
-        let _g = lock_and_reset_mode();
-        // Safety: single-threaded test; env var cleaned up after.
-        unsafe {
-            std::env::set_var("SHARED_TYPES_URN_NAMESPACE", "testapp");
-        }
-        let mode = error_type_mode();
+        let mode = resolve_error_type_mode_with(|key| {
+            (key == "SHARED_TYPES_URN_NAMESPACE").then(|| "testapp".to_owned())
+        });
         assert!(matches!(mode, ErrorTypeMode::Urn { namespace } if namespace == "testapp"));
-        unsafe {
-            std::env::remove_var("SHARED_TYPES_URN_NAMESPACE");
-        }
     }
 
     // -----------------------------------------------------------------------

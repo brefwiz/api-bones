@@ -420,7 +420,6 @@ impl SearchParams {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "axum")]
-#[allow(clippy::result_large_err)]
 mod axum_extractors {
     use super::SortParams;
     use crate::error::ApiError;

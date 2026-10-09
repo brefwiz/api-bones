@@ -41,7 +41,6 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[allow(clippy::struct_excessive_bools)]
 #[non_exhaustive]
 pub struct CacheControl {
     // -----------------------------------------------------------------------
