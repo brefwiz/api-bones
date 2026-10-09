@@ -67,6 +67,7 @@ mod domain_error;
 mod error_info;
 mod etag;
 mod ext;
+mod get_read_client;
 mod page;
 mod parse;
 pub mod precondition_client;
@@ -84,6 +85,9 @@ pub use error_info::{
 };
 pub use etag::{check_if_match, etag_from_updated_at};
 pub use ext::ConnectOptionExt;
+pub use get_read_client::{
+    GetReadTransport, MAX_CONNECT_GET_URL_BYTES, ReadPolicy, index_read_policy,
+};
 pub use page::{DEFAULT_LIMIT, MAX_LIMIT, OffsetPage, build_offset_page, build_page};
 pub use parse::parse_rfc3339;
 pub use precondition_client::{
