@@ -44,9 +44,11 @@ const QUERIES_PROTO: &[u8] = include_bytes!("../proto/bones/v1/queries.proto");
 const ERRORS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/errors.proto");
 const RATELIMIT_PROTO: &[u8] = include_bytes!("../proto/bones/v1/ratelimit.proto");
 const ANNOTATIONS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/annotations.proto");
+const FIELD_BEHAVIOR_PROTO: &[u8] = include_bytes!("../vendor/google/api/field_behavior.proto");
 
 /// Yield `(relative_path, bytes)` pairs for every `bones/v1/*.proto`
-/// file shipped by this crate.
+/// file shipped by this crate, plus the vendored
+/// `google/api/field_behavior.proto` the bones protos are used alongside.
 ///
 /// `relative_path` is the protoc-style import path consumers use
 /// (`bones/v1/pagination.proto`, etc.). The order of the iterator is
@@ -58,6 +60,7 @@ pub fn files() -> impl Iterator<Item = (&'static str, &'static [u8])> {
         ("bones/v1/errors.proto", ERRORS_PROTO),
         ("bones/v1/ratelimit.proto", RATELIMIT_PROTO),
         ("bones/v1/annotations.proto", ANNOTATIONS_PROTO),
+        ("google/api/field_behavior.proto", FIELD_BEHAVIOR_PROTO),
     ]
     .into_iter()
 }
@@ -67,9 +70,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ships_five_files() {
+    fn ships_six_files() {
         let v: Vec<_> = files().collect();
-        assert_eq!(v.len(), 5);
+        assert_eq!(v.len(), 6);
     }
 
     #[test]
@@ -351,7 +354,7 @@ mod tests {
             ),
             (
                 "message McpProjection {",
-                &["McpShape shape = 1;", "string title = 2;"][..],
+                &["reserved 1;", "reserved \"shape\";", "string title = 2;"][..],
             ),
         ] {
             let msg = body
@@ -370,7 +373,7 @@ mod tests {
             "ATTRIBUTE_TYPE_UNSPECIFIED = 0;",
             "ATTRIBUTE_POLARITY_UNSPECIFIED = 0;",
             "ATTRIBUTE_MATCHING_UNSPECIFIED = 0;",
-            "MCP_SHAPE_UNSPECIFIED = 0;",
+            "CALL_SHAPE_UNSPECIFIED = 0;",
         ] {
             assert!(body.contains(value), "annotations.proto missing `{value}`");
         }

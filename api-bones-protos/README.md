@@ -5,7 +5,9 @@
 
 Embedded bytes of the canonical proto shapes shipped by the
 [`api-bones`](https://crates.io/crates/api-bones) crate ecosystem
-(`bones/v1/*.proto`).
+(`bones/v1/*.proto`) and `google/api/field_behavior.proto`, vendored byte-identical
+from googleapis commit `525d4c82dc1d`. The vendored file is Apache-2.0 licensed by its
+own header; the rest of the crate is MIT.
 
 **Zero runtime dependencies.** This crate exists purely as a
 distribution mechanism for the proto bytes. Pair it with a staging
@@ -40,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `bones/v1/queries.proto`          | `SortDirection`, `SortField`, `SortParams`, `FilterOp`, `FilterEntry`, `FilterParams`, `SearchParams` |
 | `bones/v1/errors.proto`           | `ValidationFailure` |
 | `bones/v1/ratelimit.proto`        | `RateLimitInfo` |
-| `bones/v1/annotations.proto`      | method options `errors`, `authz`, `mcp`; field option `attr`; service options `capability`, `required_capabilities`, `provided_capabilities`, `capability_labels`, `permission_labels`, `provided_broker_scopes`, `capability_scopes`, `attributes`; `AuthzKind`, `AuthzRule`, `RequiredCapability`, `Label`, `CapabilityLabel`, `PermissionLabel`, `BrokerScope`, `CapabilityScopes`, `AttributeDimension`, `McpProjection` and their enums |
+| `bones/v1/annotations.proto`      | method options `errors`, `authz`, `mcp`, `call_shape`; message option `resource`; field option `attr`; service options `capability`, `required_capabilities`, `provided_capabilities`, `capability_labels`, `permission_labels`, `provided_broker_scopes`, `capability_scopes`, `attributes`; `AuthzKind`, `AuthzRule`, `RequiredCapability`, `Label`, `CapabilityLabel`, `PermissionLabel`, `BrokerScope`, `CapabilityScopes`, `AttributeDimension`, `McpProjection`, `ResourceOption`, `ResourceMethods`, `CallShape` and their enums |
 
 See `proto/README.md` in the api-bones repo for the canonical
 schema inventory and the per-message Rust counterparts in the
