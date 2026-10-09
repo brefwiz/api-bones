@@ -125,6 +125,12 @@ internal_behavior_owners:
   # outside any declared sdk_surface.
   - paths: [src/connect/get_read_client.rs, src/connect/mod.rs]
     feature: tests/internal-bdd/tests/features/connect_get_reads.feature
+  # The error type URI mode (default URN namespace, application-set namespace
+  # or base URL, runtime environment resolution) is library code no declared
+  # sdk_surface exposes -- callers reach it directly as error_type_mode and
+  # set_error_type_mode, not through a generated contract.
+  - paths: [src/error.rs]
+    feature: tests/internal-bdd/tests/features/error_type_mode.feature
 library_crates:
   - api-bones
   - api-bones-progenitor

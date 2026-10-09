@@ -57,8 +57,11 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
+    vars: [brefwiz-pr-readonly]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-pr-readonly.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-pr-readonly.REGISTRY_TOKEN }}
       GITEA_TOKEN: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
     steps:
       - id: checkout

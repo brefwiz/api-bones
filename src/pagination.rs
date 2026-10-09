@@ -343,7 +343,6 @@ impl CursorPagination {
 }
 
 #[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
-#[allow(clippy::unnecessary_wraps)]
 fn default_cursor_limit() -> Option<u64> {
     Some(DEFAULT_LIMIT)
 }
@@ -550,7 +549,6 @@ impl<K> KeysetPaginationParams<K> {
 }
 
 #[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
-#[allow(clippy::unnecessary_wraps)]
 fn default_keyset_limit() -> Option<u64> {
     Some(DEFAULT_LIMIT)
 }
@@ -654,7 +652,6 @@ impl<T> KeysetPaginatedResponse<T> {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "axum")]
-#[allow(clippy::result_large_err)]
 mod axum_extractors {
     use super::{CursorPaginationParams, PaginationParams};
     use crate::error::ApiError;

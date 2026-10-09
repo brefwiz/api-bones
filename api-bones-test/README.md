@@ -22,7 +22,7 @@ Release-plz derives the required api-bones-test 7.0.0 breaking release.
 
 ```toml
 [dev-dependencies]
-api-bones-test = { version = "6", features = ["axum"] }
+api-bones-test = { version = "7", features = ["axum"] }
 ```
 
 ## License

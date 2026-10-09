@@ -141,6 +141,20 @@ option_if_let_else = "allow"         # nursery: map_or_else is less readable in 
 # extractors stopped being needlessly async is every one of them.
 # golden-lint: justified: boxing ApiError would change every handler signature in the fleet
 result_large_err = "allow"
+# golden-lint: justified: serde `with` helpers must take `&Option<T>`; the signature is fixed by serde
+ref_option = "allow"
+# golden-lint: justified: serde `default = "path"` must name a fn returning the field type `Option<u64>`
+unnecessary_wraps = "allow"
+# golden-lint: justified: `CacheControl` mirrors the independent boolean directives of the HTTP Cache-Control header
+struct_excessive_bools = "allow"
+# golden-lint: justified: builder methods take `impl ToString` so callers pass `&str`, numbers and bools alike
+needless_pass_by_value = "allow"
+# golden-lint: justified: JSON float timestamps are floored and rounded into i64 seconds and u32 nanoseconds
+cast_possible_truncation = "allow"
+# golden-lint: justified: proto Timestamp nanos are i32 and a chrono nanosecond count is below 2e9
+cast_possible_wrap = "allow"
+# golden-lint: justified: the rounded nanosecond fraction is non-negative by construction
+cast_sign_loss = "allow"
 
 [dev-dependencies]
 mockito = "1.7.2"

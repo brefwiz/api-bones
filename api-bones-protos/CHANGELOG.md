@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(protos)* `attributes` service option, `attr` field option and `mcp` method option
+
 ## [0.4.8] - 2026-10-04
 
 ### Added

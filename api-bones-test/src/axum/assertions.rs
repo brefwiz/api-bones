@@ -123,5 +123,4 @@ pub fn assert_status(resp: &TestResponse, expected: StatusCode) {
 }
 
 /// Suppress "unused import" — `Response` is re-exported for caller convenience.
-#[allow(dead_code)]
 fn _use_response(_: Response) {}

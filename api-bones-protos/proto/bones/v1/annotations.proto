@@ -354,6 +354,73 @@
 //     option (bones.v1.capability_audience) = CAPABILITY_AUDIENCE_EVERYONE;
 //   }
 
+// `bones.v1.attributes` declares the resource attributes a credential can be
+// narrowed on at this service, and `bones.v1.attr` marks the request fields
+// that carry each one. The vocabulary is closed: a restriction naming a
+// dimension the service did not declare is refused.
+//
+// A dimension has a name (lower_snake_case, unique within the service), a
+// value type, a polarity and a matching mode.
+//
+//   GRANTED    nothing is permitted until the authority names a value, so an
+//              absent dimension denies.
+//   NARROWABLE everything the scopes reach is permitted until a restriction
+//              names values, so an absent dimension permits.
+//   Polarity UNSPECIFIED is invalid.
+//
+// Values match EXACT by default; UNSPECIFIED and EXACT both mean exact.
+// SEGMENT_PREFIX is opt-in and requires a `separator`: a prefix is a list of
+// segments, never a metacharacter. Glob and regular-expression matching do
+// not exist. `separator` is required if and only if the matching is
+// SEGMENT_PREFIX; it is exactly one character that is not whitespace, `*`,
+// `?` or `>`.
+//
+// This option carries no validation of its own; the service runtime enforces
+// the rules above at boot. A field naming a dimension through `attr` must name
+// one declared in its service's `attributes`.
+//
+// Usage:
+//
+//   service ReservationService {
+//     option (bones.v1.attributes) = {
+//       name: "venue",
+//       type: ATTRIBUTE_TYPE_UUID,
+//       polarity: ATTRIBUTE_POLARITY_NARROWABLE
+//     };
+//     option (bones.v1.attributes) = {
+//       name: "folder",
+//       type: ATTRIBUTE_TYPE_STRING,
+//       polarity: ATTRIBUTE_POLARITY_GRANTED,
+//       matching: ATTRIBUTE_MATCHING_SEGMENT_PREFIX,
+//       separator: "/"
+//     };
+//   }
+//
+//   message ListReservationsRequest {
+//     string venue_id = 1 [(bones.v1.attr) = "venue"];
+//   }
+//
+// `bones.v1.mcp` opts one RPC into the MCP projection of the contract. An RPC
+// with no `mcp` option is not projected, and an RPC declaring
+// AUTHZ_KIND_PUBLIC is never projected. Name and description come from the
+// RPC and its comments. Each RPC shape has one projection: a unary RPC is a
+// tool and a client stream is a tool taking a repeated input, both with the
+// shape left UNSPECIFIED; a server stream must declare FINITE_STREAM,
+// UNBOUNDED_STREAM or LONG_RUNNING, because a descriptor cannot express which
+// it is; a bidirectional stream is never projectable and must not carry the
+// option.
+//
+// Usage:
+//
+//   service ReservationService {
+//     rpc Reserve(ReserveRequest) returns (ReserveResponse) {
+//       option (bones.v1.mcp) = { title: "Reserve a table" };
+//     }
+//     rpc WatchReservations(WatchRequest) returns (stream Reservation) {
+//       option (bones.v1.mcp) = { shape: MCP_SHAPE_UNBOUNDED_STREAM };
+//     }
+//   }
+
 syntax = "proto3";
 
 package bones.v1;
@@ -394,6 +461,10 @@ extend google.protobuf.ServiceOptions {
   // Task-level permission groups: each names a provided capability and the
   // scopes it confers. See file header.
   repeated CapabilityScopes capability_scopes = 5102356;
+
+  // Resource attribute dimensions a credential can be narrowed on at this
+  // service. Absent means none. See file header.
+  repeated AttributeDimension attributes = 5102358;
 }
 
 extend google.protobuf.MethodOptions {
@@ -405,6 +476,16 @@ extend google.protobuf.MethodOptions {
   // Declared authorization requirement for this RPC. Absent option
   // means the RPC is denied to every caller. See file header.
   AuthzRule authz = 5102348;
+
+  // Opts this RPC into the MCP projection. Absent means not projected. See
+  // file header.
+  McpProjection mcp = 5102359;
+}
+
+extend google.protobuf.FieldOptions {
+  // The attribute dimension this field carries, naming one declared in the
+  // service's `attributes`. See file header.
+  string attr = 5102360;
 }
 
 // One capability a service depends on, and the authority it intends to
@@ -550,4 +631,91 @@ message AuthzRule {
   // option exists to prevent. Must be empty for AUTHZ_KIND_PUBLIC,
   // which has no credential to read scopes from.
   repeated string requires = 3;
+}
+
+// One resource attribute a credential can be narrowed on at a service.
+message AttributeDimension {
+  // lower_snake_case, unique within the service.
+  string name = 1;
+
+  AttributeType type = 2;
+
+  // UNSPECIFIED is invalid.
+  AttributePolarity polarity = 3;
+
+  // UNSPECIFIED and EXACT both mean exact.
+  AttributeMatching matching = 4;
+
+  // Required if and only if `matching` is SEGMENT_PREFIX, forbidden
+  // otherwise. Exactly one character, not whitespace, `*`, `?` or `>`.
+  string separator = 5;
+}
+
+// The MCP projection of one RPC.
+message McpProjection {
+  // UNSPECIFIED: a unary RPC projects to a TOOL and a client stream to a TOOL
+  // with a repeated input. A server stream must declare FINITE_STREAM,
+  // UNBOUNDED_STREAM or LONG_RUNNING. A bidirectional stream is never
+  // projectable.
+  McpShape shape = 1;
+
+  // Optional human title. Name and description come from the RPC and its
+  // comments.
+  string title = 2;
+}
+
+// The type of values a dimension carries.
+enum AttributeType {
+  // No declaration. Invalid on a declared dimension.
+  ATTRIBUTE_TYPE_UNSPECIFIED = 0;
+
+  ATTRIBUTE_TYPE_STRING = 1;
+
+  ATTRIBUTE_TYPE_UUID = 2;
+}
+
+// What an absent restriction on a dimension means.
+enum AttributePolarity {
+  // No declaration. Invalid.
+  ATTRIBUTE_POLARITY_UNSPECIFIED = 0;
+
+  // Nothing is permitted until the authority names a value; absent denies.
+  ATTRIBUTE_POLARITY_GRANTED = 1;
+
+  // Everything the scopes reach is permitted until a restriction names
+  // values; absent permits.
+  ATTRIBUTE_POLARITY_NARROWABLE = 2;
+}
+
+// How a restriction value is compared with a request value.
+enum AttributeMatching {
+  // Same as EXACT.
+  ATTRIBUTE_MATCHING_UNSPECIFIED = 0;
+
+  ATTRIBUTE_MATCHING_EXACT = 1;
+
+  // A value is a list of segments split on `separator`; a prefix covers every
+  // value beneath it.
+  ATTRIBUTE_MATCHING_SEGMENT_PREFIX = 2;
+}
+
+// How an RPC projects onto MCP.
+enum McpShape {
+  // Derived from the RPC: unary and client stream are a TOOL. A server stream
+  // is refused until it declares one of the values below.
+  MCP_SHAPE_UNSPECIFIED = 0;
+
+  // A tool.
+  MCP_SHAPE_TOOL = 1;
+
+  // A server stream that ends: progress notifications, then one aggregated
+  // result.
+  MCP_SHAPE_FINITE_STREAM = 2;
+
+  // A server stream with no end: a subscription.
+  MCP_SHAPE_UNBOUNDED_STREAM = 3;
+
+  // A long-running operation: a task, or an operation handle with a polling
+  // tool.
+  MCP_SHAPE_LONG_RUNNING = 4;
 }
