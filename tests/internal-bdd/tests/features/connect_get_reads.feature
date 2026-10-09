@@ -102,6 +102,7 @@ Feature: Connect GET for policy-eligible reads
     Given a public read "Open" served at the mount "/product"
     When the client calls "Open" with a protobuf message and a bearer token
     Then the request is a GET to "/public/product/pkg.v1.Svc/Open"
+    And the request went to the anonymous lane
     And the request carries no origin header
 
   Scenario: A public read is never sent as a credentialed GET
