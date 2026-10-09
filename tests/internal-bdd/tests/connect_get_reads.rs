@@ -8,24 +8,13 @@
 use std::sync::{Arc, Mutex};
 
 use api_bones::connect::{
-    GetReadTransport, PreconditionedTransport, index_generated_policy, index_read_policy,
+    GetReadTransport, PreconditionedTransport, PublicReadTransport, index_generated_policy,
+    index_public_read_policy, index_read_policy,
 };
 use connectrpc::ConnectError;
 use connectrpc::client::{BoxFuture, ClientBody, ClientTransport, full_body};
 use cucumber::{World, given, then, when};
 use http::{Method, Request, Response};
-
-const POLICY: &str = r#"{
-    "schemaVersion": 2,
-    "methods": [
-        {"rpc": "/pkg.v1.Svc/Get", "procedure": "unary", "idempotency": "NO_SIDE_EFFECTS",
-         "sensitivity": "NON_SENSITIVE", "maxEncodedUrlBytes": 512},
-        {"rpc": "/pkg.v1.Svc/Secret", "procedure": "unary", "idempotency": "NO_SIDE_EFFECTS",
-         "sensitivity": "SENSITIVE", "maxEncodedUrlBytes": 512},
-        {"rpc": "/pkg.v1.Svc/Update", "procedure": "unary", "idempotency": "IDEMPOTENT",
-         "sensitivity": "NON_SENSITIVE", "maxEncodedUrlBytes": 512}
-    ]
-}"#;
 
 type Seen = Arc<Mutex<Vec<Request<()>>>>;
 
@@ -50,7 +39,10 @@ impl ClientTransport for Recorder {
 #[derive(Default, World)]
 struct GetWorld {
     recorder: Recorder,
-    with_precondition: bool,
+    entries: Vec<String>,
+    mount: String,
+    precondition_layer: Option<String>,
+    credentialed_only: bool,
 }
 
 impl std::fmt::Debug for GetWorld {
@@ -60,29 +52,53 @@ impl std::fmt::Debug for GetWorld {
 }
 
 impl GetWorld {
-    async fn send(&self, path: &str, content_type: &str) {
-        let request = Request::builder()
+    fn policy(&self) -> String {
+        format!(
+            r#"{{"schemaVersion": 2, "methods": [{}]}}"#,
+            self.entries.join(",")
+        )
+    }
+
+    async fn send(&self, path: &str, content_type: &str, body: Vec<u8>, headers: &[(&str, &str)]) {
+        let mut builder = Request::builder()
             .method(Method::POST)
-            .uri(format!("https://svc{path}"))
-            .header("content-type", content_type)
-            .body(full_body(b"\x0a\x03abc".as_slice().into()))
-            .unwrap();
-        let reads = index_read_policy(POLICY);
+            .uri(format!("https://svc{}{path}", self.mount))
+            .header("content-type", content_type);
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
+        }
+        let request = builder.body(full_body(body.into())).unwrap();
+        let json = self.policy();
         let recorder = self.recorder.clone();
-        if self.with_precondition {
-            GetReadTransport::new(
-                PreconditionedTransport::new(recorder, index_generated_policy(POLICY)),
+        let reads = index_read_policy(&json);
+        let sent = match self.precondition_layer.as_deref() {
+            Some("outer") => PreconditionedTransport::new(
+                GetReadTransport::new(recorder, reads),
+                index_generated_policy(&json),
+            )
+            .send(request)
+            .await
+            .map(|_| ()),
+            Some(_) => GetReadTransport::new(
+                PreconditionedTransport::new(recorder, index_generated_policy(&json)),
                 reads,
             )
             .send(request)
             .await
-            .unwrap();
-        } else {
-            GetReadTransport::new(recorder, reads)
+            .map(|_| ()),
+            None if self.credentialed_only => GetReadTransport::new(recorder, reads)
                 .send(request)
                 .await
-                .unwrap();
-        }
+                .map(|_| ()),
+            None => PublicReadTransport::new(
+                GetReadTransport::new(recorder, reads),
+                index_public_read_policy(&json),
+            )
+            .send(request)
+            .await
+            .map(|_| ()),
+        };
+        sent.unwrap();
     }
 
     fn last(&self) -> (Method, http::Uri, http::HeaderMap) {
@@ -94,25 +110,141 @@ impl GetWorld {
             request.headers().clone(),
         )
     }
+
+    fn sent_to(&self, method: &str) -> (Method, http::Uri, http::HeaderMap) {
+        let seen = self.recorder.seen.lock().unwrap();
+        let request = seen
+            .iter()
+            .rev()
+            .find(|r| r.uri().path().ends_with(&format!("/{method}")))
+            .expect("no such call reached the transport");
+        (
+            request.method().clone(),
+            request.uri().clone(),
+            request.headers().clone(),
+        )
+    }
+}
+
+fn entry(rpc: &str, idempotency: &str, sensitivity: &str, scope: &str, budget: &str) -> String {
+    format!(
+        r#"{{"rpc": "/pkg.v1.Svc/{rpc}", "procedure": "unary", "idempotency": "{idempotency}",
+            "browserCache": {{"scope": "{scope}", "maxAgeSeconds": 60}},
+            "sensitivity": "{sensitivity}", "maxEncodedUrlBytes": {budget}}}"#
+    )
 }
 
 #[given(
-    expr = "a client transport built from a policy declaring {string} a side-effect-free non-sensitive read"
+    expr = "a policy declaring {string} as {string} with sensitivity {string}, cache scope {string} and a URL budget of {int}"
 )]
-fn given_transport(world: &mut GetWorld, _method: String) {
-    world.with_precondition = false;
+fn given_policy(
+    world: &mut GetWorld,
+    rpc: String,
+    idempotency: String,
+    sensitivity: String,
+    scope: String,
+    budget: i64,
+) {
+    world.credentialed_only = true;
+    world.entries.push(entry(
+        &rpc,
+        &idempotency,
+        &sensitivity,
+        &scope,
+        &budget.to_string(),
+    ));
 }
 
-#[given("the transport also attaches the default precondition")]
-fn given_precondition(world: &mut GetWorld) {
-    world.with_precondition = true;
+#[given(expr = "the policy also holds an entry {string} with no cache policy")]
+fn given_broken(world: &mut GetWorld, rpc: String) {
+    world.entries.push(format!(
+        r#"{{"rpc": "/pkg.v1.Svc/{rpc}", "procedure": "unary", "idempotency": "NO_SIDE_EFFECTS",
+            "sensitivity": "NON_SENSITIVE", "maxEncodedUrlBytes": 512}}"#
+    ));
+}
+
+#[given(expr = "the default precondition transport with the GET transport as its {word}")]
+fn given_precondition(world: &mut GetWorld, layer: String) {
+    world.precondition_layer = Some(layer);
+}
+
+#[given(expr = "a public read {string} served at the mount {string}")]
+fn given_public(world: &mut GetWorld, rpc: String, mount: String) {
+    let base = entry(&rpc, "NO_SIDE_EFFECTS", "NON_SENSITIVE", "NO_STORE", "512");
+    let base = base.trim_end().trim_end_matches('}');
+    world.entries.push(format!(
+        r#"{base}, "publicRead": {{"maxAgeSeconds": 60, "origins": "ANY",
+            "orgField": {{"name": "org", "jsonName": "org", "number": 1}}}}}}"#
+    ));
+    world.mount = mount;
 }
 
 #[when(expr = "the client calls {string} with a protobuf message")]
 async fn when_call(world: &mut GetWorld, method: String) {
     world
-        .send(&format!("/pkg.v1.Svc/{method}"), "application/proto")
+        .send(
+            &format!("/pkg.v1.Svc/{method}"),
+            "application/proto",
+            b"\x0a\x03abc".to_vec(),
+            &[],
+        )
         .await;
+}
+
+#[when(expr = "the client calls {string} with a protobuf message of {int} bytes")]
+async fn when_call_sized(world: &mut GetWorld, method: String, size: usize) {
+    world
+        .send(
+            &format!("/pkg.v1.Svc/{method}"),
+            "application/proto",
+            vec![7; size],
+            &[],
+        )
+        .await;
+}
+
+#[when(expr = "the client calls {string} with a JSON message")]
+async fn when_call_json(world: &mut GetWorld, method: String) {
+    world
+        .send(
+            &format!("/pkg.v1.Svc/{method}"),
+            "application/json",
+            br#"{"id":"abc"}"#.to_vec(),
+            &[],
+        )
+        .await;
+}
+
+#[when(expr = "the client calls {string} with a protobuf message compressed with {string}")]
+async fn when_call_compressed(world: &mut GetWorld, method: String, coding: String) {
+    world
+        .send(
+            &format!("/pkg.v1.Svc/{method}"),
+            "application/proto",
+            b"\x1f\x8b".to_vec(),
+            &[("content-encoding", &coding)],
+        )
+        .await;
+}
+
+#[when(expr = "the client calls {string} with a protobuf message and a bearer token")]
+async fn when_call_bearer(world: &mut GetWorld, method: String) {
+    world
+        .send(
+            &format!("/pkg.v1.Svc/{method}"),
+            "application/proto",
+            b"\x0a\x03abc".to_vec(),
+            &[("authorization", "Bearer secret")],
+        )
+        .await;
+}
+
+#[when(
+    expr = "the client calls {string} with a protobuf message and a bearer token on the credentialed transport"
+)]
+async fn when_call_credentialed(world: &mut GetWorld, method: String) {
+    world.credentialed_only = true;
+    when_call_bearer(world, method).await;
 }
 
 #[when(expr = "the client opens a streaming call to {string}")]
@@ -121,6 +253,8 @@ async fn when_stream(world: &mut GetWorld, method: String) {
         .send(
             &format!("/pkg.v1.Svc/{method}"),
             "application/connect+proto",
+            b"x".to_vec(),
+            &[],
         )
         .await;
 }
@@ -161,9 +295,23 @@ fn then_content_type(world: &mut GetWorld) {
     assert!(world.last().2.get("content-type").is_some());
 }
 
-#[then("the request carries no if-match header")]
-fn then_no_if_match(world: &mut GetWorld) {
-    assert!(world.last().2.get("if-match").is_none());
+#[then("the request carries no authorization header")]
+fn then_no_authorization(world: &mut GetWorld) {
+    assert!(world.last().2.get("authorization").is_none());
+}
+
+#[then(expr = "the call to {string} was a GET with no if-match header")]
+fn then_get_no_if_match(world: &mut GetWorld, method: String) {
+    let (actual, _, headers) = world.sent_to(&method);
+    assert_eq!(actual, Method::GET);
+    assert!(headers.get("if-match").is_none());
+}
+
+#[then(expr = "the call to {string} was a POST with if-match {string}")]
+fn then_post_if_match(world: &mut GetWorld, method: String, expected: String) {
+    let (actual, _, headers) = world.sent_to(&method);
+    assert_eq!(actual, Method::POST);
+    assert_eq!(headers.get("if-match").unwrap(), expected.as_str());
 }
 
 #[tokio::main]
