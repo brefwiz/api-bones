@@ -403,12 +403,9 @@
 // `bones.v1.mcp` opts one RPC into the MCP projection of the contract. An RPC
 // with no `mcp` option is not projected, and an RPC declaring
 // AUTHZ_KIND_PUBLIC is never projected. Name and description come from the
-// RPC and its comments. Each RPC shape has one projection: a unary RPC is a
-// tool and a client stream is a tool taking a repeated input, both with the
-// shape left UNSPECIFIED; a server stream must declare FINITE_STREAM,
-// UNBOUNDED_STREAM or LONG_RUNNING, because a descriptor cannot express which
-// it is; a bidirectional stream is never projectable and must not carry the
-// option.
+// RPC and its comments; the option adds only an optional human title. The
+// shape of the call is not an MCP concern: `bones.v1.call_shape` declares it
+// once on the RPC and every projection reads that one declaration.
 //
 // Usage:
 //
@@ -417,8 +414,35 @@
 //       option (bones.v1.mcp) = { title: "Reserve a table" };
 //     }
 //     rpc WatchReservations(WatchRequest) returns (stream Reservation) {
-//       option (bones.v1.mcp) = { shape: MCP_SHAPE_UNBOUNDED_STREAM };
+//       option (bones.v1.call_shape) = CALL_SHAPE_UNBOUNDED_STREAM;
+//       option (bones.v1.mcp) = {};
 //     }
+//   }
+//
+// `bones.v1.call_shape` declares what kind of call an RPC is, in terms a
+// descriptor cannot express: a unary RPC and a client stream are fully
+// described by their signature, but a server stream may end, never end, or
+// stand for a long-running operation. UNSPECIFIED means the shape is derived
+// from the signature (unary or client stream); a server stream must declare
+// FINITE_STREAM, UNBOUNDED_STREAM or LONG_RUNNING, and a bidirectional stream
+// is never projectable. Every projection of the contract (MCP, infrastructure
+// providers, SDKs) reads this one declaration.
+//
+// `bones.v1.resource` declares that a message is a managed resource: `type` is
+// its Terraform noun in snake_case, `identity_field` names the field that
+// identifies an instance, and `methods` optionally names the RPCs of the same
+// service that implement each verb. An empty verb means the AIP convention:
+// `<Verb><Message>`, and `List<Message>s` for list.
+//
+// Usage:
+//
+//   message Reservation {
+//     option (bones.v1.resource) = {
+//       type: "reservation",
+//       identity_field: "id",
+//       methods: { update: "ReplaceReservation" }
+//     };
+//     string id = 1;
 //   }
 
 syntax = "proto3";
@@ -480,6 +504,15 @@ extend google.protobuf.MethodOptions {
   // Opts this RPC into the MCP projection. Absent means not projected. See
   // file header.
   McpProjection mcp = 5102359;
+
+  // What kind of call this RPC is. Absent or UNSPECIFIED means derived from
+  // the signature. Read by every projection. See file header.
+  CallShape call_shape = 5102362;
+}
+
+extend google.protobuf.MessageOptions {
+  // Declares this message a managed resource. See file header.
+  ResourceOption resource = 5102361;
 }
 
 extend google.protobuf.FieldOptions {
@@ -651,17 +684,38 @@ message AttributeDimension {
   string separator = 5;
 }
 
-// The MCP projection of one RPC.
+// The MCP projection of one RPC. The shape of the call is
+// `bones.v1.call_shape`, not a field here.
 message McpProjection {
-  // UNSPECIFIED: a unary RPC projects to a TOOL and a client stream to a TOOL
-  // with a repeated input. A server stream must declare FINITE_STREAM,
-  // UNBOUNDED_STREAM or LONG_RUNNING. A bidirectional stream is never
-  // projectable.
-  McpShape shape = 1;
+  reserved 1;
+  reserved "shape";
 
   // Optional human title. Name and description come from the RPC and its
   // comments.
   string title = 2;
+}
+
+// A message declared as a managed resource.
+message ResourceOption {
+  // The Terraform noun, lower_snake_case.
+  string type = 1;
+
+  // The field of the message that identifies an instance.
+  string identity_field = 2;
+
+  // Per-verb RPC overrides.
+  ResourceMethods methods = 3;
+}
+
+// The RPCs implementing each verb of a resource. Each is the name of a method
+// in the same service; empty means the AIP convention `<Verb><Message>`, and
+// `List<Message>s` for list.
+message ResourceMethods {
+  string create = 1;
+  string get = 2;
+  string update = 3;
+  string delete = 4;
+  string list = 5;
 }
 
 // The type of values a dimension carries.
@@ -699,23 +753,24 @@ enum AttributeMatching {
   ATTRIBUTE_MATCHING_SEGMENT_PREFIX = 2;
 }
 
-// How an RPC projects onto MCP.
-enum McpShape {
-  // Derived from the RPC: unary and client stream are a TOOL. A server stream
-  // is refused until it declares one of the values below.
-  MCP_SHAPE_UNSPECIFIED = 0;
+// What kind of call an RPC is.
+enum CallShape {
+  // No declaration. Derived from the signature: unary and client stream. A
+  // server stream is refused until it declares one of the values below.
+  CALL_SHAPE_UNSPECIFIED = 0;
 
-  // A tool.
-  MCP_SHAPE_TOOL = 1;
+  // One request, one response.
+  CALL_SHAPE_UNARY = 1;
 
-  // A server stream that ends: progress notifications, then one aggregated
-  // result.
-  MCP_SHAPE_FINITE_STREAM = 2;
+  // A stream of requests, one response.
+  CALL_SHAPE_CLIENT_STREAM = 2;
+
+  // A server stream that ends.
+  CALL_SHAPE_FINITE_STREAM = 3;
 
   // A server stream with no end: a subscription.
-  MCP_SHAPE_UNBOUNDED_STREAM = 3;
+  CALL_SHAPE_UNBOUNDED_STREAM = 4;
 
-  // A long-running operation: a task, or an operation handle with a polling
-  // tool.
-  MCP_SHAPE_LONG_RUNNING = 4;
+  // A long-running operation: an operation handle that completes later.
+  CALL_SHAPE_LONG_RUNNING = 5;
 }

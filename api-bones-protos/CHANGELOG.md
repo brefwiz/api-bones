@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(protos)* `resource` message option and `call_shape` method option with the `CallShape` enum
+- *(protos)* vendor `google/api/field_behavior.proto` alongside the bones protos
+
+### Changed
+
+- **BREAKING** *(protos)* `McpProjection.shape` and the `McpShape` enum are removed (field 1 and name `shape` reserved); the call shape moves to the `bones.v1.call_shape` method option, which every projection reads. `McpProjection` keeps only `title`.
+
 ## [0.4.9] - 2026-10-09
 
 ### Added
