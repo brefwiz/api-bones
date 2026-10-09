@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-10-09
+
+### Fixed
+
+- *(reqwest)* [**breaking**] point api-bones-reqwest and api-bones-test READMEs at the api-bones 9 releases
+
+### Other
+
+- *(campaign)* [**breaking**] declare breaking public dependency compatibility
+- Revert "chore(campaign): declare breaking public dependency compatibility"
+- *(campaign)* [**breaking**] declare breaking public dependency compatibility
+- Revert "fix(release)!: declare public dependency compatibility releases"
+
+### Breaking changes merged after the version was prepared
+
+- fix(reqwest)!: point api-bones-reqwest and api-bones-test READMEs at the api-bones 9 releases
+- chore(campaign): declare breaking public dependency compatibility
+- chore(campaign): declare breaking public dependency compatibility
+- chore(campaign): declare exposed dependency compatibility change
+
 ## [5.0.20] - 2026-10-04
 
 ### Fixed

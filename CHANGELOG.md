@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-10-09
+
+### Added
+
+- *(connect)* public reads go only through a separate anonymous transport
+- *(connect)* mirror the TypeScript policy reader; add the anonymous public lane
+- *(connect)* send policy-eligible unary reads as Connect GET
+- *(connect)* ConnectCode wire-level error code
+- *(connect-ts)* workloadPeer reaches a named workload in this workload's organization over pinned mTLS
+- *(connect)* carry the emitted error code through ErrorInfo and the SDK error text
+
+### Fixed
+
+- keep lint-only edits lint-only and prove the error type mode
+- *(reqwest)* [**breaking**] point api-bones-reqwest and api-bones-test READMEs at the api-bones 9 releases
+- [**breaking**] conform api-bones to canonical checks
+- *(connect)* shorten doc summaries, drop a redundant clone in the GET tests
+- *(connect)* name the recorded request tuple in the GET tests
+- *(connect)* read the policy document with its own typed reader
+- *(connect)* share policy document reader; own mod.rs in the GET feature
+- *(connect)* satisfy pedantic lints in ConnectCode
+- *(connect)* export the error-info readers, refresh the wire fixture
+- *(connect)* drop the version from ErrorInfo, reject malformed details, run every internal lane
+- *(connect)* close the error-info feature surface and run its lanes
+
+### Other
+
+- *(connect)* prove ConnectCode through an internal feature
+- *(campaign)* declare release tooling ownership for exposed crates
+- *(campaign)* use canonical Renovate preset
+- *(campaign)* publish releases with repository release identity
+- *(campaign)* keep Rust test lanes running after failures
+- Revert "fix(ci): publish release with repository release identity"
+- Revert "fix(ci): collect failures across Rust test lanes"
+- Revert "fix(release)!: declare public dependency compatibility releases"
+- *(campaign)* route cached Rust packaging to ram-build
+- *(release)* metadata for #138
+
+### Breaking changes merged after the version was prepared
+
+- fix(reqwest)!: point api-bones-reqwest and api-bones-test READMEs at the api-bones 9 releases
+- fix!: conform api-bones to canonical checks
+- chore(campaign): declare breaking public dependency compatibility
+- chore(campaign): declare breaking public dependency compatibility
+- chore(campaign): declare exposed dependency compatibility change
+
 ## [9.0.2] - 2026-10-04
 
 ### Fixed

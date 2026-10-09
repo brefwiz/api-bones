@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-10-09
+
+### Fixed
+
+- *(test)* require the sibling api-bones by its full version in the dev-dependency
+- keep lint-only edits lint-only and prove the error type mode
+- *(reqwest)* [**breaking**] point api-bones-reqwest and api-bones-test READMEs at the api-bones 9 releases
+- [**breaking**] conform api-bones to canonical checks
+
+### Other
+
+- *(campaign)* [**breaking**] declare breaking public dependency compatibility
+- Revert "chore(campaign): declare breaking public dependency compatibility"
+- *(campaign)* [**breaking**] declare breaking public dependency compatibility
+- Revert "fix(release)!: declare public dependency compatibility releases"
+
+### Breaking changes merged after the version was prepared
+
+- fix(reqwest)!: point api-bones-reqwest and api-bones-test READMEs at the api-bones 9 releases
+- fix!: conform api-bones to canonical checks
+- chore(campaign): declare breaking public dependency compatibility
+- chore(campaign): declare breaking public dependency compatibility
+- chore(campaign): declare exposed dependency compatibility change
+
 ## [6.6.24] - 2026-10-04
 
 ### Fixed

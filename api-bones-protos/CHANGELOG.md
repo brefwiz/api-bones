@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-10-09
+
+### Added
+
+- *(bones)* attribute dimensions, attr field option and mcp method option
+- *(connect)* carry the emitted error code through ErrorInfo and the SDK error text
+
+### Fixed
+
+- *(connect)* drop the version from ErrorInfo, reject malformed details, run every internal lane
+
 ### Added
 
 - *(protos)* `attributes` service option, `attr` field option and `mcp` method option
