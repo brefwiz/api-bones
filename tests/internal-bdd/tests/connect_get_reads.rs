@@ -252,7 +252,7 @@ async fn when_call_bearer(world: &mut GetWorld, method: String) {
 }
 
 #[when(
-    expr = "the client calls {string} with a protobuf message and a bearer token, a cookie, a CSRF token and a product header"
+    expr = "the client calls {string} with a protobuf message, an origin, protocol headers and every kind of caller header"
 )]
 async fn when_call_all_credentials(world: &mut GetWorld, method: String) {
     world
@@ -265,6 +265,29 @@ async fn when_call_all_credentials(world: &mut GetWorld, method: String) {
                 ("cookie", "sid=1"),
                 ("x-csrf-token", "csrf"),
                 ("x-product", "p"),
+                ("x-forwarded-for", "203.0.113.7"),
+                ("origin", "https://embedder.example"),
+                ("connect-protocol-version", "1"),
+                ("connect-timeout-ms", "1500"),
+                ("accept-encoding", "gzip"),
+            ],
+        )
+        .await;
+}
+
+#[when(
+    expr = "the client calls {string} with a protobuf message from the origin {string}, a bearer token and a cookie"
+)]
+async fn when_call_with_origin(world: &mut GetWorld, method: String, origin: String) {
+    world
+        .send(
+            &format!("/pkg.v1.Svc/{method}"),
+            "application/proto",
+            b"\x0a\x03abc".to_vec(),
+            &[
+                ("origin", &origin),
+                ("authorization", "Bearer secret"),
+                ("cookie", "sid=1"),
             ],
         )
         .await;
@@ -339,12 +362,36 @@ fn then_credentialed_transport(world: &mut GetWorld) {
     assert!(world.lane.seen.lock().unwrap().is_empty());
 }
 
-#[then("the request carries no authorization, cookie, x-csrf-token or x-product header")]
-fn then_no_credentials(world: &mut GetWorld) {
+#[then("the request carries exactly the protocol headers and the origin")]
+fn then_exact_headers(world: &mut GetWorld) {
     let (_, _, headers) = world.last();
-    for name in ["authorization", "cookie", "x-csrf-token", "x-product"] {
-        assert!(headers.get(name).is_none(), "{name} travelled");
-    }
+    let mut names: Vec<_> = headers
+        .keys()
+        .map(|name| name.as_str().to_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "accept-encoding",
+            "connect-protocol-version",
+            "connect-timeout-ms",
+            "origin"
+        ]
+    );
+}
+
+#[then("the request carries no origin header")]
+fn then_no_origin(world: &mut GetWorld) {
+    let (_, _, headers) = world.last();
+    assert!(headers.get("origin").is_none());
+}
+
+#[then(expr = "the request carries the origin {string} and no authorization or cookie header")]
+fn then_origin_only(world: &mut GetWorld, origin: String) {
+    let (_, _, headers) = world.last();
+    assert_eq!(headers.get("origin").unwrap(), origin.as_str());
+    assert!(headers.get("authorization").is_none() && headers.get("cookie").is_none());
 }
 
 #[then(expr = "the call to {string} was a GET with no if-match header")]
