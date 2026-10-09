@@ -3,8 +3,7 @@
 //!
 //! The error type URI mode is library code no declared SDK surface exposes --
 //! callers reach it directly (SPEC.md `internal_behavior_owners`). The mode is
-//! process-wide, so scenarios run one at a time in file order, the default
-//! scenario first.
+//! process-wide, so the feature is one scenario that walks the default first.
 
 use api_bones::error::{ErrorTypeMode, error_type_mode, set_error_type_mode};
 use cucumber::{World, given, then, when};
@@ -46,8 +45,5 @@ async fn main() {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/features/error_type_mode.feature"
     );
-    ModeWorld::cucumber()
-        .max_concurrent_scenarios(1)
-        .run_and_exit(features)
-        .await;
+    ModeWorld::run(features).await;
 }
