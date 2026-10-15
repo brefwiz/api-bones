@@ -25,7 +25,7 @@ ci-lint: ci-no-std ## Run Clippy (CI — zero warnings), and build every no_std 
 	# Clippy runs with --all-features, which turns std on: a no_std-only break
 	# never reaches it. ci-no-std builds those feature sets, and nothing else in
 	# CI does.
-	cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
+	cargo clippy --locked --workspace --all-targets --all-features --no-deps -- -D warnings
 
 ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
 	# Nothing else in this repo compiles documentation: ci-lint is clippy, which
@@ -33,12 +33,12 @@ ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
 	# invisibly until the rustdoc JSON emit in the test job started failing on
 	# them — and because rustdoc aborts at the first crate that fails, they
 	# surfaced one crate per CI round. This checks the whole workspace at once.
-	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+	RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps
 
 ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regression guard for issue 80)
-	cargo check --no-default-features
-	cargo check --no-default-features --features alloc
-	cargo check --no-default-features --features alloc,serde
+	cargo check --locked --no-default-features
+	cargo check --locked --no-default-features --features alloc
+	cargo check --locked --no-default-features --features alloc,serde
 
 ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# --profile ci selects the JUnit-emitting profile the test composite consumes.
@@ -47,36 +47,38 @@ ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# Both cucumber lanes are excluded: their test targets are harness = false,
 	# and nextest enumerates targets with `--list`, which such a binary does
 	# not accept ("unexpected argument '--list' found"). ci-e2e-rust runs them.
-	cargo nextest run --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
+	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
 
 ci-e2e-rust: ## Answer the Gherkin contracts nextest cannot carry
 	# A cucumber suite is its own harness (harness = false), so nextest cannot
 	# carry it. Both contracts are pure classification/config assertions, so
 	# neither needs a live stack and both run synchronously.
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_precondition
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_error_info
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_client_headers
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_domain_error_code
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test pagination_max_limit
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_if_match_precondition
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_precondition
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_error_info
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_client_headers
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_domain_error_code
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test pagination_max_limit
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_if_match_precondition
 
 ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	# Excluded for the same reason as ci-test: nextest cannot enumerate a
 	# harness = false target.
-	cargo llvm-cov nextest --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --fail-under-functions 100
+	cargo llvm-cov --locked nextest --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --fail-under-functions 100
 
 # Publish rehearsals, one per declared SDK language: the release operation
 # minus the upload, so a broken include or files list fails at PR time rather
 # than after a tag.
 ci-sdk-publish-rust-dry-run: ## Rehearse the crate publish without uploading
-	cargo package -p api-bones-connect --allow-dirty --no-verify
+	cargo package --locked -p api-bones-connect --allow-dirty --no-verify
 
 ci-sdk-publish-typescript-dry-run: ## Rehearse the npm publish without uploading
 	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm publish --dry-run
 
+# This library has no service binary or musl artifact to stage through ci-build.
+# Keep its native crate build; the platform owns Cargo profile settings.
 build: ## Build the crate
-	cargo build --release
+	cargo build --locked
 
 ci-audit: ## Run cargo audit (PLATFORM-008 — strict, no default ignores). Pass ADVISORY_DB=... to use a local clone.
 	cargo audit $(if $(ADVISORY_DB),--db $(ADVISORY_DB),)
@@ -147,8 +149,8 @@ sc-001-check: ## SC-001: ban tracing_subscriber::fmt in main/bin entry points
 
 .PHONY: ci-build-check
 ci-build-check: ## Compile-check all feature combinations
-	cargo check --all-features
-	cargo check --no-default-features
+	cargo check --locked --all-features
+	cargo check --locked --no-default-features
 
 .PHONY: sdk-e2e-check
 sdk-e2e-check: ## No SDK E2E targets for this library crate
