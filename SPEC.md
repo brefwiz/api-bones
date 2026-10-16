@@ -43,6 +43,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The browser transport echoes the BFF's CSRF synchronizer: only the web
+  # entry talks to a session BFF, so this surface is TS alone, the same way
+  # connect-public-read is.
+  connect-csrf-synchronizer:
+    contract: tests/features/connect_csrf_synchronizer.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
   # The default If-Match precondition, attached from the transport itself.
   # Rust carries the same decision, but from outside the package this surface
   # names (see internal_behavior_owners, below) -- so this surface is TS
@@ -166,7 +175,7 @@ duplication_baseline:
   test_double_in_production: 0
   duplicate_dispatch: 0
   duplicate_literals: 0
-  clone_tokens: 2467
+  clone_tokens: 2389
   test_clone_tokens: 564
 ci_checks:
   license_headers:
