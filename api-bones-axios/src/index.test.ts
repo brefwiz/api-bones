@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { describe, it, expect, afterEach } from "vitest";
 import {
   addEnvelopeUnwrapInterceptor,

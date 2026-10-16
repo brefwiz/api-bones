@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 //! Embedded bytes of the api-bones canonical proto shapes.
 //!
 //! This crate ships the `bones/v1/*.proto` files via `include_bytes!`

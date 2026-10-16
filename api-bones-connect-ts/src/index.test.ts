@@ -507,8 +507,10 @@ describe("package resolution", () => {
     const { readdirSync, readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const dir = new URL("../src", import.meta.url).pathname;
+    // Only emitted sources count: tests are excluded from the build and may
+    // import TypeScript fixtures by their `.ts` path.
     const offenders: string[] = [];
-    for (const name of readdirSync(dir).filter((f) => f.endsWith(".ts"))) {
+    for (const name of readdirSync(dir).filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))) {
       const text = readFileSync(join(dir, name), "utf8");
       for (const line of text.split("\n")) {
         const trimmed = line.trimStart();

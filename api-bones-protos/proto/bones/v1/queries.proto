@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: Apache-2.0
 //
 // Canonical query parameter shapes — the proto-side companion to
 // `api_bones::query::{SortDirection, SortParams, FilterEntry,

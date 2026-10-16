@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: Apache-2.0
 //
 // Canonical pagination shapes — the proto-side companion to
 // `api_bones::pagination::*` Rust types.

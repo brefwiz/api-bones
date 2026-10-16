@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // OpenTelemetry W3C trace-context propagation for Connect-ES SDKs.
 // Provides interceptors for automatic trace-context injection into outbound requests.
 

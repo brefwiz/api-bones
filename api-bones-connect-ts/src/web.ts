@@ -4,7 +4,7 @@
 //
 // Moved verbatim in behaviour from core-ui's src/api/connect-client.ts so the
 // two runtime adapters can share one policy vocabulary. Everything browser-only
-// stays here and only here: the CSRF meta-tag read, `credentials: "include"`,
+// stays here and only here: the CSRF synchronizer echo, `credentials: "include"`,
 // and the GET transport. A Node service must never acquire those by importing a
 // transport — that is how a CLI ends up depending on `document`.
 
@@ -91,23 +91,73 @@ function makeAuthInterceptor(getToken: () => string | null | undefined): Interce
   };
 }
 
-/** Read the CSRF synchronizer token rendered into the page `<meta>`. */
+const CSRF_HEADER = "X-CSRF-Token";
+
+/**
+ * The latest synchronizer the BFF handed out, per BFF origin. Module-level so
+ * every transport built against the same origin on a page (the shared UI
+ * package and each product SDK) echoes one token instead of each rediscovering
+ * its own.
+ */
+const csrfTokens = new Map<string, string>();
+
+function csrfKey(baseUrl: string): string {
+  try {
+    return new URL(baseUrl, globalThis.location?.href).origin;
+  } catch {
+    return baseUrl;
+  }
+}
+
+/** Read a synchronizer token rendered into the page `<meta>`, if any. */
 function getCsrfTokenFromMeta(): string | null {
   if (typeof document === "undefined") return null;
   return document.querySelector('meta[name="csrf-token"]')?.getAttribute("content") || null;
 }
 
 /**
- * Attach `X-CSRF-Token` to Connect requests. It protects POST fallbacks and is
- * carried as a header, never as cache-key or URL material.
+ * Echo the BFF's CSRF synchronizer as `X-CSRF-Token`.
+ *
+ * The BFF issues a session-bound token on the response that establishes the
+ * session and refreshes it on every response under that session, including a
+ * refusal. This interceptor keeps the latest one it saw and attaches it to
+ * each request. A unary call refused with PermissionDenied whose refusal
+ * carries a token different from the one sent was stopped by the BFF's CSRF
+ * layer before reaching the handler, so it is replayed exactly once with the
+ * fresh token. Streams are never replayed. Token values are never logged.
  */
-function makeCsrfInterceptor(): Interceptor {
-  const token = getCsrfTokenFromMeta();
-  return (next) => (req) => {
-    if (token) {
-      req.header.set("X-CSRF-Token", token);
+function makeCsrfInterceptor(baseUrl: string): Interceptor {
+  const key = csrfKey(baseUrl);
+  const remember = (token: string | null | undefined): void => {
+    if (token) csrfTokens.set(key, token);
+  };
+  return (next) => async (req) => {
+    const sent =
+      csrfTokens.get(key) ?? (key === globalThis.location?.origin ? getCsrfTokenFromMeta() : null);
+    if (sent) req.header.set(CSRF_HEADER, sent);
+    const onWire = req.header.get(CSRF_HEADER);
+
+    try {
+      const res = await next(req);
+      remember(res.header.get(CSRF_HEADER));
+      return res;
+    } catch (err) {
+      const refusal = ConnectError.from(err);
+      const fresh = refusal.metadata.get(CSRF_HEADER);
+      remember(fresh);
+      if (req.stream || refusal.code !== Code.PermissionDenied || !fresh || fresh === onWire) {
+        throw err;
+      }
+      req.header.set(CSRF_HEADER, fresh);
+      try {
+        const res = await next(req);
+        remember(res.header.get(CSRF_HEADER));
+        return res;
+      } catch (second) {
+        remember(ConnectError.from(second).metadata.get(CSRF_HEADER));
+        throw second;
+      }
     }
-    return next(req);
   };
 }
 
@@ -234,7 +284,7 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
   const interceptors: Interceptor[] = [
     ...(opts.interceptors ?? []),
     ...(getToken ? [makeAuthInterceptor(getToken)] : []),
-    makeCsrfInterceptor(),
+    makeCsrfInterceptor(baseUrl),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
     // Ahead of retry: a mutating call carries its default precondition on
     // every attempt, not just the first.

@@ -5,9 +5,10 @@
 
 Embedded bytes of the canonical proto shapes shipped by the
 [`api-bones`](https://crates.io/crates/api-bones) crate ecosystem
-(`bones/v1/*.proto`) and `google/api/field_behavior.proto`, vendored byte-identical
-from googleapis commit `525d4c82dc1d`. The vendored file is Apache-2.0 licensed by its
-own header; the rest of the crate is MIT.
+(`bones/v1/*.proto`) and `google/api/field_behavior.proto`, vendored from
+googleapis commit `525d4c82dc1d` with only an SPDX identifier and modification
+notice added to its header; its upstream schema is unchanged. This crate is
+Apache-2.0 licensed, with the original MIT notice preserved in `LICENSE-MIT`.
 
 **Zero runtime dependencies.** This crate exists purely as a
 distribution mechanism for the proto bytes. Pair it with a staging
@@ -50,4 +51,4 @@ schema inventory and the per-message Rust counterparts in the
 
 ## License
 
-MIT.
+Apache-2.0. See `LICENSE`; the original MIT notice is preserved in `LICENSE-MIT`.

@@ -6,6 +6,7 @@
 //! This lane crate is `publish = false`, so its dependencies reach no released
 //! artifact.
 mod steps;
+#[path = "it/common/mod.rs"]
 mod world;
 
 use brefwiz_cucumber_steps::TwoPass;

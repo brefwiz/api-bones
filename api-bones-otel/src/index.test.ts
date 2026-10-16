@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { context, trace, propagation, ROOT_CONTEXT, SpanContext, TraceFlags } from "@opentelemetry/api";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";

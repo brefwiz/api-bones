@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: Apache-2.0
 //
 // Canonical rate-limit metadata — the proto-side companion to
 // `api_bones::ratelimit::RateLimitInfo` (the X-RateLimit-* header

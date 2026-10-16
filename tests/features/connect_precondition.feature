@@ -35,7 +35,7 @@ Feature: Connect default precondition
     Then the call carries "none" as its if-match header
 
   Scenario Outline: Canonical policy versions preserve declared preconditions
-    Given a unary method declared "<idempotency>" in policy schema <version>
+    Given a unary method declared "<idempotency>" in policy schema "<version>"
     And a call to that method carrying "none" as its own if-match header
     When the call is sent
     Then the call carries "<sent_header>" as its if-match header
