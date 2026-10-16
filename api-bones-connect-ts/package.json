@@ -47,7 +47,7 @@
     "@connectrpc/connect-web": "^2.0.0",
     "@types/node": "^22.20.1",
     "typescript": "^5.0.0",
-    "vitest": "^3.0.0"
+    "vitest": "^4.1.12"
   },
   "publishConfig": {
     "registry": "https://git.brefwiz.com/api/packages/brefwiz/npm/",
