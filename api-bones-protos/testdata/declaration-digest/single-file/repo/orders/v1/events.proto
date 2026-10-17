@@ -1,0 +1,3 @@
+syntax = "proto3";
+package orders.v1;
+message OrderPlaced { string id = 1; }

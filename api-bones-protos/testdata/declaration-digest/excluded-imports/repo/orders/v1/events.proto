@@ -1,0 +1,5 @@
+syntax = "proto3";
+package orders.v1;
+import "bones/v1/annotations.proto";
+import "google/protobuf/timestamp.proto";
+message OrderShipped { google.protobuf.Timestamp at = 1; }
