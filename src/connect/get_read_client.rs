@@ -45,6 +45,8 @@ use http::header::{CONTENT_ENCODING, CONTENT_LENGTH, CONTENT_TYPE};
 use http::{HeaderMap, Method, Request, Response, Uri};
 use http_body_util::BodyExt as _;
 
+use super::precondition_client::{UnsupportedPolicySchema, check_policy_schema};
+
 /// Hard ceiling on a GET URL, and on any method's declared budget. A policy
 /// declaring more is rejected, not clamped.
 pub const MAX_CONNECT_GET_URL_BYTES: usize = 4096;
@@ -160,33 +162,30 @@ fn parse_method(entry: &serde_json::Value) -> Option<PolicyMethod> {
 
 /// Parse a policy document the way the TypeScript reader does: every entry
 /// must be well formed and unique, or the whole document grants nothing.
-fn parse_policy(json: &str) -> Vec<PolicyMethod> {
+fn parse_policy(json: &str) -> Result<Vec<PolicyMethod>, UnsupportedPolicySchema> {
     let Ok(doc) = serde_json::from_str::<serde_json::Value>(json) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    let versioned = matches!(
-        doc.get("schemaVersion").and_then(non_negative_integer),
-        Some(1 | 2)
-    );
+    check_policy_schema(&doc)?;
     let Some(methods) = doc.get("methods").and_then(serde_json::Value::as_array) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    if !versioned {
-        return Vec::new();
-    }
     let mut seen = std::collections::HashSet::new();
     let mut parsed = Vec::with_capacity(methods.len());
     for entry in methods {
         match parse_method(entry) {
             Some(method) if seen.insert(method.rpc.clone()) => parsed.push(method),
-            _ => return Vec::new(),
+            _ => return Ok(Vec::new()),
         }
     }
-    parsed
+    Ok(parsed)
 }
 
-fn index_where(json: &str, grants: impl Fn(&PolicyMethod) -> bool) -> HashMap<String, ReadPolicy> {
-    parse_policy(json)
+fn index_where(
+    json: &str,
+    grants: impl Fn(&PolicyMethod) -> bool,
+) -> Result<HashMap<String, ReadPolicy>, UnsupportedPolicySchema> {
+    Ok(parse_policy(json)?
         .into_iter()
         .filter(|method| method.unary && method.idempotency == "NO_SIDE_EFFECTS")
         .filter(|method| method.sensitivity == "NON_SENSITIVE" && method.max_url_bytes > 0)
@@ -197,7 +196,7 @@ fn index_where(json: &str, grants: impl Fn(&PolicyMethod) -> bool) -> HashMap<St
             };
             (method.rpc, policy)
         })
-        .collect()
+        .collect())
 }
 
 /// Index the methods that may be sent as a credentialed GET.
@@ -206,13 +205,18 @@ fn index_where(json: &str, grants: impl Fn(&PolicyMethod) -> bool) -> HashMap<St
 /// privately cacheable for at most 300 seconds, has a positive URL budget, and
 /// is not a public read.
 ///
-/// Fails CLOSED to an empty map, like the TypeScript reader: a malformed or
-/// duplicated entry anywhere in the document, an unknown schema version, a
-/// budget above [`MAX_CONNECT_GET_URL_BYTES`] (rejected, not clamped) or a
+/// # Errors
+///
+/// [`UnsupportedPolicySchema`] when the document's `schemaVersion` is missing
+/// or unknown, decided by the same check as [`index_generated_policy`](super::index_generated_policy).
+///
+/// Otherwise fails CLOSED to an empty map, like the TypeScript reader: a
+/// malformed or duplicated entry anywhere in the document, a budget above [`MAX_CONNECT_GET_URL_BYTES`] (rejected, not clamped) or a
 /// malformed `publicRead` grants nothing at all. A value this reader does not
 /// know makes only its own method ineligible.
-#[must_use]
-pub fn index_read_policy(json: &str) -> HashMap<String, ReadPolicy> {
+pub fn index_read_policy(
+    json: &str,
+) -> Result<HashMap<String, ReadPolicy>, UnsupportedPolicySchema> {
     index_where(json, |method| {
         !method.public_read
             && method.cache_scope == "PRIVATE"
@@ -225,8 +229,9 @@ pub fn index_read_policy(json: &str) -> HashMap<String, ReadPolicy> {
 /// A method qualifies when it is unary, `NO_SIDE_EFFECTS`, `NON_SENSITIVE`,
 /// `NO_STORE`, has a positive URL budget and a well-formed `publicRead`. Fails
 /// closed exactly like [`index_read_policy`].
-#[must_use]
-pub fn index_public_read_policy(json: &str) -> HashMap<String, ReadPolicy> {
+pub fn index_public_read_policy(
+    json: &str,
+) -> Result<HashMap<String, ReadPolicy>, UnsupportedPolicySchema> {
     index_where(json, |method| {
         method.public_read && method.cache_scope == "NO_STORE"
     })
@@ -595,7 +600,7 @@ mod tests {
     }
 
     fn wrapped(recorder: &Recorder) -> GetReadTransport<Recorder> {
-        GetReadTransport::new(recorder.clone(), index_read_policy(&policy()))
+        GetReadTransport::new(recorder.clone(), index_read_policy(&policy()).unwrap())
     }
 
     fn last(recorder: &Recorder) -> Sent {
@@ -612,14 +617,14 @@ mod tests {
 
     #[test]
     fn credentialed_index_holds_only_private_reads() {
-        let index = index_read_policy(&policy());
+        let index = index_read_policy(&policy()).unwrap();
         assert_eq!(index.keys().collect::<Vec<_>>(), ["/pkg.v1.Svc/Get"]);
         assert_eq!(index["/pkg.v1.Svc/Get"].max_url_bytes(), 512);
     }
 
     #[test]
     fn public_index_holds_only_public_reads() {
-        let index = index_public_read_policy(&policy());
+        let index = index_public_read_policy(&policy()).unwrap();
         assert_eq!(index.keys().collect::<Vec<_>>(), ["/pkg.v1.Svc/Open"]);
     }
 
@@ -627,10 +632,10 @@ mod tests {
     fn a_private_cache_lifetime_over_the_ceiling_is_not_eligible() {
         let long = entry("Get", "NO_SIDE_EFFECTS", "NON_SENSITIVE", "PRIVATE", 512)
             .replace("\"maxAgeSeconds\": 60", "\"maxAgeSeconds\": 301");
-        assert!(index_read_policy(&document(&[long])).is_empty());
+        assert!(index_read_policy(&document(&[long])).unwrap().is_empty());
         let edge = entry("Get", "NO_SIDE_EFFECTS", "NON_SENSITIVE", "PRIVATE", 512)
             .replace("\"maxAgeSeconds\": 60", "\"maxAgeSeconds\": 300");
-        assert_eq!(index_read_policy(&document(&[edge])).len(), 1);
+        assert_eq!(index_read_policy(&document(&[edge])).unwrap().len(), 1);
     }
 
     #[test]
@@ -640,10 +645,14 @@ mod tests {
             entry("A", "FUTURE_VALUE", "NON_SENSITIVE", "PRIVATE", 512),
             entry("B", "NO_SIDE_EFFECTS", "FUTURE_VALUE", "PRIVATE", 512),
         ]);
-        let index = index_read_policy(&json);
+        let index = index_read_policy(&json).unwrap();
         assert_eq!(index.keys().collect::<Vec<_>>(), ["/pkg.v1.Svc/Get"]);
         let unknown_scope = entry("C", "NO_SIDE_EFFECTS", "NON_SENSITIVE", "FUTURE_VALUE", 512);
-        assert!(index_read_policy(&document(&[unknown_scope])).is_empty());
+        assert!(
+            index_read_policy(&document(&[unknown_scope]))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -655,7 +664,7 @@ mod tests {
             "PRIVATE",
             0,
         )]);
-        assert!(index_read_policy(&json).is_empty());
+        assert!(index_read_policy(&json).unwrap().is_empty());
     }
 
     #[test]
@@ -706,10 +715,13 @@ mod tests {
         for (why, bad) in broken {
             // Beside a valid entry, before and after it.
             let json = document(&[good.replace("Get", "Other"), bad.clone()]);
-            assert!(index_read_policy(&json).is_empty(), "{why}");
-            assert!(index_public_read_policy(&json).is_empty(), "{why}");
+            assert!(index_read_policy(&json).unwrap().is_empty(), "{why}");
+            assert!(index_public_read_policy(&json).unwrap().is_empty(), "{why}");
             let json = document(&[bad, good.replace("Get", "Other")]);
-            assert!(index_read_policy(&json).is_empty(), "{why} (first)");
+            assert!(
+                index_read_policy(&json).unwrap().is_empty(),
+                "{why} (first)"
+            );
         }
     }
 
@@ -718,14 +730,30 @@ mod tests {
         let entries = entry("Get", "NO_SIDE_EFFECTS", "NON_SENSITIVE", "PRIVATE", 512);
         for json in [
             "not json".to_owned(),
-            format!(r#"{{"schemaVersion": 3, "methods": [{entries}]}}"#),
-            format!(r#"{{"schemaVersion": "2", "methods": [{entries}]}}"#),
-            format!(r#"{{"methods": [{entries}]}}"#),
             r#"{"schemaVersion": 2}"#.to_owned(),
             r#"{"schemaVersion": 2, "methods": {}}"#.to_owned(),
             document(&[entries.clone(), entries]),
         ] {
-            assert!(index_read_policy(&json).is_empty(), "{json}");
+            assert!(index_read_policy(&json).unwrap().is_empty(), "{json}");
+        }
+    }
+
+    #[test]
+    fn an_unsupported_schema_version_is_refused_not_emptied() {
+        let entries = entry("Get", "NO_SIDE_EFFECTS", "NON_SENSITIVE", "PRIVATE", 512);
+        for (version, found) in [
+            (r#""schemaVersion": 3,"#, "3"),
+            (r#""schemaVersion": "2","#, "\"2\""),
+            (r#""schemaVersion": 0,"#, "0"),
+            ("", "missing"),
+        ] {
+            let json = format!(r#"{{{version} "methods": [{entries}]}}"#);
+            assert_eq!(index_read_policy(&json).unwrap_err().found, found, "{json}");
+            assert_eq!(
+                index_public_read_policy(&json).unwrap_err().found,
+                found,
+                "{json}"
+            );
         }
     }
 
@@ -742,7 +770,10 @@ mod tests {
             r#"{"maxAgeSeconds": 5, "origins": "ANY"}"#,
         ] {
             let json = document(&[format!(r#"{open}, "publicRead": {public}}}"#)]);
-            assert!(index_public_read_policy(&json).is_empty(), "{public}");
+            assert!(
+                index_public_read_policy(&json).unwrap().is_empty(),
+                "{public}"
+            );
         }
     }
 
@@ -898,7 +929,7 @@ mod tests {
             entry("Watch", "NO_SIDE_EFFECTS", "NON_SENSITIVE", "PRIVATE", 512)
                 .replace("\"unary\"", "\"streaming\"")
         );
-        let index = index_read_policy(&json);
+        let index = index_read_policy(&json).unwrap();
         assert!(index.is_empty());
         // A streaming envelope to an eligible path is left alone too.
         let recorder = Recorder::default();
@@ -924,7 +955,7 @@ mod tests {
             "PRIVATE",
             budget,
         )]);
-        GetReadTransport::new(recorder.clone(), index_read_policy(&json))
+        GetReadTransport::new(recorder.clone(), index_read_policy(&json).unwrap())
             .send(post("/pkg.v1.Svc/Get", "application/proto", body))
             .await
             .unwrap();
@@ -977,7 +1008,7 @@ mod tests {
         PublicReadTransport::new(
             credentialed.clone(),
             lane.clone(),
-            index_public_read_policy(&policy()),
+            index_public_read_policy(&policy()).unwrap(),
         )
     }
 
@@ -1161,13 +1192,27 @@ mod tests {
             )])
         };
         assert_eq!(
-            index_public_read_policy(&with_public("NO_STORE", "NON_SENSITIVE")).len(),
+            index_public_read_policy(&with_public("NO_STORE", "NON_SENSITIVE"))
+                .unwrap()
+                .len(),
             1
         );
-        assert!(index_public_read_policy(&with_public("PRIVATE", "NON_SENSITIVE")).is_empty());
-        assert!(index_public_read_policy(&with_public("NO_STORE", "SENSITIVE")).is_empty());
+        assert!(
+            index_public_read_policy(&with_public("PRIVATE", "NON_SENSITIVE"))
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            index_public_read_policy(&with_public("NO_STORE", "SENSITIVE"))
+                .unwrap()
+                .is_empty()
+        );
         // And a public read never becomes a credentialed one.
-        assert!(index_read_policy(&with_public("PRIVATE", "NON_SENSITIVE")).is_empty());
+        assert!(
+            index_read_policy(&with_public("PRIVATE", "NON_SENSITIVE"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[tokio::test]
@@ -1182,15 +1227,18 @@ mod tests {
                 async move {
                     if get_outside {
                         GetReadTransport::new(
-                            PreconditionedTransport::new(recorder, index_generated_policy(&json)),
-                            index_read_policy(&json),
+                            PreconditionedTransport::new(
+                                recorder,
+                                index_generated_policy(&json).unwrap(),
+                            ),
+                            index_read_policy(&json).unwrap(),
                         )
                         .send(request)
                         .await
                     } else {
                         PreconditionedTransport::new(
-                            GetReadTransport::new(recorder, index_read_policy(&json)),
-                            index_generated_policy(&json),
+                            GetReadTransport::new(recorder, index_read_policy(&json).unwrap()),
+                            index_generated_policy(&json).unwrap(),
                         )
                         .send(request)
                         .await

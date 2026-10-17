@@ -30,6 +30,27 @@ fn given_schema_declared(world: &mut PreconditionWorld, idempotency: String, ver
     world.declare_policy_document(version, &idempotency);
 }
 
+#[given(expr = "a policy document whose schemaVersion is {word}")]
+fn given_raw_schema_version(world: &mut PreconditionWorld, declared: String) {
+    world.declare_raw_schema_version(&declared);
+}
+
+#[when(expr = "the client is built from it")]
+fn when_built(world: &mut PreconditionWorld) {
+    world.build_client();
+}
+
+#[then(expr = "construction is refused naming version {word} and the supported versions {string}")]
+fn then_refused(world: &mut PreconditionWorld, found: String, supported: String) {
+    let refusal = world.refusal().expect("construction was not refused");
+    assert!(
+        refusal.contains(&format!(
+            "schemaVersion {found} is not supported; supported versions: {supported}"
+        )),
+        "{refusal}"
+    );
+}
+
 #[given(expr = "a method with no policy entry at all")]
 fn given_no_policy(world: &mut PreconditionWorld) {
     world.declare_no_policy();

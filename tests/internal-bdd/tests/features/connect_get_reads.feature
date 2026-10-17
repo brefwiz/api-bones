@@ -30,6 +30,18 @@ Feature: Connect GET for policy-eligible reads
     Then the request is a GET to "/pkg.v1.Svc/Get"
     And the query names "compression=gzip", "encoding=proto" and a base64url message
 
+  Scenario Outline: A policy of a schema version this reader does not know is refused
+    Given a policy declaring "Get" as "NO_SIDE_EFFECTS" with sensitivity "NON_SENSITIVE", cache scope "PRIVATE" and a URL budget of 512
+    And the policy declares the schema version "<declared>"
+    Then building either read index is refused naming the version "<named>"
+
+    Examples: versions refused
+      | declared | named   |
+      | 3        | 3       |
+      | 0        | 0       |
+      | "2"      | "2"     |
+      | missing  | missing |
+
   Scenario Outline: A method the policy does not grant as a credentialed read keeps its POST
     Given a policy declaring "<method>" as "<idempotency>" with sensitivity "<sensitivity>", cache scope "<scope>" and a URL budget of 512
     When the client calls "<method>" with a protobuf message

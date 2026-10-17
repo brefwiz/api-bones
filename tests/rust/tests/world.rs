@@ -48,6 +48,8 @@ pub struct PreconditionWorld {
     policy: Option<HashMap<String, Idempotency>>,
     caller_header: Option<String>,
     seen: Option<Arc<Mutex<Vec<http::HeaderMap>>>>,
+    document: Option<String>,
+    refusal: Option<String>,
 }
 
 impl PreconditionWorld {
@@ -60,7 +62,29 @@ impl PreconditionWorld {
                 "sensitivity": "SENSITIVE", "maxEncodedUrlBytes": 4096
             }}]}}"#
         );
-        self.policy = Some(index_generated_policy(&document));
+        self.policy = Some(index_generated_policy(&document).expect("supported schema version"));
+    }
+
+    /// A policy document whose `schemaVersion` is the given JSON literal, or
+    /// absent.
+    pub fn declare_raw_schema_version(&mut self, declared: &str) {
+        let key = if declared == "absent" {
+            String::new()
+        } else {
+            format!(r#""schemaVersion": {declared}, "#)
+        };
+        self.document = Some(format!(r#"{{{key}"methods": []}}"#));
+    }
+
+    pub fn build_client(&mut self) {
+        let document = self.document.take().expect("no policy document given");
+        self.refusal = index_generated_policy(&document)
+            .err()
+            .map(|e| e.to_string());
+    }
+
+    pub fn refusal(&self) -> Option<&str> {
+        self.refusal.as_deref()
     }
 
     pub fn declare_method(&mut self, idempotency: Idempotency) {

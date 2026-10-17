@@ -22,6 +22,7 @@ interface PreconditionWorld extends World {
   policy: unknown;
   callerHeader?: string;
   seenIfMatch: string | null;
+  refusal?: string;
 }
 
 function method() {
@@ -49,6 +50,38 @@ Given(
   "a unary method declared {string} in policy schema {word}",
   function (this: PreconditionWorld, idempotency: string, version: string) {
     this.policy = { ...(policyDoc(idempotency) as object), schemaVersion: Number(version) };
+  },
+);
+
+Given(
+  "a policy document whose schemaVersion is {word}",
+  function (this: PreconditionWorld, declared: string) {
+    this.policy =
+      declared === "absent" ? { methods: [] } : { schemaVersion: JSON.parse(declared), methods: [] };
+  },
+);
+
+When("the client is built from it", function (this: PreconditionWorld) {
+  try {
+    configureConnectTransport({
+      baseUrl: "https://svc",
+      profile: "service",
+      policy: this.policy,
+      fetch: echoingServer,
+    });
+  } catch (error) {
+    this.refusal = (error as Error).message;
+  }
+});
+
+Then(
+  "construction is refused naming version {word} and the supported versions {string}",
+  function (this: PreconditionWorld, found: string, supported: string) {
+    assert.ok(this.refusal, "construction was not refused");
+    assert.ok(
+      this.refusal.includes(`schemaVersion ${found} is not supported; supported versions: ${supported}`),
+      this.refusal,
+    );
   },
 );
 

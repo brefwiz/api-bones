@@ -44,6 +44,7 @@ struct GetWorld {
     mount: String,
     precondition_layer: Option<String>,
     credentialed_only: bool,
+    schema_version: Option<String>,
 }
 
 impl std::fmt::Debug for GetWorld {
@@ -54,10 +55,12 @@ impl std::fmt::Debug for GetWorld {
 
 impl GetWorld {
     fn policy(&self) -> String {
-        format!(
-            r#"{{"schemaVersion": 2, "methods": [{}]}}"#,
-            self.entries.join(",")
-        )
+        let version = match self.schema_version.as_deref() {
+            None => r#""schemaVersion": 2, "#.to_owned(),
+            Some("missing") => String::new(),
+            Some(other) => format!(r#""schemaVersion": {other}, "#),
+        };
+        format!(r#"{{{version}"methods": [{}]}}"#, self.entries.join(","))
     }
 
     async fn send(&self, path: &str, content_type: &str, body: Vec<u8>, headers: &[(&str, &str)]) {
@@ -71,17 +74,17 @@ impl GetWorld {
         let request = builder.body(full_body(body.into())).unwrap();
         let json = self.policy();
         let recorder = self.recorder.clone();
-        let reads = index_read_policy(&json);
+        let reads = index_read_policy(&json).unwrap();
         let sent = match self.precondition_layer.as_deref() {
             Some("outer") => PreconditionedTransport::new(
                 GetReadTransport::new(recorder, reads),
-                index_generated_policy(&json),
+                index_generated_policy(&json).unwrap(),
             )
             .send(request)
             .await
             .map(|_| ()),
             Some(_) => GetReadTransport::new(
-                PreconditionedTransport::new(recorder, index_generated_policy(&json)),
+                PreconditionedTransport::new(recorder, index_generated_policy(&json).unwrap()),
                 reads,
             )
             .send(request)
@@ -94,7 +97,7 @@ impl GetWorld {
             None => PublicReadTransport::new(
                 GetReadTransport::new(recorder, reads),
                 self.lane.clone(),
-                index_public_read_policy(&json),
+                index_public_read_policy(&json).unwrap(),
             )
             .send(request)
             .await
@@ -172,6 +175,11 @@ fn given_broken(world: &mut GetWorld, rpc: String) {
 #[given(expr = "the default precondition transport with the GET transport as its {word}")]
 fn given_precondition(world: &mut GetWorld, layer: String) {
     world.precondition_layer = Some(layer);
+}
+
+#[given(expr = "the policy declares the schema version {string}")]
+fn given_schema_version(world: &mut GetWorld, version: String) {
+    world.schema_version = Some(version);
 }
 
 #[given("the public read declaration is malformed")]
@@ -406,6 +414,13 @@ fn then_post_if_match(world: &mut GetWorld, method: String, expected: String) {
     let (actual, _, headers) = world.sent_to(&method);
     assert_eq!(actual, Method::POST);
     assert_eq!(headers.get("if-match").unwrap(), expected.as_str());
+}
+
+#[then(expr = "building either read index is refused naming the version {string}")]
+fn then_refused(world: &mut GetWorld, found: String) {
+    let json = world.policy();
+    assert_eq!(index_read_policy(&json).unwrap_err().found, found);
+    assert_eq!(index_public_read_policy(&json).unwrap_err().found, found);
 }
 
 #[tokio::main]

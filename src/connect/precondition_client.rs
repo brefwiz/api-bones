@@ -56,24 +56,85 @@ impl Idempotency {
     }
 }
 
+/// The `schemaVersion` values of `connect-method-policy.json` this reader
+/// understands.
+pub const SUPPORTED_POLICY_SCHEMA_VERSIONS: &[u64] = &[1, 2];
+
+/// The policy document carries a `schemaVersion` this reader does not know,
+/// or none at all.
+///
+/// Indexing such a document as empty would leave every mutating call without
+/// its default `If-Match` and surface only as `412` responses at the first
+/// write, so it is refused when the policy is read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnsupportedPolicySchema {
+    /// What the document carries under `schemaVersion`, rendered as JSON;
+    /// `missing` when the key is absent.
+    pub found: String,
+}
+
+impl core::fmt::Display for UnsupportedPolicySchema {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let supported: Vec<String> = SUPPORTED_POLICY_SCHEMA_VERSIONS
+            .iter()
+            .map(u64::to_string)
+            .collect();
+        write!(
+            f,
+            "connect-method-policy.json schemaVersion {} is not supported; supported versions: {}",
+            self.found,
+            supported.join(", ")
+        )
+    }
+}
+
+impl std::error::Error for UnsupportedPolicySchema {}
+
 /// Parse `connect-method-policy.json` into an RPC-identity → idempotency
 /// index.
 ///
-/// Fails CLOSED to an empty map on any malformed or duplicated entry, exactly
-/// like `indexGeneratedPolicy` on the TypeScript side: a policy that cannot be
-/// trusted in full guards nothing, rather than guarding the subset that
-/// happened to parse. An empty map (including "no such file") disables the
-/// default precondition entirely — a client that ships with no policy behaves
-/// exactly as it did before this existed.
-#[must_use]
-pub fn index_generated_policy(json: &str) -> HashMap<String, Idempotency> {
+/// # Errors
+///
+/// [`UnsupportedPolicySchema`] when the document's `schemaVersion` is
+/// missing, not a whole number, or not in
+/// [`SUPPORTED_POLICY_SCHEMA_VERSIONS`]. Build the client with the index only
+/// after this succeeds, so an incompatible artifact stops client
+/// construction instead of surfacing as a `412` on the first write.
+///
+/// Inside a supported document it fails CLOSED to an empty map on any
+/// malformed or duplicated entry, exactly like `indexGeneratedPolicy` on the
+/// TypeScript side: a policy that cannot be trusted in full guards nothing,
+/// rather than guarding the subset that happened to parse. A string that is
+/// not JSON at all (including "no such file") also yields an empty map, which
+/// disables the default precondition entirely — a client that ships with no
+/// policy behaves exactly as it did before this existed.
+pub fn index_generated_policy(
+    json: &str,
+) -> Result<HashMap<String, Idempotency>, UnsupportedPolicySchema> {
     let Ok(doc) = serde_json::from_str::<serde_json::Value>(json) else {
-        return HashMap::new();
+        return Ok(HashMap::new());
     };
+    check_policy_schema(&doc)?;
+    Ok(index_methods(&doc))
+}
+
+/// The one definition of which `schemaVersion` values a policy reader accepts.
+pub(crate) fn check_policy_schema(doc: &serde_json::Value) -> Result<(), UnsupportedPolicySchema> {
+    let version = doc.get("schemaVersion");
+    let supported = version
+        .and_then(serde_json::Value::as_u64)
+        .is_some_and(|v| SUPPORTED_POLICY_SCHEMA_VERSIONS.contains(&v));
+    if supported {
+        Ok(())
+    } else {
+        Err(UnsupportedPolicySchema {
+            found: version.map_or_else(|| "missing".to_owned(), ToString::to_string),
+        })
+    }
+}
+
+fn index_methods(doc: &serde_json::Value) -> HashMap<String, Idempotency> {
     let mut index = HashMap::new();
-    let Some(1 | 2) = doc.get("schemaVersion").and_then(serde_json::Value::as_u64) else {
-        return HashMap::new();
-    };
     let Some(methods) = doc.get("methods").and_then(serde_json::Value::as_array) else {
         return HashMap::new();
     };
@@ -166,7 +227,7 @@ mod tests {
 
     #[test]
     fn indexes_a_well_formed_policy() {
-        let index = index_generated_policy(policy_json());
+        let index = index_generated_policy(policy_json()).unwrap();
         assert_eq!(index.len(), 2);
         assert!(index["/pkg.v1.Svc/Update"].is_preconditioned());
         assert!(!index["/pkg.v1.Svc/Get"].is_preconditioned());
@@ -177,7 +238,7 @@ mod tests {
         let json = r#"{"schemaVersion": 1, "methods": [
             {"rpc": "/pkg.v1.Svc/Charge", "procedure": "unary", "idempotency": "NON_IDEMPOTENT"}
         ]}"#;
-        let index = index_generated_policy(json);
+        let index = index_generated_policy(json).unwrap();
         assert_eq!(index["/pkg.v1.Svc/Charge"], Idempotency::NonIdempotent);
         assert!(index["/pkg.v1.Svc/Charge"].is_preconditioned());
     }
@@ -188,7 +249,7 @@ mod tests {
             {"rpc": "/pkg.v1.Svc/Get", "procedure": "unary", "idempotency": "NO_SIDE_EFFECTS"},
             {"rpc": "/pkg.v1.Svc/Future", "procedure": "unary", "idempotency": "SOMETHING_NEW"}
         ]}"#;
-        let index = index_generated_policy(json);
+        let index = index_generated_policy(json).unwrap();
         assert_eq!(index.len(), 2);
         assert!(index["/pkg.v1.Svc/Future"].is_preconditioned());
     }
@@ -198,19 +259,49 @@ mod tests {
         let json = r#"{"schemaVersion": 1, "methods": [
             {"rpc": "/pkg.v1.Svc/Get", "procedure": "unary", "idempotency": "NO_SIDE_EFFECTS", "sensitivity": "SENSITIVE"}
         ]}"#;
-        let index = index_generated_policy(json);
+        let index = index_generated_policy(json).unwrap();
         assert!(!index["/pkg.v1.Svc/Get"].is_preconditioned());
     }
 
     #[test]
     fn fails_closed_on_malformed_or_duplicate_entries() {
-        assert!(index_generated_policy("not json").is_empty());
-        assert!(index_generated_policy(r#"{"schemaVersion": 3, "methods": []}"#).is_empty());
+        assert!(index_generated_policy("not json").unwrap().is_empty());
         let dup = r#"{"schemaVersion": 1, "methods": [
             {"rpc": "/pkg.v1.Svc/Update", "procedure": "unary", "idempotency": "IDEMPOTENT"},
             {"rpc": "/pkg.v1.Svc/Update", "procedure": "unary", "idempotency": "IDEMPOTENT"}
         ]}"#;
-        assert!(index_generated_policy(dup).is_empty());
+        assert!(index_generated_policy(dup).unwrap().is_empty());
+        let no_methods = r#"{"schemaVersion": 2}"#;
+        assert!(index_generated_policy(no_methods).unwrap().is_empty());
+    }
+
+    #[test]
+    fn refuses_an_unsupported_schema_version_naming_it_and_the_supported_ones() {
+        let err = index_generated_policy(r#"{"schemaVersion": 3, "methods": []}"#).unwrap_err();
+        assert_eq!(err.found, "3");
+        assert_eq!(
+            err.to_string(),
+            "connect-method-policy.json schemaVersion 3 is not supported; supported versions: 1, 2"
+        );
+        let _: &dyn std::error::Error = &err;
+    }
+
+    #[test]
+    fn refuses_a_missing_or_non_numeric_schema_version() {
+        for (json, found) in [
+            (r#"{"methods": []}"#, "missing"),
+            (r#"{"schemaVersion": "2", "methods": []}"#, "\"2\""),
+            (r#"{"schemaVersion": null, "methods": []}"#, "null"),
+            (r#"{"schemaVersion": 1.5, "methods": []}"#, "1.5"),
+            (r#"{"schemaVersion": 0, "methods": []}"#, "0"),
+            ("[]", "missing"),
+        ] {
+            assert_eq!(
+                index_generated_policy(json).unwrap_err().found,
+                found,
+                "{json}"
+            );
+        }
     }
 
     #[derive(Clone)]
@@ -253,7 +344,7 @@ mod tests {
             RecordingTransport {
                 seen_headers: seen.clone(),
             },
-            index_generated_policy(policy_json()),
+            index_generated_policy(policy_json()).unwrap(),
         );
         transport
             .send(request("/pkg.v1.Svc/Update", None))
@@ -270,7 +361,7 @@ mod tests {
             RecordingTransport {
                 seen_headers: seen.clone(),
             },
-            index_generated_policy(policy_json()),
+            index_generated_policy(policy_json()).unwrap(),
         );
         transport
             .send(request("/pkg.v1.Svc/Get", None))
@@ -286,7 +377,7 @@ mod tests {
             RecordingTransport {
                 seen_headers: seen.clone(),
             },
-            index_generated_policy(policy_json()),
+            index_generated_policy(policy_json()).unwrap(),
         );
         transport
             .send(request("/pkg.v1.Svc/Update", Some("\"real-etag\"")))

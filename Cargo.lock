@@ -118,6 +118,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "api-bones-automation"
+version = "0.1.0"
+dependencies = [
+ "api-bones-protos",
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "prost-reflect",
+ "protox",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "api-bones-connect"
 version = "0.1.1"
 dependencies = [
@@ -149,6 +163,7 @@ name = "api-bones-internal-bdd"
 version = "0.0.0"
 dependencies = [
  "api-bones",
+ "api-bones-automation",
  "api-bones-protos",
  "chrono",
  "connectrpc",

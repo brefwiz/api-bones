@@ -24,6 +24,7 @@ import type { BackoffOptions } from "./backoff.js";
 import {
   eligibleBrowserReadPolicy,
   eligiblePublicReadPolicy,
+  assertSupportedPolicySchema,
   indexGeneratedPolicy,
   MAX_CONNECT_GET_URL_BYTES,
   publicLaneUrl,
@@ -279,6 +280,7 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
     retry,
     onRetry,
   } = opts;
+  assertSupportedPolicySchema(policy);
   const policyByRpc = indexGeneratedPolicy(policy);
 
   const interceptors: Interceptor[] = [
