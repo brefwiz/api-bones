@@ -172,6 +172,9 @@ dependencies = [
 [[package]]
 name = "api-bones-protos"
 version = "0.5.1"
+dependencies = [
+ "sha2 0.11.0",
+]
 
 [[package]]
 name = "api-bones-reqwest"

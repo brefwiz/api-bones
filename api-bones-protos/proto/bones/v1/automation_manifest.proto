@@ -68,13 +68,18 @@
 // The manifest. A release compiles one `AutomationManifest` from the
 // product's declarations and signs its serialized bytes as a blob, with the
 // detached signature beside it, exactly as every other release blob is
-// signed. The product serves `SignedAutomationManifest` carrying those exact
-// bytes, never a re-serialization. The layer verifies the signature over
-// `manifest` against the release trust root it already pins, then admits the
-// manifest only if the serving workload's SVID names the service `product`
-// states. The manifest names no trust domain and no key: the trust domain is
-// the environment's, and a document that named its own key would be
-// self-asserted.
+// signed. The release signs after the image is built, so a running workload
+// holds no signature: the release pushes `SignedAutomationManifest`, carrying
+// those exact bytes and never a re-serialization, to the platform registry at
+// `automation-manifests/<product>:sha256-<hex>`, where `<hex>` is the
+// lowercase hex of the manifest's `declaration_digest`. The product serves
+// only `AutomationSurfaceRef`. The layer takes the product from the serving
+// workload's SVID, pulls the manifest at that location, verifies the
+// signature over `manifest` against the release trust root it already pins,
+// and admits it only if `product` names the SVID's service and its
+// `declaration_digest` equals the served reference. The manifest names no
+// trust domain and no key: the trust domain is the environment's, and a
+// document that named its own key would be self-asserted.
 
 syntax = "proto3";
 
@@ -278,8 +283,12 @@ message AutomationManifest {
   string commit = 4;
 
   // `sha256:` and the lowercase hex SHA-256 of the declaring sources: for
-  // every file of `schema` ordered by import path, the import path, a NUL
-  // byte, the file's source bytes and a NUL byte.
+  // every file of `schema` whose source is in the product's repository at
+  // `commit`, ordered by import path, the import path, a NUL byte, the
+  // file's source bytes and a NUL byte. Files the build resolves from outside
+  // the repository (toolchain-bundled well-known types, registry-resolved
+  // dependencies such as `bones.v1`) are excluded, so the release and the
+  // product's build compute the same value whatever their toolchains bundle.
   string declaration_digest = 5;
 
   // Ordered by `event`.
@@ -321,7 +330,10 @@ message ManifestAction {
   repeated string grants = 3;
 }
 
-// What a product serves to the layer.
+// What the release pushes to the platform registry at
+// `automation-manifests/<product>:sha256-<hex>`; the product does not serve
+// it. The layer pulls it, verifies `signature` and checks the manifest's
+// product and digest.
 message SignedAutomationManifest {
   // The exact bytes the release signed: a serialized `AutomationManifest`.
   bytes manifest = 1;
@@ -329,4 +341,12 @@ message SignedAutomationManifest {
   // The detached signature the release produced over `manifest`, in the
   // release signer's bundle format.
   bytes signature = 2;
+}
+
+// What a product serves to the layer: the digest of its declaration. The
+// product is not named; the layer takes it from the serving workload's SVID.
+message AutomationSurfaceRef {
+  // `sha256:` and the lowercase hex SHA-256, equal to the pushed manifest's
+  // `declaration_digest`.
+  string declaration_digest = 1;
 }
