@@ -12,6 +12,7 @@ import {
 } from "./backoff.js";
 import {
   MAX_CONNECT_GET_URL_BYTES,
+  assertSupportedPolicySchema,
   eligibleBrowserReadPolicy,
   indexGeneratedPolicy,
 } from "./policy.js";
@@ -83,6 +84,27 @@ describe("policy", () => {
 
   it.each([0, 3, null, undefined, "2"])("fails closed on unsupported schema %s", (schemaVersion) => {
     expect(indexGeneratedPolicy({ schemaVersion, methods: [method()] }).size).toBe(0);
+  });
+
+  it.each([1, 2])("accepts schema %s and an absent policy", (schemaVersion) => {
+    expect(() => assertSupportedPolicySchema({ schemaVersion, methods: [] })).not.toThrow();
+    expect(() => assertSupportedPolicySchema(undefined)).not.toThrow();
+  });
+
+  it.each([
+    [0, "0"],
+    [3, "3"],
+    [null, "null"],
+    ["2", '"2"'],
+    [undefined, "missing"],
+  ])("refuses schema %s, naming the version found and the versions supported", (schemaVersion, found) => {
+    expect(() => assertSupportedPolicySchema({ schemaVersion, methods: [] })).toThrow(
+      `schemaVersion ${found} is not supported; supported versions: 1, 2`,
+    );
+  });
+
+  it("refuses a policy that is not an object", () => {
+    expect(() => assertSupportedPolicySchema([])).toThrow(/schemaVersion missing is not supported/);
   });
 
   // Fail-closed is the security property: a partially-parseable policy must

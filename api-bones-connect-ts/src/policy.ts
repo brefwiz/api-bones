@@ -154,6 +154,27 @@ function parsePublicRead(value: unknown): GeneratedPublicReadPolicy | null {
   };
 }
 
+/** The `schemaVersion` values of the policy document this reader understands. */
+export const SUPPORTED_POLICY_SCHEMA_VERSIONS: readonly number[] = [1, 2];
+
+/**
+ * Refuse a policy document whose `schemaVersion` is missing, not a number, or
+ * not one this reader understands. A client built on such a document would
+ * index it as empty and surface the mismatch only as failures on the first
+ * write; refusing at construction names the version instead. `undefined`
+ * means the service ships no policy and is accepted.
+ */
+export function assertSupportedPolicySchema(value: unknown): void {
+  if (value === undefined) return;
+  const version = isRecord(value) ? value.schemaVersion : undefined;
+  if (typeof version === "number" && SUPPORTED_POLICY_SCHEMA_VERSIONS.includes(version)) return;
+  const found = version === undefined ? "missing" : JSON.stringify(version);
+  throw new Error(
+    `connect-method-policy.json schemaVersion ${found} is not supported; ` +
+      `supported versions: ${SUPPORTED_POLICY_SCHEMA_VERSIONS.join(", ")}`,
+  );
+}
+
 /**
  * Index a policy document by RPC identity.
  *

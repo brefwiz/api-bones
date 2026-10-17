@@ -33,7 +33,7 @@ import {
   resolveTlsIdentity,
   type NodeTlsIdentity,
 } from "./node-diagnostics.js";
-import { indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
+import { assertSupportedPolicySchema, indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
 import {
   makeConnectionFailureNormalizer,
   makeRetryInterceptor,
@@ -199,6 +199,7 @@ export async function configureNodeConnectTransport(
   //
   // The same index then decides retry eligibility, so a service that ships no
   // policy simply gets no retries rather than blind ones.
+  assertSupportedPolicySchema(policy);
   const policyByRpc = indexGeneratedPolicy(policy);
   if (policy !== undefined) {
     const declared = (policy as { methods?: unknown })?.methods;

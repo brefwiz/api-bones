@@ -92,6 +92,17 @@ sdk_surfaces:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
+  # The automation manifest compiler and its DSSE signature check are library
+  # code the service-kit, the CLI and the layer embed directly; no declared
+  # sdk_surface exposes them.
+  - paths:
+      - api-bones-automation/src/lib.rs
+      - api-bones-automation/src/compile.rs
+      - api-bones-automation/src/digest.rs
+      - api-bones-automation/src/manifest.rs
+      - api-bones-automation/src/pool.rs
+      - api-bones-automation/src/signature.rs
+    feature: tests/internal-bdd/tests/features/automation_manifest.feature
   # domain_to_connect attaches the error code a domain error names; callers
   # reach it directly as library code, not through a generated contract.
   - paths: [src/connect/domain_error.rs]
@@ -147,6 +158,7 @@ internal_behavior_owners:
     feature: tests/internal-bdd/tests/features/proto_vocabulary.feature
 library_crates:
   - api-bones
+  - api-bones-automation
   - api-bones-progenitor
   - api-bones-protos
   - api-bones-reqwest

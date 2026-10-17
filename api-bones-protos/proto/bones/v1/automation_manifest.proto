@@ -66,17 +66,19 @@
 // once it resolves.
 //
 // The manifest. A release compiles one `AutomationManifest` from the
-// product's declarations and signs its serialized bytes as a blob, with the
-// detached signature beside it, exactly as every other release blob is
-// signed. The release signs after the image is built, so a running workload
+// product's declarations and signs its serialized bytes with a DSSE
+// signature: the JSON object `{"keyid", "sig"}`, `sig` the base64 Ed25519
+// signature over the DSSE pre-authentication encoding of the payload type
+// `application/vnd.brefwiz.automation-manifest.v1+protobuf` and the manifest
+// bytes. The release signs after the image is built, so a running workload
 // holds no signature: the release pushes `SignedAutomationManifest`, carrying
 // those exact bytes and never a re-serialization, to the platform registry at
 // `automation-manifests/<product>:sha256-<hex>`, where `<hex>` is the
 // lowercase hex of the manifest's `declaration_digest`. The product serves
 // only `AutomationSurfaceRef`. The layer takes the product from the serving
 // workload's SVID, pulls the manifest at that location, verifies the
-// signature over `manifest` against the release trust root it already pins,
-// and admits it only if `product` names the SVID's service and its
+// signature over `manifest` against the dedicated automation-manifest key the
+// layer pins, and admits it only if `product` names the SVID's service and its
 // `declaration_digest` equals the served reference. The manifest names no
 // trust domain and no key: the trust domain is the environment's, and a
 // document that named its own key would be self-asserted.
@@ -338,8 +340,10 @@ message SignedAutomationManifest {
   // The exact bytes the release signed: a serialized `AutomationManifest`.
   bytes manifest = 1;
 
-  // The detached signature the release produced over `manifest`, in the
-  // release signer's bundle format.
+  // The DSSE signature the release produced over `manifest`: the JSON object
+  // `{"keyid", "sig"}`, `sig` the base64 Ed25519 signature over the DSSE
+  // pre-authentication encoding of the payload type
+  // `application/vnd.brefwiz.automation-manifest.v1+protobuf` and `manifest`.
   bytes signature = 2;
 }
 

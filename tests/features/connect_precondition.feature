@@ -48,5 +48,19 @@ Feature: Connect default precondition
       | 2       | NON_IDEMPOTENT  | *           |
       | 2       | IDEMPOTENT      | *           |
       | 2       | NO_SIDE_EFFECTS | none        |
-      | 3       | NON_IDEMPOTENT  | none        |
-      | 0       | IDEMPOTENT      | none        |
+
+  # A document this reader does not know is never indexed as empty: an empty
+  # index sends no If-Match, so every mutating call would fail with 412 at
+  # the first write instead of at construction.
+  Scenario Outline: A policy of an unsupported schema version is refused when the client is built
+    Given a policy document whose schemaVersion is <declared>
+    When the client is built from it
+    Then construction is refused naming version <found> and the supported versions "1, 2"
+
+    Examples:
+      | declared | found   |
+      | 3        | 3       |
+      | 0        | 0       |
+      | "2"      | "2"     |
+      | null     | null    |
+      | absent   | missing |

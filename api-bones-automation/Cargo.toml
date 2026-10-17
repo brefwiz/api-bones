@@ -1,0 +1,28 @@
+[package]
+name = "api-bones-automation"
+version = "0.1.0"
+publish = ["brefwiz"]
+edition = "2024"
+rust-version = "1.88"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "The reference compiler and DSSE signature check for the automation manifest (bones/v1/automation_manifest.proto)."
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-automation"
+readme = "README.md"
+keywords = ["protobuf", "automation", "dsse", "ed25519"]
+categories = ["development-tools"]
+
+[lints]
+workspace = true
+
+[dependencies]
+api-bones-protos = { path = "../api-bones-protos", version = "^0.5.2", registry = "brefwiz" }
+base64 = "0.22"
+ed25519-dalek = "2"
+prost-reflect = "0.16"
+protox = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"

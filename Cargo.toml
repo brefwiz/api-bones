@@ -8,6 +8,7 @@ members = [
     "api-bones-sdk-gen",
     "api-bones-test",
     "api-bones-protos",
+    "api-bones-automation",
     # The Rust step lane for the shared Gherkin contract. A member rather than
     # an integration test of the crate it exercises, because the contract is
     # answered by two languages and each lane sits beside the corpus.

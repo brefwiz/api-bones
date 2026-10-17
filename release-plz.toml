@@ -21,3 +21,6 @@ name = "api-bones-reqwest"
 
 [[package]]
 name = "api-bones-test"
+
+[[package]]
+name = "api-bones-automation"

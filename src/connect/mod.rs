@@ -92,7 +92,8 @@ pub use get_read_client::{
 pub use page::{DEFAULT_LIMIT, MAX_LIMIT, OffsetPage, build_offset_page, build_page};
 pub use parse::parse_rfc3339;
 pub use precondition_client::{
-    IF_MATCH_ANY, Idempotency, PreconditionedTransport, index_generated_policy,
+    IF_MATCH_ANY, Idempotency, PreconditionedTransport, SUPPORTED_POLICY_SCHEMA_VERSIONS,
+    UnsupportedPolicySchema, index_generated_policy,
 };
 pub use retry_eligibility::{
     connection_failure_as_unavailable, is_connection_write_failure,
