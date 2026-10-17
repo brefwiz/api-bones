@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-17
+
+### Added
+
+- *(protos)* the served declaration reference and an in-repository declaration digest
+
 ### Added
 
 - *(protos)* `AutomationSurfaceRef`, the declaration digest a product serves; `declaration_digest` is restated over the declaring sources in the product's repository, with golden vectors shipped in the crate under `testdata/declaration-digest/`
