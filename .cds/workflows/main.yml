@@ -3,10 +3,9 @@
 # canonical checks, the Rust gates, and the crate-publish preflights.
 #
 # api-bones also ships three npm packages, so there is a TypeScript lane the
-# Rust-only template has no equivalent for. It runs through ts-command.py with
-# an explicit deadline: package-manager work must not be able to wedge a runner,
-# and the canonical npm wrapper's budget is sized for installs rather than for
-# building and testing three packages.
+# Rust-only template has no equivalent for. The canonical make-target action
+# installs the npm shim before entering recipes, giving each nested install,
+# build and test the provider's deadline and failure policy.
 
 name: api-bones-ci
 
@@ -183,12 +182,10 @@ jobs:
           npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
           registry-url: "https://git.brefwiz.com/api/packages/brefwiz/npm/"
       - id: ts
-        run: |
-          #!/usr/bin/env bash
-          set -euo pipefail
-          python3 /opt/ci-workflows/ci-scripts/ts-command.py \
-            --kind build --timeout-seconds 1800 --log-file /tmp/ci-ts.log \
-            -- make ci-ts
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/make-target@main
+        with:
+          checkout: "false"
+          make-target: ci-ts
       # Emitted here rather than in the analysing job because the producer asks
       # the type checker which classes satisfy a port, so it needs the resolved
       # program this job just built. Run before the install and half the imports
