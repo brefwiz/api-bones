@@ -445,6 +445,99 @@
 //     string id = 1;
 //   }
 
+// Automation surface. A product declares what organizations may automate
+// over it with three options on the protos it already has, and with nothing
+// else: no second document lists the surface.
+//
+//   `bones.v1.automation_trigger` marks a domain-event message as a trigger.
+//   The trigger is identified by the message's full name.
+//
+//   `bones.v1.automation_action` marks a public RPC as an action. The action
+//   is identified by the method's full name and is dispatched only as that
+//   RPC of the declaring product, so there is no action kind to choose and no
+//   way to declare a raw HTTP, proto, shell or SQL action. Its grant is
+//   exactly the RPC's `authz.requires`; the option carries no scope.
+//
+//   `bones.v1.classification` classifies one field. Every field of a trigger
+//   message, and every field of the response of an action whose effect is
+//   PURE (a read action), carries one, at every depth: through each
+//   message-typed field defined in the product's own files. A field whose
+//   type is defined elsewhere (a well-known type, a bones.v1 message) is
+//   classified at the field and not descended into.
+//
+// Guardrails are declaration flags on the action:
+//   - `effect` is mandatory. POINT_OF_NO_RETURN marks an irreversible action;
+//     it is never a second flag.
+//   - `person_reserved` marks an action only a person's own signed press can
+//     run. No automation step may call it.
+//   - `planner_pinned` states that the action changes state the product's
+//     own planner owns, and that the product pins an automation's change so
+//     the planner never moves it behind the operator's back. A mutation of
+//     planner-owned state without that guarantee is not declared at all.
+//
+// These options carry no validation of their own. The rules below belong to
+// the surface compiler and to the static checks that run on the contract,
+// and all apply them identically. Across one product's descriptor set a
+// declaration is refused when any item holds:
+//   T1. a trigger carries no label;
+//   A1. an action carries no label, or its effect is UNSPECIFIED;
+//   A2. the RPC is not AUTHZ_KIND_AUTHENTICATED with a non-empty `requires`;
+//   A3. the RPC is not unary;
+//   A4. the effect is not PURE and `idempotency` is UNSPECIFIED, or it is
+//       KEYED and `idempotency_key_fields` is empty or names anything other
+//       than a top-level field of the request;
+//   A5. `resolves` is set on an action whose effect is not PURE, or names a
+//       field the request or response does not have;
+//   A6. the request or response reaches a `google.protobuf.Any`,
+//       `google.protobuf.Struct` or `google.protobuf.Value` field: an untyped
+//       payload is a generic dispatcher;
+//   A7. `person_reserved` and `planner_pinned` are both set;
+//   C1. a field the classification rule covers is unclassified: the option is
+//       absent or DATA_CLASSIFICATION_UNSPECIFIED. The two read the same.
+//
+// Usage:
+//
+//   message DepartureConfirmed {
+//     option (bones.v1.automation_trigger) = {
+//       label: { text: "Departure confirmed" }
+//     };
+//     string departure_id = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
+//     string guide_name = 2 [(bones.v1.classification) = DATA_CLASSIFICATION_CONFIDENTIAL];
+//   }
+//
+//   service DepartureService {
+//     rpc SearchDepartures(SearchDeparturesRequest) returns (SearchDeparturesResponse) {
+//       option (bones.v1.authz) = {
+//         kind: AUTHZ_KIND_AUTHENTICATED,
+//         requires: "departure:read"
+//       };
+//       option (bones.v1.automation_action) = {
+//         label: { text: "Find departures" },
+//         effect: ACTION_EFFECT_PURE,
+//         resolves: {
+//           query_field: "query",
+//           results_field: "departures",
+//           value_field: "id",
+//           label_field: "title"
+//         }
+//       };
+//     }
+//     rpc ConfirmDeparture(ConfirmDepartureRequest) returns (ConfirmDepartureResponse) {
+//       option (bones.v1.authz) = {
+//         kind: AUTHZ_KIND_AUTHENTICATED,
+//         requires: "departure:confirm"
+//       };
+//       option (bones.v1.automation_action) = {
+//         label: { text: "Confirm a departure" },
+//         effect: ACTION_EFFECT_POINT_OF_NO_RETURN,
+//         person_reserved: true
+//       };
+//     }
+//   }
+//
+// Templates a product ships, and the manifest a release signs, are in
+// `bones/v1/automation_manifest.proto`.
+
 syntax = "proto3";
 
 package bones.v1;
@@ -508,17 +601,29 @@ extend google.protobuf.MethodOptions {
   // What kind of call this RPC is. Absent or UNSPECIFIED means derived from
   // the signature. Read by every projection. See file header.
   CallShape call_shape = 5102362;
+
+  // Declares this RPC an action of the product's automation surface. Absent
+  // means organizations cannot automate it. See file header.
+  AutomationAction automation_action = 5102364;
 }
 
 extend google.protobuf.MessageOptions {
   // Declares this message a managed resource. See file header.
   ResourceOption resource = 5102361;
+
+  // Declares this domain-event message a trigger of the product's automation
+  // surface. Absent means no automation starts from it. See file header.
+  AutomationTrigger automation_trigger = 5102363;
 }
 
 extend google.protobuf.FieldOptions {
   // The attribute dimension this field carries, naming one declared in the
   // service's `attributes`. See file header.
   string attr = 5102360;
+
+  // How sensitive this field's data is. Absent reads as
+  // DATA_CLASSIFICATION_UNSPECIFIED, the unclassified state. See file header.
+  DataClassification classification = 5102365;
 }
 
 // One capability a service depends on, and the authority it intends to
@@ -773,4 +878,108 @@ enum CallShape {
 
   // A long-running operation: an operation handle that completes later.
   CALL_SHAPE_LONG_RUNNING = 5;
+}
+
+// A domain event declared as a trigger.
+message AutomationTrigger {
+  // What a person picking a trigger reads, in domain terms. Mandatory.
+  Label label = 1;
+}
+
+// A public RPC declared as an action.
+message AutomationAction {
+  // What a person picking a step reads, in domain terms. Mandatory.
+  Label label = 1;
+
+  // What running the action changes. UNSPECIFIED is refused.
+  ActionEffect effect = 2;
+
+  // How a repeat of one business operation behaves. Mandatory unless the
+  // effect is PURE, which is natural by definition.
+  IdempotencyMode idempotency = 3;
+
+  // Top-level request fields that identify one business operation. Required
+  // and non-empty if and only if `idempotency` is KEYED.
+  repeated string idempotency_key_fields = 4;
+
+  // Only a person's own signed press runs this action; no automation step
+  // may call it.
+  bool person_reserved = 5;
+
+  // The action changes state the product's planner owns, and the product
+  // pins an automation's change so its planner respects it.
+  bool planner_pinned = 6;
+
+  // Set on a read action that finds instances of one kind of entity, so a
+  // form renders a parameter of that kind as a picker over this action.
+  EntityResolver resolves = 7;
+}
+
+// How a read action turns a person's search text into candidates. Every path
+// is a dot-separated list of proto field names.
+message EntityResolver {
+  // The top-level string field of the request that takes the search text.
+  string query_field = 1;
+
+  // The repeated message field of the response that holds the candidates.
+  string results_field = 2;
+
+  // The field of a candidate whose value a binding receives.
+  string value_field = 3;
+
+  // The field of a candidate a person reads.
+  string label_field = 4;
+}
+
+// What running an action changes in the world.
+enum ActionEffect {
+  // No declaration. Refused.
+  ACTION_EFFECT_UNSPECIFIED = 0;
+
+  // No effect outside the action's own result: a read action.
+  ACTION_EFFECT_PURE = 1;
+
+  // An effect confined to a scope that is discarded, never compensated.
+  ACTION_EFFECT_EPHEMERAL = 2;
+
+  // A lasting effect the product can undo.
+  ACTION_EFFECT_COMPENSABLE = 3;
+
+  // A lasting effect nothing undoes: an irreversible action.
+  ACTION_EFFECT_POINT_OF_NO_RETURN = 4;
+}
+
+// How a repeated invocation of one business operation behaves.
+enum IdempotencyMode {
+  // No declaration. Refused unless the effect is PURE.
+  IDEMPOTENCY_MODE_UNSPECIFIED = 0;
+
+  // Repeating the action is harmless by nature.
+  IDEMPOTENCY_MODE_NATURAL = 1;
+
+  // Repeating with the same values of `idempotency_key_fields` is
+  // deduplicated by the product.
+  IDEMPOTENCY_MODE_KEYED = 2;
+}
+
+// How sensitive a field's data is. Each value is more sensitive than the
+// values before it.
+enum DataClassification {
+  // Unclassified. Never a classification: a check refuses a covered field
+  // in this state, and it reads the same as the option being absent.
+  DATA_CLASSIFICATION_UNSPECIFIED = 0;
+
+  // Anyone may see it.
+  DATA_CLASSIFICATION_PUBLIC = 1;
+
+  // Any member of the organization may see it.
+  DATA_CLASSIFICATION_INTERNAL = 2;
+
+  // Only those the organization authorizes may see it; personal data is at
+  // least this.
+  DATA_CLASSIFICATION_CONFIDENTIAL = 3;
+
+  // Credentials, payment and special-category data; never leaves the
+  // product except to destinations cleared for it.
+  DATA_CLASSIFICATION_RESTRICTED = 4;
 }

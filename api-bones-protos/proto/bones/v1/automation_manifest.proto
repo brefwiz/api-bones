@@ -1,0 +1,332 @@
+// SPDX-License-Identifier: MIT
+//
+// The automation document, the templates a product ships, and the manifest a
+// release signs.
+//
+// An automation document is one trigger and an ordered list of steps; each
+// step calls one declared action, binding the action's request fields from
+// the trigger payload, a parameter, a literal or an earlier step's output.
+// A template is a document a product ships with parameter slots a form
+// renders. The organization's automation, whether configured from a template
+// or written in a step editor, is the same document with arguments for its
+// parameters.
+//
+// `bones.v1.automation_templates` declares the templates a product ships, on
+// any of its services, written in the same protos as the rest of its surface:
+//
+//   service DepartureService {
+//     option (bones.v1.automation_templates) = {
+//       name: "notify_on_departure_confirmed",
+//       label: { text: "Tell a channel when a departure is confirmed" },
+//       document: {
+//         trigger: { event: "itinerwiz.v1.DepartureConfirmed" },
+//         parameters: {
+//           name: "channel",
+//           label: { text: "Channel" },
+//           required: true,
+//           entity: { resolver: { product: "chat", method: "chat.v1.ChannelService.SearchChannels" } }
+//         },
+//         steps: {
+//           id: "notify",
+//           action: {
+//             action: { product: "chat", method: "chat.v1.MessageService.PostMessage" },
+//             inputs: { field: "channel_id", parameter: "channel" },
+//             inputs: { field: "text", trigger_field: "guide_name" }
+//           }
+//         }
+//       }
+//     };
+//   }
+//
+// A reference whose `product` is empty names the declaring product.
+//
+// Every closed choice here is a oneof whose unset state is refused: a step
+// with no kind, a binding with no source and a parameter with no type do not
+// run. A later step kind (a branch, a parallel path) is a new member of
+// `Step.kind`, so a reader that predates it refuses the step instead of
+// skipping it. No step kind dispatches raw HTTP, proto, shell or SQL.
+//
+// Refusals, applied identically by the surface compiler, the layer's
+// admission and its authoring compiler. A document is refused when any holds:
+//   D1. a reference names no declared trigger or action;
+//   D2. a step calls a `person_reserved` action;
+//   D3. two steps share an `id`, or a step output names the step itself or a
+//       later one;
+//   D4. a binding's `field` is not a field of the action's request, or a
+//       source path is not a field of the payload, response or parameter it
+//       reads, or the two types differ;
+//   D5. a parameter is named twice, a binding names an undeclared parameter,
+//       or an `entity` resolver is not an action that `resolves`;
+//   D6. an argument names an undeclared parameter, its value does not match
+//       the parameter's type, or a required parameter has neither argument
+//       nor default when the document is published.
+// The surface compiler resolves references to the declaring product; a
+// reference to another product is resolved by the layer against that
+// product's admitted manifest, and a template naming one is admitted only
+// once it resolves.
+//
+// The manifest. A release compiles one `AutomationManifest` from the
+// product's declarations and signs its serialized bytes as a blob, with the
+// detached signature beside it, exactly as every other release blob is
+// signed. The product serves `SignedAutomationManifest` carrying those exact
+// bytes, never a re-serialization. The layer verifies the signature over
+// `manifest` against the release trust root it already pins, then admits the
+// manifest only if the serving workload's SVID names the service `product`
+// states. The manifest names no trust domain and no key: the trust domain is
+// the environment's, and a document that named its own key would be
+// self-asserted.
+
+syntax = "proto3";
+
+package bones.v1;
+
+import "bones/v1/annotations.proto";
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.ServiceOptions {
+  // Templates this product ships. Absent means none. See file header.
+  repeated AutomationTemplate automation_templates = 5102366;
+}
+
+// A ready-made automation a product ships.
+message AutomationTemplate {
+  // lower_snake_case, unique within the product.
+  string name = 1;
+
+  // What a person choosing a template reads. Mandatory.
+  Label label = 2;
+
+  // One or two sentences on what the automation does, in domain terms.
+  Label description = 3;
+
+  // The automation, with parameter slots and no arguments.
+  AutomationDocument document = 4;
+}
+
+// One automation: a trigger, typed parameters, and ordered steps.
+message AutomationDocument {
+  // The event that starts a run.
+  TriggerRef trigger = 1;
+
+  // Values a person supplies through a form, typed so the form can render
+  // them.
+  repeated Parameter parameters = 2;
+
+  // Run in order. The first step runs when the trigger fires.
+  repeated Step steps = 3;
+
+  // The values supplied for `parameters`, at most one per parameter, ordered
+  // by parameter name. Empty in a template.
+  repeated Argument arguments = 4;
+}
+
+// A declared trigger.
+message TriggerRef {
+  // The service name of the product that declares it. Empty means the
+  // declaring product.
+  string product = 1;
+
+  // The full name of the event message carrying `bones.v1.automation_trigger`.
+  string event = 2;
+}
+
+// A declared action.
+message ActionRef {
+  // The service name of the product that declares it. Empty means the
+  // declaring product.
+  string product = 1;
+
+  // The full name of the method carrying `bones.v1.automation_action`.
+  string method = 2;
+}
+
+// One step of a document.
+message Step {
+  // lower_snake_case, unique within the document; later steps read this
+  // step's output by it.
+  string id = 1;
+
+  // What the step does. Unset is refused.
+  oneof kind {
+    ActionStep action = 2;
+  }
+}
+
+// A step that calls one declared action.
+message ActionStep {
+  ActionRef action = 1;
+
+  // One per request field the step sets, ordered by `field`.
+  repeated InputBinding inputs = 2;
+}
+
+// Where one request field of an action step takes its value from.
+message InputBinding {
+  // Dot-separated proto field names into the action's request.
+  string field = 1;
+
+  // Unset is refused.
+  oneof source {
+    // Dot-separated proto field names into the trigger's event message.
+    string trigger_field = 2;
+
+    // The name of a parameter of the document.
+    string parameter = 3;
+
+    // A field of an earlier step's response.
+    StepOutput step_output = 4;
+
+    // A fixed value.
+    Value literal = 5;
+  }
+}
+
+// A field of an earlier step's response.
+message StepOutput {
+  // The `id` of a step before the one binding it.
+  string step = 1;
+
+  // Dot-separated proto field names into that step's action response.
+  string field = 2;
+}
+
+// A value a person supplies through a form.
+message Parameter {
+  // lower_snake_case, unique within the document.
+  string name = 1;
+
+  // What the form shows beside the input. Mandatory.
+  Label label = 2;
+
+  // A published document supplies an argument or relies on `default_value`.
+  bool required = 3;
+
+  // How the form renders and checks the value. Unset is refused.
+  oneof type {
+    TextParameter text = 4;
+    IntegerParameter integer = 5;
+    BooleanParameter boolean = 6;
+    ChoiceParameter choice = 7;
+    EntityParameter entity = 8;
+  }
+
+  // Used when no argument is supplied. Must match `type`.
+  Value default_value = 9;
+}
+
+// Free text.
+message TextParameter {}
+
+// A whole number.
+message IntegerParameter {}
+
+// Yes or no.
+message BooleanParameter {}
+
+// One of a closed set of values.
+message ChoiceParameter {
+  // At least one, values unique.
+  repeated Choice choices = 1;
+}
+
+// One value of a choice parameter.
+message Choice {
+  string value = 1;
+  Label label = 2;
+}
+
+// An entity of a product, picked by search, never typed as an identifier.
+message EntityParameter {
+  // A read action carrying `resolves`. The value is the candidate's
+  // `value_field`.
+  ActionRef resolver = 1;
+}
+
+// A literal, an argument or a default. Choice and entity values are text.
+message Value {
+  // Unset is refused.
+  oneof kind {
+    string text = 1;
+    int64 integer = 2;
+    bool boolean = 3;
+  }
+}
+
+// The value supplied for one parameter.
+message Argument {
+  string parameter = 1;
+  Value value = 2;
+}
+
+// What a release signs and the layer admits: one product's whole surface.
+// Every repeated field is ordered as stated, so one set of declarations
+// compiles to one sequence of bytes.
+message AutomationManifest {
+  // The revision of this contract the manifest was compiled against; 1 for
+  // this revision. A reader refuses 0 and any revision it does not know, so a
+  // rule added later is never silently skipped.
+  uint32 format = 1;
+
+  // The product: the service segment of the SVID its workloads present,
+  // which the layer compares with the serving workload's SVID.
+  string product = 2;
+
+  // The released version, as tagged, without a leading `v`.
+  string version = 3;
+
+  // The full commit SHA the release was built from.
+  string commit = 4;
+
+  // `sha256:` and the lowercase hex SHA-256 of the declaring sources: for
+  // every file of `schema` ordered by import path, the import path, a NUL
+  // byte, the file's source bytes and a NUL byte.
+  string declaration_digest = 5;
+
+  // Ordered by `event`.
+  repeated ManifestTrigger triggers = 6;
+
+  // Ordered by `method`.
+  repeated ManifestAction actions = 7;
+
+  // Ordered by `name`. Every reference to the product itself is resolved:
+  // `product` is never empty.
+  repeated AutomationTemplate templates = 8;
+
+  // Every file declaring a trigger, action or template and every file they
+  // import, dependencies before dependents and otherwise by name, with
+  // source info removed. Payload, request and response types, and their
+  // classifications, are read from here.
+  google.protobuf.FileDescriptorSet schema = 9;
+}
+
+// A trigger as the manifest carries it.
+message ManifestTrigger {
+  // The full name of the event message.
+  string event = 1;
+
+  // The message's `bones.v1.automation_trigger`, verbatim.
+  AutomationTrigger declaration = 2;
+}
+
+// An action as the manifest carries it.
+message ManifestAction {
+  // The full name of the method.
+  string method = 1;
+
+  // The method's `bones.v1.automation_action`, verbatim.
+  AutomationAction declaration = 2;
+
+  // The method's `authz.requires`, verbatim and in order: the action's exact
+  // grant.
+  repeated string grants = 3;
+}
+
+// What a product serves to the layer.
+message SignedAutomationManifest {
+  // The exact bytes the release signed: a serialized `AutomationManifest`.
+  bytes manifest = 1;
+
+  // The detached signature the release produced over `manifest`, in the
+  // release signer's bundle format.
+  bytes signature = 2;
+}

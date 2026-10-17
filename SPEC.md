@@ -140,7 +140,8 @@ internal_behavior_owners:
   # set_error_type_mode, not through a generated contract.
   - paths: [src/error.rs]
     feature: tests/internal-bdd/tests/features/error_type_mode.feature
-  # The shipped proto vocabulary (resource, call shape, MCP opt-in) is
+  # The shipped proto vocabulary (resource, call shape, MCP opt-in, automation
+  # surface declaration and signed manifest) is
   # library code callers embed directly; no generated contract reaches it.
   - paths: [api-bones-protos/src/lib.rs]
     feature: tests/internal-bdd/tests/features/proto_vocabulary.feature
