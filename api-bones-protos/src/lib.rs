@@ -44,6 +44,8 @@ const QUERIES_PROTO: &[u8] = include_bytes!("../proto/bones/v1/queries.proto");
 const ERRORS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/errors.proto");
 const RATELIMIT_PROTO: &[u8] = include_bytes!("../proto/bones/v1/ratelimit.proto");
 const ANNOTATIONS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/annotations.proto");
+const AUTOMATION_MANIFEST_PROTO: &[u8] =
+    include_bytes!("../proto/bones/v1/automation_manifest.proto");
 const FIELD_BEHAVIOR_PROTO: &[u8] = include_bytes!("../vendor/google/api/field_behavior.proto");
 
 /// Yield `(relative_path, bytes)` pairs for every `bones/v1/*.proto`
@@ -60,6 +62,10 @@ pub fn files() -> impl Iterator<Item = (&'static str, &'static [u8])> {
         ("bones/v1/errors.proto", ERRORS_PROTO),
         ("bones/v1/ratelimit.proto", RATELIMIT_PROTO),
         ("bones/v1/annotations.proto", ANNOTATIONS_PROTO),
+        (
+            "bones/v1/automation_manifest.proto",
+            AUTOMATION_MANIFEST_PROTO,
+        ),
         ("google/api/field_behavior.proto", FIELD_BEHAVIOR_PROTO),
     ]
     .into_iter()
@@ -70,9 +76,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ships_six_files() {
+    fn ships_seven_files() {
         let v: Vec<_> = files().collect();
-        assert_eq!(v.len(), 6);
+        assert_eq!(v.len(), 7);
     }
 
     #[test]
@@ -439,6 +445,129 @@ mod tests {
         numbers.sort_unstable();
         numbers.dedup();
         assert_eq!(numbers.len(), total, "duplicate service option number");
+    }
+
+    /// The automation surface is declared with these options and no second
+    /// form; a drifted number changes what every declaring product means.
+    #[test]
+    fn annotations_proto_declares_the_automation_surface_options() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        for line in [
+            "AutomationAction automation_action = 5102364;",
+            "AutomationTrigger automation_trigger = 5102363;",
+            "DataClassification classification = 5102365;",
+        ] {
+            assert!(body.contains(line), "annotations.proto missing `{line}`");
+        }
+    }
+
+    /// The unclassified state is zero, so an absent option and an explicit
+    /// UNSPECIFIED read the same, and no classified value can take it.
+    #[test]
+    fn annotations_proto_keeps_unclassified_distinguishable() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        let values: Vec<&str> = body
+            .split("enum DataClassification {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("DataClassification enum")
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        assert_eq!(
+            values,
+            [
+                "DATA_CLASSIFICATION_UNSPECIFIED = 0;",
+                "DATA_CLASSIFICATION_PUBLIC = 1;",
+                "DATA_CLASSIFICATION_INTERNAL = 2;",
+                "DATA_CLASSIFICATION_CONFIDENTIAL = 3;",
+                "DATA_CLASSIFICATION_RESTRICTED = 4;",
+            ],
+            "DataClassification values and numbers are fixed"
+        );
+    }
+
+    /// An action is an RPC of the declaring product and nothing else, so the
+    /// vocabulary names no dispatcher kind a raw call could be declared as.
+    #[test]
+    fn automation_vocabulary_names_no_generic_dispatcher() {
+        for (path, bytes) in [
+            ("annotations.proto", ANNOTATIONS_PROTO),
+            ("automation_manifest.proto", AUTOMATION_MANIFEST_PROTO),
+        ] {
+            let body = std::str::from_utf8(bytes).expect("utf8");
+            let declarations: Vec<&str> = body
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.starts_with("//"))
+                .collect();
+            for banned in [
+                "dispatcher",
+                "raw_http",
+                "shell",
+                "sql",
+                "RAW_",
+                "SHELL",
+                "SQL",
+            ] {
+                assert!(
+                    !declarations.iter().any(|l| l.contains(banned)),
+                    "{path} declares `{banned}`"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn automation_manifest_proto_declares_the_manifest_contract() {
+        let body = std::str::from_utf8(AUTOMATION_MANIFEST_PROTO).expect("utf8");
+        assert!(
+            body.contains("repeated AutomationTemplate automation_templates = 5102366;"),
+            "automation_manifest.proto missing the automation_templates service option"
+        );
+        assert!(
+            body.contains("import \"bones/v1/annotations.proto\";"),
+            "automation_manifest.proto must reuse the annotations vocabulary"
+        );
+        for msg in [
+            "message AutomationManifest {",
+            "message SignedAutomationManifest {",
+            "message AutomationTemplate {",
+            "message AutomationDocument {",
+            "message Step {",
+            "message InputBinding {",
+            "message Parameter {",
+        ] {
+            assert!(
+                body.contains(msg),
+                "automation_manifest.proto missing `{msg}`"
+            );
+        }
+        let manifest: Vec<&str> = body
+            .split("message AutomationManifest {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("AutomationManifest message")
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        assert_eq!(
+            manifest,
+            [
+                "uint32 format = 1;",
+                "string product = 2;",
+                "string version = 3;",
+                "string commit = 4;",
+                "string declaration_digest = 5;",
+                "repeated ManifestTrigger triggers = 6;",
+                "repeated ManifestAction actions = 7;",
+                "repeated AutomationTemplate templates = 8;",
+                "google.protobuf.FileDescriptorSet schema = 9;",
+            ],
+            "AutomationManifest field set drifted"
+        );
     }
 
     /// The field numbers are the wire contract the hand-written codecs in
