@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-17
+
+### Added
+
+- *(automation)* [**breaking**] manifest compiler, DSSE signature and policy schema refusal
+
+### Breaking changes merged after the version was prepared
+
+- feat(automation)!: manifest compiler, DSSE signature and policy schema refusal
+
 ## [0.5.2] - 2026-10-17
 
 ### Added

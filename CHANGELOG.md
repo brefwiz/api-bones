@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.0.0] - 2026-10-17
+
+### Added
+
+- *(automation)* [**breaking**] manifest compiler, DSSE signature and policy schema refusal
+
 ### Added
 
 - *(protos)* automation surface declaration: `automation_trigger`, `automation_action` and `classification` options, and the signed automation manifest contract
+
+### Breaking changes merged after the version was prepared
+
+- feat(automation)!: manifest compiler, DSSE signature and policy schema refusal
 
 ## [11.0.1] - 2026-10-16
 
