@@ -14,13 +14,12 @@ automation manifest shares (`bones/v1/automation_manifest.proto`):
 
 ## Rules enforced by `compile`
 
-D1-D6 (document rules), T1 (trigger label), A1-A3 and A7 (action
-declarations), U1 (unset closed choice) and M1 (template shape). A refusal
+D1-D6 (document rules), T1 (trigger label), A1-A7 (action
+declarations), C1 (field classification), U1 (unset closed choice) and M1 (template shape). A refusal
 names the rule and the site.
 
 ## Rules NOT enforced yet
 
-- A4, A5, A6 and C1 are not checked: a declaration that breaks them compiles.
 - D6 refuses a default of the wrong type, but not "a required parameter has
   neither an argument nor a default": templates carry no arguments, so that
   half has nothing to check yet.
