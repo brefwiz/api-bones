@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-18
+
+### Other
+
+- *(protos)* admit topic event scope in provided_broker_scopes
+
 ## [0.6.0] - 2026-10-17
 
 ### Added
