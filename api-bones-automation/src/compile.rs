@@ -16,6 +16,16 @@ use crate::pool::{shipped, transcode};
 
 /// The enum number of `AUTHZ_KIND_AUTHENTICATED`.
 const AUTHZ_KIND_AUTHENTICATED: i32 = 4;
+/// The enum number of `ACTION_EFFECT_PURE`.
+const EFFECT_PURE: i32 = 1;
+/// The enum number of `IDEMPOTENCY_MODE_KEYED`.
+const IDEMPOTENCY_KEYED: i32 = 2;
+/// Untyped payloads: a field of one of these types makes a generic dispatcher.
+const UNTYPED: [&str; 3] = [
+    "google.protobuf.Any",
+    "google.protobuf.Struct",
+    "google.protobuf.Value",
+];
 
 /// What a release compiles from.
 #[derive(Debug, Clone, Copy)]
@@ -38,10 +48,11 @@ pub struct CompileInput<'a> {
 }
 
 /// The rule a refusal applies. `D1`-`D6` are the document rules of the
-/// manifest contract; `T1`, `A1`-`A3` and `A7` the declaration rules of
+/// manifest contract; `T1`, `A1`-`A7` and `C1` the declaration rules of
 /// `bones/v1/annotations.proto`; `U1` an unset closed choice; `M1` a template
 /// that is not shaped as the contract requires.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Rule {
     D1,
     D2,
@@ -53,7 +64,11 @@ pub enum Rule {
     A1,
     A2,
     A3,
+    A4,
+    A5,
+    A6,
     A7,
+    C1,
     U1,
     M1,
 }
@@ -73,7 +88,11 @@ impl Rule {
             Self::A1 => "A1",
             Self::A2 => "A2",
             Self::A3 => "A3",
+            Self::A4 => "A4",
+            Self::A5 => "A5",
+            Self::A6 => "A6",
             Self::A7 => "A7",
+            Self::C1 => "C1",
             Self::U1 => "U1",
             Self::M1 => "M1",
         }
@@ -159,7 +178,8 @@ pub fn compile(input: &CompileInput<'_>) -> Result<Vec<u8>, CompileError> {
     if surface.triggers.is_empty() && surface.actions.is_empty() && surface.templates.is_empty() {
         return Err(CompileError::NoDeclarations);
     }
-    let mut checker = Checker::new(input.product, &surface);
+    let own_files: BTreeSet<&str> = input.sources.iter().map(|(p, _)| p.as_str()).collect();
+    let mut checker = Checker::new(input.product, &surface, &ext, own_files);
     checker.declarations();
     let mut templates = checker.templates();
     if !checker.refusals.is_empty() {
@@ -253,6 +273,26 @@ fn case(message: &DynamicMessage, oneof: &str) -> Option<(String, Value)> {
     })
 }
 
+fn enum_number(message: &DynamicMessage, field: &str) -> i32 {
+    message
+        .get_field_by_name(field)
+        .and_then(|v| v.as_enum_number())
+        .unwrap_or_default()
+}
+
+fn strings(message: &DynamicMessage, field: &str) -> Vec<String> {
+    message
+        .get_field_by_name(field)
+        .and_then(|v| {
+            v.as_list().map(|l| {
+                l.iter()
+                    .filter_map(|s| s.as_str().map(str::to_owned))
+                    .collect()
+            })
+        })
+        .unwrap_or_default()
+}
+
 fn has_label(message: &DynamicMessage) -> bool {
     sub(message, "label").is_some_and(|l| !string(&l, "text").is_empty())
 }
@@ -283,6 +323,7 @@ struct Extensions {
     action: ExtensionDescriptor,
     templates: ExtensionDescriptor,
     authz: ExtensionDescriptor,
+    classification: ExtensionDescriptor,
 }
 
 impl Extensions {
@@ -292,6 +333,7 @@ impl Extensions {
             action: pool.get_extension_by_name("bones.v1.automation_action")?,
             templates: pool.get_extension_by_name("bones.v1.automation_templates")?,
             authz: pool.get_extension_by_name("bones.v1.authz")?,
+            classification: pool.get_extension_by_name("bones.v1.classification")?,
         })
     }
 }
@@ -430,16 +472,7 @@ impl Surface {
 }
 
 fn requires(authz: &DynamicMessage) -> Vec<String> {
-    authz
-        .get_field_by_name("requires")
-        .and_then(|v| {
-            v.as_list().map(|l| {
-                l.iter()
-                    .filter_map(|s| s.as_str().map(str::to_owned))
-                    .collect()
-            })
-        })
-        .unwrap_or_default()
+    strings(authz, "requires")
 }
 
 // ---- the schema ----
@@ -517,14 +550,25 @@ struct Scope {
 struct Checker<'a> {
     product: &'a str,
     surface: &'a Surface,
+    ext: &'a Extensions,
+    /// Import paths of the product's own files: the classification rule
+    /// descends only into messages defined in them.
+    own_files: BTreeSet<&'a str>,
     refusals: Vec<Refusal>,
 }
 
 impl<'a> Checker<'a> {
-    fn new(product: &'a str, surface: &'a Surface) -> Self {
+    fn new(
+        product: &'a str,
+        surface: &'a Surface,
+        ext: &'a Extensions,
+        own_files: BTreeSet<&'a str>,
+    ) -> Self {
         Self {
             product,
             surface,
+            ext,
+            own_files,
             refusals: Vec::new(),
         }
     }
@@ -547,22 +591,15 @@ impl<'a> Checker<'a> {
             if !has_label(&trigger.declaration) {
                 self.refuse(Rule::T1, &format!("trigger {}", trigger.event), "no label");
             }
+            self.classified(&format!("trigger {}", trigger.event), &trigger.message);
         }
         for action in surface.actions.values() {
             let site = format!("action {}", action.method);
-            let effect = action
-                .declaration
-                .get_field_by_name("effect")
-                .and_then(|v| v.as_enum_number())
-                .unwrap_or_default();
+            let effect = enum_number(&action.declaration, "effect");
             if !has_label(&action.declaration) || effect == 0 {
                 self.refuse(Rule::A1, &site, "no label, or the effect is unspecified");
             }
-            let kind = action
-                .authz
-                .get_field_by_name("kind")
-                .and_then(|v| v.as_enum_number())
-                .unwrap_or_default();
+            let kind = enum_number(&action.authz, "kind");
             if kind != AUTHZ_KIND_AUTHENTICATED || requires(&action.authz).is_empty() {
                 self.refuse(
                     Rule::A2,
@@ -573,6 +610,14 @@ impl<'a> Checker<'a> {
             if action.descriptor.is_client_streaming() || action.descriptor.is_server_streaming() {
                 self.refuse(Rule::A3, &site, "the RPC is not unary");
             }
+            self.idempotency(&site, action, effect);
+            self.resolves(&site, action, effect);
+            let (request, response) = (action.descriptor.input(), action.descriptor.output());
+            self.untyped(&site, &request);
+            self.untyped(&site, &response);
+            if effect == EFFECT_PURE {
+                self.classified(&site, &response);
+            }
             if action.flag("person_reserved") && action.flag("planner_pinned") {
                 self.refuse(
                     Rule::A7,
@@ -581,6 +626,152 @@ impl<'a> Checker<'a> {
                 );
             }
         }
+    }
+
+    /// A4: a lasting action declares how a repeat behaves, and a keyed one
+    /// names top-level request fields.
+    fn idempotency(&mut self, site: &str, action: &Action, effect: i32) {
+        let mode = enum_number(&action.declaration, "idempotency");
+        if effect != EFFECT_PURE && mode == 0 {
+            self.refuse(
+                Rule::A4,
+                site,
+                "the effect is not PURE and idempotency is unspecified",
+            );
+        }
+        if mode == IDEMPOTENCY_KEYED {
+            let request = action.descriptor.input();
+            let keys = strings(&action.declaration, "idempotency_key_fields");
+            if keys.is_empty() {
+                self.refuse(Rule::A4, site, "KEYED idempotency names no key field");
+            }
+            for key in keys {
+                if request.get_field_by_name(&key).is_none() {
+                    self.refuse(
+                        Rule::A4,
+                        site,
+                        format!("key field {key:?} is not a top-level field of the request"),
+                    );
+                }
+            }
+        }
+    }
+
+    /// A5: `resolves` belongs to a read action and names real fields.
+    fn resolves(&mut self, site: &str, action: &Action, effect: i32) {
+        let Some(resolver) = sub(&action.declaration, "resolves") else {
+            return;
+        };
+        if effect != EFFECT_PURE {
+            self.refuse(
+                Rule::A5,
+                site,
+                "resolves is set on an action that is not PURE",
+            );
+        }
+        let query = string(&resolver, "query_field");
+        if action
+            .descriptor
+            .input()
+            .get_field_by_name(&query)
+            .is_none()
+        {
+            self.refuse(
+                Rule::A5,
+                site,
+                format!("query_field {query:?} is not a top-level field of the request"),
+            );
+        }
+        let results = string(&resolver, "results_field");
+        let candidate = match resolve_path(&action.descriptor.output(), &results) {
+            Ok(field) => match field.kind() {
+                Kind::Message(message) if field.is_list() && !field.is_map() => Some(message),
+                _ => None,
+            },
+            Err(why) => {
+                self.refuse(Rule::A5, site, format!("results_field {results:?}: {why}"));
+                return;
+            }
+        };
+        let Some(candidate) = candidate else {
+            self.refuse(
+                Rule::A5,
+                site,
+                format!("results_field {results:?} is not a repeated message field"),
+            );
+            return;
+        };
+        for name in ["value_field", "label_field"] {
+            let path = string(&resolver, name);
+            if let Err(why) = resolve_path(&candidate, &path) {
+                self.refuse(Rule::A5, site, format!("{name} {path:?}: {why}"));
+            }
+        }
+    }
+
+    /// A6: nothing reachable from `root` is an untyped payload.
+    fn untyped(&mut self, site: &str, root: &MessageDescriptor) {
+        walk_messages(root, |message| {
+            let mut next_messages = Vec::new();
+            for field in message.fields() {
+                let Kind::Message(next) = field.kind() else {
+                    continue;
+                };
+                if UNTYPED.contains(&next.full_name()) {
+                    self.refuse(
+                        Rule::A6,
+                        site,
+                        format!("{} reaches {}", field.full_name(), next.full_name()),
+                    );
+                } else {
+                    next_messages.push(next);
+                }
+            }
+            next_messages
+        });
+    }
+
+    /// C1: every field of `root`, at every depth through messages of the
+    /// product's own files, carries a classification other than UNSPECIFIED.
+    /// A message of another file is classified at the field and not entered.
+    fn classified(&mut self, site: &str, root: &MessageDescriptor) {
+        walk_messages(root, |message| {
+            let mut next_messages = Vec::new();
+            for field in message.fields() {
+                let options = field.options();
+                let class = if options.has_extension(&self.ext.classification) {
+                    options
+                        .get_extension(&self.ext.classification)
+                        .as_enum_number()
+                        .unwrap_or_default()
+                } else {
+                    0
+                };
+                if class == 0 {
+                    self.refuse(
+                        Rule::C1,
+                        site,
+                        format!("field {} is unclassified", field.full_name()),
+                    );
+                }
+                let target = match field.kind() {
+                    Kind::Message(entry) if field.is_map() => {
+                        match entry.map_entry_value_field().kind() {
+                            Kind::Message(value) => Some(value),
+                            _ => None,
+                        }
+                    }
+                    Kind::Message(next) => Some(next),
+                    _ => None,
+                };
+                if let Some(next) = target {
+                    if self.own_files.contains(next.parent_file().name()) {
+                        next_messages.push(next);
+                    }
+                }
+            }
+            next_messages
+        });
     }
 
     /// Check every template and return the resolved ones.
@@ -954,4 +1145,19 @@ fn resolve_path(message: &MessageDescriptor, path: &str) -> Result<FieldDescript
         }
     }
     unreachable!("a split path has at least one segment")
+}
+
+/// Visit `root` and every message `step` returns, each once. `step` sees a
+/// message and names the messages to visit next.
+fn walk_messages(
+    root: &MessageDescriptor,
+    mut step: impl FnMut(&MessageDescriptor) -> Vec<MessageDescriptor>,
+) {
+    let mut seen = BTreeSet::new();
+    let mut pending = vec![root.clone()];
+    while let Some(message) = pending.pop() {
+        if seen.insert(message.full_name().to_owned()) {
+            pending.extend(step(&message));
+        }
+    }
 }

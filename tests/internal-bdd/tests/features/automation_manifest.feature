@@ -7,8 +7,9 @@ Feature: Automation manifest compilation, signature and admission
   verifies against a trusted key valid at that moment and the manifest is
   the product's own and matches the digest the product serves. A declaration
   that breaks a rule the compiler enforces is refused, naming the rule; the
-  rules A4, A5, A6 and C1 and the type-check of a binding against another
-  product's action are not enforced yet.
+  rule that a required parameter has an argument or a default, and the
+  type-check of a binding against another product's action, are not enforced
+  yet.
 
   Scenario: A valid contract compiles into a manifest for its release
     Given a valid orders contract
@@ -30,6 +31,10 @@ Feature: Automation manifest compilation, signature and admission
       | a template naming an undeclared trigger  | D1   |
       | a template step on a person-reserved action | D2 |
       | an action that is person-reserved and planner-pinned | A7 |
+      | a lasting action that does not declare its idempotency | A4 |
+      | a resolver on an action that is not a read | A5 |
+      | a request that carries an untyped payload | A6 |
+      | a trigger field without a classification | C1 |
       | a template with no steps                 | M1   |
 
   Scenario: A signed manifest is admitted for the product that serves it

@@ -8,9 +8,7 @@
 use api_bones_automation::signature::{
     AdmitError, SigningKey, TrustedKey, VerifyError, admit, sign, signed_manifest,
 };
-use api_bones_automation::{
-    CompileError, CompileInput, Rule, compile, declaration_digest, read_header,
-};
+use api_bones_automation::{CompileError, CompileInput, compile, declaration_digest, read_header};
 use cucumber::{World, given, then, when};
 use protox::Compiler;
 
@@ -43,7 +41,7 @@ import "bones/v1/automation_manifest.proto";
 
 message OrderPlaced {
   option (bones.v1.automation_trigger) = { label: { text: "Order placed" } };
-  string order_id = 1;
+  string order_id = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 }
 message ShipRequest { string order_id = 1; }
 message ShipResponse { string shipment_id = 1; }
@@ -68,6 +66,7 @@ service Orders {
     option (bones.v1.automation_action) = {
       label: { text: "Ship an order" }
       effect: ACTION_EFFECT_COMPENSABLE
+      idempotency: IDEMPOTENCY_MODE_NATURAL
     };
   }
 }
@@ -96,6 +95,26 @@ fn defective(defect: &str) -> String {
         "an action that is person-reserved and planner-pinned" => mutate(
             "effect: ACTION_EFFECT_COMPENSABLE",
             "effect: ACTION_EFFECT_COMPENSABLE person_reserved: true planner_pinned: true",
+        ),
+        "a lasting action that does not declare its idempotency" => {
+            mutate("      idempotency: IDEMPOTENCY_MODE_NATURAL\n", "")
+        }
+        "a resolver on an action that is not a read" => mutate(
+            "effect: ACTION_EFFECT_COMPENSABLE",
+            "effect: ACTION_EFFECT_COMPENSABLE resolves: { query_field: \"order_id\", results_field: \"shipment_id\", value_field: \"x\", label_field: \"y\" }",
+        ),
+        "a request that carries an untyped payload" => mutate(
+            "message ShipRequest { string order_id = 1; }",
+            "message ShipRequest { string order_id = 1; google.protobuf.Any extra = 2; }",
+        )
+        .replacen(
+            "import \"bones/v1/annotations.proto\";",
+            "import \"bones/v1/annotations.proto\";\nimport \"google/protobuf/any.proto\";",
+            1,
+        ),
+        "a trigger field without a classification" => mutate(
+            " [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL]",
+            "",
         ),
         "a template with no steps" => {
             let start = GOOD.find("      steps: {").expect("steps");
@@ -157,32 +176,11 @@ fn then_deterministic(world: &mut ManifestWorld) {
     assert_eq!(world.outcome.as_ref().unwrap().as_ref().unwrap(), &first);
 }
 
-fn rule(name: &str) -> Rule {
-    [
-        Rule::D1,
-        Rule::D2,
-        Rule::D3,
-        Rule::D4,
-        Rule::D5,
-        Rule::D6,
-        Rule::T1,
-        Rule::A1,
-        Rule::A2,
-        Rule::A3,
-        Rule::A7,
-        Rule::U1,
-        Rule::M1,
-    ]
-    .into_iter()
-    .find(|r| r.as_str() == name)
-    .unwrap_or_else(|| panic!("unknown rule {name}"))
-}
-
 #[then(expr = "the compilation is refused under rule {string}")]
 fn then_refused(world: &mut ManifestWorld, name: String) {
     match world.outcome.as_ref().unwrap() {
         Err(CompileError::Refused(list)) => {
-            assert!(list.iter().any(|r| r.rule == rule(&name)), "{list:?}");
+            assert!(list.iter().any(|r| r.rule.as_str() == name), "{list:?}");
         }
         other => panic!("expected a refusal, got {other:?}"),
     }

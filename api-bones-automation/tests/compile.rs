@@ -31,12 +31,12 @@ import "bones/v1/automation_manifest.proto";
 
 message OrderPlaced {
   option (bones.v1.automation_trigger) = { label: { text: "Order placed" } };
-  string order_id = 1;
-  int64 quantity = 2;
+  string order_id = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
+  int64 quantity = 2 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 }
 message FindRequest { string query = 1; }
-message Found { string id = 1; string title = 2; }
-message FindResponse { repeated Found orders = 1; }
+message Found { string id = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL]; string title = 2 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL]; }
+message FindResponse { repeated Found orders = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL]; }
 message ShipRequest { string order_id = 1; int64 quantity = 2; bool express = 3; string note = 4; }
 message ShipResponse { string shipment_id = 1; }
 
@@ -76,6 +76,7 @@ service Orders {
     option (bones.v1.automation_action) = {
       label: { text: "Ship an order" }
       effect: ACTION_EFFECT_COMPENSABLE
+      idempotency: IDEMPOTENCY_MODE_NATURAL
     };
   }
 }
@@ -370,6 +371,172 @@ fn a3_an_action_must_be_unary() {
         Rule::A3,
         &mutated("Ship(ShipRequest)", "Ship(stream ShipRequest)"),
     );
+}
+
+const CLS: &str = "[(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL]";
+const NATURAL: &str = "idempotency: IDEMPOTENCY_MODE_NATURAL";
+
+fn keyed(fields: &str) -> String {
+    mutated(
+        NATURAL,
+        &format!("idempotency: IDEMPOTENCY_MODE_KEYED {fields}"),
+    )
+}
+
+#[test]
+fn a4_a_lasting_action_declares_how_a_repeat_behaves() {
+    let source = mutated(&format!("      {NATURAL}\n"), "");
+    assert_eq!(
+        refusals(&source),
+        [(Rule::A4, "action orders.v1.Orders.Ship".to_owned())]
+    );
+    assert!(compile_source(GOOD).is_ok());
+}
+
+#[test]
+fn a4_a_keyed_action_names_top_level_request_fields() {
+    refused_with(Rule::A4, &keyed(""));
+    refused_with(Rule::A4, &keyed("idempotency_key_fields: \"nope\""));
+    refused_with(Rule::A4, &keyed("idempotency_key_fields: \"order_id.x\""));
+    refused_with(
+        Rule::A4,
+        &keyed("idempotency_key_fields: \"order_id\" idempotency_key_fields: \"nope\""),
+    );
+    assert!(
+        compile_source(&keyed(
+            "idempotency_key_fields: \"order_id\" idempotency_key_fields: \"note\""
+        ))
+        .is_ok()
+    );
+}
+
+fn resolving(from: &str, to: &str) -> String {
+    mutated(from, to)
+}
+
+#[test]
+fn a5_resolves_belongs_to_a_read_action_and_names_real_fields() {
+    refused_with(
+        Rule::A5,
+        &mutated(
+            "effect: ACTION_EFFECT_COMPENSABLE",
+            "effect: ACTION_EFFECT_COMPENSABLE resolves: { query_field: \"order_id\", results_field: \"shipment_id\", value_field: \"x\", label_field: \"y\" }",
+        ),
+    );
+    for (from, to) in [
+        ("query_field: \"query\"", "query_field: \"nope\""),
+        ("query_field: \"query\"", "query_field: \"query.x\""),
+        ("results_field: \"orders\"", "results_field: \"nope\""),
+        ("results_field: \"orders\"", "results_field: \"orders.id\""),
+        ("value_field: \"id\"", "value_field: \"nope\""),
+        ("label_field: \"title\"", "label_field: \"\""),
+    ] {
+        refused_with(Rule::A5, &resolving(from, to));
+    }
+    let scalar = resolving(
+        "message FindResponse { repeated Found orders = 1",
+        "message FindResponse { string count = 2; repeated Found orders = 1",
+    )
+    .replace("results_field: \"orders\"", "results_field: \"count\"");
+    refused_with(Rule::A5, &scalar);
+    let single = resolving(
+        "message FindResponse { repeated Found orders = 1",
+        "message FindResponse { Found first = 2; repeated Found orders = 1",
+    )
+    .replace("results_field: \"orders\"", "results_field: \"first\"");
+    refused_with(Rule::A5, &single);
+}
+
+fn with_import(extra: &str, from: &str, to: &str) -> String {
+    mutated(from, to).replacen(
+        "import \"bones/v1/annotations.proto\";",
+        &format!("import \"bones/v1/annotations.proto\";\nimport \"{extra}\";"),
+        1,
+    )
+}
+
+#[test]
+fn a6_no_untyped_payload_is_reachable_from_a_request_or_response() {
+    let any = with_import(
+        "google/protobuf/any.proto",
+        "message ShipRequest { string order_id = 1;",
+        "message ShipRequest { google.protobuf.Any extra = 6; string order_id = 1;",
+    );
+    assert_eq!(
+        refusals(&any),
+        [(Rule::A6, "action orders.v1.Orders.Ship".to_owned())]
+    );
+    let nested_struct = with_import(
+        "google/protobuf/struct.proto",
+        "message ShipResponse { string shipment_id = 1; }",
+        "message Wrap { google.protobuf.Struct s = 1; }\nmessage ShipResponse { string shipment_id = 1; repeated Wrap wraps = 2; }",
+    );
+    refused_with(Rule::A6, &nested_struct);
+    let in_map = with_import(
+        "google/protobuf/struct.proto",
+        "message ShipResponse { string shipment_id = 1; }",
+        "message ShipResponse { string shipment_id = 1; map<string, google.protobuf.Value> m = 2; }",
+    );
+    refused_with(Rule::A6, &in_map);
+    let typed = with_import(
+        "google/protobuf/timestamp.proto",
+        "message ShipRequest { string order_id = 1;",
+        "message Node { Node next = 1; google.protobuf.Timestamp at = 2; }\nmessage ShipRequest { Node node = 6; string order_id = 1;",
+    );
+    assert!(compile_source(&typed).is_ok());
+}
+
+#[test]
+fn c1_a_covered_field_carries_a_classification() {
+    let trigger = mutated(&format!("int64 quantity = 2 {CLS};"), "int64 quantity = 2;");
+    assert_eq!(
+        refusals(&trigger),
+        [(Rule::C1, "trigger orders.v1.OrderPlaced".to_owned())]
+    );
+    let unspecified = mutated(
+        &format!("int64 quantity = 2 {CLS};"),
+        "int64 quantity = 2 [(bones.v1.classification) = DATA_CLASSIFICATION_UNSPECIFIED];",
+    );
+    refused_with(Rule::C1, &unspecified);
+    let response = mutated(&format!("string title = 2 {CLS};"), "string title = 2;");
+    assert_eq!(
+        refusals(&response),
+        [(Rule::C1, "action orders.v1.Orders.Find".to_owned())]
+    );
+}
+
+#[test]
+fn c1_descends_into_own_messages_only() {
+    let nested = |detail: &str| {
+        mutated(
+            &format!("int64 quantity = 2 {CLS};"),
+            &format!("int64 quantity = 2 {CLS};\n  {detail}"),
+        )
+        .replacen(
+            "message FindRequest",
+            "message Detail { string code = 1; Detail again = 2; }\nmessage FindRequest",
+            1,
+        )
+    };
+    refused_with(Rule::C1, &nested(&format!("Detail detail = 3 {CLS};")));
+    refused_with(
+        Rule::C1,
+        &nested(&format!("map<string, Detail> by_code = 3 {CLS};")),
+    );
+    refused_with(
+        Rule::C1,
+        &nested(&format!("repeated Detail details = 3 {CLS};")),
+    );
+    let foreign = with_import(
+        "google/protobuf/timestamp.proto",
+        &format!("int64 quantity = 2 {CLS};"),
+        &format!(
+            "int64 quantity = 2 {CLS};\n  google.protobuf.Timestamp at = 3 {CLS};\n  map<string, string> labels = 4 {CLS};"
+        ),
+    );
+    assert!(compile_source(&foreign).is_ok());
+    let unclassified_map = foreign.replace(&format!("labels = 4 {CLS}"), "labels = 4");
+    refused_with(Rule::C1, &unclassified_map);
 }
 
 #[test]
@@ -710,7 +877,11 @@ fn every_rule_names_itself() {
         Rule::A1,
         Rule::A2,
         Rule::A3,
+        Rule::A4,
+        Rule::A5,
+        Rule::A6,
         Rule::A7,
+        Rule::C1,
         Rule::U1,
         Rule::M1,
     ]
@@ -720,7 +891,8 @@ fn every_rule_names_itself() {
     assert_eq!(
         names,
         [
-            "D1", "D2", "D3", "D4", "D5", "D6", "T1", "A1", "A2", "A3", "A7", "U1", "M1"
+            "D1", "D2", "D3", "D4", "D5", "D6", "T1", "A1", "A2", "A3", "A4", "A5", "A6", "A7",
+            "C1", "U1", "M1"
         ]
     );
 }
@@ -746,8 +918,8 @@ fn the_manifest_header_refuses_what_it_cannot_read() {
 fn nested_trigger_paths_resolve_through_singular_messages() {
     let nested = GOOD
         .replace(
-            "  int64 quantity = 2;\n}",
-            "  int64 quantity = 2;\n  Detail detail = 3;\n}\nmessage Detail { string code = 1; }",
+            "DATA_CLASSIFICATION_INTERNAL];\n}\nmessage FindRequest",
+            "DATA_CLASSIFICATION_INTERNAL];\n  Detail detail = 3 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];\n}\nmessage Detail { string code = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL]; }\nmessage FindRequest",
         )
         .replace(
             "inputs: { field: \"order_id\" trigger_field: \"order_id\" }",
@@ -758,7 +930,7 @@ fn nested_trigger_paths_resolve_through_singular_messages() {
         let source = nested.replace("detail.code", bad);
         refused_with(Rule::D4, &source);
     }
-    let listed = nested.replace("Detail detail = 3;", "repeated Detail detail = 3;");
+    let listed = nested.replace("  Detail detail = 3", "  repeated Detail detail = 3");
     refused_with(Rule::D4, &listed);
 }
 
