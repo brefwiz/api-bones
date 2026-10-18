@@ -202,17 +202,28 @@
 // named, and carries no subject. Its namespace is the text before its first
 // `:`, the same parse the registration authority applies to every scope.
 //
-// Admission. A broker scope is admitted in exactly two forms:
+// Admission. A broker scope is admitted in exactly three forms:
 //   - `<ns>:events:subscribe`, an event scope, declared by the workload whose
 //     service name (the service segment of its SVID) is `<ns>`;
+//   - `<ns>:events:<topic>:subscribe`, a topic event scope, declared by the
+//     same workload; `<topic>` is a single token with the characters of a
+//     namespace token and none of `:`, `.`, `*` or `>`;
 //   - `<ns>:<right>`, a broker's own right, declared by the workload the
 //     enforcer registry names as the enforcer of `<ns>`.
 // Every other shape names a scope no broker enforces, and is refused as a
 // dead grant.
 //
-// The event form is recognized by shape; the enforcer is recognized by the
+// The two event forms differ in how they are served. The namespace form
+// `<ns>:events:subscribe` is served by the per-organization durables. A topic
+// scope is served live only: per-replica ephemeral core subscriptions that the
+// broker grants per granting organization, never a durable, with no queue
+// group and no replay. A consumer holding a topic scope by a platform grant
+// hears every organization. A fact a consumer must never miss belongs on the
+// namespace form.
+//
+// The event forms are recognized by shape; the enforcer is recognized by the
 // registry, never by the scope. A registered enforcer declaring an event
-// scope whose `<ns>` differs from its own service name is therefore still
+// scope of either form whose `<ns>` differs from its own service name is therefore still
 // refused, under A1 below.
 //
 // For an event scope, `<ns>` is the provider's event-subject service segment,
@@ -236,13 +247,13 @@
 // item below holds.
 //
 // Admission refusals:
-//   A1. its `scope` is an event scope, exactly `<ns>:events:subscribe`, and
-//      `<ns>` is not the registering workload's service name, even when that
+//   A1. its `scope` is an event scope, exactly `<ns>:events:subscribe` or
+//      `<ns>:events:<topic>:subscribe`, and `<ns>` is not the registering workload's service name, even when that
 //      workload is a registered enforcer;
-//   A2. its `scope` is any scope other than an event scope, and the
+//   A2. its `scope` is any scope other than an event scope of either form, and the
 //      registering workload is not the registered enforcer of its namespace
 //      in the enforcer registry;
-//   A3. its `scope` is an event scope, and the registering workload's
+//   A3. its `scope` is an event scope of either form, and the registering workload's
 //      canonical stream name equals that of another service already
 //      registered, as `order-book` and `order_book` both yield `ORDER_BOOK`:
 //      the first registrant keeps the stream, and the later registration is
@@ -681,7 +692,8 @@ message BrokerScope {
   string capability = 1;
 
   // The CanonicalClaim scope, carrying no subject: `<ns>:events:subscribe`
-  // for the provider's own events, or `<ns>:<right>` for a broker's own right.
+  // for the provider's own events, `<ns>:events:<topic>:subscribe` for one
+  // live-only topic of them, or `<ns>:<right>` for a broker's own right.
   // The file header holds its forms and the complete refusal list.
   string scope = 2;
 }
