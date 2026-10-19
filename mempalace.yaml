@@ -1,5 +1,6 @@
 wing: api-bones
 
+rooms:
   # --- Hexagonal architecture overlay (standard across Brefwiz services) ---
   # Orthogonal to subsystem rooms — a file may match both a subsystem and a layer.
   - name: domain-core

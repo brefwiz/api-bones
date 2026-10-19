@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn bulk_request_empty() {
         let req: BulkRequest<String> = BulkRequest { items: vec![] };
-        assert!(req.items.is_empty());
+        assert_eq!(req.items, [] as [String; 0]);
     }
 
     // -----------------------------------------------------------------------

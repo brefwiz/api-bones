@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn empty_fields_are_omitted_from_the_wire() {
-        assert!(ErrorInfo::default().encode().is_empty());
+        assert_eq!(ErrorInfo::default().encode(), [] as [u8; 0]);
         assert_eq!(
             ErrorInfo::from_code("X").encode(),
             vec![0x0a, 0x01, b'X'],

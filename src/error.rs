@@ -1758,7 +1758,7 @@ mod tests {
             message: "invalid format".to_owned(),
             rule: Some("format".to_owned()),
         }]);
-        assert!(!e.errors.is_empty());
+        assert_ne!(e.errors, [] as [crate::error::ValidationError; 0]);
         assert_eq!(e.errors[0].field, "/email");
     }
 
@@ -2262,7 +2262,7 @@ mod tests {
         assert_eq!(err.title, "Resource Not Found");
         assert_eq!(err.detail, "Booking 123 not found");
         assert!(err.request_id.is_none());
-        assert!(err.errors.is_empty());
+        assert_eq!(err.errors, [] as [crate::error::ValidationError; 0]);
     }
 
     #[test]

@@ -375,8 +375,8 @@ mod tests {
     // Coverage gap: IdempotencyKeyError Display variants
     #[test]
     fn error_display_all_variants() {
-        assert!(!IdempotencyKeyError::Empty.to_string().is_empty());
-        assert!(!IdempotencyKeyError::TooLong.to_string().is_empty());
-        assert!(!IdempotencyKeyError::InvalidChars.to_string().is_empty());
+        assert_ne!(IdempotencyKeyError::Empty.to_string(), "");
+        assert_ne!(IdempotencyKeyError::TooLong.to_string(), "");
+        assert_ne!(IdempotencyKeyError::InvalidChars.to_string(), "");
     }
 }

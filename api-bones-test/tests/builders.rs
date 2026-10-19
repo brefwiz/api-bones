@@ -83,7 +83,7 @@ fn fake_problem_defaults() {
     let err = FakeProblem::new(ErrorCode::ResourceNotFound).build();
     assert_eq!(err.code, ErrorCode::ResourceNotFound);
     assert_eq!(err.status, 404);
-    assert!(err.errors.is_empty());
+    assert_eq!(err.errors, [] as [api_bones::ValidationError; 0]);
 }
 
 #[test]
@@ -104,7 +104,7 @@ fn fake_problem_validation_failed_rfc9457_shape() {
         .build();
     let json = serde_json::to_value(&err).unwrap();
     let errors = json["errors"].as_array().expect("errors array missing");
-    assert!(!errors.is_empty());
+    assert_ne!(errors.as_slice(), [] as [serde_json::Value; 0]);
     assert_eq!(errors[0]["field"], "/email");
 }
 
@@ -119,7 +119,7 @@ fn fake_principal_user() {
     let p = FakePrincipal::user(id).build();
     assert_eq!(p.as_str(), id.to_string().as_str());
     assert!(matches!(p.kind, PrincipalKind::User));
-    assert!(p.org_path.is_empty());
+    assert_eq!(p.org_path, [] as [api_bones::OrgId; 0]);
 }
 
 #[test]
@@ -146,7 +146,7 @@ fn fake_principal_scopes_is_no_op() {
         .scopes(&["read:items", "write:items"])
         .build();
     // Principal has no scopes field — just verify it builds without panic
-    assert!(p.org_path.is_empty());
+    assert_eq!(p.org_path, [] as [api_bones::OrgId; 0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ fn fake_principal_scopes_is_no_op() {
 fn fake_etag_for_updated_at_is_strong() {
     let tag = FakeETag::for_updated_at(Utc::now());
     assert!(!tag.weak);
-    assert!(!tag.value.is_empty());
+    assert_ne!(tag.value, "");
 }
 
 #[test]

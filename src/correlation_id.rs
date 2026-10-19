@@ -357,8 +357,8 @@ mod tests {
     // Coverage gap: CorrelationIdError Display variants
     #[test]
     fn error_display_all_variants() {
-        assert!(!CorrelationIdError::Empty.to_string().is_empty());
-        assert!(!CorrelationIdError::TooLong.to_string().is_empty());
-        assert!(!CorrelationIdError::InvalidChars.to_string().is_empty());
+        assert_ne!(CorrelationIdError::Empty.to_string(), "");
+        assert_ne!(CorrelationIdError::TooLong.to_string(), "");
+        assert_ne!(CorrelationIdError::InvalidChars.to_string(), "");
     }
 }

@@ -655,7 +655,7 @@ mod tests {
     #[test]
     fn query_builder_empty() {
         let qs = QueryBuilder::new().build();
-        assert!(qs.is_empty());
+        assert_eq!(qs, "");
     }
 
     #[test]

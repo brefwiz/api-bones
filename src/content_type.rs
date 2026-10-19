@@ -302,7 +302,7 @@ mod tests {
         let ct: ContentType = "application/json".parse().unwrap();
         assert_eq!(ct.type_, "application");
         assert_eq!(ct.subtype, "json");
-        assert!(ct.params.is_empty());
+        assert_eq!(ct.params, [] as [(String, String); 0]);
     }
 
     #[test]
@@ -346,7 +346,7 @@ mod tests {
         let ct = ContentType::new(String::from("image"), String::from("png"));
         assert_eq!(ct.type_, "image");
         assert_eq!(ct.subtype, "png");
-        assert!(ct.params.is_empty());
+        assert_eq!(ct.params, [] as [(String, String); 0]);
     }
 
     #[test]
@@ -375,7 +375,7 @@ mod tests {
     #[test]
     fn parse_error_display() {
         let err = ParseContentTypeError;
-        assert!(!err.to_string().is_empty());
+        assert_ne!(err.to_string(), "");
     }
 
     #[test]

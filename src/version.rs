@@ -636,7 +636,7 @@ mod tests {
             serde_json::from_value(serde_json::json!("not-a-version"));
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
-        assert!(!msg.is_empty());
+        assert_ne!(msg, "");
     }
 
     #[cfg(feature = "serde")]

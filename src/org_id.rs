@@ -667,7 +667,7 @@ mod tests {
     #[test]
     fn org_path_from_str_empty() {
         let path: OrgPath = "".parse().unwrap();
-        assert!(path.as_slice().is_empty());
+        assert_eq!(path.as_slice(), []);
     }
 
     #[test]
