@@ -962,7 +962,7 @@ mod tests {
     #[test]
     fn principal_human_has_empty_org_path() {
         let p = Principal::human(Uuid::nil());
-        assert!(p.org_path.is_empty());
+        assert_eq!(p.org_path, [] as [crate::org_id::OrgId; 0]);
     }
 
     #[test]
@@ -975,7 +975,7 @@ mod tests {
     #[test]
     fn principal_system_has_empty_org_path() {
         let p = Principal::system("s");
-        assert!(p.org_path.is_empty());
+        assert_eq!(p.org_path, [] as [crate::org_id::OrgId; 0]);
     }
 
     #[cfg(feature = "uuid")]
@@ -997,7 +997,7 @@ mod tests {
     #[test]
     fn principal_device_has_empty_org_path() {
         let p = Principal::device(Uuid::nil());
-        assert!(p.org_path.is_empty());
+        assert_eq!(p.org_path, [] as [crate::org_id::OrgId; 0]);
     }
 
     #[test]
@@ -1016,7 +1016,7 @@ mod tests {
     #[test]
     fn principal_agent_has_empty_org_path() {
         let p = Principal::agent("svc");
-        assert!(p.org_path.is_empty());
+        assert_eq!(p.org_path, [] as [crate::org_id::OrgId; 0]);
     }
 
     #[cfg(feature = "uuid")]

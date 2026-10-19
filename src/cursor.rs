@@ -286,8 +286,8 @@ mod tests {
 
     #[test]
     fn cursor_error_display_all_variants() {
-        assert!(!CursorError::InvalidBase64.to_string().is_empty());
-        assert!(!CursorError::InvalidSignature.to_string().is_empty());
-        assert!(!CursorError::TooShort.to_string().is_empty());
+        assert_ne!(CursorError::InvalidBase64.to_string(), "");
+        assert_ne!(CursorError::InvalidSignature.to_string(), "");
+        assert_ne!(CursorError::TooShort.to_string(), "");
     }
 }

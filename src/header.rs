@@ -378,6 +378,6 @@ mod tests {
         let v = HeaderValue::from(inner);
         let json = serde_json::to_string(&v).unwrap();
         // serde_json serializes bytes as array of ints
-        assert!(!json.is_empty());
+        assert_ne!(json, "");
     }
 }

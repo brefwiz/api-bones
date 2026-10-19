@@ -42,8 +42,8 @@ fn fake_error_type_mode() {
 #[test]
 fn fake_validation_error() {
     smoke::<api_bones::ValidationError, _>(200, |v| {
-        assert!(!v.field.is_empty());
-        assert!(!v.message.is_empty());
+        assert_ne!(v.field, "");
+        assert_ne!(v.message, "");
     });
 }
 
@@ -76,7 +76,7 @@ fn fake_api_error_serde_roundtrip() {
 #[test]
 fn fake_etag() {
     smoke::<api_bones::ETag, _>(200, |v| {
-        assert!(!v.value.is_empty());
+        assert_ne!(v.value, "");
     });
 }
 
@@ -102,15 +102,15 @@ fn fake_health_status() {
 #[test]
 fn fake_health_check() {
     smoke::<api_bones::health::HealthCheck, _>(200, |v| {
-        assert!(!v.component_type.is_empty());
+        assert_ne!(v.component_type, "");
     });
 }
 
 #[test]
 fn fake_liveness_response() {
     smoke::<api_bones::LivenessResponse, _>(200, |v| {
-        assert!(!v.version.is_empty());
-        assert!(!v.service_id.is_empty());
+        assert_ne!(v.version, "");
+        assert_ne!(v.service_id, "");
     });
 }
 
@@ -126,8 +126,8 @@ fn fake_readiness_response() {
 #[test]
 fn fake_link() {
     smoke::<api_bones::links::Link, _>(200, |v| {
-        assert!(!v.rel.is_empty());
-        assert!(!v.href.is_empty());
+        assert_ne!(v.rel, "");
+        assert_ne!(v.href, "");
     });
 }
 
@@ -195,14 +195,14 @@ fn fake_sort_direction() {
 #[test]
 fn fake_sort_params() {
     smoke::<api_bones::SortParams, _>(200, |v| {
-        assert!(!v.sort_by.is_empty());
+        assert_ne!(v.sort_by, "");
     });
 }
 
 #[test]
 fn fake_filter_entry() {
     smoke::<api_bones::FilterEntry, _>(200, |v| {
-        assert!(!v.field.is_empty());
+        assert_ne!(v.field, "");
         // `op` is an enum with `Unspecified` not in the variant set; any value
         // generated is valid by construction. Field-presence is the only
         // shape check we need.
@@ -291,7 +291,7 @@ fn fake_api_response() {
 fn fake_slug() {
     smoke::<api_bones::Slug, _>(200, |slug| {
         assert!(api_bones::Slug::new(slug.as_str()).is_ok());
-        assert!(!slug.as_str().is_empty());
+        assert_ne!(slug.as_str(), "");
         assert!(slug.as_str().len() <= 128);
     });
 }
@@ -303,7 +303,7 @@ fn fake_slug() {
 #[test]
 fn fake_bulk_request() {
     smoke::<api_bones::bulk::BulkRequest<u32>, _>(200, |v| {
-        assert!(!v.items.is_empty());
+        assert_ne!(v.items, [] as [u32; 0]);
     });
 }
 
@@ -315,6 +315,6 @@ fn fake_bulk_item_result() {
 #[test]
 fn fake_bulk_response() {
     smoke::<api_bones::bulk::BulkResponse<u32>, _>(200, |v| {
-        assert!(!v.results.is_empty());
+        assert_ne!(v.results, [] as [api_bones::BulkItemResult<u32>; 0]);
     });
 }

@@ -633,8 +633,8 @@ mod tests {
     // Coverage gap: ParseRangeError Display
     #[test]
     fn parse_range_error_display() {
-        assert!(!ParseRangeError::Empty.to_string().is_empty());
-        assert!(!ParseRangeError::Malformed.to_string().is_empty());
+        assert_ne!(ParseRangeError::Empty.to_string(), "");
+        assert_ne!(ParseRangeError::Malformed.to_string(), "");
     }
 
     // Coverage gap: ByteRange parse malformed (no dash, non-empty)

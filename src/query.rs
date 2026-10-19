@@ -594,7 +594,7 @@ mod tests {
     fn search_params_new() {
         let s = SearchParams::new("annual report");
         assert_eq!(s.query, "annual report");
-        assert!(s.fields.is_empty());
+        assert_eq!(s.fields, [] as [String; 0]);
     }
 
     #[test]
@@ -655,7 +655,7 @@ mod tests {
     fn search_params_try_new_valid() {
         let s = SearchParams::try_new("report").unwrap();
         assert_eq!(s.query, "report");
-        assert!(s.fields.is_empty());
+        assert_eq!(s.fields, [] as [String; 0]);
     }
 
     #[test]
