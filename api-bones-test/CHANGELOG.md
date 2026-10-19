@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [9.0.1] - 2026-10-19
+
+### Fixed
+
+- *(mempalace)* restore rooms key in mempalace.yaml
+
 ## [8.0.2] - 2026-10-17
 
 ### Other
