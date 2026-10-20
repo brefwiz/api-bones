@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.1.0] - 2026-10-20
+
+### Added
+
+- *(connect)* export the CSRF synchronizer replay rule in Rust and TypeScript
+
 ## [12.0.1] - 2026-10-19
 
 ### Fixed
