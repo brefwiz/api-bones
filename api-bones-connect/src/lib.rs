@@ -28,7 +28,10 @@
 
 pub use api_bones::connect::*;
 
+pub mod csrf;
 pub mod workload_identity;
+
+pub use csrf::{CSRF_HEADER, CsrfSynchronizer, csrf_replay_token};
 
 pub use workload_identity::{WorkloadIdentityError, workload_client_tls_config};
 

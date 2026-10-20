@@ -119,6 +119,8 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
         with:
           checkout: "false"
+      - id: sccache-stats
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sccache-stats@main
   test:
     needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
@@ -150,6 +152,8 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rustdoc-json-emit@main
         with:
           artifact-name: rustdoc-json
+      - id: sccache-stats
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sccache-stats@main
 
 
   ts:
