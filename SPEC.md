@@ -91,6 +91,17 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The one replay rule for the BFF CSRF synchronizer, exported by both
+  # packages so no caller restates it.
+  connect-csrf-replay-rule:
+    contract: tests/features/connect_csrf_replay_rule.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-connect]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
   # The automation manifest compiler and its DSSE signature check are library
   # code the service-kit, the CLI and the layer embed directly; no declared

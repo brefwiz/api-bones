@@ -36,6 +36,7 @@ import {
   rpcIdentity,
   type RetryEvent,
 } from "./retry.js";
+import { CSRF_HEADER, csrfReplayToken } from "./csrf.js";
 import { makePreconditionInterceptor } from "./precondition.js";
 
 export interface ConnectTransportOptions {
@@ -92,8 +93,6 @@ function makeAuthInterceptor(getToken: () => string | null | undefined): Interce
   };
 }
 
-const CSRF_HEADER = "X-CSRF-Token";
-
 /**
  * The latest synchronizer the BFF handed out, per BFF origin. Module-level so
  * every transport built against the same origin on a page (the shared UI
@@ -146,10 +145,10 @@ function makeCsrfInterceptor(baseUrl: string): Interceptor {
       const refusal = ConnectError.from(err);
       const fresh = refusal.metadata.get(CSRF_HEADER);
       remember(fresh);
-      if (req.stream || refusal.code !== Code.PermissionDenied || !fresh || fresh === onWire) {
-        throw err;
-      }
-      req.header.set(CSRF_HEADER, fresh);
+      const status = refusal.code === Code.PermissionDenied ? 403 : 0;
+      const replayWith = req.stream ? null : csrfReplayToken(status, fresh ?? null, onWire);
+      if (!replayWith) throw err;
+      req.header.set(CSRF_HEADER, replayWith);
       try {
         const res = await next(req);
         remember(res.header.get(CSRF_HEADER));

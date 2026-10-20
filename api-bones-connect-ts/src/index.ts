@@ -80,3 +80,5 @@ export {
   makePreconditionInterceptor,
   type PreconditionInterceptorOptions,
 } from "./precondition.js";
+
+export { CSRF_HEADER, csrfReplayToken } from "./csrf.js";

@@ -35,3 +35,7 @@ harness = false
 [[test]]
 name = "connect_error_info"
 harness = false
+
+[[test]]
+name = "connect_csrf_replay_rule"
+harness = false

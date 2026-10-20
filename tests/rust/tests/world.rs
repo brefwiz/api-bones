@@ -147,3 +147,11 @@ pub struct ReadError {
     pub emitter: Option<String>,
     pub text: String,
 }
+
+/// A refusal as the replay rule is given it.
+#[derive(Debug, Default, World)]
+pub struct CsrfReplayWorld {
+    pub status: u16,
+    pub refusal: Option<String>,
+    pub sent: Option<String>,
+}
