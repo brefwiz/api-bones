@@ -29,10 +29,15 @@
 pub use api_bones::connect::*;
 
 pub mod csrf;
+pub mod pinned_peer;
 pub mod workload_identity;
 
 pub use csrf::{CSRF_HEADER, CsrfSynchronizer, csrf_replay_token};
 
+pub use pinned_peer::{
+    PinnedPeerError, SpiffeError, pinned_peer_client_tls_config, pinned_peer_http_client,
+    spiffe_refusal, tls_verdict,
+};
 pub use workload_identity::{WorkloadIdentityError, workload_client_tls_config};
 
 use connectrpc::client::HttpClient;
@@ -104,7 +109,7 @@ mod tests {
     // The https-without-an-agent path is not driven here. `start_watcher_safe`
     // spends its full retry budget against an absent socket — nextest logged
     // this test SLOW [>240s] and it was still climbing — and what it would
-    // prove is brefwiz-spiffe-client's backoff, not this crate's wiring. The
+    // prove is the SPIFFE client's backoff, not this crate's wiring. The
     // refusal's own shape is asserted in `workload_identity::tests`, and the
     // one line between them is a `?`.
 

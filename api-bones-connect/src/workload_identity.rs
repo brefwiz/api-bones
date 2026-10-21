@@ -13,10 +13,10 @@
 
 use std::sync::Arc;
 
-use brefwiz_spiffe_client::{
+use connectrpc::rustls::ClientConfig as RustlsClientConfig;
+use quorumauth_spiffe_client::{
     SpiffeId, SpiffeIdPattern, SvidWatcher, start_watcher_safe, tls_client_config_from_watcher,
 };
-use connectrpc::rustls::ClientConfig as RustlsClientConfig;
 
 /// Attempts made to reach the Workload API before reporting it absent.
 const WATCHER_ATTEMPTS: u32 = 3;
@@ -138,12 +138,13 @@ mod tests {
         let pattern = SpiffeIdPattern::parse("spiffe://prod.brefwiz/*")
             .expect("a trust-domain wildcard is a valid pattern");
 
-        let peer = brefwiz_spiffe_client::SpiffeId::parse("spiffe://prod.brefwiz/svc/registry")
+        let peer = quorumauth_spiffe_client::SpiffeId::parse("spiffe://prod.brefwiz/svc/registry")
             .expect("valid peer id");
         assert!(pattern.matches(&peer), "same trust domain must be allowed");
 
-        let foreign = brefwiz_spiffe_client::SpiffeId::parse("spiffe://other.brefwiz/svc/registry")
-            .expect("valid peer id");
+        let foreign =
+            quorumauth_spiffe_client::SpiffeId::parse("spiffe://other.brefwiz/svc/registry")
+                .expect("valid peer id");
         assert!(
             !pattern.matches(&foreign),
             "a different trust domain must be refused"

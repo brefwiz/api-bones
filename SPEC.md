@@ -27,6 +27,17 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # A caller with no SVID pins one exact SPIFFE ID against a committed trust
+  # bundle. Both packages answer the same contract.
+  connect-pinned-peer:
+    contract: tests/features/connect_pinned_peer.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-connect]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
   # Which entry of the TypeScript package carries workload identity. Rust has
   # no entry split: the crate is server-only, so this surface is TS alone.
   connect-workload-identity:

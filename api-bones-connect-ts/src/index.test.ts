@@ -3,7 +3,7 @@ import type { DescMethodUnary } from "@bufbuild/protobuf";
 import { EmptySchema, StringValueSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { createServer } from "node:net";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_BACKOFF,
@@ -227,12 +227,19 @@ describe("node transport", () => {
   });
 
   // No Workload API is running here, so an https:// peer with no explicit
-  // identity must say so rather than connecting anonymously.
+  // identity must say so rather than connecting anonymously. The SPIFFE client
+  // keeps retrying a cold start for minutes by default, so the first-fetch
+  // window is shortened through its own override.
   it("fails closed on https when no Workload API answers", async () => {
-    await expect(
-      configureNodeConnectTransport({ baseUrl: "https://svc", profile: "service" }),
-    ).rejects.toThrow(/Workload API unavailable/);
-  });
+    vi.stubEnv("BREFWIZ_SVID_INITIAL_FETCH_TIMEOUT_SECS", "1");
+    try {
+      await expect(
+        configureNodeConnectTransport({ baseUrl: "https://svc", profile: "service" }),
+      ).rejects.toThrow(/Workload API unavailable/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  }, 20_000);
 
   // A cleartext peer is an explicit caller choice, not a downgrade decided
   // here, so it must not require an agent.

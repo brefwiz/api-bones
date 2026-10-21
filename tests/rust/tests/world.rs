@@ -155,3 +155,128 @@ pub struct CsrfReplayWorld {
     pub refusal: Option<String>,
     pub sent: Option<String>,
 }
+
+/// A test certificate authority.
+pub struct Authority {
+    pub cert: rcgen::Certificate,
+    pub key: rcgen::KeyPair,
+}
+
+impl std::fmt::Debug for Authority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Authority").finish_non_exhaustive()
+    }
+}
+
+/// A loopback HTTP/2 server behind TLS that asks for, but does not require, a
+/// client certificate and answers every request with 200.
+pub struct LoopbackServer {
+    pub addr: std::net::SocketAddr,
+    /// Set only from inside the request handler, so it stays `None` for a
+    /// server that never served a request.
+    saw_client_cert: std::sync::Arc<std::sync::Mutex<Option<bool>>>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl LoopbackServer {
+    /// Serve `cert` with `key`, trusting `client_ca` for any client certificate.
+    pub async fn start(
+        cert: connectrpc::rustls::pki_types::CertificateDer<'static>,
+        key: connectrpc::rustls::pki_types::PrivateKeyDer<'static>,
+        client_ca: connectrpc::rustls::pki_types::CertificateDer<'static>,
+    ) -> Self {
+        use std::sync::{Arc, Mutex};
+
+        let mut roots = connectrpc::rustls::RootCertStore::empty();
+        roots.add(client_ca).expect("trusted ca");
+        let client_auth =
+            connectrpc::rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
+                .allow_unauthenticated()
+                .build()
+                .expect("client verifier");
+        let mut config = connectrpc::rustls::ServerConfig::builder()
+            .with_client_cert_verifier(client_auth)
+            .with_single_cert(vec![cert], key)
+            .expect("server config");
+        config.alpn_protocols = vec![b"h2".to_vec()];
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let saw_client_cert: Arc<Mutex<Option<bool>>> = Arc::new(Mutex::new(None));
+        let recorded = saw_client_cert.clone();
+        let task = tokio::spawn(async move {
+            while let Ok((tcp, _)) = listener.accept().await {
+                let acceptor = acceptor.clone();
+                let recorded = recorded.clone();
+                tokio::spawn(async move {
+                    let Ok(tls) = acceptor.accept(tcp).await else {
+                        return;
+                    };
+                    let has_cert = tls.get_ref().1.peer_certificates().is_some();
+                    let service = hyper::service::service_fn(move |_req| {
+                        *recorded.lock().expect("record") = Some(has_cert);
+                        async {
+                            Ok::<_, std::convert::Infallible>(http::Response::new(
+                                http_body_util::Full::new(bytes::Bytes::from_static(b"ok")),
+                            ))
+                        }
+                    });
+                    let _ = hyper::server::conn::http2::Builder::new(
+                        hyper_util::rt::TokioExecutor::new(),
+                    )
+                    .serve_connection(hyper_util::rt::TokioIo::new(tls), service)
+                    .await;
+                });
+            }
+        });
+        Self {
+            addr,
+            saw_client_cert,
+            task,
+        }
+    }
+
+    /// Whether the last request arrived with a client certificate; `None` when
+    /// the server never served one.
+    pub fn saw_client_cert(&self) -> Option<bool> {
+        *self.saw_client_cert.lock().expect("read")
+    }
+}
+
+impl std::fmt::Debug for LoopbackServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoopbackServer")
+            .field("addr", &self.addr)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for LoopbackServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// A pinned caller and the loopback server it connects to.
+#[derive(Debug, Default, World)]
+pub struct PinnedPeerWorld {
+    /// The CA the bundle names, made on first use.
+    pub test_ca: Option<Authority>,
+    /// A CA the bundle does not name, made on first use.
+    pub stranger_ca: Option<Authority>,
+    /// The trust bundle the caller pins against, PEM.
+    pub bundle: String,
+    /// The certificate and key the server presents.
+    pub server: Option<(
+        connectrpc::rustls::pki_types::CertificateDer<'static>,
+        connectrpc::rustls::pki_types::PrivateKeyDer<'static>,
+    )>,
+    /// The server a caller connects to.
+    pub loopback: Option<LoopbackServer>,
+    /// How the one request ended, once a caller has connected.
+    pub outcome: Option<Result<u16, connectrpc::ConnectError>>,
+    /// How building a caller ended, once one has been built.
+    pub built: Option<Result<(), api_bones_connect::PinnedPeerError>>,
+}
