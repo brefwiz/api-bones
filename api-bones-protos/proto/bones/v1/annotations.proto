@@ -439,6 +439,23 @@
 // is never projectable. Every projection of the contract (MCP, infrastructure
 // providers, SDKs) reads this one declaration.
 //
+// `bones.v1.batch_of` names the single-item method of the same service that
+// this RPC batches, so a consumer reads the batch form of an operation from
+// the provider's surface instead of fanning out one call per item. A batch
+// method keeps the authorization of the single it names, and each item's
+// outcome is its own: one item's refusal never fails the others. The provider
+// documents its maximum items per call on the RPC.
+//
+// Usage:
+//
+//   service SubjectKeyService {
+//     rpc DeriveSubjectKey(DeriveSubjectKeyRequest) returns (DeriveSubjectKeyResponse);
+//     rpc BatchDeriveSubjectKeys(BatchDeriveSubjectKeysRequest)
+//         returns (BatchDeriveSubjectKeysResponse) {
+//       option (bones.v1.batch_of) = "DeriveSubjectKey";
+//     }
+//   }
+//
 // `bones.v1.resource` declares that a message is a managed resource: `type` is
 // its Terraform noun in snake_case, `identity_field` names the field that
 // identifies an instance, and `methods` optionally names the RPCs of the same
@@ -612,6 +629,10 @@ extend google.protobuf.MethodOptions {
   // What kind of call this RPC is. Absent or UNSPECIFIED means derived from
   // the signature. Read by every projection. See file header.
   CallShape call_shape = 5102362;
+
+  // The single-item method of the same service this RPC batches. Absent means
+  // the RPC is not a batch form. See file header.
+  string batch_of = 5102367;
 
   // Declares this RPC an action of the product's automation surface. Absent
   // means organizations cannot automate it. See file header.

@@ -41,6 +41,16 @@ Feature: Proto vocabulary shipped to contract authors
       | CALL_SHAPE_UNBOUNDED_STREAM |
       | CALL_SHAPE_LONG_RUNNING     |
 
+  Scenario: A batch method reads back the single-item method it batches
+    Given a contract declaring a method that batches "DeriveOne"
+    When the contract is compiled against the shipped files
+    Then the method batches "DeriveOne"
+
+  Scenario: A method that declares no batch form reads back empty
+    Given a contract using the shipped vocabulary
+    When the contract is compiled against the shipped files
+    Then the method batches ""
+
   Scenario Outline: The extension numbers are the reserved ones
     Given a contract using the shipped vocabulary
     When the contract is compiled against the shipped files
@@ -54,6 +64,7 @@ Feature: Proto vocabulary shipped to contract authors
       | bones.v1.automation_action    | 5102364 |
       | bones.v1.classification       | 5102365 |
       | bones.v1.automation_templates | 5102366 |
+      | bones.v1.batch_of             | 5102367 |
 
   Scenario Outline: The call shape enum values are fixed
     Given a contract using the shipped vocabulary

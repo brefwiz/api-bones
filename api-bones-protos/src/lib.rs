@@ -454,6 +454,7 @@ mod tests {
         let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
         for line in [
             "AutomationAction automation_action = 5102364;",
+            "string batch_of = 5102367;",
             "AutomationTrigger automation_trigger = 5102363;",
             "DataClassification classification = 5102365;",
         ] {
