@@ -273,6 +273,15 @@ fn given_shape(world: &mut VocabularyWorld, shape: String) {
     world.source = contract("", &format!("option (bones.v1.call_shape) = {shape};"), "");
 }
 
+#[given(expr = "a contract declaring a method that batches {string}")]
+fn given_batch_of(world: &mut VocabularyWorld, single: String) {
+    world.source = contract(
+        "",
+        &format!("option (bones.v1.batch_of) = \"{single}\";"),
+        "",
+    );
+}
+
 #[given(expr = "a contract declaring a method with MCP title {string}")]
 fn given_title(world: &mut VocabularyWorld, title: String) {
     world.source = contract(
@@ -575,6 +584,12 @@ fn then_shape(world: &mut VocabularyWorld, expected: String) {
         shape.get_value(number).expect("known value").name(),
         expected
     );
+}
+
+#[then(expr = "the method batches {string}")]
+fn then_batch_of(world: &mut VocabularyWorld, expected: String) {
+    let value = method_option(world, "bones.v1.batch_of");
+    assert_eq!(value.as_str().expect("batch_of is a string"), expected);
 }
 
 #[then(expr = "the method MCP title is {string}")]
