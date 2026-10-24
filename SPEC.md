@@ -165,7 +165,7 @@ internal_behavior_owners:
   # The shipped proto vocabulary (resource, call shape, MCP opt-in, automation
   # surface declaration and signed manifest) is
   # library code callers embed directly; no generated contract reaches it.
-  - paths: [api-bones-protos/src/lib.rs]
+  - paths: [api-bones-protos/src/lib.rs, api-bones-automation/src/batch_of.rs]
     feature: tests/internal-bdd/tests/features/proto_vocabulary.feature
 library_crates:
   - api-bones

@@ -9,16 +9,21 @@
 //!   `bones/v1/automation_manifest.proto`, byte-identically for equal input.
 //! - [`declaration_digest`] is the digest the manifest carries and a product
 //!   serves in its `AutomationSurfaceRef`.
+//! - [`check_batch_of`] refuses a `bones.v1.batch_of` that does not name a
+//!   method of its own service, or whose method does not keep that method's
+//!   authorization.
 //! - [`signature`] signs and verifies the DSSE Ed25519 signature over the
 //!   manifest. The crate holds no key and no pin: signing takes the caller's
 //!   key, verifying takes the caller's key set with validity epochs.
 
+mod batch_of;
 mod compile;
 mod digest;
 mod manifest;
 mod pool;
 pub mod signature;
 
+pub use batch_of::{BatchOfError, BatchOfReason, BatchOfRefusal, check_batch_of};
 pub use compile::{CompileError, CompileInput, Refusal, Rule, compile};
 pub use digest::declaration_digest;
 pub use manifest::{MANIFEST_FORMAT, ManifestError, ManifestHeader, read_header};

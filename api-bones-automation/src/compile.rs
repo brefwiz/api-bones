@@ -144,17 +144,23 @@ impl fmt::Display for CompileError {
             Self::MissingSource(file) => {
                 write!(f, "declaring file {file} has no source in the repository")
             }
-            Self::Refused(refusals) => {
-                for (i, refusal) in refusals.iter().enumerate() {
-                    if i > 0 {
-                        f.write_str("; ")?;
-                    }
-                    fmt::Display::fmt(refusal, f)?;
-                }
-                Ok(())
-            }
+            Self::Refused(refusals) => write_refusals(f, refusals),
         }
     }
+}
+
+/// Write `refusals` separated by `"; "`.
+pub(crate) fn write_refusals<T: fmt::Display>(
+    f: &mut fmt::Formatter<'_>,
+    refusals: &[T],
+) -> fmt::Result {
+    for (i, refusal) in refusals.iter().enumerate() {
+        if i > 0 {
+            f.write_str("; ")?;
+        }
+        fmt::Display::fmt(refusal, f)?;
+    }
+    Ok(())
 }
 
 impl std::error::Error for CompileError {}
