@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.3.0] - 2026-10-24
+
+### Added
+
+- *(connect)* pinned-peer TLS for callers that hold no SVID
+
 ## [12.2.0] - 2026-10-24
 
 ### Added
