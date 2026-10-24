@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.2.0] - 2026-10-24
+
+### Added
+
+- *(automation)* refuse a batch_of that names no sibling or widens its authorization
+
 ## [12.1.0] - 2026-10-20
 
 ### Added
