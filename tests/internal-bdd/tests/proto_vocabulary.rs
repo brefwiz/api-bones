@@ -4,6 +4,7 @@
 //! The shipped proto vocabulary is library code callers embed directly; no
 //! generated contract reaches it (SPEC.md `internal_behavior_owners`).
 
+use api_bones_automation::{BatchOfError, check_batch_of};
 use cucumber::{World, given, then, when};
 use prost_reflect::prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, ReflectMessage, Value};
@@ -20,6 +21,7 @@ struct VocabularyWorld {
     outcome: Option<Result<DescriptorPool, String>>,
     signed: Vec<u8>,
     served: Option<DynamicMessage>,
+    batch_check: Option<Result<(), BatchOfError>>,
 }
 
 impl std::fmt::Debug for VocabularyWorld {
@@ -282,6 +284,54 @@ fn given_batch_of(world: &mut VocabularyWorld, single: String) {
     );
 }
 
+#[given(expr = "a service whose batch method declares batch_of {string}")]
+fn given_batch_service(world: &mut VocabularyWorld, named: String) {
+    world.source = format!(
+        "syntax = \"proto3\";\npackage contract.v1;\n\
+         import \"bones/v1/annotations.proto\";\n\
+         message Req {{ string id = 1; }}\n\
+         message Res {{ string id = 1; }}\n\
+         service Svc {{\n\
+           rpc Do(Req) returns (Res);\n\
+           rpc DoMany(Req) returns (Res) {{ option (bones.v1.batch_of) = \"{named}\"; }}\n\
+         }}\n\
+         service Other {{ rpc Do(Req) returns (Res); }}\n"
+    );
+}
+
+/// `NONE`, `PUBLIC`, or `AUTHENTICATED <scope>,<scope>` as an `authz` option.
+fn authz_option(spec: &str) -> String {
+    match spec.split_once(' ') {
+        None if spec == "PUBLIC" => {
+            "option (bones.v1.authz) = { kind: AUTHZ_KIND_PUBLIC, reason: \"open\" };".to_owned()
+        }
+        None => String::new(),
+        Some((_, scopes)) => {
+            let requires: String = scopes
+                .split(',')
+                .map(|s| format!(", requires: \"{s}\""))
+                .collect();
+            format!("option (bones.v1.authz) = {{ kind: AUTHZ_KIND_AUTHENTICATED{requires} }};")
+        }
+    }
+}
+
+#[given(expr = "a service whose single is {string} and whose batch is {string}")]
+fn given_authz_pair(world: &mut VocabularyWorld, single: String, batch: String) {
+    world.source = format!(
+        "syntax = \"proto3\";\npackage contract.v1;\n\
+         import \"bones/v1/annotations.proto\";\n\
+         message Req {{ string id = 1; }}\n\
+         message Res {{ string id = 1; }}\n\
+         service Svc {{\n\
+           rpc Do(Req) returns (Res) {{ {} }}\n\
+           rpc DoMany(Req) returns (Res) {{ option (bones.v1.batch_of) = \"Do\"; {} }}\n\
+         }}\n",
+        authz_option(&single),
+        authz_option(&batch)
+    );
+}
+
 #[given(expr = "a contract declaring a method with MCP title {string}")]
 fn given_title(world: &mut VocabularyWorld, title: String) {
     world.source = contract(
@@ -386,6 +436,11 @@ fn when_compiled(world: &mut VocabularyWorld) {
         Ok(_) => Ok(compiler.descriptor_pool()),
         Err(e) => Err(e.to_string()),
     });
+}
+
+#[when("the batch_of declarations are checked")]
+fn when_batch_checked(world: &mut VocabularyWorld) {
+    world.batch_check = Some(check_batch_of(&pool(world).encode_to_vec()));
 }
 
 #[when(
@@ -843,6 +898,27 @@ fn then_served_classification(
         enum_name(&schema, "bones.v1.DataClassification", &value),
         expected
     );
+}
+
+#[then("every batch_of conforms")]
+fn then_batch_conforms(world: &mut VocabularyWorld) {
+    let outcome = world.batch_check.as_ref().expect("batch_of not checked");
+    assert_eq!(outcome, &Ok(()));
+}
+
+#[then(expr = "the batch_of is refused as {string}")]
+fn then_batch_refused(world: &mut VocabularyWorld, reason: String) {
+    let outcome = world.batch_check.as_ref().expect("batch_of not checked");
+    let Err(BatchOfError::Refused(refusals)) = outcome else {
+        panic!("the batch_of conformed but must be refused: {outcome:?}");
+    };
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    assert!(
+        refusals[0].to_string().ends_with(&reason),
+        "refusal `{}` does not end with `{reason}`",
+        refusals[0]
+    );
+    assert!(refusals[0].method.starts_with("contract.v1.Svc/DoMany"));
 }
 
 #[then("compilation fails")]

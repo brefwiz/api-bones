@@ -51,6 +51,57 @@ Feature: Proto vocabulary shipped to contract authors
     When the contract is compiled against the shipped files
     Then the method batches ""
 
+  Scenario Outline: A batch_of naming a method of its own service conforms
+    Given a service whose batch method declares batch_of "<named>"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then every batch_of conforms
+
+    Examples:
+      | named                |
+      | Do                   |
+      | contract.v1.Svc/Do   |
+
+  Scenario Outline: A batch_of that does not name a method of its own service is refused
+    Given a service whose batch method declares batch_of "<named>"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then the batch_of is refused as "<reason>"
+
+    Examples:
+      | named                 | reason                                       |
+      | Missing               | names a method the service does not declare  |
+      | contract.v1.Other/Do  | names a method of another service            |
+      | contract.v1.Svc/Nope  | names a method the service does not declare  |
+      | DoMany                | names the RPC itself                         |
+
+  Scenario Outline: A batch method keeps the authorization of the single it names
+    Given a service whose single is "<single>" and whose batch is "<batch>"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then every batch_of conforms
+
+    Examples:
+      | single                         | batch                                       |
+      | AUTHENTICATED orders:read      | AUTHENTICATED orders:read                   |
+      | AUTHENTICATED orders:a,orders:b | AUTHENTICATED orders:b,orders:a            |
+      | PUBLIC                         | PUBLIC                                      |
+      | NONE                           | NONE                                        |
+
+  Scenario Outline: A batch method that does not keep the authorization of its single is refused
+    Given a service whose single is "<single>" and whose batch is "<batch>"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then the batch_of is refused as "does not keep the authorization of the method it names"
+
+    Examples:
+      | single                    | batch                     |
+      | AUTHENTICATED orders:read | PUBLIC                    |
+      | AUTHENTICATED orders:read | AUTHENTICATED orders:write |
+      | AUTHENTICATED orders:read | AUTHENTICATED orders:read,orders:write |
+      | AUTHENTICATED orders:read | NONE                      |
+      | NONE                      | AUTHENTICATED orders:read |
+
   Scenario Outline: The extension numbers are the reserved ones
     Given a contract using the shipped vocabulary
     When the contract is compiled against the shipped files
