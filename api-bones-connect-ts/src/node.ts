@@ -32,6 +32,7 @@ import {
   makeConnectionDiagnosticsInterceptor,
   resolveTlsIdentity,
   type NodeTlsIdentity,
+  type NodeTlsIdentitySource,
 } from "./node-diagnostics.js";
 import { assertSupportedPolicySchema, indexGeneratedPolicy, type SdkTransportProfile } from "./policy.js";
 import {
@@ -40,7 +41,7 @@ import {
   type RetryEvent,
 } from "./retry.js";
 import { makePreconditionInterceptor } from "./precondition.js";
-import { startWatcherSafe } from "@brefwiz/spiffe-client";
+import { pinnedPeerTlsOptions, startWatcherSafe, type PinnedPeer } from "@brefwiz/spiffe-client";
 import { clientTlsIdentityFor, WATCHER_ATTEMPTS, WorkloadIdentityError } from "./workload-identity.js";
 
 // Workload API identity reads the local SPIFFE socket and validates X.509 with
@@ -57,6 +58,7 @@ export {
   MANAGED_APPLICATION_PORT,
   WATCHER_ATTEMPTS,
 } from "./workload-identity.js";
+export type { PinnedPeer };
 export type { WorkloadIdentityErrorKind, WorkloadPeer } from "./workload-identity.js";
 
 export interface NodeConnectTransportOptions {
@@ -125,6 +127,19 @@ export interface NodeConnectTransportOptions {
    * exists to stop.
    */
   tls?: NodeTlsIdentity | (() => NodeTlsIdentity);
+  /**
+   * A caller with no SVID reaches one SPIFFE peer: the server must chain to
+   * `bundle` and name exactly `peer`. No client certificate is sent and the
+   * Workload API is never read. An `https://` base URL only, and exclusive of
+   * `tls`, which would be a second identity mode.
+   *
+   * The pin is the SPIFFE client's `pinnedPeerTlsOptions`, handed to the agent
+   * unchanged; this transport adds no verification of its own.
+   *
+   * @throws {SpiffeError} `invalid_peer_id` / `invalid_trust_bundle`, before any
+   * connection.
+   */
+  pinnedPeer?: PinnedPeer;
   /**
    * Per-call deadline in milliseconds, applied when the caller sets none.
    *
@@ -256,7 +271,19 @@ export async function configureNodeConnectTransport(
   // per-connection hook below synchronous, so a rotating SVID still takes
   // effect on the next connection without rebuilding the transport.
   const isTls = new URL(baseUrl).protocol === "https:";
-  let tlsSource: NodeTlsIdentity | (() => NodeTlsIdentity) | undefined = opts.tls;
+  let tlsSource: NodeTlsIdentitySource | undefined = opts.tls;
+
+  if (opts.pinnedPeer !== undefined) {
+    if (opts.tls !== undefined) {
+      throw new Error(
+        "configureNodeConnectTransport: `pinnedPeer` and `tls` are exclusive identity modes",
+      );
+    }
+    if (!isTls) {
+      throw new Error("configureNodeConnectTransport: `pinnedPeer` needs an https:// baseUrl");
+    }
+    tlsSource = pinnedPeerTlsOptions(opts.pinnedPeer);
+  }
 
   if (tlsSource === undefined && isTls) {
     const watcher = await startWatcherSafe(undefined, WATCHER_ATTEMPTS);

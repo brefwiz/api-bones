@@ -21,7 +21,7 @@ import {
 const dir = mkdtempSync(join(tmpdir(), "workload-peer-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
-/** A self-signed certificate whose only URI SAN is `spiffeId`. */
+/** A self-signed non-CA certificate whose only URI SAN is `spiffeId`. */
 function certFor(spiffeId: string, name: string): Buffer {
   const key = join(dir, `${name}.key`);
   const crt = join(dir, `${name}.crt`);
@@ -31,6 +31,7 @@ function certFor(spiffeId: string, name: string): Buffer {
       "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
       "-nodes", "-keyout", key, "-out", crt, "-days", "1", "-subj", "/CN=peer",
       "-addext", `subjectAltName=URI:${spiffeId}`,
+      "-addext", "basicConstraints=critical,CA:FALSE",
     ],
     { stdio: "ignore" },
   );

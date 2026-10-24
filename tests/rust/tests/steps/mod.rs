@@ -6,6 +6,7 @@
 
 mod csrf_replay_rule;
 mod error_info;
+mod pinned_peer;
 mod precondition;
 
 use crate::world::RetryWorld;

@@ -136,11 +136,13 @@ name = "api-bones-connect"
 version = "0.1.1"
 dependencies = [
  "api-bones",
- "brefwiz-spiffe-client",
  "connectrpc",
  "http",
+ "quorumauth-spiffe-client",
+ "rcgen",
  "thiserror 2.0.20",
  "tokio",
+ "tokio-rustls",
  "tracing",
 ]
 
@@ -155,7 +157,11 @@ dependencies = [
  "cucumber",
  "http",
  "http-body-util",
+ "hyper",
+ "hyper-util",
+ "rcgen",
  "tokio",
+ "tokio-rustls",
 ]
 
 [[package]]
@@ -764,41 +770,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "brefwiz-spiffe-client"
-version = "0.43.6"
-source = "sparse+https://git.brefwiz.com/api/packages/brefwiz/cargo/"
-checksum = "7d358a9cb03fa0888330821fae9f4d05a88ea22157010eee0f401fba9b80738c"
-dependencies = [
- "anyhow",
- "arc-swap",
- "base64 0.22.1",
- "biscuit-auth",
- "chrono",
- "der 0.7.10",
- "http",
- "hyper-util",
- "pkcs8 0.10.2",
- "prost 0.14.4",
- "prost-types 0.14.4",
- "rustls",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "time",
- "tokio",
- "tokio-stream",
- "tonic",
- "tonic-prost",
- "tonic-prost-build",
- "tower",
- "tracing",
- "x509-cert",
- "x509-parser",
- "zeroize",
 ]
 
 [[package]]
@@ -3222,6 +3193,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9555b1514d2d99d78150d3c799d4c357a3e2c2a8062cd108e93a06d9057629c5"
 
 [[package]]
+name = "pem"
+version = "3.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
+dependencies = [
+ "base64 0.22.1",
+ "serde_core",
+]
+
+[[package]]
 name = "pem-rfc7468"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3734,6 +3715,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "quorumauth-spiffe-client"
+version = "0.45.2"
+source = "sparse+https://git.brefwiz.com/api/packages/brefwiz/cargo/"
+checksum = "1a00f6e4649bce16c933fcae4156e9f85b996fffe7fae6022135622aec4c8d26"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "base64 0.22.1",
+ "biscuit-auth",
+ "chrono",
+ "der 0.7.10",
+ "http",
+ "hyper-util",
+ "pkcs8 0.10.2",
+ "prost 0.14.4",
+ "prost-types 0.14.4",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-webpki",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "time",
+ "tokio",
+ "tokio-stream",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+ "tower",
+ "tracing",
+ "uuid",
+ "x509-cert",
+ "x509-parser",
+ "zeroize",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3846,6 +3864,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "513962919efc330f829edb2535844d1b912b0fbe2ca165d613e4e8788bb05a5a"
 dependencies = [
  "rand_core 0.9.5",
+]
+
+[[package]]
+name = "rcgen"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "yasna",
 ]
 
 [[package]]
@@ -4469,6 +4500,12 @@ dependencies = [
  "base16ct",
  "serde",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -5450,6 +5487,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 
@@ -5908,6 +5946,15 @@ name = "yansi"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
+]
 
 [[package]]
 name = "yoke"

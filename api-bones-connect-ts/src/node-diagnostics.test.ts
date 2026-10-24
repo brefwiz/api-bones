@@ -207,6 +207,38 @@ describe("createDiagnosticAgent tls", () => {
   });
 });
 
+describe("createDiagnosticAgent pool key", () => {
+  const key = (agent: http.Agent): string =>
+    agent.getName({ host: "peer.example", port: 443 } as never);
+
+  it("includes the resolved session scope, so two pins never share a bucket", () => {
+    const recorder = new ConnectionFactsRecorder();
+    const one = createDiagnosticAgent(true, recorder, { sessionIdContext: "pin-one" });
+    const two = createDiagnosticAgent(true, recorder, { sessionIdContext: "pin-two" });
+    expect(key(one)).not.toBe(key(two));
+    expect(key(one)).toContain("pin-one");
+    one.destroy();
+    two.destroy();
+  });
+
+  it("follows a rotating identity into a fresh bucket", () => {
+    const recorder = new ConnectionFactsRecorder();
+    let scope = "before";
+    const agent = createDiagnosticAgent(true, recorder, () => ({ sessionIdContext: scope }));
+    const before = key(agent);
+    scope = "after";
+    expect(key(agent)).not.toBe(before);
+    agent.destroy();
+  });
+
+  it("leaves a plaintext agent's key untouched", () => {
+    const recorder = new ConnectionFactsRecorder();
+    const agent = createDiagnosticAgent(false, recorder, { sessionIdContext: "ignored" });
+    expect(key(agent)).not.toContain("ignored");
+    agent.destroy();
+  });
+});
+
 describe("makeConnectionDiagnosticsInterceptor", () => {
   const unary = { stream: false } as never;
 

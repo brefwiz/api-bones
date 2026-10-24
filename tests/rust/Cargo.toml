@@ -22,7 +22,11 @@ http-body-util = "0.1"
 cucumber = "0.23"
 # The platform BDD runner.
 brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs"] }
+rcgen = "0.13"
+hyper = { version = "1", features = ["http2", "server"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 
 [[test]]
 name = "connect_retry_eligibility"
@@ -38,4 +42,8 @@ harness = false
 
 [[test]]
 name = "connect_csrf_replay_rule"
+harness = false
+
+[[test]]
+name = "connect_pinned_peer"
 harness = false

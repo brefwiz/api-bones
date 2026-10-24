@@ -61,12 +61,20 @@ export type NodeTlsIdentity = Pick<
   | "allowPartialTrustChain"
 >;
 
+/**
+ * What the transport hands to a connection: a caller's {@link NodeTlsIdentity}
+ * or a SPIFFE client's pin, whose TLS floor and session scope ride along
+ * unchanged. Not accepted from callers, who pass {@link NodeTlsIdentity}.
+ */
+export type NodeTlsOptions = NodeTlsIdentity &
+  Pick<https.AgentOptions, "minVersion" | "sessionIdContext">;
+
 /** Live identity, resolved per connection so a rotating SVID needs no rebuild. */
-export type NodeTlsIdentitySource = NodeTlsIdentity | (() => NodeTlsIdentity);
+export type NodeTlsIdentitySource = NodeTlsOptions | (() => NodeTlsOptions);
 
 export function resolveTlsIdentity(
   source: NodeTlsIdentitySource | undefined,
-): NodeTlsIdentity {
+): NodeTlsOptions {
   if (source === undefined) return {};
   return typeof source === "function" ? source() : source;
 }
@@ -382,12 +390,19 @@ export function createDiagnosticAgent(
     // Resolved per connection rather than folded into the agent's constructor
     // options, so an identity that rotates is picked up without rebuilding the
     // agent — rebuilding is what a caller doing this by hand must do, and it
-    // discards the socket pool every time. Node derives its pool key from the
+    // discards the socket pool every time. The pool key (below) is derived from the
     // resolved material, so a rotation opens a fresh bucket by itself and
     // sockets already established finish under the identity they started with.
     const createConnection = internals.createConnection.bind(internals);
     internals.createConnection = (connectionOptions: object, callback: unknown) =>
       createConnection({ ...connectionOptions, ...resolveTlsIdentity(tls) }, callback);
+    // The pool key is computed from the request's options, ahead of the merge
+    // above, so fold the same resolved TLS options into it: a pin's session
+    // scope and a rotated identity then each get their own bucket, and a socket
+    // opened under one pin is never reused under another.
+    const getName = agent.getName.bind(agent);
+    agent.getName = (nameOptions: Parameters<http.Agent["getName"]>[0]) =>
+      getName({ ...nameOptions, ...resolveTlsIdentity(tls) });
   }
 
   internals.addRequest = (request: ClientRequest, requestOptions: unknown): void => {
