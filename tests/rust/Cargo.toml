@@ -13,6 +13,9 @@ license = "MIT"
 
 [dependencies]
 api-bones-connect = { path = "../../api-bones-connect" }
+api-bones-protos = { path = "../../api-bones-protos" }
+prost-reflect = "0.16"
+protox = "0.9"
 connectrpc = "0.9.1"
 http = "1.4.2"
 bytes = "1"
@@ -46,4 +49,8 @@ harness = false
 
 [[test]]
 name = "connect_pinned_peer"
+harness = false
+
+[[test]]
+name = "field_labels"
 harness = false

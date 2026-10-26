@@ -116,6 +116,7 @@ Feature: Proto vocabulary shipped to contract authors
       | bones.v1.classification       | 5102365 |
       | bones.v1.automation_templates | 5102366 |
       | bones.v1.batch_of             | 5102367 |
+      | bones.v1.meaning              | 5102368 |
 
   Scenario Outline: The call shape enum values are fixed
     Given a contract using the shipped vocabulary

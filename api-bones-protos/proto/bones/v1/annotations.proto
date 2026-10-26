@@ -493,6 +493,17 @@
 //   type is defined elsewhere (a well-known type, a bones.v1 message) is
 //   classified at the field and not descended into.
 //
+//   `bones.v1.meaning` labels one field with what it denotes. It sits beside
+//   `classification`: a core record's fields carry both, and the business
+//   kernel's registry reads them instead of restating them. The value is a
+//   term of the curated vocabulary, which is schema.org core plus the
+//   extensions the platform curates. A product picks a term and never
+//   defines one: a term outside the vocabulary is refused by the registry's
+//   closed-vocabulary check, and the missing term is filed as a curation
+//   request. A field with no meaning mapping is treated as
+//   DATA_CLASSIFICATION_CONFIDENTIAL by the registry. The field's value type
+//   is its proto type, so no option restates it.
+//
 // Guardrails are declaration flags on the action:
 //   - `effect` is mandatory. POINT_OF_NO_RETURN marks an irreversible action;
 //     it is never a second flag.
@@ -656,6 +667,11 @@ extend google.protobuf.FieldOptions {
   // How sensitive this field's data is. Absent reads as
   // DATA_CLASSIFICATION_UNSPECIFIED, the unclassified state. See file header.
   DataClassification classification = 5102365;
+
+  // What this field denotes, as one term of the curated vocabulary (schema.org
+  // core plus the extensions the platform curates), written with its
+  // `schema:` prefix: `schema:startDate`. See file header.
+  string meaning = 5102368;
 }
 
 // One capability a service depends on, and the authority it intends to

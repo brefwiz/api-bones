@@ -457,9 +457,35 @@ mod tests {
             "string batch_of = 5102367;",
             "AutomationTrigger automation_trigger = 5102363;",
             "DataClassification classification = 5102365;",
+            "string meaning = 5102368;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
+    }
+
+    /// The field options carry numbers of their own: a meaning that shared
+    /// the classification's number would read one as the other.
+    #[test]
+    fn annotations_proto_field_option_numbers_are_distinct() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        let ext = body
+            .split("extend google.protobuf.FieldOptions {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("FieldOptions extension block");
+        let mut numbers: Vec<u32> = ext
+            .lines()
+            .map(str::trim)
+            .filter(|l| l.ends_with(';') && !l.starts_with("//"))
+            .map(|l| {
+                l.strip_suffix(';')
+                    .and_then(|decl| decl.rsplit_once(" = "))
+                    .and_then(|(_, n)| n.trim().parse().ok())
+                    .unwrap_or_else(|| panic!("field option without a number: `{l}`"))
+            })
+            .collect();
+        numbers.sort_unstable();
+        assert_eq!(numbers, [5_102_360, 5_102_365, 5_102_368]);
     }
 
     /// The unclassified state is zero, so an absent option and an explicit
