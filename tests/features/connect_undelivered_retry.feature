@@ -68,3 +68,32 @@ Feature: Connect replays requests that never left the client
     And its connection fails 10 times before the TLS handshake completed
     When the call is sent through the retry interceptor
     Then the call fails on attempt 4
+
+  Scenario: A reset before any response byte is replayed once for a read with no side effects
+    Given a method declared "NO_SIDE_EFFECTS"
+    And its connection is reset 1 times before any response byte
+    When the call is sent through the retry interceptor
+    Then the call succeeds on attempt 2
+
+  Scenario: A second reset before any response byte is not replayed again
+    Given a method declared "NO_SIDE_EFFECTS"
+    And its connection is reset 2 times before any response byte
+    When the call is sent through the retry interceptor
+    Then the call fails on attempt 2
+
+  Scenario Outline: A reset before any response byte is not replayed for a method that may have side effects
+    Given a method declared "<idempotency>"
+    And its connection is reset 1 times before any response byte
+    When the call is sent through the retry interceptor
+    Then the call fails on attempt 1
+
+    Examples:
+      | idempotency |
+      | IDEMPOTENT  |
+      | UNSPECIFIED |
+
+  Scenario: A reset after the response began is not replayed for a read with no side effects
+    Given a method declared "NO_SIDE_EFFECTS"
+    And its connection is reset 1 times after the response began
+    When the call is sent through the retry interceptor
+    Then the call fails on attempt 1

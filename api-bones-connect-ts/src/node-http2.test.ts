@@ -172,6 +172,7 @@ describe("HTTP/2 keepalive", () => {
       pingIntervalMs: 30_000,
       pingTimeoutMs: 15_000,
       pingIdleConnection: true,
+      idleConnectionTimeoutMs: 30_000,
     });
   });
 

@@ -22,16 +22,24 @@ import {
  * Keepalive for HTTP/2 sessions: ping every 30s including while idle, and
  * treat a session that does not answer within 15s as dead.
  *
+ * A session unused for 30s is closed by the client, below the 60s and 75s idle
+ * timeouts of the ingress in front of the peer, so the client is the side that
+ * closes first.
+ *
  * A session reused after that silence is verified first and replaced when the
  * ping goes unanswered, so a call is not written onto a connection the peer
  * dropped without a FIN.
  */
 export const HTTP2_KEEPALIVE: Required<
-  Pick<Http2SessionOptions, "pingIntervalMs" | "pingTimeoutMs" | "pingIdleConnection">
+  Pick<
+    Http2SessionOptions,
+    "pingIntervalMs" | "pingTimeoutMs" | "pingIdleConnection" | "idleConnectionTimeoutMs"
+  >
 > = {
   pingIntervalMs: 30_000,
   pingTimeoutMs: 15_000,
   pingIdleConnection: true,
+  idleConnectionTimeoutMs: 30_000,
 };
 
 type SessionOptions = http2.ClientSessionOptions | http2.SecureClientSessionOptions;
@@ -101,6 +109,7 @@ export class ObservedHttp2SessionManager {
         slot.facts = this.#facts(null, {
           connected: state !== "error" && state !== "closed",
           unprocessed: true,
+          responseStarted: false,
         });
       }
       throw err;
@@ -145,6 +154,7 @@ export class ObservedHttp2SessionManager {
       slot.facts = this.#facts(record, {
         connected: true,
         unprocessed: !responded && (refused || beyondGoaway),
+        responseStarted: responded,
         priorRequests: prior,
       });
     });
@@ -152,7 +162,12 @@ export class ObservedHttp2SessionManager {
 
   #facts(
     record: SessionRecord | null,
-    at: { connected: boolean; unprocessed: boolean; priorRequests?: number },
+    at: {
+      connected: boolean;
+      unprocessed: boolean;
+      responseStarted: boolean;
+      priorRequests?: number;
+    },
   ): ConnectionFacts {
     const age = record === null ? 0 : Date.now() - record.openedAt;
     return {
@@ -168,6 +183,7 @@ export class ObservedHttp2SessionManager {
       serverKeepAliveHeader: null,
       bytesWritten: 0,
       bytesRead: 0,
+      responseStarted: at.responseStarted,
       connected: at.connected,
       unprocessed: at.unprocessed,
       http2: true,

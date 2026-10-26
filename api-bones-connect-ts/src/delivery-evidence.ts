@@ -24,6 +24,25 @@ export function markNotDelivered<E extends ConnectError>(err: E): E {
   return err;
 }
 
+const RESET_BEFORE_RESPONSE = new WeakSet<ConnectError>();
+
+/**
+ * Record that the connection carrying `err`'s request was reset before a single
+ * response byte arrived.
+ *
+ * Weaker than {@link markNotDelivered}: the request may have been written, so
+ * only a method with no side effects may be replayed on it.
+ */
+export function markResetBeforeResponse<E extends ConnectError>(err: E): E {
+  RESET_BEFORE_RESPONSE.add(err);
+  return err;
+}
+
+/** Whether `err` was a connection reset that arrived before any response byte. */
+export function isResetBeforeResponse(err: ConnectError): boolean {
+  return RESET_BEFORE_RESPONSE.has(err);
+}
+
 /**
  * Whether the request behind `err` provably never reached the server.
  *

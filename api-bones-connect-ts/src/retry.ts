@@ -39,12 +39,17 @@ import {
   isReplayableTransportFailure,
 } from "./retry-eligibility.js";
 
-import { isNotDelivered } from "./delivery-evidence.js";
+import { isNotDelivered, isResetBeforeResponse } from "./delivery-evidence.js";
 import type { BackoffOptions } from "./backoff.js";
 import { computeBackoffDelay, resolveBackoff } from "./backoff.js";
 import type { GeneratedMethodPolicy } from "./policy.js";
 
-export { isNotDelivered, markNotDelivered } from "./delivery-evidence.js";
+export {
+  isNotDelivered,
+  isResetBeforeResponse,
+  markNotDelivered,
+  markResetBeforeResponse,
+} from "./delivery-evidence.js";
 export {
   connectionFailureAsUnavailable,
   isConnectionWriteFailure,
@@ -198,6 +203,12 @@ export interface RetryInterceptorOptions {
 const defaultSleep = (ms: number): Promise<void> =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+function logStaleConnectionReplay(method: string, procedure: string, cause: string): void {
+  console.debug(
+    JSON.stringify({ event: "connect.stale_connection_replay", method, procedure, cause }),
+  );
+}
+
 /** Retry interceptor shared by the browser and Node adapters. */
 export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor {
   const backoff = resolveBackoff(opts.backoff);
@@ -208,7 +219,12 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
     // Streams reconnect on their own terms; replaying one here would restart a
     // subscription mid-flight rather than resume it.
     if (req.stream) return next(req);
-    const methodRetryable = isRetryableMethod(opts.policyByRpc.get(rpcIdentity(req.method)));
+    const policy = opts.policyByRpc.get(rpcIdentity(req.method));
+    const methodRetryable = isRetryableMethod(policy);
+    // A reset before any response byte replays only a read that cannot change
+    // anything, and only once: a second reset is not a stale pooled socket.
+    const replaysStaleReset = policy?.procedure === "unary" && policy.idempotency === "NO_SIDE_EFFECTS";
+    let staleResetReplayed = false;
 
     let attempt = 0;
     for (;;) {
@@ -223,7 +239,10 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
         // A request that provably never left the client is replay-safe whatever
         // the method declares; every other failure may have run on the server,
         // so it needs the method to have been declared safe.
+        const staleReset =
+          replaysStaleReset && !staleResetReplayed && isResetBeforeResponse(err);
         const retryable =
+          staleReset ||
           isNotDelivered(err) ||
           (methodRetryable &&
             (isReplayableTransportFailure(err) ||
@@ -232,6 +251,10 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
 
         throttle.recordFailure();
         if (!throttle.canRetry) throw err;
+        if (staleReset) {
+          staleResetReplayed = true;
+          logStaleConnectionReplay(req.method.name, rpcIdentity(req.method), err.rawMessage);
+        }
 
         // Server pushback outranks our own schedule: it is the only party that
         // knows when it will be ready.

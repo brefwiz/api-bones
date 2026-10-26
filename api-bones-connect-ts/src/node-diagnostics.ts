@@ -37,7 +37,7 @@ import type { Socket } from "node:net";
 
 import { Code, ConnectError, type Interceptor } from "@connectrpc/connect";
 
-import { markNotDelivered } from "./delivery-evidence.js";
+import { markNotDelivered, markResetBeforeResponse } from "./delivery-evidence.js";
 import { isConnectionWriteFailure } from "./retry.js";
 
 /**
@@ -102,6 +102,13 @@ export interface ConnectionFacts {
   readonly serverKeepAliveHeader: string | null;
   readonly bytesWritten: number;
   readonly bytesRead: number;
+  /**
+   * Whether the response head had arrived when the request failed.
+   *
+   * Socket byte counters span every request a pooled socket ever carried, so
+   * they cannot answer this; the request's own response event does.
+   */
+  readonly responseStarted: boolean;
   /**
    * Whether the socket ever completed its TCP connect.
    *
@@ -365,25 +372,53 @@ function headerValue(value: string | string[] | undefined): string | null {
 }
 
 /**
+ * How long a pooled socket may sit unused before the client closes it.
+ *
+ * Strictly below the idle timeout of every server the transport talks to
+ * (ingress-nginx keeps client connections 75s and upstream ones 60s), so the
+ * client is always the side that closes first and a pooled socket is never
+ * handed out after the peer dropped it.
+ */
+export const POOLED_SOCKET_IDLE_MS = 30_000;
+
+/**
+ * Close sockets that stay unused in the pool for {@link POOLED_SOCKET_IDLE_MS}.
+ *
+ * `keepAliveMsecs` only schedules TCP probes; nothing in a Node agent ends an
+ * idle pooled socket unless a timeout is armed when it returns to the pool.
+ */
+function expireIdleSockets(agent: http.Agent): void {
+  agent.on("free", (socket: Socket) => {
+    socket.setTimeout(POOLED_SOCKET_IDLE_MS);
+    if (socket.listenerCount("timeout") === 0) {
+      // The timeout stays armed while a request is in flight on the socket;
+      // only a socket that is back in the pool is closed.
+      socket.on("timeout", () => {
+        const pooled = Object.values(agent.freeSockets).some((list) => list?.includes(socket));
+        if (pooled) socket.destroy();
+      });
+    }
+  });
+}
+
+/**
  * A pooling agent that records why its connections fail.
  *
  * Keep-alive is on deliberately: pooling is what makes a Node service fast, and
  * turning it off to dodge a stale-socket race trades a rare, now-diagnosable
- * failure for a TLS handshake on every call. `keepAliveMsecs` is set below the
- * shortest idle timeout any reasonable server runs, so the client is the side
- * that closes first and the race has no window to open in.
+ * failure for a TLS handshake on every call. Idle pooled sockets are closed
+ * after {@link POOLED_SOCKET_IDLE_MS}, below any server idle timeout, so the
+ * client is the side that closes first.
  */
 export function createDiagnosticAgent(
   secure: boolean,
   recorder: ConnectionFactsRecorder,
   tls?: NodeTlsIdentitySource,
 ): http.Agent {
-  // Node's own default is 1000ms; naming it here is the point — this value is
-  // load-bearing, not incidental, and it must stay strictly below the server's
-  // idle timeout (hyper, Go and nginx all default to 5s or more).
   const options = { keepAlive: true, keepAliveMsecs: 1_000 };
   const agent: http.Agent = secure ? new https.Agent(options) : new http.Agent(options);
   const internals = agent as AgentInternals;
+  expireIdleSockets(agent);
   const addRequest = internals.addRequest.bind(internals);
 
   if (tls !== undefined && secure) {
@@ -412,6 +447,7 @@ export function createDiagnosticAgent(
     let reused = false;
     let priorRequests = 0;
     let idleBeforeAssignMs: number | null = null;
+    let responseStarted = false;
 
     request.once("socket", (assigned: TrackedSocket) => {
       const seenBefore = assigned[RECORD] !== undefined;
@@ -427,6 +463,7 @@ export function createDiagnosticAgent(
     });
 
     request.once("response", (response: IncomingMessage) => {
+      responseStarted = true;
       if (record === null) return;
       record.lastResponseAt = Date.now();
       record.connectionHeader = headerValue(response.headers.connection);
@@ -455,6 +492,7 @@ export function createDiagnosticAgent(
           serverKeepAliveHeader: current.keepAliveHeader,
           bytesWritten: wire.bytesWritten,
           bytesRead: wire.bytesRead,
+          responseStarted,
           connected: current.connected,
           unprocessed: false,
           http2: false,
@@ -467,6 +505,15 @@ export function createDiagnosticAgent(
   };
 
   return agent;
+}
+
+const RESET_SIGNATURES: readonly string[] = ["econnreset", "connection reset", "epipe"];
+
+/** An Aborted failure whose underlying cause is a reset connection. */
+function isAbortedByReset(err: ConnectError): boolean {
+  if (err.code !== Code.Aborted) return false;
+  const message = err.rawMessage.toLowerCase();
+  return RESET_SIGNATURES.some((signature) => message.includes(signature));
 }
 
 /** The host a request URL addresses, in the form the agent records it. */
@@ -504,12 +551,28 @@ export function makeConnectionDiagnosticsInterceptor(
     } catch (err) {
       if (!(err instanceof ConnectError)) throw err;
       const writeFailure = isConnectionWriteFailure(err);
-      if (!writeFailure && err.code !== Code.Unavailable && err.code !== Code.Internal) throw err;
+      const reset = isAbortedByReset(err);
+      if (
+        !writeFailure &&
+        !reset &&
+        err.code !== Code.Unavailable &&
+        err.code !== Code.Internal
+      ) {
+        throw err;
+      }
       // The agent records on setImmediate; yield once so the facts for this
       // very failure are in the queue before we look.
       await new Promise<void>((resolve) => setImmediate(resolve));
       const facts = slot.facts ?? recorder.take(startedAt);
       if (facts === null) throw err;
+      if (reset) {
+        // Connect reports a reset on the read side as Aborted. Whether it hit
+        // before any response byte is the evidence a method with no side
+        // effects needs to be replayed; a reset mid-response is left alone.
+        const host = hostOf((req as { url?: unknown }).url);
+        const sameHost = host === null || host === facts.authority;
+        throw !facts.responseStarted && sameHost ? markResetBeforeResponse(err) : err;
+      }
       if (!writeFailure) {
         // A server-sent Unavailable records nothing, so facts found here belong
         // to a sibling call unless the host matches; a mismatch is not evidence.
