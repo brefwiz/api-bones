@@ -705,6 +705,7 @@ describe("replay of requests that never left the client", () => {
     bytesWritten: 411,
     connected: true,
     bytesRead: 0,
+    responseStarted: false,
     tlsEstablished: false,
     alpnProtocol: null,
     tlsAuthorized: null,
@@ -715,7 +716,7 @@ describe("replay of requests that never left the client", () => {
   /** The retry interceptor over the diagnostics one, the order the transport installs them. */
   const run = async (
     idempotency: string,
-    failures: { message: string; facts: Partial<ConnectionFacts> }[],
+    failures: { message: string; facts: Partial<ConnectionFacts>; code?: Code }[],
   ) => {
     const recorder = new ConnectionFactsRecorder();
     let calls = 0;
@@ -723,7 +724,7 @@ describe("replay of requests that never left the client", () => {
       const failure = failures[calls++];
       if (failure === undefined) return "ok" as never;
       recorder.record(connection(failure.facts));
-      throw new ConnectError(failure.message, Code.Internal);
+      throw new ConnectError(failure.message, failure.code ?? Code.Internal);
     };
     const retry = makeRetryInterceptor({
       policyByRpc: policyFor(idempotency),
@@ -750,6 +751,64 @@ describe("replay of requests that never left the client", () => {
     const { outcome, calls } = await run("UNSPECIFIED", [preHandshake, preHandshake]);
     expect(outcome).toBe("ok");
     expect(calls).toBe(3);
+  });
+
+  describe("a stale pooled connection reset before any response byte", () => {
+    const staleReset = {
+      message: "read ECONNRESET",
+      code: Code.Aborted,
+      facts: { tlsEstablished: true, bytesWritten: 900, responseStarted: false },
+    };
+
+    it("replays a NO_SIDE_EFFECTS read once and logs the cause", async () => {
+      const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+      try {
+        const { outcome, calls } = await run("NO_SIDE_EFFECTS", [staleReset]);
+        expect(outcome).toBe("ok");
+        expect(calls).toBe(2);
+        expect(JSON.parse(String(debug.mock.calls[0]?.[0]))).toEqual({
+          event: "connect.stale_connection_replay",
+          method: "Method",
+          procedure: rpc,
+          cause: "read ECONNRESET",
+        });
+      } finally {
+        debug.mockRestore();
+      }
+    });
+
+    it("does not replay a second reset", async () => {
+      const { outcome, calls } = await run("NO_SIDE_EFFECTS", [staleReset, staleReset]);
+      expect(outcome).toContain("read ECONNRESET");
+      expect(calls).toBe(2);
+    });
+
+    it.each(["IDEMPOTENT", "UNSPECIFIED"])("never replays a %s method", async (idempotency) => {
+      const { outcome, calls } = await run(idempotency, [staleReset]);
+      expect(outcome).toContain("read ECONNRESET");
+      expect(calls).toBe(1);
+    });
+
+    it("does not replay once the response had begun", async () => {
+      const { calls } = await run("NO_SIDE_EFFECTS", [
+        { ...staleReset, facts: { ...staleReset.facts, responseStarted: true } },
+      ]);
+      expect(calls).toBe(1);
+    });
+
+    it("does not widen to an Aborted without a reset cause", async () => {
+      const { calls } = await run("NO_SIDE_EFFECTS", [
+        { ...staleReset, message: "transaction conflict" },
+      ]);
+      expect(calls).toBe(1);
+    });
+
+    it("does not widen to DeadlineExceeded", async () => {
+      const { calls } = await run("NO_SIDE_EFFECTS", [
+        { ...staleReset, code: Code.DeadlineExceeded },
+      ]);
+      expect(calls).toBe(1);
+    });
   });
 
   it("does not retry a reset that came after the request was sent", async () => {

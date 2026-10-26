@@ -13,6 +13,7 @@ import { isNotDelivered } from "./delivery-evidence.js";
 import {
   ConnectionFactsRecorder,
   createDiagnosticAgent,
+  POOLED_SOCKET_IDLE_MS,
   formatConnectionFacts,
   makeConnectionDiagnosticsInterceptor,
   requestNeverLeft,
@@ -66,6 +67,7 @@ const facts = (over: Partial<ConnectionFacts> = {}): ConnectionFacts => ({
   unprocessed: false,
   http2: false,
   bytesRead: 0,
+  responseStarted: false,
   tlsEstablished: null,
   alpnProtocol: null,
   tlsAuthorized: null,
@@ -165,6 +167,26 @@ describe("createDiagnosticAgent", () => {
     expect(recorded?.priorRequests).toBe(0);
     expect(recorded?.bytesWritten).toBeGreaterThan(0);
     agent.destroy();
+  });
+});
+
+describe("pooled socket idle expiry", () => {
+  it("closes a socket left unused in the pool, below the server's idle timeout", async () => {
+    expect(POOLED_SOCKET_IDLE_MS).toBeLessThan(60_000);
+    const agent = createDiagnosticAgent(false, new ConnectionFactsRecorder());
+    try {
+      const port = await listen((req, res) => {
+        req.resume();
+        res.end("ok");
+      });
+      expect(await post(agent, port, "a")).toBe(200);
+      const [socket] = Object.values(agent.freeSockets).flat();
+      expect(socket?.timeout).toBe(POOLED_SOCKET_IDLE_MS);
+      socket?.emit("timeout");
+      expect(socket?.destroyed).toBe(true);
+    } finally {
+      agent.destroy();
+    }
   });
 });
 

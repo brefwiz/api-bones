@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 
 import { Given, Then, When, World } from "@cucumber/cucumber";
 
-import { Code, ConnectError, markNotDelivered } from "@brefwiz/api-bones-connect";
+import { Code, ConnectError, markNotDelivered, markResetBeforeResponse } from "@brefwiz/api-bones-connect";
 import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
 
 import { unaryMethodFixture, unaryPolicyDoc } from "./support.ts";
@@ -27,6 +27,8 @@ interface UndeliveredWorld extends World {
   failures: number;
   undelivered: boolean;
   failureMessage?: string;
+  /** Set when the failure is a connection reset seen by the read side. */
+  reset?: "before-response" | "after-response";
   /** What the call settled on: the attempt that answered it, or the error it died with. */
   outcome: { answered: boolean; attempt: number };
 }
@@ -86,6 +88,24 @@ Given(
   },
 );
 
+Given(
+  "its connection is reset {int} times before any response byte",
+  function (this: UndeliveredWorld, failures: number) {
+    this.failures = failures;
+    this.undelivered = false;
+    this.reset = "before-response";
+  },
+);
+
+Given(
+  "its connection is reset {int} times after the response began",
+  function (this: UndeliveredWorld, failures: number) {
+    this.failures = failures;
+    this.undelivered = false;
+    this.reset = "after-response";
+  },
+);
+
 When("the call is sent through the retry interceptor", async function (this: UndeliveredWorld) {
   let attempts = 0;
   // A fetch that can prove its connection never carried the request marks the
@@ -94,6 +114,10 @@ When("the call is sent through the retry interceptor", async function (this: Und
   const fetchImpl: typeof fetch = async () => {
     attempts += 1;
     if (attempts <= this.failures) {
+      if (this.reset !== undefined) {
+        const reset = new ConnectError(`read ECONNRESET on attempt ${attempts}`, Code.Aborted);
+        throw this.reset === "before-response" ? markResetBeforeResponse(reset) : reset;
+      }
       const failure = new ConnectError(
         `${this.failureMessage ?? "write EPIPE"} on attempt ${attempts}`,
         this.failureMessage === undefined ? Code.Internal : Code.Unavailable,

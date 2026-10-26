@@ -65,6 +65,8 @@ export {
   makeConnectionFailureNormalizer,
   makeRetryInterceptor,
   markNotDelivered,
+  markResetBeforeResponse,
+  isResetBeforeResponse,
   rpcIdentity,
   serverPushbackMs,
   type RetryEvent,
