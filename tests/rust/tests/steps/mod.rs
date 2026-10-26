@@ -6,6 +6,7 @@
 
 mod csrf_replay_rule;
 mod error_info;
+mod field_labels;
 mod pinned_peer;
 mod precondition;
 

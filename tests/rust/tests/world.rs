@@ -280,3 +280,16 @@ pub struct PinnedPeerWorld {
     /// How building a caller ended, once one has been built.
     pub built: Option<Result<(), api_bones_connect::PinnedPeerError>>,
 }
+
+/// The record under test, as the descriptor set it compiles to.
+#[derive(Default, cucumber::World)]
+pub struct FieldLabelsWorld {
+    pub source: String,
+    pub pool: Option<prost_reflect::DescriptorPool>,
+}
+
+impl std::fmt::Debug for FieldLabelsWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FieldLabelsWorld").finish_non_exhaustive()
+    }
+}

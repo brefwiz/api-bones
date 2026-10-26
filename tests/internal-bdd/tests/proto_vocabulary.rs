@@ -8,12 +8,10 @@ use api_bones_automation::{BatchOfError, check_batch_of};
 use cucumber::{World, given, then, when};
 use prost_reflect::prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, ReflectMessage, Value};
-use protox::{
-    Compiler, Error,
-    file::{File, FileResolver, GoogleFileResolver},
-};
 
-const CONTRACT: &str = "contract/v1/contract.proto";
+#[path = "../../shared/shipped_resolver.rs"]
+mod shipped_resolver;
+use shipped_resolver::{CONTRACT, compiler};
 
 #[derive(Default, World)]
 struct VocabularyWorld {
@@ -27,21 +25,6 @@ struct VocabularyWorld {
 impl std::fmt::Debug for VocabularyWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("VocabularyWorld").finish()
-    }
-}
-
-struct ShippedAndContract(String);
-
-impl FileResolver for ShippedAndContract {
-    fn open_file(&self, name: &str) -> Result<File, Error> {
-        if name == CONTRACT {
-            return File::from_source(name, &self.0);
-        }
-        if let Some((_, bytes)) = api_bones_protos::files().find(|(path, _)| *path == name) {
-            let source = std::str::from_utf8(bytes).expect("shipped protos are utf8");
-            return File::from_source(name, source);
-        }
-        GoogleFileResolver::new().open_file(name)
     }
 }
 
@@ -431,7 +414,7 @@ fn given_dispatch_step(world: &mut VocabularyWorld, kind: String) {
 
 #[when("the contract is compiled against the shipped files")]
 fn when_compiled(world: &mut VocabularyWorld) {
-    let mut compiler = Compiler::with_file_resolver(ShippedAndContract(world.source.clone()));
+    let mut compiler = compiler(world.source.clone(), api_bones_protos::files());
     world.outcome = Some(match compiler.open_file(CONTRACT) {
         Ok(_) => Ok(compiler.descriptor_pool()),
         Err(e) => Err(e.to_string()),

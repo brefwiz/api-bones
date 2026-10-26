@@ -38,6 +38,17 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The proto field labels read back from a descriptor. The artefact is the
+  # shipped `bones/v1` proto, which the Rust crate embeds and no TypeScript
+  # package wraps -- so this surface is Rust alone. The TypeScript lane
+  # still answers the same file over a buf-built descriptor, as a
+  # cross-language conformance check outside the surface.
+  field-labels:
+    contract: tests/features/field_labels.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-protos]
   # Which entry of the TypeScript package carries workload identity. Rust has
   # no entry split: the crate is server-only, so this surface is TS alone.
   connect-workload-identity:

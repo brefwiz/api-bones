@@ -151,6 +151,7 @@ name = "api-bones-contract-rust"
 version = "0.0.0"
 dependencies = [
  "api-bones-connect",
+ "api-bones-protos",
  "brefwiz-cucumber-steps",
  "bytes",
  "connectrpc",
@@ -159,6 +160,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "prost-reflect",
+ "protox",
  "rcgen",
  "tokio",
  "tokio-rustls",
@@ -194,6 +197,8 @@ dependencies = [
 name = "api-bones-protos"
 version = "0.6.2"
 dependencies = [
+ "prost-reflect",
+ "protox",
  "sha2 0.11.0",
 ]
 
