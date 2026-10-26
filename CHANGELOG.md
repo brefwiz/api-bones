@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.3.1] - 2026-10-26
+
+### Fixed
+
+- *(connect-ts)* close idle sockets before the server does and replay stale-connection resets
+
 ## [12.3.0] - 2026-10-24
 
 ### Added
