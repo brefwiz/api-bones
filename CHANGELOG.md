@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.5.0] - 2026-10-26
+
+### Added
+
+- *(protos)* meaning field option beside the classification option
+
 ## [12.4.0] - 2026-10-26
 
 ### Added

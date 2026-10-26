@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-automation"
-version = "0.2.3"
+version = "0.2.4"
 publish = ["brefwiz"]
 edition = "2024"
 rust-version = "1.88"
@@ -18,7 +18,7 @@ categories = ["development-tools"]
 workspace = true
 
 [dependencies]
-api-bones-protos = { path = "../api-bones-protos", version = "^0.6.2", registry = "brefwiz" }
+api-bones-protos = { path = "../api-bones-protos", version = "^0.6.3", registry = "brefwiz" }
 base64 = "0.22"
 ed25519-dalek = "2"
 prost-reflect = "0.16"
