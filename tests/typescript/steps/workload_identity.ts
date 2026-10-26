@@ -5,15 +5,21 @@
  */
 
 import assert from "node:assert/strict";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo, Socket } from "node:net";
 
-import { Given, Then, When, World } from "@cucumber/cucumber";
+import { After, Given, Then, When, World } from "@cucumber/cucumber";
 
 import {
+  type ClosableTransport,
   WorkloadIdentityError,
+  configureNodeConnectTransport,
   clientTlsIdentityFor,
   trustDomainOf,
   workloadPeerFor,
 } from "@brefwiz/api-bones-connect/node";
+
+import { unaryMethodFixture } from "./support.ts";
 
 type SvidWatcher = Parameters<typeof clientTlsIdentityFor>[0];
 
@@ -21,6 +27,10 @@ interface WorkloadWorld extends World {
   spiffeId: string;
   peer?: ReturnType<typeof workloadPeerFor>;
   peerFailure?: unknown;
+  server?: Server;
+  sockets: Set<Socket>;
+  transport?: ClosableTransport;
+  served?: Awaited<ReturnType<ClosableTransport["unary"]>>;
 }
 
 Given("a workload whose SVID names {string}", function (this: WorkloadWorld, spiffeId: string) {
@@ -74,4 +84,50 @@ Then("reaching the peer fails as {string}", function (this: WorkloadWorld, kind:
   const failure = this.peerFailure;
   assert.ok(failure instanceof WorkloadIdentityError, `expected a WorkloadIdentityError, got ${String(failure)}`);
   assert.equal(failure.kind, kind);
+});
+
+Given(
+  "a Node transport that has served a call over HTTP 1.1",
+  async function (this: WorkloadWorld) {
+    this.sockets = new Set();
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "application/proto" });
+      res.end();
+    });
+    server.on("connection", (socket) => this.sockets.add(socket));
+    this.server = server;
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address() as AddressInfo;
+    const transport = await configureNodeConnectTransport({
+      baseUrl: `http://127.0.0.1:${port}`,
+      profile: "service",
+      httpVersion: "1.1",
+    });
+    this.transport = transport;
+    this.served = await transport.unary(
+      unaryMethodFixture("pkg.v1.CloseService", "Get"),
+      undefined,
+      undefined,
+      undefined,
+      { value: "x" },
+    );
+    assert.ok(this.sockets.size > 0, "the call opened no connection");
+  },
+);
+
+When("the transport is closed twice", function (this: WorkloadWorld) {
+  this.transport?.close();
+  this.transport?.close();
+});
+
+Then("every connection it opened is destroyed", async function (this: WorkloadWorld) {
+  for (let i = 0; i < 50 && [...this.sockets].some((s) => !s.destroyed); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(this.served?.message, "the served call returned no response");
+  assert.ok([...this.sockets].every((s) => s.destroyed));
+});
+
+After(function (this: WorkloadWorld) {
+  this.server?.close();
 });

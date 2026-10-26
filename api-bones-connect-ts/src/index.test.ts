@@ -2,7 +2,8 @@
 import type { DescMethodUnary } from "@bufbuild/protobuf";
 import { EmptySchema, StringValueSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { createServer } from "node:net";
+import { createServer as createHttpServer } from "node:http";
+import { createServer, type AddressInfo, type Socket } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -200,6 +201,52 @@ describe("node transport", () => {
     });
     expect(transport).toHaveProperty("unary");
     expect(transport).toHaveProperty("stream");
+  });
+
+  it("close destroys the h1 agent's sockets and is idempotent", async () => {
+    const sockets = new Set<Socket>();
+    const server = createHttpServer((_req, res) => res.end("ok"));
+    server.on("connection", (s) => sockets.add(s));
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const { port } = server.address() as AddressInfo;
+    try {
+      const transport = await configureNodeConnectTransport({
+        baseUrl: `http://127.0.0.1:${port}`,
+        profile: "service",
+        httpVersion: "1.1",
+      });
+      const method = {
+        kind: "rpc",
+        name: "Get",
+        localName: "get",
+        parent: { typeName: "pkg.v1.Svc" },
+        methodKind: "unary",
+        input: StringValueSchema,
+        output: EmptySchema,
+        idempotency: 0,
+        deprecated: false,
+      } as unknown as DescMethodUnary<typeof StringValueSchema, typeof EmptySchema>;
+      await transport
+        .unary(method, undefined, undefined, undefined, { value: "x" })
+        .catch(() => undefined);
+      expect(sockets.size).toBeGreaterThan(0);
+      transport.close();
+      transport.close();
+      await vi.waitFor(() => {
+        for (const s of sockets) expect(s.destroyed).toBe(true);
+      });
+    } finally {
+      server.close();
+    }
+  });
+
+  it("close is idempotent on an h2 transport that never connected", async () => {
+    const transport = await configureNodeConnectTransport({
+      baseUrl: "http://127.0.0.1:1",
+      profile: "service",
+    });
+    transport.close();
+    expect(() => transport.close()).not.toThrow();
   });
 
   it("accepts a well-formed policy", async () => {

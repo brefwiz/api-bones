@@ -55,3 +55,11 @@ Feature: Connect workload identity
     Given a workload whose SVID names "spiffe://prod.example/o/acme"
     When it tries to reach the workload "ledger"
     Then reaching the peer fails as "unusable_peer_identity"
+
+  # The Node transport owns the connections it opens, so the caller that is
+  # done with it can release them and let the process exit. Closing twice is
+  # harmless.
+  Scenario: A Node transport releases its connections when closed
+    Given a Node transport that has served a call over HTTP 1.1
+    When the transport is closed twice
+    Then every connection it opened is destroyed

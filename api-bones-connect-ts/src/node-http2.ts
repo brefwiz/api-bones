@@ -118,6 +118,11 @@ export class ObservedHttp2SessionManager {
     return stream;
   }
 
+  /** Closes the wrapped session and fails any stream still on it. */
+  abort(reason?: Error): void {
+    this.#inner.abort(reason);
+  }
+
   notifyResponseByteRead(stream: http2.ClientHttp2Stream): void {
     this.#inner.notifyResponseByteRead(stream);
   }

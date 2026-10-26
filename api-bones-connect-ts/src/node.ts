@@ -61,6 +61,14 @@ export {
 export type { PinnedPeer };
 export type { WorkloadIdentityErrorKind, WorkloadPeer } from "./workload-identity.js";
 
+/**
+ * A Node Connect transport that owns its connections and can release them.
+ * `close()` destroys the keep-alive sockets (HTTP/1.1) or the shared session
+ * (HTTP/2) the transport created, and is safe to call more than once. Calls
+ * made after `close()` open fresh connections, so close only when done.
+ */
+export type ClosableTransport = Transport & { close(): void };
+
 export interface NodeConnectTransportOptions {
   baseUrl: string;
   /**
@@ -195,7 +203,7 @@ function makeUnauthInterceptor(onUnauthorized: () => void): Interceptor {
  */
 export async function configureNodeConnectTransport(
   opts: NodeConnectTransportOptions,
-): Promise<Transport> {
+): Promise<ClosableTransport> {
   const { baseUrl, profile, policy, getToken, onUnauthorized, useBinaryFormat, retry, onRetry } =
     opts;
 
@@ -299,24 +307,37 @@ export async function configureNodeConnectTransport(
   }
 
   if (httpVersion === "1.1") {
-    return createConnectTransport({
-      ...common,
-      httpVersion: "1.1",
-      nodeOptions: {
-        agent: createDiagnosticAgent(isTls, diagnostics, tlsSource),
-      },
-    });
+    const agent = createDiagnosticAgent(isTls, diagnostics, tlsSource);
+    return withClose(
+      createConnectTransport({
+        ...common,
+        httpVersion: "1.1",
+        nodeOptions: { agent },
+      }),
+      () => agent.destroy(),
+    );
   }
   // h2 resolves the identity once, at composition: the session manager owns
   // the session and there is no per-connection hook to re-resolve through. A
   // rotating identity therefore wants httpVersion "1.1" until that lands.
-  return createConnectTransport({
-    ...common,
-    httpVersion: "2",
-    sessionManager: new ObservedHttp2SessionManager(
-      baseUrl,
-      diagnostics,
-      tlsSource ? resolveTlsIdentity(tlsSource) : undefined,
-    ),
+  const sessionManager = new ObservedHttp2SessionManager(
+    baseUrl,
+    diagnostics,
+    tlsSource ? resolveTlsIdentity(tlsSource) : undefined,
+  );
+  return withClose(
+    createConnectTransport({ ...common, httpVersion: "2", sessionManager }),
+    () => sessionManager.abort(),
+  );
+}
+
+function withClose(transport: Transport, release: () => void): ClosableTransport {
+  let closed = false;
+  return Object.assign(transport, {
+    close(): void {
+      if (closed) return;
+      closed = true;
+      release();
+    },
   });
 }
