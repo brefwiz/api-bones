@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [12.4.0] - 2026-10-26
+
+### Added
+
+- *(connect-node)* a node transport can close its agent
+
 ## [12.3.1] - 2026-10-26
 
 ### Fixed
