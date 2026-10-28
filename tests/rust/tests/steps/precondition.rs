@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 //! The Rust half of `../../features/connect_precondition.feature`.
 //!
 //! The TypeScript half answers the same file; neither keeps its own copy of

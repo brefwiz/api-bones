@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 //! The Rust half of `../../features/connect_pinned_peer.feature`.
 //!
 //! The TypeScript half answers the same file; neither keeps its own copy of

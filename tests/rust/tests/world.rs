@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 //! The Cucumber World for the shared contract lane.
 
 use std::collections::HashMap;
