@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 #
 # The Rust step lane for the shared Gherkin contract at ../features. One lane
 # per language sits beside the corpus; the TypeScript lane is in
@@ -8,8 +8,8 @@ name = "api-bones-contract-rust"
 version = "0.0.0"
 edition = "2024"
 publish = false
-# Unpublished; declared so workspace members all resolve one.
-license = "MIT"
+# Unpublished; depends on proprietary brefwiz-cucumber-steps.
+license = "LicenseRef-Brefwiz-Proprietary"
 
 [dependencies]
 api-bones-connect = { path = "../../api-bones-connect" }

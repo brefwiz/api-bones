@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 //! Runs the shared Gherkin contract that both languages answer.
 //!
 //! `TwoPass` owns scenario selection, concurrency and the census.
