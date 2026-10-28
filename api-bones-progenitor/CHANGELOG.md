@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.4.2] - 2026-10-28
+
+### Other
+
+- *(license)* clear license-boundary errors
+
 ## [4.4.1](https://git.brefwiz.com/brefwiz/api-bones/compare/api-bones-progenitor-v4.4.0...api-bones-progenitor-v4.4.1) - 2026-08-15
 
 ### Fixed

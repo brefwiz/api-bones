@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.6] - 2026-10-28
+
+### Other
+
+- *(license)* clear license-boundary errors
+
 ## [4.4.5] - 2026-10-24
 
 ### Other
