@@ -20,6 +20,7 @@ import {
 } from "@brefwiz/api-bones-connect/node";
 
 import { unaryMethodFixture } from "./support.ts";
+import { createPackedConsumerProof } from "./packed_consumer_support.ts";
 
 type SvidWatcher = Parameters<typeof clientTlsIdentityFor>[0];
 
@@ -33,58 +34,94 @@ interface WorkloadWorld extends World {
   served?: Awaited<ReturnType<ClosableTransport["unary"]>>;
 }
 
-Given("a workload whose SVID names {string}", function (this: WorkloadWorld, spiffeId: string) {
-  this.spiffeId = spiffeId;
-});
+Given(
+  "a workload whose SVID names {string}",
+  function (this: WorkloadWorld, spiffeId: string) {
+    this.spiffeId = spiffeId;
+  },
+);
 
-Then("its trust domain is {string}", function (this: WorkloadWorld, expected: string) {
-  assert.equal(trustDomainOf(this.spiffeId), expected === "none" ? null : expected);
-});
+Then(
+  "its trust domain is {string}",
+  function (this: WorkloadWorld, expected: string) {
+    assert.equal(
+      trustDomainOf(this.spiffeId),
+      expected === "none" ? null : expected,
+    );
+  },
+);
 
 Then(
   "deriving its TLS identity fails as {string}",
   function (this: WorkloadWorld, kind: string) {
     // Only `current()` is read before the trust domain is refused.
-    const watcher = { current: () => ({ spiffeId: this.spiffeId }) } as unknown as SvidWatcher;
+    const watcher = {
+      current: () => ({ spiffeId: this.spiffeId }),
+    } as unknown as SvidWatcher;
     let failure: unknown;
     try {
       clientTlsIdentityFor(watcher);
     } catch (error) {
       failure = error;
     }
-    assert.ok(failure instanceof WorkloadIdentityError, `expected a WorkloadIdentityError, got ${String(failure)}`);
+    assert.ok(
+      failure instanceof WorkloadIdentityError,
+      `expected a WorkloadIdentityError, got ${String(failure)}`,
+    );
     assert.equal(failure.kind, kind);
   },
 );
 
-When("it reaches the workload {string}", function (this: WorkloadWorld, service: string) {
-  const watcher = { current: () => ({ spiffeId: this.spiffeId }) } as unknown as SvidWatcher;
-  const peer = workloadPeerFor(watcher, service);
-  this.peer = peer;
-});
+When(
+  "it reaches the workload {string}",
+  function (this: WorkloadWorld, service: string) {
+    const watcher = {
+      current: () => ({ spiffeId: this.spiffeId }),
+    } as unknown as SvidWatcher;
+    const peer = workloadPeerFor(watcher, service);
+    this.peer = peer;
+  },
+);
 
-When("it tries to reach the workload {string}", function (this: WorkloadWorld, service: string) {
-  const watcher = { current: () => ({ spiffeId: this.spiffeId }) } as unknown as SvidWatcher;
-  try {
-    this.peer = workloadPeerFor(watcher, service);
-  } catch (error) {
-    this.peerFailure = error;
-  }
-});
+When(
+  "it tries to reach the workload {string}",
+  function (this: WorkloadWorld, service: string) {
+    const watcher = {
+      current: () => ({ spiffeId: this.spiffeId }),
+    } as unknown as SvidWatcher;
+    try {
+      this.peer = workloadPeerFor(watcher, service);
+    } catch (error) {
+      this.peerFailure = error;
+    }
+  },
+);
 
-Then("the peer address is {string}", function (this: WorkloadWorld, url: string) {
-  assert.equal(this.peer?.url, url);
-});
+Then(
+  "the peer address is {string}",
+  function (this: WorkloadWorld, url: string) {
+    assert.equal(this.peer?.url, url);
+  },
+);
 
-Then("the peer identity is {string}", function (this: WorkloadWorld, spiffeId: string) {
-  assert.equal(this.peer?.spiffeId, spiffeId);
-});
+Then(
+  "the peer identity is {string}",
+  function (this: WorkloadWorld, spiffeId: string) {
+    assert.equal(this.peer?.spiffeId, spiffeId);
+  },
+);
 
-Then("reaching the peer fails as {string}", function (this: WorkloadWorld, kind: string) {
-  const failure = this.peerFailure;
-  assert.ok(failure instanceof WorkloadIdentityError, `expected a WorkloadIdentityError, got ${String(failure)}`);
-  assert.equal(failure.kind, kind);
-});
+Then(
+  "reaching the peer fails as {string}",
+  function (this: WorkloadWorld, kind: string) {
+    const failure = this.peerFailure;
+    assert.ok(
+      failure instanceof WorkloadIdentityError,
+      `expected a WorkloadIdentityError, got ${String(failure)}`,
+    );
+    assert.equal(failure.kind, kind);
+  },
+);
 
 Given(
   "a Node transport that has served a call over HTTP 1.1",
@@ -96,7 +133,9 @@ Given(
     });
     server.on("connection", (socket) => this.sockets.add(socket));
     this.server = server;
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
     const { port } = server.address() as AddressInfo;
     const transport = await configureNodeConnectTransport({
       baseUrl: `http://127.0.0.1:${port}`,
@@ -120,14 +159,68 @@ When("the transport is closed twice", function (this: WorkloadWorld) {
   this.transport?.close();
 });
 
-Then("every connection it opened is destroyed", async function (this: WorkloadWorld) {
-  for (let i = 0; i < 50 && [...this.sockets].some((s) => !s.destroyed); i++) {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  assert.ok(this.served?.message, "the served call returned no response");
-  assert.ok([...this.sockets].every((s) => s.destroyed));
-});
+Then(
+  "every connection it opened is destroyed",
+  async function (this: WorkloadWorld) {
+    for (
+      let i = 0;
+      i < 50 && [...this.sockets].some((s) => !s.destroyed);
+      i++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(this.served?.message, "the served call returned no response");
+    assert.ok([...this.sockets].every((s) => s.destroyed));
+  },
+);
 
 After(function (this: WorkloadWorld) {
   this.server?.close();
+});
+
+interface PackageWorld extends World {
+  packedConsumer?: ReturnType<typeof createPackedConsumerProof>;
+}
+
+Given(
+  "the published transport package installed in isolated consumers",
+  { timeout: 120_000 },
+  function (this: PackageWorld) {
+    this.packedConsumer = createPackedConsumerProof();
+  },
+);
+Then(
+  "the neutral entry works without adapters and selected missing adapters are refused",
+  { timeout: 180_000 },
+  function (this: PackageWorld) {
+    assert.ok(this.packedConsumer);
+    this.packedConsumer.proveNeutral();
+  },
+);
+Then(
+  "the installed {string} adapters load their public entries",
+  { timeout: 180_000 },
+  function (this: PackageWorld, entries: string) {
+    assert.ok(this.packedConsumer);
+    this.packedConsumer.proveSelected(entries.split(","));
+  },
+);
+Then(
+  "the incompatible {string} adapter is refused by strict resolution",
+  { timeout: 180_000 },
+  function (this: PackageWorld, entry: string) {
+    assert.ok(this.packedConsumer);
+    this.packedConsumer.proveIncompatible(entry);
+  },
+);
+Then(
+  "a linked SDK resolves the transport within its installed dependency boundary",
+  { timeout: 360_000 },
+  function (this: PackageWorld) {
+    assert.ok(this.packedConsumer);
+    this.packedConsumer.proveLinked();
+  },
+);
+After({ tags: "@packed-package" }, function (this: PackageWorld) {
+  this.packedConsumer?.close();
 });

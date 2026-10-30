@@ -63,3 +63,34 @@ Feature: Connect workload identity
     Given a Node transport that has served a call over HTTP 1.1
     When the transport is closed twice
     Then every connection it opened is destroyed
+
+  @packed-package
+  Scenario: A runtime-neutral consumer does not need unused transport adapters
+    Given the published transport package installed in isolated consumers
+    Then the neutral entry works without adapters and selected missing adapters are refused
+
+  @packed-package
+  Scenario Outline: A consumer supplies only the transport adapters it uses
+    Given the published transport package installed in isolated consumers
+    Then the installed "<entries>" adapters load their public entries
+
+    Examples:
+      | entries  |
+      | web      |
+      | node     |
+      | web,node |
+
+  @packed-package
+  Scenario Outline: Incompatible explicitly supplied adapters are refused
+    Given the published transport package installed in isolated consumers
+    Then the incompatible "<entry>" adapter is refused by strict resolution
+
+    Examples:
+      | entry |
+      | web   |
+      | node  |
+
+  @packed-package
+  Scenario: An application loads the transport through its linked SDK
+    Given the published transport package installed in isolated consumers
+    Then a linked SDK resolves the transport within its installed dependency boundary
