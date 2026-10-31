@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-10-31
+
+### Added
+
+- *(protos)* add bones.v1.StreamControl, the stream-control constants and the control-only frame codec
+
 ## [0.6.3] - 2026-10-26
 
 ### Added
