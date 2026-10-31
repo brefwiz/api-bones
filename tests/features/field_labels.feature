@@ -41,3 +41,10 @@ Feature: Field labels
     When the vocabulary is read back through descriptor reflection
     Then the field options it declares are "attr, classification, meaning"
     And the classification enums it declares are "bones.v1.DataClassification"
+
+  Scenario: The shipped stream control is exactly a drain or a checkpoint
+    Given the shipped stream control
+    When the vocabulary is read back through descriptor reflection
+    Then the message "bones.v1.StreamControl" declares the oneof "signal" holding exactly "drain, checkpoint"
+    And the message "bones.v1.Drain" declares exactly the fields "cut_in_ms"
+    And the message "bones.v1.Checkpoint" declares exactly the fields "domain, live_from, delivered_through"

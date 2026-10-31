@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: MIT
+//
+// Stream control: the in-stream signal a long-lived server stream uses to be
+// replaced before it is dropped.
+//
+// Every response message of a CALL_SHAPE_UNBOUNDED_STREAM method declares
+//
+//     bones.v1.StreamControl bones_control = 2047;
+//
+// as a top-level field OUTSIDE any oneof of that message, so a framework can
+// build a control-only frame for any message type. A control frame sets only
+// that field. A client declares it understands control frames with the
+// request header `bones-stream-control: 1`; a server never sends one to a
+// client that did not.
+
+syntax = "proto3";
+
+package bones.v1;
+
+// One control signal: a drain notice or a checkpoint.
+message StreamControl {
+  oneof signal {
+    // The stream will be cut; open a replacement.
+    Drain drain = 1;
+
+    // The position the stream has reached in one domain.
+    Checkpoint checkpoint = 2;
+  }
+}
+
+// Notice that the server is about to cut the stream.
+message Drain {
+  // Milliseconds from receipt until the cut. Relative to the moment the
+  // client reads the frame, so clock skew between the peers does not matter.
+  uint32 cut_in_ms = 1;
+}
+
+// A continuity proof for one domain of the stream.
+message Checkpoint {
+  // The domain the positions below belong to.
+  string domain = 1;
+
+  // The first position a stream opened now would deliver in this domain.
+  uint64 live_from = 2;
+
+  // The contiguous position this stream has delivered in this domain: every
+  // position up to and including it has been delivered, with no gap. It is
+  // never the highest sequence seen, which may lie beyond a gap.
+  uint64 delivered_through = 3;
+}

@@ -8,9 +8,7 @@ use crate::world::FieldLabelsWorld;
 use cucumber::{given, then, when};
 use prost_reflect::{DescriptorPool, FieldDescriptor, Kind, Value};
 
-#[path = "../../../shared/shipped_resolver.rs"]
-mod shipped_resolver;
-use shipped_resolver::{CONTRACT, compiler};
+use super::shipped_resolver::{CONTRACT, compiler};
 
 fn record_source(field: &str, kind: &str, options: &str) -> String {
     format!(
@@ -71,6 +69,14 @@ fn given_meaning_only(world: &mut FieldLabelsWorld, field: String, kind: String,
 #[given("the shipped field vocabulary")]
 fn given_vocabulary(world: &mut FieldLabelsWorld) {
     world.source = record_source("id", "string", "");
+}
+
+#[given("the shipped stream control")]
+fn given_stream_control(world: &mut FieldLabelsWorld) {
+    world.source = "syntax = \"proto3\";\npackage contract.v1;\n\
+         import \"bones/v1/stream.proto\";\n\
+         message Record { string id = 1; }\n"
+        .to_owned();
 }
 
 #[when("the record is read back through descriptor reflection")]
@@ -178,4 +184,43 @@ fn then_classification_enums(world: &mut FieldLabelsWorld, expected: String) {
         .map(|e| e.full_name().to_owned())
         .collect();
     assert_eq!(names(found), expected);
+}
+
+fn field_names(message: &prost_reflect::MessageDescriptor) -> String {
+    message
+        .fields()
+        .map(|f| f.name().to_owned())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+#[then(expr = "the message {string} declares the oneof {string} holding exactly {string}")]
+fn then_oneof(world: &mut FieldLabelsWorld, message: String, oneof: String, expected: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let message = pool
+        .get_message_by_name(&message)
+        .unwrap_or_else(|| panic!("{message} is not declared"));
+    assert_eq!(message.oneofs().count(), 1, "one oneof");
+    let signal = message.oneofs().next().expect("oneof");
+    assert_eq!(signal.name(), oneof);
+    let members = signal
+        .fields()
+        .map(|f| f.name().to_owned())
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert_eq!(members, expected);
+    assert_eq!(
+        field_names(&message),
+        members,
+        "every field belongs to the oneof"
+    );
+}
+
+#[then(expr = "the message {string} declares exactly the fields {string}")]
+fn then_fields(world: &mut FieldLabelsWorld, message: String, expected: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let message = pool
+        .get_message_by_name(&message)
+        .unwrap_or_else(|| panic!("{message} is not declared"));
+    assert_eq!(field_names(&message), expected);
 }

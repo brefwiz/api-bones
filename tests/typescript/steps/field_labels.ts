@@ -112,6 +112,13 @@ Given("the shipped field vocabulary", function (this: FieldLabelsWorld) {
   this.source = recordSource("id", "string", "");
 });
 
+Given("the shipped stream control", function (this: FieldLabelsWorld) {
+  this.source =
+    `syntax = "proto3";\npackage contract.v1;\n` +
+    `import "bones/v1/stream.proto";\n` +
+    `message Record { string id = 1; }\n`;
+});
+
 When("the record is read back through descriptor reflection", function (this: FieldLabelsWorld) {
   this.registry = compile(this);
 });
@@ -179,3 +186,34 @@ Then("the classification enums it declares are {string}", function (this: FieldL
   assert.equal(sorted(found), expected);
 });
 
+
+function shippedMessage(world: FieldLabelsWorld, name: string) {
+  const message = registryOf(world).getMessage(name);
+  if (!message) throw new Error(`${name} is not declared`);
+  return message;
+}
+
+Then(
+  "the message {string} declares the oneof {string} holding exactly {string}",
+  function (this: FieldLabelsWorld, name: string, oneof: string, expected: string) {
+    const message = shippedMessage(this, name);
+    assert.equal(message.oneofs.length, 1, "one oneof");
+    const signal = message.oneofs[0]!;
+    assert.equal(signal.name, oneof);
+    const members = signal.fields.map((f) => f.name).join(", ");
+    assert.equal(members, expected);
+    assert.equal(message.fields.map((f) => f.name).join(", "), members, "every field belongs to the oneof");
+  },
+);
+
+Then(
+  "the message {string} declares exactly the fields {string}",
+  function (this: FieldLabelsWorld, name: string, expected: string) {
+    assert.equal(
+      shippedMessage(this, name)
+        .fields.map((f) => f.name)
+        .join(", "),
+      expected,
+    );
+  },
+);

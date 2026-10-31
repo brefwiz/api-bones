@@ -46,6 +46,7 @@ const RATELIMIT_PROTO: &[u8] = include_bytes!("../proto/bones/v1/ratelimit.proto
 const ANNOTATIONS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/annotations.proto");
 const AUTOMATION_MANIFEST_PROTO: &[u8] =
     include_bytes!("../proto/bones/v1/automation_manifest.proto");
+const STREAM_PROTO: &[u8] = include_bytes!("../proto/bones/v1/stream.proto");
 const FIELD_BEHAVIOR_PROTO: &[u8] = include_bytes!("../vendor/google/api/field_behavior.proto");
 
 /// Yield `(relative_path, bytes)` pairs for every `bones/v1/*.proto`
@@ -66,6 +67,7 @@ pub fn files() -> impl Iterator<Item = (&'static str, &'static [u8])> {
             "bones/v1/automation_manifest.proto",
             AUTOMATION_MANIFEST_PROTO,
         ),
+        ("bones/v1/stream.proto", STREAM_PROTO),
         ("google/api/field_behavior.proto", FIELD_BEHAVIOR_PROTO),
     ]
     .into_iter()
@@ -76,9 +78,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ships_seven_files() {
+    fn ships_eight_files() {
         let v: Vec<_> = files().collect();
-        assert_eq!(v.len(), 7);
+        assert_eq!(v.len(), 8);
     }
 
     #[test]

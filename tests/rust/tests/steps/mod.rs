@@ -9,6 +9,9 @@ mod error_info;
 mod field_labels;
 mod pinned_peer;
 mod precondition;
+#[path = "../../../shared/shipped_resolver.rs"]
+mod shipped_resolver;
+mod stream_control;
 
 use crate::world::RetryWorld;
 use connectrpc::{ConnectError, ErrorCode};
