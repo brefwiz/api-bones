@@ -293,3 +293,25 @@ impl std::fmt::Debug for FieldLabelsWorld {
         f.debug_struct("FieldLabelsWorld").finish_non_exhaustive()
     }
 }
+
+/// The stream control under test: the control a scenario declares, the frame
+/// it was written into, and what the codec read back from that frame.
+#[derive(Default, cucumber::World)]
+pub struct StreamControlWorld {
+    pub source: String,
+    pub pool: Option<prost_reflect::DescriptorPool>,
+    pub control: Option<api_bones::connect::StreamControl>,
+    pub ordinary: Option<String>,
+    pub ordinary_proto: Vec<u8>,
+    pub frame: Vec<u8>,
+    pub json_frame: bool,
+    pub read_back: Option<
+        Result<Option<api_bones::connect::StreamControl>, api_bones::connect::MalformedControl>,
+    >,
+}
+
+impl std::fmt::Debug for StreamControlWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamControlWorld").finish_non_exhaustive()
+    }
+}

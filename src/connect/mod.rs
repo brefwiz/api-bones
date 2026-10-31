@@ -73,6 +73,7 @@ mod parse;
 pub mod precondition_client;
 mod retry_eligibility;
 mod scoped;
+pub mod stream_control;
 mod timestamp;
 pub mod transport;
 mod uuid;
@@ -100,6 +101,10 @@ pub use retry_eligibility::{
     is_replayable_transport_failure, is_unprompted_retryable,
 };
 pub use scoped::{CallCredential, ScopeCall, ScopedClient, TokenInjector};
+pub use stream_control::{
+    CONTROL_FIELD_JSON_NAME, MalformedControl, STREAM_CONTROL_FIELD_NUMBER, STREAM_CONTROL_HEADER,
+    STREAM_CONTROL_HEADER_VALUE, StreamControl,
+};
 pub use timestamp::{chrono_opt_to_timestamp, chrono_to_timestamp};
 pub use transport::{
     ConnectConfigExt, client_tls_config, connect_http_client, is_caller_rejection,

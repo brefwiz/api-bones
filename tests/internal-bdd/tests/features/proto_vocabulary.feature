@@ -13,6 +13,7 @@ Feature: Proto vocabulary shipped to contract authors
     Then the shipped files include "google/api/field_behavior.proto"
     And the shipped files include "bones/v1/annotations.proto"
     And the shipped files include "bones/v1/automation_manifest.proto"
+    And the shipped files include "bones/v1/stream.proto"
 
   Scenario: A resource declaration reads back its type, identity and method overrides
     Given a contract declaring a resource "reservation" identified by "id" with update "ReplaceReservation"

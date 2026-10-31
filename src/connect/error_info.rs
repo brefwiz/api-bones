@@ -248,7 +248,7 @@ fn put_string(out: &mut Vec<u8>, field: u8, value: &str) {
     out.extend_from_slice(value.as_bytes());
 }
 
-fn take_varint(bytes: &[u8]) -> Option<(u64, &[u8])> {
+pub(super) fn take_varint(bytes: &[u8]) -> Option<(u64, &[u8])> {
     let mut value = 0u64;
     for (index, byte) in bytes.iter().enumerate().take(10) {
         value |= u64::from(byte & 0x7f) << (7 * index);
