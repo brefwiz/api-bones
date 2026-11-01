@@ -294,7 +294,7 @@ export async function configureNodeConnectTransport(
   }
 
   if (tlsSource === undefined && isTls) {
-    const watcher = await startWatcherSafe(undefined, WATCHER_ATTEMPTS);
+    const watcher = await startWatcherSafe(WATCHER_ATTEMPTS);
     if (watcher === null) {
       throw new WorkloadIdentityError(
         `SPIFFE Workload API unavailable after ${WATCHER_ATTEMPTS} attempts; ` +

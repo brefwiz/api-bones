@@ -101,7 +101,7 @@ export function clientTlsIdentityFor(watcher: SvidWatcher): NodeTlsIdentity {
  * SVID names no trust domain. It never resolves to an anonymous identity.
  */
 export async function workloadClientTlsIdentity(): Promise<NodeTlsIdentity> {
-  const watcher = await startWatcherSafe(undefined, WATCHER_ATTEMPTS);
+  const watcher = await startWatcherSafe(WATCHER_ATTEMPTS);
 
   if (watcher === null) {
     throw new WorkloadIdentityError(
@@ -199,7 +199,7 @@ export function workloadPeerFor(
  * Workload API answers, or its SVID names no derivable peer.
  */
 export async function workloadPeer(service: string): Promise<WorkloadPeer> {
-  const watcher = await startWatcherSafe(undefined, WATCHER_ATTEMPTS);
+  const watcher = await startWatcherSafe(WATCHER_ATTEMPTS);
 
   if (watcher === null) {
     throw new WorkloadIdentityError(
