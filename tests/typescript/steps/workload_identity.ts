@@ -5,16 +5,20 @@
  */
 
 import assert from "node:assert/strict";
+import { access } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
 
 import { After, Given, Then, When, World } from "@cucumber/cucumber";
+import { INITIAL_FETCH_TIMEOUT_ENV, WORKLOAD_API_SOCKET_DEFAULT } from "@brefwiz/spiffe-client";
 
 import {
   type ClosableTransport,
+  WATCHER_ATTEMPTS,
   WorkloadIdentityError,
   configureNodeConnectTransport,
   clientTlsIdentityFor,
+  workloadClientTlsIdentity,
   trustDomainOf,
   workloadPeerFor,
 } from "@brefwiz/api-bones-connect/node";
@@ -29,6 +33,8 @@ interface WorkloadWorld extends World {
   peerFailure?: unknown;
   server?: Server;
   sockets: Set<Socket>;
+  fetchWindowSet?: boolean;
+  priorFetchWindow?: string;
   transport?: ClosableTransport;
   served?: Awaited<ReturnType<ClosableTransport["unary"]>>;
 }
@@ -86,6 +92,43 @@ Then("reaching the peer fails as {string}", function (this: WorkloadWorld, kind:
   assert.equal(failure.kind, kind);
 });
 
+Given("a process with no Workload API socket", async function (this: WorkloadWorld) {
+  // The SPIFFE client dials its fixed default agent socket; only a missing
+  // one (not an unreadable one) means this process is outside the mesh.
+  await assert.rejects(access(WORKLOAD_API_SOCKET_DEFAULT), { code: "ENOENT" });
+});
+
+Given(
+  "the workload's first SVID fetch window is {int} second",
+  function (this: WorkloadWorld, seconds: number) {
+    this.fetchWindowSet = true;
+    this.priorFetchWindow = process.env[INITIAL_FETCH_TIMEOUT_ENV];
+    process.env[INITIAL_FETCH_TIMEOUT_ENV] = String(seconds);
+  },
+);
+
+// Budget: WATCHER_ATTEMPTS x (1 s window + 1 s max backoff) + 1.5 s gaps
+// between attempts = 7.5 s, doubled for margin.
+const REFUSAL_TIMEOUT_MS = (WATCHER_ATTEMPTS * (1_000 + 1_000) + 1_500) * 2;
+
+When(
+  "it asks for its workload TLS identity",
+  { timeout: REFUSAL_TIMEOUT_MS },
+  async function (this: WorkloadWorld) {
+    try {
+      await workloadClientTlsIdentity();
+    } catch (error) {
+      this.peerFailure = error;
+    }
+  },
+);
+
+Then("asking fails as {string}", function (this: WorkloadWorld, kind: string) {
+  const failure = this.peerFailure;
+  assert.ok(failure instanceof WorkloadIdentityError, `expected a WorkloadIdentityError, got ${String(failure)}`);
+  assert.equal(failure.kind, kind);
+});
+
 Given(
   "a Node transport that has served a call over HTTP 1.1",
   async function (this: WorkloadWorld) {
@@ -130,4 +173,8 @@ Then("every connection it opened is destroyed", async function (this: WorkloadWo
 
 After(function (this: WorkloadWorld) {
   this.server?.close();
+  if (this.fetchWindowSet) {
+    if (this.priorFetchWindow === undefined) delete process.env[INITIAL_FETCH_TIMEOUT_ENV];
+    else process.env[INITIAL_FETCH_TIMEOUT_ENV] = this.priorFetchWindow;
+  }
 });

@@ -22,6 +22,14 @@ Feature: Connect workload identity
     Given a workload whose SVID names "https://example.org/ns/web"
     Then deriving its TLS identity fails as "unusable_trust_domain"
 
+  # A process outside the mesh has no Workload API to ask. The transport says
+  # so after bounded attempts rather than starting without an identity.
+  Scenario: A process with no Workload API has no in-fleet identity
+    Given the workload's first SVID fetch window is 1 second
+    And a process with no Workload API socket
+    When it asks for its workload TLS identity
+    Then asking fails as "workload_api_unavailable"
+
   # A named workload is reached at a derived address and pinned to a derived
   # identity: the caller's own, with only the trailing service swapped. The
   # organization segment is carried over, so a peer is never resolved across
