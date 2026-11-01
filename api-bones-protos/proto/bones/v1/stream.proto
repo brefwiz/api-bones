@@ -47,4 +47,8 @@ message Checkpoint {
   // position up to and including it has been delivered, with no gap. It is
   // never the highest sequence seen, which may lie beyond a gap.
   uint64 delivered_through = 3;
+
+  // The producer's sequence epoch. It changes whenever the producer's
+  // positions restart, so positions compare only within one epoch.
+  uint64 epoch = 4;
 }

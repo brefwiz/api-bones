@@ -20,7 +20,7 @@ Feature: Stream control
     Examples:
       | control | decoded |
       | a drain notice cutting in 30000 ms | a drain cutting in 30000 ms |
-      | a checkpoint for domain "revocations" live from 41 delivered through 40 | a checkpoint for domain "revocations" live from 41 delivered through 40 |
+      | a checkpoint for domain "revocations" in epoch 3 live from 41 delivered through 40 | a checkpoint for domain "revocations" in epoch 3 live from 41 delivered through 40 |
 
   Scenario Outline: A control-only frame in the JSON codec carries the control under bonesControl
     Given a contract whose stream response carries the stream control
@@ -32,7 +32,7 @@ Feature: Stream control
     Examples:
       | control | decoded |
       | a drain notice cutting in 30000 ms | a drain cutting in 30000 ms |
-      | a checkpoint for domain "revocations" live from 41 delivered through 40 | a checkpoint for domain "revocations" live from 41 delivered through 40 |
+      | a checkpoint for domain "revocations" in epoch 3 live from 41 delivered through 40 | a checkpoint for domain "revocations" in epoch 3 live from 41 delivered through 40 |
 
   Scenario Outline: A framed control keeps the message's ordinary field readable
     Given a contract whose stream response carries the stream control
@@ -58,8 +58,8 @@ Feature: Stream control
       | control | codec |
       | a drain notice cutting in 30000 ms | proto |
       | a drain notice cutting in 30000 ms | json |
-      | a checkpoint for domain "revocations" live from 41 delivered through 40 | proto |
-      | a checkpoint for domain "revocations" live from 41 delivered through 40 | json |
+      | a checkpoint for domain "revocations" in epoch 3 live from 41 delivered through 40 | proto |
+      | a checkpoint for domain "revocations" in epoch 3 live from 41 delivered through 40 | json |
 
   Scenario Outline: A control is read from a frame the shipped proto wrote with its ordinary field
     Given a contract whose stream response carries the stream control

@@ -47,4 +47,4 @@ Feature: Field labels
     When the vocabulary is read back through descriptor reflection
     Then the message "bones.v1.StreamControl" declares the oneof "signal" holding exactly "drain, checkpoint"
     And the message "bones.v1.Drain" declares exactly the fields "cut_in_ms"
-    And the message "bones.v1.Checkpoint" declares exactly the fields "domain, live_from, delivered_through"
+    And the message "bones.v1.Checkpoint" declares exactly the fields "domain, live_from, delivered_through, epoch"

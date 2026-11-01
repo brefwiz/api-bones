@@ -1,0 +1,25 @@
+[package]
+name = "api-bones-stream"
+version = "0.1.0"
+publish = ["brefwiz"]
+edition = "2024"
+rust-version = "1.85"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "The StreamControl signal and its control-only frame codec, independent of any api-bones major."
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-stream"
+keywords = ["protobuf", "streaming", "connectrpc"]
+categories = ["encoding"]
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+# Depends on neither api-bones nor api-bones-connect, so a consumer on any
+# api-bones major can use the codec.
+[dependencies]
+serde_json = "1.0"
