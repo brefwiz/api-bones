@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-11-01
+
+### Added
+
+- *(stream)* move the StreamControl codec into api-bones-stream; Checkpoint carries its epoch
+
 ## [0.6.4] - 2026-10-31
 
 ### Added
