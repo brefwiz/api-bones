@@ -84,3 +84,16 @@ export {
 } from "./precondition.js";
 
 export { CSRF_HEADER, csrfReplayToken } from "./csrf.js";
+
+export {
+  RotationMachine,
+  declaresStreamControl,
+  rotatingStream,
+  type ControlSignal,
+  type FallbackReason,
+  type OpenCall,
+  type RotatingStreamOptions,
+  type RotationAction,
+  type RotationFrame,
+  type StreamRole,
+} from "./stream-rotation.js";

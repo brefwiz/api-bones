@@ -14,6 +14,7 @@
   ],
   "exclude": [
     "src/**/*.test.ts",
+    "src/**/*.fixtures.ts",
     "node_modules"
   ]
 }

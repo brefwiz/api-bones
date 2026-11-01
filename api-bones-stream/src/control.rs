@@ -116,6 +116,15 @@ impl StreamControl {
         Ok(found)
     }
 
+    /// Read a bare `bones.v1.StreamControl` message, without the field-2047
+    /// wrapper that carries it inside a response message.
+    ///
+    /// # Errors
+    /// [`MalformedControl`] when the bytes do not parse or set no signal.
+    pub fn from_control_message(bytes: &[u8]) -> Result<Self, MalformedControl> {
+        Self::decode_proto(bytes)
+    }
+
     /// The control-only JSON frame: an object whose only member is the control.
     #[must_use]
     pub fn to_json_frame(&self) -> Vec<u8> {
@@ -602,6 +611,42 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn a_bare_control_message_round_trips() {
+        for control in [drain(), checkpoint()] {
+            let bare = control.encode_proto();
+            assert_eq!(StreamControl::from_control_message(&bare), Ok(control));
+        }
+    }
+
+    #[test]
+    fn a_bare_control_message_is_the_body_of_the_wrapped_frame() {
+        let frame = checkpoint().to_proto_frame();
+        // Two tag bytes and a one-byte length precede the body.
+        assert_eq!(
+            StreamControl::from_control_message(&frame[3..]),
+            Ok(checkpoint())
+        );
+    }
+
+    #[test]
+    fn a_bare_control_message_rejects_empty_truncated_and_wrapped_input() {
+        assert_eq!(
+            StreamControl::from_control_message(&[]),
+            Err(MalformedControl)
+        );
+        let bare = checkpoint().encode_proto();
+        assert_eq!(
+            StreamControl::from_control_message(&bare[..bare.len() - 1]),
+            Err(MalformedControl)
+        );
+        assert_eq!(
+            StreamControl::from_control_message(&drain().to_proto_frame()),
+            Err(MalformedControl),
+            "the wrapped frame sets no drain or checkpoint at its top level"
+        );
     }
 
     #[test]

@@ -12,6 +12,13 @@
 # CI may pass ADVISORY_DB=<path> to use a local advisory-db clone.
 ADVISORY_DB ?=
 
+# Proto codegen reruns on a content hash of its inputs. build/brefwiz-codegen.mk
+# is vendored byte-for-byte and never edited here. The step lane's build.rs
+# generates from its own proto and from the bones protos it imports.
+CODEGEN_INPUTS := tests/rust/proto api-bones-protos/proto
+
+include build/brefwiz-codegen.mk
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
@@ -49,10 +56,17 @@ ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# not accept ("unexpected argument '--list' found"). ci-e2e-rust runs them.
 	cargo nextest run --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
 
-ci-e2e-rust: ## Answer the Gherkin contracts nextest cannot carry
+ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctests
 	# A cucumber suite is its own harness (harness = false), so nextest cannot
 	# carry it. Both contracts are pure classification/config assertions, so
 	# neither needs a live stack and both run synchronously.
+	# The step lane's own unit tests, over its generated stream response type.
+	cargo test --no-fail-fast -p api-bones-contract-rust --lib
+	# nextest runs no doctests. The rotating client refuses a response type
+	# without stream control at compile time, and a compile_fail example on
+	# rotating_stream is the proof, so that crate's doctests run here, where
+	# both ci-test and ci-coverage reach them.
+	cargo test --doc --no-fail-fast -p api-bones-stream --all-features
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_precondition
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_error_info
@@ -60,6 +74,7 @@ ci-e2e-rust: ## Answer the Gherkin contracts nextest cannot carry
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pinned_peer
 	cargo test --no-fail-fast -p api-bones-contract-rust --test field_labels
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_stream_control
+	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_stream_rotation
 	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_client_headers
 	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_domain_error_code
 	cargo test --no-fail-fast -p api-bones-internal-bdd --test pagination_max_limit

@@ -126,16 +126,26 @@ sdk_surfaces:
         packages: ["@brefwiz/api-bones-connect"]
   # The control frame a long-lived server stream is replaced with: the codec
   # and the field number. The codec lives in api-bones-stream, which depends on
-  # no api-bones major, and api-bones re-exports it. The opt-in request header
-  # joins a surface when the rotation state machine sends it, and the
-  # TypeScript codec arrives with that state machine's surface -- so this
-  # surface is Rust alone until then.
+  # no api-bones major, and api-bones re-exports it. TypeScript needs no codec:
+  # it reads the control as a field of the consumer's own generated message,
+  # which connect-stream-rotation covers -- so this surface is Rust alone.
   connect-stream-control:
     contract: tests/features/connect_stream_control.feature
     targets:
       rust:
         delivery: package
         packages: [api-bones, api-bones-stream]
+  # The rotation decision logic that replaces a long-lived stream before the
+  # server cuts it: both languages answer the one contract, action for action.
+  connect-stream-rotation:
+    contract: tests/features/connect_stream_rotation.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-stream]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
   # The automation manifest compiler and its DSSE signature check are library
   # code the service-kit, the CLI and the layer embed directly; no declared

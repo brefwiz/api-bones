@@ -20,15 +20,22 @@ prost-reflect = "0.16"
 serde_json = "1"
 protox = "0.9"
 connectrpc = "0.9.1"
+# The generated message type that `stream_controlled!` is invoked over.
+buffa = "0.9"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4.2"
 bytes = "1"
 http-body-util = "0.1"
+
+[build-dependencies]
+connectrpc-build = "0.9"
+protox = "0.9"
 
 [dev-dependencies]
 cucumber = "0.23"
 # The platform BDD runner.
 brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time", "sync"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs"] }
 rcgen = "0.13"
 hyper = { version = "1", features = ["http2", "server"] }
@@ -60,4 +67,8 @@ harness = false
 
 [[test]]
 name = "connect_stream_control"
+harness = false
+
+[[test]]
+name = "connect_stream_rotation"
 harness = false

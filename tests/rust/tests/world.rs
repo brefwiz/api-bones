@@ -314,3 +314,67 @@ impl std::fmt::Debug for StreamControlWorld {
         f.debug_struct("StreamControlWorld").finish_non_exhaustive()
     }
 }
+
+/// The rotation machine under test and the actions it has returned so far.
+/// Events are plain strings whose id doubles as their dedupe key.
+#[derive(cucumber::World)]
+pub struct StreamRotationWorld {
+    pub machine: api_bones_stream::RotationMachine<String>,
+    /// Frames the old stream has already received and the machine has not been shown.
+    pub buffered: Arc<Mutex<Vec<api_bones_stream::RotationFrame<String>>>>,
+    pub log: Vec<api_bones_stream::RotationAction<String>>,
+    /// The consumer driving the shipped `rotating_stream` through a scripted open function.
+    pub consumer: Consumer,
+}
+
+pub type WatchItem = Result<api_bones_contract_rust::WatchEvent, String>;
+
+/// A stream of what the consumer's open function returns.
+pub type WatchStream = std::pin::Pin<Box<dyn futures_util::Stream<Item = WatchItem> + Send>>;
+
+/// A consumer whose open function counts its calls, records the header each
+/// request carries and returns scripted streams, first the stream the
+/// consumer reads and then its replacement.
+#[derive(Default)]
+pub struct Consumer {
+    /// Whether the response type carries the stream control field:
+    /// `WatchEvent`, declared with `stream_controlled!`, when it does, and
+    /// `PlainEvent` when it does not.
+    pub declared: bool,
+    /// Whether the compiler lets the response type open through
+    /// `rotating_stream`.
+    pub client_accepts: bool,
+    /// One entry per open call `rotating_stream` made: the header its request
+    /// carried.
+    pub opens: Arc<Mutex<Vec<(String, String)>>>,
+    /// Feeds the first stream.
+    pub first: Option<tokio::sync::mpsc::UnboundedSender<WatchItem>>,
+    /// Feeds the replacement stream.
+    pub replacement: Option<tokio::sync::mpsc::UnboundedSender<WatchItem>>,
+    /// What the consumer reads, when its response type is declared.
+    pub stream: Option<WatchStream>,
+    /// The ids of the events the consumer has received.
+    pub received: Vec<String>,
+}
+
+impl Default for StreamRotationWorld {
+    fn default() -> Self {
+        let buffered: Arc<Mutex<Vec<api_bones_stream::RotationFrame<String>>>> = Arc::default();
+        let taken = buffered.clone();
+        Self {
+            machine: api_bones_stream::RotationMachine::with_buffered_old(move || {
+                std::mem::take(&mut *taken.lock().expect("buffer"))
+            }),
+            buffered,
+            log: Vec::new(),
+            consumer: Consumer::default(),
+        }
+    }
+}
+
+impl std::fmt::Debug for StreamRotationWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamRotationWorld")
+            .finish_non_exhaustive()
+    }
+}

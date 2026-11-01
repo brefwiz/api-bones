@@ -12,6 +12,7 @@ mod precondition;
 #[path = "../../../shared/shipped_resolver.rs"]
 mod shipped_resolver;
 mod stream_control;
+mod stream_rotation;
 
 use crate::world::RetryWorld;
 use connectrpc::{ConnectError, ErrorCode};
