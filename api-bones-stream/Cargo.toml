@@ -6,7 +6,7 @@ edition = "2024"
 rust-version = "1.85"
 authors = ["Gregoire Salingue"]
 license = "MIT"
-description = "The StreamControl signal and its control-only frame codec, independent of any api-bones major."
+description = "The StreamControl signal, its control-only frame codec and the stream rotation state machine, independent of any api-bones major."
 repository = "https://github.com/brefwiz/api-bones"
 homepage = "https://github.com/brefwiz/api-bones"
 documentation = "https://docs.rs/api-bones-stream"
@@ -20,6 +20,12 @@ workspace = true
 path = "src/lib.rs"
 
 # Depends on neither api-bones nor api-bones-connect, so a consumer on any
-# api-bones major can use the codec.
+# api-bones major can use the codec and the rotation driver.
 [dependencies]
 serde_json = "1.0"
+futures-core = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", default-features = false, features = ["time", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "test-util"] }

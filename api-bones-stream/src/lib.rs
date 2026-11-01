@@ -18,8 +18,18 @@
 //! it as `api_bones::connect::stream_control`.
 
 mod control;
+mod controlled;
+mod driver;
+mod rotation;
+
+pub use controlled::StreamControlled;
+pub use driver::{OpenRequest, rotating_stream};
 
 pub use control::{
     CONTROL_FIELD_JSON_NAME, MalformedControl, STREAM_CONTROL_FIELD_NUMBER, STREAM_CONTROL_HEADER,
     STREAM_CONTROL_HEADER_VALUE, StreamControl,
+};
+pub use rotation::{
+    ControlSignal, EndCause, FallbackReason, RotationAction, RotationEvent, RotationFrame,
+    RotationMachine, StreamRole,
 };
