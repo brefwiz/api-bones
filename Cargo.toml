@@ -32,7 +32,7 @@ pedantic = { level = "deny", priority = -1 }
 
 [package]
 name = "api-bones"
-version = "14.0.0"
+version = "14.1.0"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
@@ -85,7 +85,7 @@ opentelemetry = ["http", "std", "dep:opentelemetry"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
-api-bones-stream = { path = "api-bones-stream", version = "^0.1.1", registry = "brefwiz", optional = true }
+api-bones-stream = { path = "api-bones-stream", version = "^0.1.2", registry = "brefwiz", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
 uuid = { version = "1.23.3", features = ["v4"], optional = true }
