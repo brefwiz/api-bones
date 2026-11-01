@@ -125,7 +125,8 @@ sdk_surfaces:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
   # The control frame a long-lived server stream is replaced with: the codec
-  # and the field number, exported by the root crate. The opt-in request header
+  # and the field number. The codec lives in api-bones-stream, which depends on
+  # no api-bones major, and api-bones re-exports it. The opt-in request header
   # joins a surface when the rotation state machine sends it, and the
   # TypeScript codec arrives with that state machine's surface -- so this
   # surface is Rust alone until then.
@@ -134,7 +135,7 @@ sdk_surfaces:
     targets:
       rust:
         delivery: package
-        packages: [api-bones]
+        packages: [api-bones, api-bones-stream]
 internal_behavior_owners:
   # The automation manifest compiler and its DSSE signature check are library
   # code the service-kit, the CLI and the layer embed directly; no declared
@@ -207,6 +208,7 @@ library_crates:
   - api-bones-protos
   - api-bones-reqwest
   - api-bones-sdk-gen
+  - api-bones-stream
   - api-bones-test
   - api-bones-tower
 rpc_protocols:

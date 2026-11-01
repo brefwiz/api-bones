@@ -6,7 +6,7 @@
 //! codec.
 
 use crate::world::StreamControlWorld;
-use api_bones::connect::{
+use api_bones_stream::{
     CONTROL_FIELD_JSON_NAME, MalformedControl, STREAM_CONTROL_FIELD_NUMBER, StreamControl,
 };
 use cucumber::{given, then, when};
@@ -37,10 +37,13 @@ fn given_drain(world: &mut StreamControlWorld, cut_in_ms: u32) {
     world.control = Some(StreamControl::Drain { cut_in_ms });
 }
 
-#[given(expr = "a checkpoint for domain {string} live from {int} delivered through {int}")]
+#[given(
+    expr = "a checkpoint for domain {string} in epoch {int} live from {int} delivered through {int}"
+)]
 fn given_checkpoint(
     world: &mut StreamControlWorld,
     domain: String,
+    epoch: u64,
     live_from: u64,
     delivered_through: u64,
 ) {
@@ -48,6 +51,7 @@ fn given_checkpoint(
         domain,
         live_from,
         delivered_through,
+        epoch,
     });
 }
 
@@ -79,10 +83,12 @@ fn given_shipped_frame(world: &mut StreamControlWorld, codec: String) {
                 domain,
                 live_from,
                 delivered_through,
+                epoch,
             } => serde_json::json!({ "checkpoint": {
                 "domain": domain,
                 "liveFrom": live_from.to_string(),
                 "deliveredThrough": delivered_through.to_string(),
+                "epoch": epoch.to_string(),
             } }),
         };
         let mut message = serde_json::Map::new();
@@ -117,11 +123,13 @@ fn given_shipped_frame(world: &mut StreamControlWorld, codec: String) {
             domain,
             live_from,
             delivered_through,
+            epoch,
         } => {
             let mut checkpoint = DynamicMessage::new(nested("checkpoint"));
             checkpoint.set_field_by_name("domain", Value::String(domain));
             checkpoint.set_field_by_name("live_from", Value::U64(live_from));
             checkpoint.set_field_by_name("delivered_through", Value::U64(delivered_through));
+            checkpoint.set_field_by_name("epoch", Value::U64(epoch));
             set.set_field_by_name("checkpoint", Value::Message(checkpoint));
         }
     }
@@ -173,9 +181,9 @@ fn when_framed(world: &mut StreamControlWorld, codec: String) {
 fn frame_control(world: &StreamControlWorld, codec: &str) -> Vec<u8> {
     let control = world.control.as_ref().expect("no control declared");
     if codec == "json" {
-        api_bones::connect::stream_control::StreamControl::to_json_frame(control)
+        api_bones_stream::StreamControl::to_json_frame(control)
     } else {
-        api_bones::connect::stream_control::StreamControl::to_proto_frame(control)
+        api_bones_stream::StreamControl::to_proto_frame(control)
     }
 }
 
@@ -186,9 +194,9 @@ fn when_read(world: &mut StreamControlWorld) {
 
 fn read_frame(world: &StreamControlWorld) -> Result<Option<StreamControl>, MalformedControl> {
     if world.json_frame {
-        api_bones::connect::stream_control::StreamControl::from_json_frame(&world.frame)
+        api_bones_stream::StreamControl::from_json_frame(&world.frame)
     } else {
-        api_bones::connect::stream_control::StreamControl::from_proto_frame(&world.frame)
+        api_bones_stream::StreamControl::from_proto_frame(&world.frame)
     }
 }
 
@@ -274,11 +282,12 @@ fn then_decoded_drain(world: &mut StreamControlWorld, cut_in_ms: u32) {
 }
 
 #[then(
-    expr = "the frame decodes against the shipped proto as a checkpoint for domain {string} live from {int} delivered through {int}"
+    expr = "the frame decodes against the shipped proto as a checkpoint for domain {string} in epoch {int} live from {int} delivered through {int}"
 )]
 fn then_decoded_checkpoint(
     world: &mut StreamControlWorld,
     domain: String,
+    epoch: u64,
     live_from: u64,
     delivered_through: u64,
 ) {
@@ -293,6 +302,7 @@ fn then_decoded_checkpoint(
     assert_eq!(field("domain").as_str(), Some(domain.as_str()));
     assert_eq!(field("live_from").as_u64(), Some(live_from));
     assert_eq!(field("delivered_through").as_u64(), Some(delivered_through));
+    assert_eq!(field("epoch").as_u64(), Some(epoch));
 }
 
 #[then(expr = "the same message reads its ordinary field {string} back as {string}")]

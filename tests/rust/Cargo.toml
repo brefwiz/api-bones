@@ -15,6 +15,7 @@ license = "LicenseRef-Brefwiz-Proprietary"
 api-bones = { path = "../..", features = ["connect"] }
 api-bones-connect = { path = "../../api-bones-connect" }
 api-bones-protos = { path = "../../api-bones-protos" }
+api-bones-stream = { path = "../../api-bones-stream" }
 prost-reflect = "0.16"
 serde_json = "1"
 protox = "0.9"

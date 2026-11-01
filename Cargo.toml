@@ -8,6 +8,7 @@ members = [
     "api-bones-sdk-gen",
     "api-bones-test",
     "api-bones-protos",
+    "api-bones-stream",
     "api-bones-automation",
     # The Rust step lane for the shared Gherkin contract. A member rather than
     # an integration test of the crate it exercises, because the contract is
@@ -63,7 +64,7 @@ chrono = ["dep:chrono", "utoipa?/chrono"]
 ## Provides chrono_to_timestamp, parse_uuid, build_page (OffsetPage), and
 ## ConnectOptionExt. Activates the uuid and chrono features as side-effects.
 ## Zero impact on consumers who do not declare this feature.
-connect = ["dep:connectrpc", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "dep:base64", "dep:bytes", "dep:http-body-util", "uuid", "chrono", "http", "std"]
+connect = ["dep:api-bones-stream", "dep:connectrpc", "dep:buffa", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "dep:base64", "dep:bytes", "dep:http-body-util", "uuid", "chrono", "http", "std"]
 http = ["dep:http", "alloc"]
 axum = ["dep:axum", "http", "serde", "std"]
 utoipa = ["dep:utoipa", "std"]
@@ -84,6 +85,7 @@ opentelemetry = ["http", "std", "dep:opentelemetry"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
+api-bones-stream = { path = "api-bones-stream", version = "^0.1.0", registry = "brefwiz", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
 uuid = { version = "1.23.3", features = ["v4"], optional = true }
@@ -107,6 +109,7 @@ sha2 = { version = "0.11", optional = true }
 # connect feature — versions must match what buffa-types / generated proto code use.
 # Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
 connectrpc  = { version = "0.9.1", features = ["client", "client-tls"], optional = true }
+buffa       = { version = "0.9", optional = true }
 buffa-types = { version = "0.9", features = ["json"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 tracing     = { version = "0.1", optional = true }
@@ -265,3 +268,4 @@ api-bones-progenitor = { path = "api-bones-progenitor" }
 api-bones-sdk-gen = { path = "api-bones-sdk-gen" }
 api-bones-test = { path = "api-bones-test" }
 api-bones-protos = { path = "api-bones-protos" }
+api-bones-stream = { path = "api-bones-stream" }

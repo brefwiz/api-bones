@@ -27,3 +27,6 @@ name = "api-bones-automation"
 
 [[package]]
 name = "api-bones-protos"
+
+[[package]]
+name = "api-bones-stream"

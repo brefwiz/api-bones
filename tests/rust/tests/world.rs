@@ -300,14 +300,13 @@ impl std::fmt::Debug for FieldLabelsWorld {
 pub struct StreamControlWorld {
     pub source: String,
     pub pool: Option<prost_reflect::DescriptorPool>,
-    pub control: Option<api_bones::connect::StreamControl>,
+    pub control: Option<api_bones_stream::StreamControl>,
     pub ordinary: Option<String>,
     pub ordinary_proto: Vec<u8>,
     pub frame: Vec<u8>,
     pub json_frame: bool,
-    pub read_back: Option<
-        Result<Option<api_bones::connect::StreamControl>, api_bones::connect::MalformedControl>,
-    >,
+    pub read_back:
+        Option<Result<Option<api_bones_stream::StreamControl>, api_bones_stream::MalformedControl>>,
 }
 
 impl std::fmt::Debug for StreamControlWorld {
