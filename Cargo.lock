@@ -84,7 +84,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api-bones"
-version = "13.0.0"
+version = "14.0.0"
 dependencies = [
  "api-bones-stream",
  "arbitrary",
@@ -209,7 +209,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-reqwest"
-version = "9.0.0"
+version = "10.0.0"
 dependencies = [
  "api-bones",
  "mockito",
@@ -232,14 +232,14 @@ dependencies = [
 
 [[package]]
 name = "api-bones-stream"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "api-bones-test"
-version = "10.0.0"
+version = "11.0.0"
 dependencies = [
  "api-bones",
  "async-nats",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-tower"
-version = "5.0.0"
+version = "5.0.1"
 dependencies = [
  "api-bones",
  "http",

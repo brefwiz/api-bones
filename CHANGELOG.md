@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.0.0] - 2026-11-01
+
+### Fixed
+
+- *(connect-ts)* [**breaking**] peer spiffe-client ^0.44.0 so quorumauth-sdk 0.46 consumers resolve one copy
+
+### Breaking changes merged after the version was prepared
+
+- fix(connect-ts)!: peer spiffe-client ^0.44.0 so quorumauth-sdk 0.46 consumers resolve one copy
+- fix(connect-ts)!: peer spiffe-client ^0.44.0 so quorumauth-sdk 0.46 consumers resolve one copy
+
 ## [13.0.0] - 2026-11-01
 
 ### Added
