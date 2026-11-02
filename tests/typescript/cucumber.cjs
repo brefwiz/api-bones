@@ -17,6 +17,7 @@ module.exports = {
       "../features/connect_csrf_replay_rule.feature",
       "../features/connect_pinned_peer.feature",
       "../features/field_labels.feature",
+      "../features/overridable_defaults.feature",
       "../features/connect_stream_rotation.feature",
     ],
     import: [
@@ -31,6 +32,7 @@ module.exports = {
       "steps/csrf_replay_rule.ts",
       "steps/pinned_peer.ts",
       "steps/field_labels.ts",
+      "steps/overridable_defaults.ts",
       "steps/stream_rotation.ts",
     ],
     strict: true,

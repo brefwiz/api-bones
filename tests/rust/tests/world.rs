@@ -378,3 +378,19 @@ impl std::fmt::Debug for StreamRotationWorld {
             .finish_non_exhaustive()
     }
 }
+
+/// The instance contract under test, as the descriptor set it compiles to.
+#[derive(Default, cucumber::World)]
+pub struct OverridableDefaultsWorld {
+    pub source: String,
+    /// The short name of the message under test.
+    pub instance: String,
+    pub pool: Option<prost_reflect::DescriptorPool>,
+}
+
+impl std::fmt::Debug for OverridableDefaultsWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OverridableDefaultsWorld")
+            .finish_non_exhaustive()
+    }
+}

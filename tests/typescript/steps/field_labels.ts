@@ -10,11 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { rmSync } from "node:fs";
 
 import { After, Given, Then, When, World } from "@cucumber/cucumber";
 
@@ -22,16 +18,11 @@ import {
   type DescField,
   type FileRegistry,
   ScalarType,
-  createFileRegistry,
-  fromBinary,
   getExtension,
   hasExtension,
 } from "@bufbuild/protobuf";
-import { FileDescriptorSetSchema } from "@bufbuild/protobuf/wkt";
 
-const SHIPPED = fileURLToPath(new URL("../../../api-bones-protos/proto", import.meta.url));
-const VENDORED = fileURLToPath(new URL("../../../api-bones-protos/vendor", import.meta.url));
-const BUF = fileURLToPath(new URL("../node_modules/.bin/buf", import.meta.url));
+import { compileContract } from "./descriptor_contract.ts";
 
 interface FieldLabelsWorld extends World {
   source?: string;
@@ -50,16 +41,9 @@ function recordSource(field: string, kind: string, options: string): string {
 /** Compile the scenario's contract with the shipped files into a registry. */
 function compile(world: FieldLabelsWorld): FileRegistry {
   if (world.source === undefined) throw new Error("no contract given");
-  const dir = mkdtempSync(join(tmpdir(), "field-labels-"));
-  world.workdir = dir;
-  writeFileSync(join(dir, "buf.yaml"), "version: v2\n");
-  cpSync(SHIPPED, dir, { recursive: true, filter: (src) => !src.endsWith("buf.yaml") });
-  cpSync(VENDORED, dir, { recursive: true });
-  mkdirSync(join(dir, "contract", "v1"), { recursive: true });
-  writeFileSync(join(dir, "contract", "v1", "contract.proto"), world.source);
-  const image = join(dir, "image.binpb");
-  execFileSync(BUF, ["build", dir, "-o", image], { stdio: "pipe" });
-  return createFileRegistry(fromBinary(FileDescriptorSetSchema, readFileSync(image)));
+  const { workdir, registry } = compileContract("field-labels", world.source);
+  world.workdir = workdir;
+  return registry;
 }
 
 function registryOf(world: FieldLabelsWorld): FileRegistry {

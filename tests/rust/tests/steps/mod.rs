@@ -7,6 +7,7 @@
 mod csrf_replay_rule;
 mod error_info;
 mod field_labels;
+mod overridable_defaults;
 mod pinned_peer;
 mod precondition;
 #[path = "../../../shared/shipped_resolver.rs"]

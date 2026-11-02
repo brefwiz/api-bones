@@ -118,6 +118,8 @@ Feature: Proto vocabulary shipped to contract authors
       | bones.v1.automation_templates | 5102366 |
       | bones.v1.batch_of             | 5102367 |
       | bones.v1.meaning              | 5102368 |
+      | bones.v1.instance_of          | 5102369 |
+      | bones.v1.defaulted_from       | 5102370 |
 
   Scenario Outline: The call shape enum values are fixed
     Given a contract using the shipped vocabulary
