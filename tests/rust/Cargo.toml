@@ -66,6 +66,10 @@ name = "field_labels"
 harness = false
 
 [[test]]
+name = "overridable_defaults"
+harness = false
+
+[[test]]
 name = "connect_stream_control"
 harness = false
 

@@ -49,6 +49,15 @@ sdk_surfaces:
       rust:
         delivery: package
         packages: [api-bones-protos]
+  # The origin of an overridable default, read back from a descriptor. Same
+  # artefact and same Rust-only surface as the field labels; the TypeScript
+  # lane answers the file over a buf-built descriptor as a conformance check.
+  overridable-defaults:
+    contract: tests/features/overridable_defaults.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-protos]
   # Which entry of the TypeScript package carries workload identity. Rust has
   # no entry split: the crate is server-only, so this surface is TS alone.
   connect-workload-identity:

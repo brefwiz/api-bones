@@ -460,6 +460,8 @@ mod tests {
             "AutomationTrigger automation_trigger = 5102363;",
             "DataClassification classification = 5102365;",
             "string meaning = 5102368;",
+            "string instance_of = 5102369;",
+            "string defaulted_from = 5102370;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
@@ -487,7 +489,7 @@ mod tests {
             })
             .collect();
         numbers.sort_unstable();
-        assert_eq!(numbers, [5_102_360, 5_102_365, 5_102_368]);
+        assert_eq!(numbers, [5_102_360, 5_102_365, 5_102_368, 5_102_370]);
     }
 
     /// The unclassified state is zero, so an absent option and an explicit

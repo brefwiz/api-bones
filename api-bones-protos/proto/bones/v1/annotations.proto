@@ -456,6 +456,18 @@
 //     }
 //   }
 //
+// `bones.v1.instance_of` names the message an instance message is
+// instantiated from, by fully-qualified name: a slot names the schedule rule
+// it is generated from, a booking line the price-list item it prices. An
+// absent option means the message is not an instance of another message.
+//
+// `bones.v1.defaulted_from` names, on a field of such an instance, the field
+// of the `instance_of` message that proposes this field's default, as
+// `<package>.<Message>.<field>`. The instance's value stays overridable: the
+// option records the origin of the proposal and never constrains the value.
+// A consumer reads the origin to show where a default came from and to
+// record who changed it.
+//
 // `bones.v1.resource` declares that a message is a managed resource: `type` is
 // its Terraform noun in snake_case, `identity_field` names the field that
 // identifies an instance, and `methods` optionally names the RPCs of the same
@@ -657,6 +669,11 @@ extend google.protobuf.MessageOptions {
   // Declares this domain-event message a trigger of the product's automation
   // surface. Absent means no automation starts from it. See file header.
   AutomationTrigger automation_trigger = 5102363;
+
+  // The fully-qualified name of the message this message is instantiated
+  // from. Absent means the message is not an instance of another message. See
+  // file header.
+  string instance_of = 5102369;
 }
 
 extend google.protobuf.FieldOptions {
@@ -672,6 +689,12 @@ extend google.protobuf.FieldOptions {
   // core plus the extensions the platform curates), written with its
   // `schema:` prefix: `schema:startDate`. See file header.
   string meaning = 5102368;
+
+  // The fully-qualified field (`<package>.<Message>.<field>`) on the
+  // `instance_of` message that proposes this field's default. The value stays
+  // overridable; absent means the field has no proposed default. See file
+  // header.
+  string defaulted_from = 5102370;
 }
 
 // One capability a service depends on, and the authority it intends to
