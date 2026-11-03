@@ -92,19 +92,19 @@ fn every_vector_recomputes() {
 fn vectors_match_independent_literals() {
     assert_eq!(
         vector_digest("single-file").1,
-        "sha256:cedf4f5ac1ca682f25cc9a1f7d13c267c8c0b96f3a6a54dc22cac2c47e147515"
+        "sha256:0d58f5e90de828deaa1a8103da4c37071cde74fa4964b1d3914b3083557d36cf"
     );
     assert_eq!(
         vector_digest("several-files").1,
-        "sha256:bb97f8f6813febdac70daa8234c688e3c0049321e608b0210b468a72cf4732dc"
+        "sha256:2ed1288e1028c93b6e33afd0a674ee24a7081b4df3b925933c82be8543a90f8b"
     );
     assert_eq!(
         vector_digest("in-repo-import").1,
-        "sha256:f6c5518120eb45e5f33b5ecfdfff5f26819c3f8aba35eeea5ad0165812db2d73"
+        "sha256:8917615d07426baa6c9ecf087004b5345de2111fa16f4966a1dbef451dc336de"
     );
     assert_eq!(
         vector_digest("excluded-imports").1,
-        "sha256:66fd8bc15549532a8400aff9bae1e15fc180852a7c8ddff5669747f3f481550b"
+        "sha256:9e5323c0304f3c1edc6499a794064a507c95f916ced53a966c1d141cd7b54439"
     );
 }
 

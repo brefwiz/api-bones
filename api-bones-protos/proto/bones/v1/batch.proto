@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: MIT
+//
+// The per-item outcome of a batch read.
+//
+// A batch read answers every requested item on its own: one item's refusal
+// never fails the others. A BatchGet response carries one result per
+// requested id, in request order, and a result holds either the item or an
+// `ItemError`; a grouped BatchList response carries one group per requested
+// parent, and a group whose parent does not resolve carries an `ItemError`.
+//
+// A cross-organization id or parent is answered byte-identically to an unknown
+// one: `not_found`, the same message, the same `ErrorInfo`. Nothing in the
+// answer tells the two apart.
+//
+// Whole-call errors are the only ones that fail a batch request. Their
+// `ErrorInfo.code` values are:
+//
+//   BATCH_TOO_LARGE          the request holds more items than the server accepts
+//                            (`invalid_argument`).
+//   BATCH_ITEM_TOO_LARGE     one id alone encodes beyond the request size limit.
+//                            Raised by the SDK before any send.
+//   BATCH_RESPONSE_MISMATCH  the response does not answer the request's ids in
+//                            order (`internal`). Raised by the SDK.
+//   BATCH_IDENTITY_CHANGED   the caller identity changed between enqueue and
+//                            send (`unauthenticated`). Raised by the SDK; never
+//                            retried.
+
+syntax = "proto3";
+
+package bones.v1;
+
+import "bones/v1/errors.proto";
+
+// Why one item of a batch was not served. Maps to exactly the error the
+// single call raises for the same cause.
+message ItemError {
+  // The Connect code token: `not_found`, `permission_denied`,
+  // `invalid_argument` or `failed_precondition`.
+  string code = 1;
+
+  // The message the single call raises for the same cause.
+  string message = 2;
+
+  // The emitted error code. Its `code` is one of the single RPC's
+  // `bones.v1.errors` variants.
+  ErrorInfo info = 3;
+
+  // Field-level failures, as the single call attaches them.
+  repeated ValidationFailure violations = 4;
+}

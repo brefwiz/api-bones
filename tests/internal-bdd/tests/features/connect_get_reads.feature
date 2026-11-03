@@ -32,12 +32,12 @@ Feature: Connect GET for policy-eligible reads
 
   Scenario Outline: A policy of a schema version this reader does not know is refused
     Given a policy declaring "Get" as "NO_SIDE_EFFECTS" with sensitivity "NON_SENSITIVE", cache scope "PRIVATE" and a URL budget of 512
-    And the policy declares the schema version "<declared>"
-    Then building either read index is refused naming the version "<named>"
+    And the policy declares the schema version '<declared>'
+    Then building either read index is refused naming the version '<named>'
 
     Examples: versions refused
       | declared | named   |
-      | 3        | 3       |
+      | 4        | 4       |
       | 0        | 0       |
       | "2"      | "2"     |
       | missing  | missing |

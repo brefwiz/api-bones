@@ -30,10 +30,15 @@ mod manifest;
 mod pool;
 pub mod signature;
 
-pub use batch_of::{BatchOfError, BatchOfReason, BatchOfRefusal, check_batch_of};
+pub use batch_of::{
+    BatchOfError, BatchOfReason, BatchOfRefusal, check_batch_of, check_batch_of_against_pool,
+};
 pub use compile::{
     CheckedSurface, CompileError, CompileInput, Refusal, Rule, SurfaceInput, check_surface, compile,
 };
 pub use digest::declaration_digest;
 pub use document::{DocumentError, DocumentInput, DocumentPhase, check_document};
 pub use manifest::{MANIFEST_FORMAT, ManifestError, ManifestHeader, read_header};
+
+mod method_shape;
+pub use method_shape::{BatchPolicy, PagingPolicy, batch_policy, paging_policy};

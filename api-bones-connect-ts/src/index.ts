@@ -97,3 +97,23 @@ export {
   type RotationFrame,
   type StreamRole,
 } from "./stream-rotation.js";
+
+export {
+  STREAM_KEEPALIVE_FIELD_NUMBER,
+  STREAM_KEEPALIVE_HEADER,
+  STREAM_KEEPALIVE_HEADER_VALUE,
+  STREAM_KEEPALIVE_INTERVAL,
+  STREAM_KEEPALIVE_PAYLOAD,
+  isKeepaliveMessage,
+  isKeepalivePayload,
+  makeStreamKeepaliveInterceptor,
+} from "./stream-keepalive.js";
+
+export { RevisionCache } from "./revision-cache.js";
+export { PageError, isCursorRejected, listCall, pages, items, pagedClient,
+  type Page, type PageOptions, type Total, type PageErrorKind, type ListCall,
+  type ListConfig, type PageFetch, type PagedClient } from "./page.js";
+export { type GeneratedPagingPolicy, type GeneratedBatchPolicy } from "./policy.js";
+export * from "./fields.js";
+export { createPlatformClient, anonymousSession, type SessionSource, type SessionSnapshot } from "./platform-client.js";
+export * from "./batch.js";

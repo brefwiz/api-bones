@@ -315,6 +315,27 @@ impl std::fmt::Debug for StreamControlWorld {
     }
 }
 
+/// The keepalive under test: the payload bytes a scenario holds, the scripted
+/// server stream the reader reads, and what the reader got.
+#[derive(Default, cucumber::World)]
+pub struct StreamKeepaliveWorld {
+    pub payload: Vec<u8>,
+    pub fields: Option<buffa::UnknownFields>,
+    pub verdict: Option<bool>,
+    pub script: Vec<WatchItem>,
+    pub keepalives: usize,
+    pub received: Vec<String>,
+    pub failure: Option<String>,
+    pub options: Option<connectrpc::client::CallOptions>,
+}
+
+impl std::fmt::Debug for StreamKeepaliveWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamKeepaliveWorld")
+            .finish_non_exhaustive()
+    }
+}
+
 /// The rotation machine under test and the actions it has returned so far.
 /// Events are plain strings whose id doubles as their dedupe key.
 #[derive(cucumber::World)]
@@ -392,5 +413,381 @@ impl std::fmt::Debug for OverridableDefaultsWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OverridableDefaultsWorld")
             .finish_non_exhaustive()
+    }
+}
+
+type PagingStream = futures_util::stream::BoxStream<
+    'static,
+    Result<api_bones_page::Page<String>, api_bones_page::PageError>,
+>;
+
+/// The page iterator and the PostgreSQL-backed widget service it calls.
+#[derive(cucumber::World)]
+#[world(init = Self::new)]
+pub struct PagingWorld {
+    pub batch: BatchWorld,
+    pub cache: api_bones_page::RevisionCache,
+    pub identity: Arc<Mutex<String>>,
+    pub retained: Vec<api_bones_page::Page<String>>,
+    pub latest: Vec<api_bones_page::Page<String>>,
+    pub revalidation_start: usize,
+    pub remembered_revisions: HashMap<String, String>,
+    pub seed: Option<api_bones_page::Page<String>>,
+    pub seed_cursor: String,
+    pub seed_request_count: usize,
+    pub lock_after_first: bool,
+    pub outage_page: Option<usize>,
+    pub recovery_after: usize,
+    pub failed_attempts: Arc<Mutex<Vec<connectrpc::ErrorCode>>>,
+    pub paused: Option<PagingStream>,
+    pub idempotency: Idempotency,
+    pub items: Vec<String>,
+    pub pages: Vec<Vec<String>>,
+    pub revisions: Vec<String>,
+    pub cursor_refusal: Option<connectrpc::ConnectError>,
+    pub error: Option<api_bones_page::PageError>,
+    /// Whether the stream was exhausted right after its last yielded value.
+    pub ended: bool,
+}
+
+impl std::fmt::Debug for PagingWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PagingWorld")
+            .field("items", &self.items)
+            .field("pages", &self.pages)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PagingWorld {
+    fn new() -> Self {
+        Self {
+            batch: BatchWorld::new(),
+            cache: api_bones_page::RevisionCache::default(),
+            identity: Arc::new(Mutex::new("alice:org-a".into())),
+            retained: Vec::new(),
+            latest: Vec::new(),
+            revalidation_start: 0,
+            remembered_revisions: HashMap::new(),
+            seed: None,
+            seed_cursor: String::new(),
+            seed_request_count: 0,
+            lock_after_first: false,
+            outage_page: None,
+            recovery_after: 0,
+            failed_attempts: Arc::default(),
+            paused: None,
+            idempotency: Idempotency::NoSideEffects,
+            items: Vec::new(),
+            pages: Vec::new(),
+            revisions: Vec::new(),
+            cursor_refusal: None,
+            error: None,
+            ended: false,
+        }
+    }
+}
+
+/// The credential a caller of `org` presents: the identity the batch runtime
+/// guards and the bearer token the widgets server reads the organization from.
+/// Two tokens of one subject and organization are the same identity under
+/// different credential headers.
+pub type WidgetIssuers = Arc<Mutex<HashMap<String, Arc<quorum_chain_issuer::IssuerSubstrate>>>>;
+
+pub async fn token_credential(
+    issuers: &WidgetIssuers,
+    subject: &str,
+    org: &str,
+) -> api_bones_batch::Credential {
+    credential_for_scopes(issuers, subject, org, &["widgets:read"]).await
+}
+
+pub async fn writer_credential(
+    issuers: &WidgetIssuers,
+    subject: &str,
+    org: &str,
+) -> api_bones_batch::Credential {
+    credential_for_scopes(issuers, subject, org, &["widgets:read", "widgets:write"]).await
+}
+
+async fn credential_for_scopes(
+    issuers: &WidgetIssuers,
+    subject: &str,
+    org: &str,
+    scopes: &[&str],
+) -> api_bones_batch::Credential {
+    let org_id = quorum_identity::OrgId::new(org);
+    let issuer = issuers
+        .lock()
+        .expect("issuer registry")
+        .entry(org.to_owned())
+        .or_insert_with(|| {
+            Arc::new(quorum_chain_issuer::IssuerSubstrate::with_keypair(
+                org_id.clone(),
+                quorum_chain_issuer::KeyPair::new(),
+            ))
+        })
+        .clone();
+    let token = quorum_workload_identity_issuer::canonical_claim_token(
+        &quorum_identity::CredentialIssuer::platform("widgets"),
+        &quorum_identity::PrincipalId::from_owned(subject.to_owned()),
+        scopes,
+        issuer.as_ref(),
+        &org_id,
+    )
+    .await
+    .expect("platform issuer signs widget credential");
+    let token = quorum_workload_identity::encode_claim_token(&token);
+    let claim =
+        quorum_workload_identity::verify_canonical_claim_biscuit(&token, &issuer.public_key())
+            .expect("issued credential has a verified identity");
+    api_bones_batch::Credential {
+        identity: api_bones_batch::Identity {
+            subject: claim.principal().to_owned(),
+            org: claim
+                .org_id()
+                .expect("signed organization")
+                .as_str()
+                .to_owned(),
+        },
+        headers: vec![(
+            "authorization".to_owned(),
+            format!("Bearer {token}").into_bytes(),
+        )],
+    }
+}
+
+/// One request the widgets server was asked.
+#[derive(Debug, Clone, Default)]
+pub struct WidgetRequest {
+    /// The RPC's short name: `GetWidget`, `BatchGetWidgets`, ...
+    pub rpc: &'static str,
+    /// The ids (or the parent) the request asked for, in request order.
+    pub ids: Vec<String>,
+    pub cursor: String,
+    pub page_size: Option<u32>,
+    /// The `x-trace` header the request arrived with.
+    pub trace: String,
+    pub lane: String,
+    /// The `connect-timeout-ms` header the request arrived with.
+    pub timeout_ms: String,
+    pub if_none_match: String,
+    pub list_cache: String,
+    pub encoded_len: usize,
+}
+
+/// A scripted whole-request failure.
+#[derive(Debug, Clone)]
+pub struct FailRule {
+    /// The failure applies to the batch request carrying this id; any batch
+    /// request when absent.
+    pub carrying: Option<String>,
+    pub code: connectrpc::ErrorCode,
+    pub times: u32,
+}
+
+/// A barrier the widgets server holds every request at until the step opens it.
+///
+/// `arrived` gains a permit when a request reaches the server, `release` is
+/// what a held request waits on, and `finished` gains a permit when a held
+/// request's handler ends, whether it answered or was dropped.
+pub struct Gate {
+    pub arrived: tokio::sync::Semaphore,
+    pub release: tokio::sync::Semaphore,
+    pub finished: tokio::sync::Semaphore,
+}
+
+impl Default for Gate {
+    fn default() -> Self {
+        Self {
+            arrived: tokio::sync::Semaphore::new(0),
+            release: tokio::sync::Semaphore::new(0),
+            finished: tokio::sync::Semaphore::new(0),
+        }
+    }
+}
+
+impl Gate {
+    /// Let every held and every later request through.
+    pub fn open(&self) {
+        self.release
+            .add_permits(tokio::sync::Semaphore::MAX_PERMITS / 2);
+    }
+}
+
+/// What the widgets server holds and is told to do, and what it has seen.
+pub struct WidgetsData {
+    /// (organization, id) to name.
+    pub widgets: HashMap<(String, String), String>,
+    /// (organization, widget id) to parts.
+    pub parts: HashMap<(String, String), Vec<String>>,
+    pub owners: HashMap<(String, String), String>,
+    pub part_page_size: usize,
+    pub authorization_fault: Option<(String, String)>,
+    pub delay: std::time::Duration,
+    /// When set, every request is held at the gate instead of waiting out `delay`.
+    pub gate: Option<Arc<Gate>>,
+    pub failures: Vec<FailRule>,
+    pub reverse_answers: bool,
+    pub truncate_answers: bool,
+    /// The credential the caller's token source switches to when a batch
+    /// request arrives.
+    pub swap_on_batch: Option<api_bones_batch::Credential>,
+    pub source_fails_on_batch: bool,
+    pub source_fault_on_batch: Option<String>,
+    pub in_flight: usize,
+    pub max_in_flight: usize,
+    /// Every request seen, in arrival order.
+    pub seen: Vec<WidgetRequest>,
+}
+
+impl Default for WidgetsData {
+    fn default() -> Self {
+        Self {
+            widgets: HashMap::new(),
+            parts: HashMap::new(),
+            owners: HashMap::new(),
+            part_page_size: 2,
+            authorization_fault: None,
+            delay: std::time::Duration::ZERO,
+            gate: None,
+            failures: Vec::new(),
+            reverse_answers: false,
+            truncate_answers: false,
+            swap_on_batch: None,
+            source_fails_on_batch: false,
+            source_fault_on_batch: None,
+            in_flight: 0,
+            max_in_flight: 0,
+            seen: Vec::new(),
+        }
+    }
+}
+
+/// A running `Widgets` server on loopback.
+pub struct WidgetsServed {
+    pub task: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    pub db: Arc<api_bones_contract_rust::widget_fixture::BatchDb>,
+    pub address: std::net::SocketAddr,
+    pub start: Arc<dyn Fn(connectrpc::BoundServer) -> tokio::task::JoinHandle<()> + Send + Sync>,
+}
+
+impl WidgetsServed {
+    pub async fn stop(&self) {
+        let task = self.task.lock().expect("server lifecycle").take();
+        if let Some(task) = task {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+
+    pub async fn restart(&self) {
+        let bound = connectrpc::Server::bind(self.address)
+            .await
+            .expect("same endpoint restarts");
+        let mut task = self.task.lock().expect("server lifecycle");
+        assert!(task.is_none(), "restart follows an actual stop");
+        *task = Some((self.start)(bound));
+    }
+}
+
+impl Drop for WidgetsServed {
+    fn drop(&mut self) {
+        if let Some(task) = self.task.lock().expect("server lifecycle").take() {
+            task.abort();
+        }
+    }
+}
+
+/// What one group of a batch list delivered when the consumer read it to the
+/// end.
+#[derive(Debug, Clone)]
+pub struct GroupRead {
+    pub parent_id: String,
+    pub items: Vec<String>,
+    pub error: Option<ConnectError>,
+}
+
+/// The batch runtime under test, the connectrpc widgets server it calls over
+/// the wire and what it returned.
+pub type WidgetPartsCall = api_bones_page::ListCall<
+    api_bones_contract_rust::ListWidgetPartsRequest,
+    api_bones_contract_rust::ListWidgetPartsResponse,
+>;
+
+#[derive(cucumber::World)]
+#[world(init = Self::new)]
+pub struct BatchWorld {
+    pub data: Arc<Mutex<WidgetsData>>,
+    /// The credential the client's token source answers with.
+    pub credential: Arc<Mutex<api_bones_batch::Credential>>,
+    pub issuers: WidgetIssuers,
+    pub source_failed: Arc<std::sync::atomic::AtomicBool>,
+    pub metadata: Arc<Mutex<String>>,
+    /// Installed as the credential once the first chunk has been delivered.
+    pub after_first_chunk: Arc<Mutex<Option<api_bones_batch::Credential>>>,
+    /// Every wire batch request the runtime reported ending.
+    pub records: Arc<Mutex<Vec<api_bones_batch::BatchRecord>>>,
+    pub served: Option<Arc<WidgetsServed>>,
+    pub client: Option<
+        api_bones_batch::Batched<
+            api_bones_contract_rust::WidgetsClient<connectrpc::client::HttpClient>,
+        >,
+    >,
+    /// Ids a Given generated, in order.
+    pub generated: Vec<String>,
+    pub results: Vec<Result<api_bones_contract_rust::Widget, ConnectError>>,
+    /// How many leading results belong to the first token's callers.
+    pub first_token_calls: usize,
+    pub batch_headers: api_bones_batch::CallHeaders,
+    pub groups: Vec<GroupRead>,
+    pub group_calls: Vec<Option<WidgetPartsCall>>,
+    pub pending_batches:
+        Vec<tokio::task::JoinHandle<Vec<Result<api_bones_contract_rust::Widget, ConnectError>>>>,
+    pub continuation: Option<WidgetPartsCall>,
+    pub continuation_identity: Option<api_bones_batch::Credential>,
+    pub unbatched_widget: Option<Result<api_bones_contract_rust::Widget, ConnectError>>,
+    pub malformed_batches: Vec<Vec<ConnectError>>,
+    pub construction_refusal: Option<ConnectError>,
+    pub whole_batch_error: Option<ConnectError>,
+    pub provider_work: [usize; 2],
+}
+
+impl std::fmt::Debug for BatchWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BatchWorld")
+            .field("results", &self.results.len())
+            .field("groups", &self.groups.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl BatchWorld {
+    pub(crate) fn new() -> Self {
+        Self {
+            data: Arc::default(),
+            credential: Arc::default(),
+            issuers: Arc::default(),
+            source_failed: Arc::default(),
+            metadata: Arc::default(),
+            after_first_chunk: Arc::default(),
+            records: Arc::default(),
+            served: None,
+            client: None,
+            generated: Vec::new(),
+            results: Vec::new(),
+            first_token_calls: 0,
+            batch_headers: api_bones_batch::CallHeaders::new(),
+            groups: Vec::new(),
+            group_calls: Vec::new(),
+            pending_batches: Vec::new(),
+            continuation: None,
+            continuation_identity: None,
+            unbatched_widget: None,
+            malformed_batches: Vec::new(),
+            construction_refusal: None,
+            whole_batch_error: None,
+            provider_work: [0; 2],
+        }
     }
 }

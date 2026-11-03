@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: MIT
+// F1: Every TypedValue field carries typed_by naming its sibling definition id.
+syntax = "proto3";
+package bones.v1;
+import "bones/v1/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+enum FieldType {
+  FIELD_TYPE_UNSPECIFIED = 0;
+  FIELD_TYPE_BOOLEAN = 1;
+  FIELD_TYPE_NUMBER = 2;
+  FIELD_TYPE_INTEGER = 3;
+  FIELD_TYPE_ENUM = 4;
+  FIELD_TYPE_TEXT = 5;
+  FIELD_TYPE_DATE = 6;
+  FIELD_TYPE_TIMESTAMP = 7;
+  FIELD_TYPE_DURATION = 8;
+  FIELD_TYPE_MONEY = 9;
+  FIELD_TYPE_PERSON_REFERENCE = 10;
+  FIELD_TYPE_RECORD_LINK = 11;
+}
+message NumberConstraints {
+  optional double min = 1;
+  optional double max = 2;
+  optional string unit = 3;
+  optional uint32 max_fraction_digits = 4;
+}
+message IntegerConstraints { optional int64 min = 1; optional int64 max = 2; optional string unit = 3; }
+message EnumOption { string id = 1; Label label = 2; bool archived = 3; }
+message EnumConstraints { repeated EnumOption options = 1; }
+enum TextFormat {
+  TEXT_FORMAT_UNSPECIFIED = 0;
+  TEXT_FORMAT_PLAIN = 1;
+  TEXT_FORMAT_EMAIL = 2;
+  TEXT_FORMAT_URI = 3;
+  TEXT_FORMAT_PHONE_E164 = 4;
+}
+message TextConstraints { uint32 max_length = 1; TextFormat format = 2; }
+message MoneyConstraints { string currency = 1; optional int64 min_minor = 2; optional int64 max_minor = 3; }
+message RecordLinkConstraints { string target_record_type = 1; }
+message FieldDefinition {
+  string id = 1;
+  string key = 2;
+  Label label = 3;
+  optional Label description = 4;
+  FieldType type = 5;
+  DataClassification classification = 6;
+  optional string meaning = 7;
+  bool archived = 8;
+  oneof constraints {
+    NumberConstraints number = 10;
+    IntegerConstraints integer = 11;
+    EnumConstraints enumeration = 12;
+    TextConstraints text = 13;
+    MoneyConstraints money = 14;
+    RecordLinkConstraints record_link = 15;
+  }
+}
+message CalendarDate { int32 year = 1; uint32 month = 2; uint32 day = 3; }
+message MoneyAmount { int64 minor_units = 1; string currency = 2; }
+message TypedValue {
+  oneof value {
+    bool boolean = 1;
+    double number = 2;
+    int64 integer = 3;
+    string enum_option_id = 4;
+    string text = 5;
+    CalendarDate date = 6;
+    google.protobuf.Timestamp timestamp = 7;
+    google.protobuf.Duration duration = 8;
+    MoneyAmount money = 9;
+    string person_id = 10;
+    string record_id = 11;
+  }
+}
+message FieldValue {
+  string definition_id = 1;
+  TypedValue value = 2 [(bones.v1.typed_by) = "definition_id"];
+}

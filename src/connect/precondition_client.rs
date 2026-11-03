@@ -58,7 +58,7 @@ impl Idempotency {
 
 /// The `schemaVersion` values of `connect-method-policy.json` this reader
 /// understands.
-pub const SUPPORTED_POLICY_SCHEMA_VERSIONS: &[u64] = &[1, 2];
+pub const SUPPORTED_POLICY_SCHEMA_VERSIONS: &[u64] = &[1, 2, 3];
 
 /// The policy document carries a `schemaVersion` this reader does not know,
 /// or none at all.
@@ -227,10 +227,16 @@ mod tests {
 
     #[test]
     fn indexes_a_well_formed_policy() {
-        let index = index_generated_policy(policy_json()).unwrap();
-        assert_eq!(index.len(), 2);
-        assert!(index["/pkg.v1.Svc/Update"].is_preconditioned());
-        assert!(!index["/pkg.v1.Svc/Get"].is_preconditioned());
+        for schema_version in SUPPORTED_POLICY_SCHEMA_VERSIONS {
+            let json = policy_json().replace(
+                "\"schemaVersion\": 1",
+                &format!("\"schemaVersion\": {schema_version}"),
+            );
+            let index = index_generated_policy(&json).unwrap();
+            assert_eq!(index.len(), 2);
+            assert!(index["/pkg.v1.Svc/Update"].is_preconditioned());
+            assert!(!index["/pkg.v1.Svc/Get"].is_preconditioned());
+        }
     }
 
     #[test]
@@ -277,11 +283,11 @@ mod tests {
 
     #[test]
     fn refuses_an_unsupported_schema_version_naming_it_and_the_supported_ones() {
-        let err = index_generated_policy(r#"{"schemaVersion": 3, "methods": []}"#).unwrap_err();
-        assert_eq!(err.found, "3");
+        let err = index_generated_policy(r#"{"schemaVersion": 4, "methods": []}"#).unwrap_err();
+        assert_eq!(err.found, "4");
         assert_eq!(
             err.to_string(),
-            "connect-method-policy.json schemaVersion 3 is not supported; supported versions: 1, 2"
+            "connect-method-policy.json schemaVersion 4 is not supported; supported versions: 1, 2, 3"
         );
         let _: &dyn std::error::Error = &err;
     }

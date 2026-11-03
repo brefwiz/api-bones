@@ -742,7 +742,7 @@ mod tests {
     fn an_unsupported_schema_version_is_refused_not_emptied() {
         let entries = entry("Get", "NO_SIDE_EFFECTS", "NON_SENSITIVE", "PRIVATE", 512);
         for (version, found) in [
-            (r#""schemaVersion": 3,"#, "3"),
+            (r#""schemaVersion": 4,"#, "4"),
             (r#""schemaVersion": "2","#, "\"2\""),
             (r#""schemaVersion": 0,"#, "0"),
             ("", "missing"),

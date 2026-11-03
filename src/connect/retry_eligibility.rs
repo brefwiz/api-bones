@@ -22,6 +22,46 @@
 //! predicates only tell it whether the failure looked like one that never ran.
 
 use connectrpc::{ConnectError, ErrorCode};
+use core::time::Duration;
+
+use super::Idempotency;
+
+/// Repeats permitted after an idempotent read's first attempt.
+#[must_use]
+pub const fn retries_for(idempotency: Idempotency) -> u8 {
+    match idempotency {
+        Idempotency::NoSideEffects | Idempotency::Idempotent => 2,
+        Idempotency::NonIdempotent | Idempotency::Unspecified => 0,
+    }
+}
+
+/// Run a Connect fetch through the existing eligibility and exponential backoff.
+/// The fetch callback must check any captured identity before every send.
+///
+/// # Errors
+/// Returns the final fetch failure, or any non-retryable failure immediately.
+pub async fn fetch_with_retry<Resp, F, Fut, Sleep, Sleeping>(
+    mut fetch: F,
+    retries: u8,
+    mut sleep: Sleep,
+) -> Result<Resp, ConnectError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<Resp, ConnectError>>,
+    Sleep: FnMut(Duration) -> Sleeping,
+    Sleeping: Future<Output = ()>,
+{
+    let mut attempt = 0_u8;
+    loop {
+        match fetch().await {
+            Err(error) if attempt < retries && is_unprompted_retryable(error.code) => {
+                sleep(Duration::from_millis(50) * 2_u32.pow(u32::from(attempt))).await;
+                attempt += 1;
+            }
+            outcome => return outcome,
+        }
+    }
+}
 
 /// Failures raised while writing the request onto the connection.
 ///

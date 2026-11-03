@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 //
 // Contract annotations for service authors.
+// F1: Every bones.v1.TypedValue field carries typed_by naming the sibling
+// string field holding its definition id.
 //
 // `bones.v1.errors` — declares the error variants an RPC may return.
 // Variant names are ALL_CAPS_SNAKE strings referencing the service's
@@ -439,6 +441,14 @@
 // is never projectable. Every projection of the contract (MCP, infrastructure
 // providers, SDKs) reads this one declaration.
 //
+// `bones.v1.list_stream_of` is set on a server-streaming RPC and names the
+// unary List RPC of the same service whose request it accepts and whose items
+// it streams. Its response message carries `repeated <Item> items = 1;
+// bones.v1.PageResponse page = 2;`, one keyset batch per message, with
+// `page.next_cursor` the resume cursor after that batch. The RPC also declares
+// `call_shape = CALL_SHAPE_FINITE_STREAM`; `list_stream_of` on any other call
+// shape is refused.
+//
 // `bones.v1.batch_of` names the single-item method of the same service that
 // this RPC batches, so a consumer reads the batch form of an operation from
 // the provider's surface instead of fanning out one call per item. A batch
@@ -660,6 +670,11 @@ extend google.protobuf.MethodOptions {
   // Declares this RPC an action of the product's automation surface. Absent
   // means organizations cannot automate it. See file header.
   AutomationAction automation_action = 5102364;
+
+  // The unary List RPC of the same service whose request this server stream
+  // accepts and whose items it streams. Absent means the RPC is not a list
+  // stream. See file header.
+  string list_stream_of = 5102371;
 }
 
 extend google.protobuf.MessageOptions {
@@ -695,6 +710,10 @@ extend google.protobuf.FieldOptions {
   // overridable; absent means the field has no proposed default. See file
   // header.
   string defaulted_from = 5102370;
+
+  // F1: The sibling string field holding the definition id that types this
+  // bones.v1.TypedValue. Every TypedValue field names its definition this way.
+  string typed_by = 5102372;
 }
 
 // One capability a service depends on, and the authority it intends to

@@ -4,7 +4,7 @@
 // `api_bones::error::ValidationError`.
 //
 // Connect protocol ships its own top-level error envelope
-// (`{ code, message, details }`) — we do NOT redefine it here. What
+// (`{ code, message, details }`), defined by Connect. What
 // IS canonical: the typed error-detail messages that services attach
 // to that envelope under `details`. `ValidationFailure` is the first,
 // `ErrorInfo` the second; more land as consumers need them.

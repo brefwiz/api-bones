@@ -103,6 +103,57 @@ Feature: Proto vocabulary shipped to contract authors
       | AUTHENTICATED orders:read | NONE                      |
       | NONE                      | AUTHENTICATED orders:read |
 
+  Scenario Outline: A batch method that does not declare NO_SIDE_EFFECTS is refused
+    Given a service whose batch method declares idempotency "<level>"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then the batch_of is refused as "does not declare idempotency_level = NO_SIDE_EFFECTS"
+
+    Examples:
+      | level            |
+      | none             |
+      | IDEMPOTENT       |
+      | IDEMPOTENCY_UNKNOWN |
+
+  Scenario: A batch method declaring NO_SIDE_EFFECTS conforms
+    Given a service whose batch method declares idempotency "NO_SIDE_EFFECTS"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then every batch_of conforms
+
+  Scenario Outline: Batch policy discovery refuses ambiguous or noncanonical shapes
+    Given a contract with the batch policy shape "<shape>"
+    When the contract is compiled against the shipped files
+    And the batch policy is discovered
+    Then the batch policy is refused as "<reason>"
+
+    Examples:
+      | shape                         | reason                        |
+      | multiple siblings             | has multiple batch siblings   |
+      | no repeated string key        | needs one repeated string key |
+      | multiple repeated string keys | needs one repeated string key |
+      | non-plural key                | key must be plural            |
+      | missing matching single key   | lacks matching single key     |
+      | get without results           | lacks canonical batch outcomes |
+      | list without groups           | lacks canonical batch outcomes |
+
+  Scenario Outline: Batch policy discovery derives canonical read keys and outcomes
+    Given a contract with the batch policy shape "<shape>"
+    When the contract is compiled against the shipped files
+    And the batch policy is discovered
+    Then the discovered batch policy has kind "<kind>" and outcomes "<outcomes>"
+
+    Examples:
+      | shape | kind | outcomes |
+      | get   | get  | results  |
+      | list  | list | groups   |
+
+  Scenario: A declared list stream exposes stream paging policy
+    Given a contract with the batch policy shape "stream"
+    When the contract is compiled against the shipped files
+    And the stream paging policy is discovered
+    Then the discovered paging policy streams the declared list with its canonical fields
+
   Scenario Outline: The extension numbers are the reserved ones
     Given a contract using the shipped vocabulary
     When the contract is compiled against the shipped files
@@ -120,6 +171,7 @@ Feature: Proto vocabulary shipped to contract authors
       | bones.v1.meaning              | 5102368 |
       | bones.v1.instance_of          | 5102369 |
       | bones.v1.defaulted_from       | 5102370 |
+      | bones.v1.list_stream_of       | 5102371 |
 
   Scenario Outline: The call shape enum values are fixed
     Given a contract using the shipped vocabulary

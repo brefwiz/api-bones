@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT
+version: v2
+modules:
+  - path: api-bones-protos/proto
+  - path: api-bones-protos/vendor
+  - path: tests/rust/proto
+  - path: tests/shared/proto

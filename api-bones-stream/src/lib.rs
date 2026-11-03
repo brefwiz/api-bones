@@ -13,6 +13,10 @@
 //! that it understands the frame with the request header
 //! [`STREAM_CONTROL_HEADER`] set to [`STREAM_CONTROL_HEADER_VALUE`].
 //!
+//! The same crate holds the stream keepalive constants: an idle server stream
+//! carries a reserved-field message so a proxy does not cut it (see
+//! [`STREAM_KEEPALIVE_PAYLOAD`]).
+//!
 //! This crate depends on neither `api-bones` nor `api-bones-connect`, so a
 //! consumer on any `api-bones` major can use the codec; `api-bones` re-exports
 //! it as `api_bones::connect::stream_control`.
@@ -20,6 +24,7 @@
 mod control;
 mod controlled;
 mod driver;
+mod keepalive;
 mod rotation;
 
 pub use controlled::StreamControlled;
@@ -28,6 +33,10 @@ pub use driver::{OpenRequest, rotating_stream};
 pub use control::{
     CONTROL_FIELD_JSON_NAME, MalformedControl, STREAM_CONTROL_FIELD_NUMBER, STREAM_CONTROL_HEADER,
     STREAM_CONTROL_HEADER_VALUE, StreamControl,
+};
+pub use keepalive::{
+    STREAM_KEEPALIVE_FIELD_NUMBER, STREAM_KEEPALIVE_HEADER, STREAM_KEEPALIVE_HEADER_VALUE,
+    STREAM_KEEPALIVE_INTERVAL, STREAM_KEEPALIVE_PAYLOAD, is_keepalive_payload, skip_keepalives_by,
 };
 pub use rotation::{
     ControlSignal, EndCause, FallbackReason, RotationAction, RotationEvent, RotationFrame,

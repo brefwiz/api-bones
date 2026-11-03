@@ -15,8 +15,9 @@
 //     under inserts. Mirrors `api_bones::pagination::PaginationParams`
 //     / `PaginatedResponse`.
 //
-// Use cursor-based by default. Use offset/limit when random access
-// or total_count is a hard requirement.
+// List RPCs use PageRequest/PageResponse. Totals come from
+// `PageResponse.total`. The offset/limit messages are deprecated and stay
+// only until no List RPC uses them.
 
 syntax = "proto3";
 
@@ -32,12 +33,23 @@ package bones.v1;
 //     bones.v1.PageRequest page = 1;
 //   }
 message PageRequest {
-  // Opaque cursor returned by a previous PageResponse.next_cursor.
-  // Empty string means start of collection.
+  // Opaque cursor returned by a previous PageResponse.next_cursor. Clients
+  // must treat it as opaque. Empty string means start of collection.
+  // The server SEALS each cursor using authenticated encryption, with an
+  // expiry and bindings to service, method, organization, principal and query
+  // hash. Before any query runs, the server authenticates and checks these
+  // bindings and expiry. Public ErrorInfo reason strings are:
+  // - CURSOR_INVALID: tampered cursor or wrong service, method, organization
+  //   or principal scope.
+  // - CURSOR_EXPIRED: authentic cursor whose expiry has passed.
+  // - CURSOR_QUERY_MISMATCH: authentic, correctly scoped cursor whose query
+  //   hash does not match the request.
+  // Every rejection above happens before any query runs.
   string cursor = 1;
 
   // Max items the server should return on this page.
-  // 0 means use the server default.
+  // 0 or unset means use the server default. Values above the server maximum
+  // are clamped by the server, following AIP-158.
   uint32 page_size = 2;
 }
 
@@ -52,9 +64,32 @@ message PageResponse {
   // Opaque cursor for the next page. Empty when no more pages.
   string next_cursor = 1;
 
-  // Collection-level revision/ETag — increments on any mutation.
-  // Used for list-level cache validation via if-none-match metadata.
+  // Collection-level revision/ETag — changes whenever anything visible under
+  // the request's filter and caller authorization may have changed. Used for
+  // list-level cache validation via if-none-match metadata.
   string revision = 2;
+
+  // Size of the collection visible under the request's filter and caller
+  // authorization, with the same scope as revision. Unset unless opted in.
+  Total total = 3;
+}
+
+// A collection size and how it was obtained. Both ESTIMATE and EXACT count
+// only items visible under the request's filter and caller authorization,
+// with the same scope as PageResponse.revision. Table-wide or planner-only
+// estimates across organizations are forbidden.
+message Total {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    // An estimate within the request's filter and authorization; may be off.
+    ESTIMATE = 1;
+    // An exact count within the request's filter and authorization, computed
+    // once per revision.
+    EXACT = 2;
+  }
+
+  uint64 value = 1;
+  Kind kind = 2;
 }
 
 // =============================================================================
@@ -70,6 +105,8 @@ message PageResponse {
 //     bones.v1.OffsetPageRequest page = 1;
 //   }
 message OffsetPageRequest {
+  option deprecated = true;
+
   // Max items the server should return on this page.
   // 0 means use the server default (20).
   uint64 limit = 1;
@@ -85,6 +122,8 @@ message OffsetPageRequest {
 //     bones.v1.OffsetPageResponse page = 2;
 //   }
 message OffsetPageResponse {
+  option deprecated = true;
+
   // Total number of items across all pages.
   uint64 total_count = 1;
 

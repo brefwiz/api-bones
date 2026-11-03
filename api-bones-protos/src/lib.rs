@@ -46,6 +46,8 @@ const RATELIMIT_PROTO: &[u8] = include_bytes!("../proto/bones/v1/ratelimit.proto
 const ANNOTATIONS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/annotations.proto");
 const AUTOMATION_MANIFEST_PROTO: &[u8] =
     include_bytes!("../proto/bones/v1/automation_manifest.proto");
+const BATCH_PROTO: &[u8] = include_bytes!("../proto/bones/v1/batch.proto");
+const FIELDS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/fields.proto");
 const STREAM_PROTO: &[u8] = include_bytes!("../proto/bones/v1/stream.proto");
 const FIELD_BEHAVIOR_PROTO: &[u8] = include_bytes!("../vendor/google/api/field_behavior.proto");
 
@@ -68,6 +70,8 @@ pub fn files() -> impl Iterator<Item = (&'static str, &'static [u8])> {
             AUTOMATION_MANIFEST_PROTO,
         ),
         ("bones/v1/stream.proto", STREAM_PROTO),
+        ("bones/v1/batch.proto", BATCH_PROTO),
+        ("bones/v1/fields.proto", FIELDS_PROTO),
         ("google/api/field_behavior.proto", FIELD_BEHAVIOR_PROTO),
     ]
     .into_iter()
@@ -78,9 +82,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ships_eight_files() {
+    fn ships_ten_files() {
         let v: Vec<_> = files().collect();
-        assert_eq!(v.len(), 8);
+        assert_eq!(v.len(), 10);
     }
 
     #[test]
@@ -105,6 +109,7 @@ mod tests {
         for msg in [
             "message PageRequest",
             "message PageResponse",
+            "message Total",
             "message OffsetPageRequest",
             "message OffsetPageResponse",
         ] {
@@ -462,6 +467,7 @@ mod tests {
             "string meaning = 5102368;",
             "string instance_of = 5102369;",
             "string defaulted_from = 5102370;",
+            "string list_stream_of = 5102371;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
@@ -489,7 +495,10 @@ mod tests {
             })
             .collect();
         numbers.sort_unstable();
-        assert_eq!(numbers, [5_102_360, 5_102_365, 5_102_368, 5_102_370]);
+        assert_eq!(
+            numbers,
+            [5_102_360, 5_102_365, 5_102_368, 5_102_370, 5_102_372]
+        );
     }
 
     /// The unclassified state is zero, so an absent option and an explicit

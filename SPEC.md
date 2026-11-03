@@ -2,6 +2,16 @@
 service: api-bones
 wire_surface: library
 surface_kind: library
+# The original field_behavior.proto introduced by 33432d1 byte-matches this
+# upstream revision (SHA-256 bb7ed77725c95f751ec2c47cd92359d0137c39383b8a62aef41bab7aa7478da5).
+# The only local addition is its Apache-2.0 SPDX header.
+third_party_payloads:
+  - {id: googleapis-protos, upstream: https://github.com/googleapis/googleapis, version: "94bc991b3f1df58bc841801631715894a7ac5e28", license: Apache-2.0, paths: [api-bones-protos/vendor]}
+generated_paths:
+  - tests/typescript/generated/bones/v1/annotations_pb.ts
+  - tests/typescript/generated/bones/v1/errors_pb.ts
+  - tests/typescript/generated/bones/v1/fields_pb.ts
+  - tests/typescript/generated/contract/v1/fields_pb.ts
 # The union of every sdk_surfaces target below, which the schema requires it
 # to equal.
 sdk_languages: [rust, typescript]
@@ -155,6 +165,62 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The keepalive an idle server stream carries so a proxy does not cut it:
+  # the reserved-field payload, the opt-in header, and the reader that drops
+  # it before the caller sees it. Both languages answer the one contract.
+  connect-stream-keepalive:
+    contract: tests/features/connect_stream_keepalive.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones, api-bones-stream]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
+  # The page iterator for keyset-paginated List RPCs. The Rust runtime lands
+  # first; the TypeScript runtime joins this surface when it ships.
+  connect-pagination:
+    contract: tests/features/connect_pagination.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-page, api-bones-protos]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
+  connect-batch:
+    contract: tests/features/connect_batch.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-batch, api-bones-protos]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
+  connect-batch-client-construction:
+    contract: tests/features/connect_batch_client_construction.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
+  connect-batch-identity-guard:
+    contract: tests/features/connect_batch_identity_guard.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-batch]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
+  typed-fields:
+    contract: tests/features/typed_fields.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-fields, api-bones-protos]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
   # The automation manifest compiler and its DSSE signature check are library
   # code the service-kit, the CLI and the layer embed directly; no declared
@@ -219,11 +285,14 @@ internal_behavior_owners:
   # The shipped proto vocabulary (resource, call shape, MCP opt-in, automation
   # surface declaration and signed manifest) is
   # library code callers embed directly; no generated contract reaches it.
-  - paths: [api-bones-protos/src/lib.rs, api-bones-automation/src/batch_of.rs]
+  - paths: [api-bones-protos/src/lib.rs, api-bones-automation/src/batch_of.rs, api-bones-automation/src/method_shape.rs]
     feature: tests/internal-bdd/tests/features/proto_vocabulary.feature
 library_crates:
   - api-bones
   - api-bones-automation
+  - api-bones-batch
+  - api-bones-fields
+  - api-bones-page
   - api-bones-progenitor
   - api-bones-protos
   - api-bones-reqwest
@@ -255,7 +324,7 @@ duplication_baseline:
   duplicate_dispatch: 0
   duplicate_literals: 0
   clone_tokens: 2389
-  test_clone_tokens: 564
+  test_clone_tokens: 309
 ci_checks:
   license_headers:
     # Cargo metadata is authoritative here: these crates are MIT, and the

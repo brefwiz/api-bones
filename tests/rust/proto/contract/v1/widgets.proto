@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
+//
+// A service shaped as the platform's batch RPCs declare it: a single Get and
+// its BatchGet, a paged List and its grouped BatchList. The Rust lane serves
+// it over the wire from multi-organization data and calls it through the
+// batch runtime.
+
+syntax = "proto3";
+
+package contract.v1;
+
+import "bones/v1/annotations.proto";
+import "bones/v1/batch.proto";
+import "bones/v1/pagination.proto";
+
+message Widget {
+  string id = 1;
+  string name = 2;
+  // Echo of the request's `kind`, so a caller sees which request was answered.
+  string kind = 3;
+}
+
+message GetWidgetRequest {
+  string id = 1;
+  string kind = 2;
+}
+
+message BatchGetWidgetsRequest {
+  repeated string ids = 1;
+  string kind = 2;
+}
+
+message WidgetResult {
+  string id = 1;
+  oneof outcome {
+    Widget item = 2;
+    bones.v1.ItemError error = 3;
+  }
+}
+
+message BatchGetWidgetsResponse {
+  repeated WidgetResult results = 1;
+}
+
+message ListWidgetPartsRequest {
+  string widget_id = 1;
+  bones.v1.PageRequest page = 2;
+}
+
+message ListWidgetPartsResponse {
+  repeated string items = 1;
+  bones.v1.PageResponse page = 2;
+}
+
+message UpdateWidgetPartsRequest {
+  string widget_id = 1;
+  repeated string items = 2;
+  optional string owner = 3;
+}
+
+message BatchListWidgetPartsRequest {
+  repeated string widget_ids = 1;
+  bones.v1.PageRequest page = 2;
+}
+
+message WidgetPartsGroup {
+  string widget_id = 1;
+  repeated string items = 2;
+  bones.v1.PageResponse page = 3;
+  bones.v1.ItemError error = 4;
+}
+
+message BatchListWidgetPartsResponse {
+  repeated WidgetPartsGroup groups = 1;
+}
+
+service Widgets {
+  rpc GetWidget(GetWidgetRequest) returns (Widget) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // At most 200 ids per call.
+  rpc BatchGetWidgets(BatchGetWidgetsRequest) returns (BatchGetWidgetsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (bones.v1.batch_of) = "GetWidget";
+  }
+
+  rpc ListWidgetParts(ListWidgetPartsRequest) returns (ListWidgetPartsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  rpc ListWidgetPartsIdempotent(ListWidgetPartsRequest) returns (ListWidgetPartsResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  rpc ListWidgetPartsUnspecified(ListWidgetPartsRequest) returns (ListWidgetPartsResponse);
+
+  rpc UpdateWidgetParts(UpdateWidgetPartsRequest) returns (ListWidgetPartsResponse);
+
+  // At most 200 parents per call.
+  rpc BatchListWidgetParts(BatchListWidgetPartsRequest) returns (BatchListWidgetPartsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (bones.v1.batch_of) = "ListWidgetParts";
+  }
+}

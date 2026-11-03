@@ -1,0 +1,176 @@
+{
+  "methods": [
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "NO_SIDE_EFFECTS",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.Fields/Validate",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "UNSPECIFIED",
+      "maxEncodedUrlBytes": 4096,
+      "paging": {
+        "itemField": "items",
+        "kind": "unary",
+        "pageField": "page",
+        "requestPageField": "page"
+      },
+      "procedure": "unary",
+      "rpc": "/contract.v1.Numbers/List",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "IDEMPOTENT",
+      "maxEncodedUrlBytes": 4096,
+      "paging": {
+        "itemField": "items",
+        "kind": "unary",
+        "pageField": "page",
+        "requestPageField": "page"
+      },
+      "procedure": "unary",
+      "rpc": "/contract.v1.Numbers/ListIdempotent",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "NO_SIDE_EFFECTS",
+      "maxEncodedUrlBytes": 4096,
+      "paging": {
+        "itemField": "items",
+        "kind": "unary",
+        "pageField": "page",
+        "requestPageField": "page"
+      },
+      "procedure": "unary",
+      "rpc": "/contract.v1.Numbers/ListNoSideEffects",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "NO_SIDE_EFFECTS",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.Widgets/BatchGetWidgets",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "NO_SIDE_EFFECTS",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.Widgets/BatchListWidgetParts",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "batch": {
+        "keyField": "id",
+        "keysField": "ids",
+        "kind": "get",
+        "method": "BatchGetWidgets",
+        "resultsField": "results"
+      },
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "NO_SIDE_EFFECTS",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.Widgets/GetWidget",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "batch": {
+        "keyField": "widgetId",
+        "keysField": "widgetIds",
+        "kind": "list",
+        "method": "BatchListWidgetParts",
+        "resultsField": "groups"
+      },
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "NO_SIDE_EFFECTS",
+      "maxEncodedUrlBytes": 4096,
+      "paging": {
+        "itemField": "items",
+        "kind": "unary",
+        "pageField": "page",
+        "requestPageField": "page"
+      },
+      "procedure": "unary",
+      "rpc": "/contract.v1.Widgets/ListWidgetParts",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "IDEMPOTENT",
+      "maxEncodedUrlBytes": 4096,
+      "paging": {
+        "itemField": "items",
+        "kind": "unary",
+        "pageField": "page",
+        "requestPageField": "page"
+      },
+      "procedure": "unary",
+      "rpc": "/contract.v1.Widgets/ListWidgetPartsIdempotent",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "UNSPECIFIED",
+      "maxEncodedUrlBytes": 4096,
+      "paging": {
+        "itemField": "items",
+        "kind": "unary",
+        "pageField": "page",
+        "requestPageField": "page"
+      },
+      "procedure": "unary",
+      "rpc": "/contract.v1.Widgets/ListWidgetPartsUnspecified",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "UNSPECIFIED",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.Widgets/UpdateWidgetParts",
+      "sensitivity": "UNSPECIFIED"
+    }
+  ],
+  "schemaVersion": 3
+}

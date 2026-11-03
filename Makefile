@@ -15,7 +15,7 @@ ADVISORY_DB ?=
 # Proto codegen reruns on a content hash of its inputs. build/brefwiz-codegen.mk
 # is vendored byte-for-byte and never edited here. The step lane's build.rs
 # generates from its own proto and from the bones protos it imports.
-CODEGEN_INPUTS := tests/rust/proto api-bones-protos/proto
+CODEGEN_INPUTS := tests/rust/proto tests/shared/proto api-bones-protos/proto
 
 include build/brefwiz-codegen.mk
 
@@ -32,7 +32,7 @@ ci-lint: ci-no-std ## Run Clippy (CI — zero warnings), and build every no_std 
 	# Clippy runs with --all-features, which turns std on: a no_std-only break
 	# never reaches it. ci-no-std builds those feature sets, and nothing else in
 	# CI does.
-	cargo clippy --workspace --all-targets --all-features --no-deps -- -D warnings
+	cargo clippy --locked --workspace --all-targets --all-features --no-deps -- -D warnings
 
 ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
 	# Nothing else in this repo compiles documentation: ci-lint is clippy, which
@@ -40,12 +40,12 @@ ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
 	# invisibly until the rustdoc JSON emit in the test job started failing on
 	# them — and because rustdoc aborts at the first crate that fails, they
 	# surfaced one crate per CI round. This checks the whole workspace at once.
-	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+	RUSTDOCFLAGS="-D warnings" cargo doc --locked --workspace --all-features --no-deps
 
 ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regression guard for issue 80)
-	cargo check --no-default-features
-	cargo check --no-default-features --features alloc
-	cargo check --no-default-features --features alloc,serde
+	cargo check --locked --no-default-features
+	cargo check --locked --no-default-features --features alloc
+	cargo check --locked --no-default-features --features alloc,serde
 
 ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# --profile ci selects the JUnit-emitting profile the test composite consumes.
@@ -54,52 +54,57 @@ ci-test: ci-e2e-rust ## Run tests with nextest (CI)
 	# Both cucumber lanes are excluded: their test targets are harness = false,
 	# and nextest enumerates targets with `--list`, which such a binary does
 	# not accept ("unexpected argument '--list' found"). ci-e2e-rust runs them.
-	cargo nextest run --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
+	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
 
 ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctests
 	# A cucumber suite is its own harness (harness = false), so nextest cannot
 	# carry it. Both contracts are pure classification/config assertions, so
 	# neither needs a live stack and both run synchronously.
 	# The step lane's own unit tests, over its generated stream response type.
-	cargo test --no-fail-fast -p api-bones-contract-rust --lib
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --lib
 	# nextest runs no doctests. The rotating client refuses a response type
 	# without stream control at compile time, and a compile_fail example on
 	# rotating_stream is the proof, so that crate's doctests run here, where
 	# both ci-test and ci-coverage reach them.
-	cargo test --doc --no-fail-fast -p api-bones-stream --all-features
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_precondition
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_error_info
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_csrf_replay_rule
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pinned_peer
-	cargo test --no-fail-fast -p api-bones-contract-rust --test field_labels
-	cargo test --no-fail-fast -p api-bones-contract-rust --test overridable_defaults
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_stream_control
-	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_stream_rotation
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_client_headers
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_domain_error_code
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test pagination_max_limit
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_if_match_precondition
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test connect_get_reads
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test proto_vocabulary
-	cargo test --no-fail-fast -p api-bones-internal-bdd --test automation_manifest
+	cargo test --locked --doc --no-fail-fast -p api-bones-stream --all-features
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_precondition
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_error_info
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_csrf_replay_rule
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_pinned_peer
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test field_labels
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test overridable_defaults
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_control
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_rotation
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_keepalive
+	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pagination --locked
+	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch --locked
+	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_identity_guard --locked
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test typed_fields
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_client_headers
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_domain_error_code
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test pagination_max_limit
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_if_match_precondition
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_get_reads
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test proto_vocabulary
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test automation_manifest
 
 ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
 	# Excluded for the same reason as ci-test: nextest cannot enumerate a
 	# harness = false target.
-	cargo llvm-cov nextest --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --fail-under-functions 100
+	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --fail-under-functions 100
 
 # Publish rehearsals, one per declared SDK language: the release operation
 # minus the upload, so a broken include or files list fails at PR time rather
 # than after a tag.
 ci-sdk-publish-rust-dry-run: ## Rehearse the crate publish without uploading
-	cargo package -p api-bones-connect --allow-dirty --no-verify
+	cargo package --locked -p api-bones-connect --allow-dirty --no-verify
 
 ci-sdk-publish-typescript-dry-run: ## Rehearse the npm publish without uploading
 	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm publish --dry-run
 
 build: ## Build the crate
-	cargo build --release
+	cargo build --locked --release
 
 ci-audit: ## Run cargo audit (PLATFORM-008 — strict, no default ignores). Pass ADVISORY_DB=... to use a local clone.
 	cargo audit $(if $(ADVISORY_DB),--db $(ADVISORY_DB),)
@@ -170,8 +175,8 @@ sc-001-check: ## SC-001: ban tracing_subscriber::fmt in main/bin entry points
 
 .PHONY: ci-build-check
 ci-build-check: ## Compile-check all feature combinations
-	cargo check --all-features
-	cargo check --no-default-features
+	cargo check --locked --workspace --all-targets --all-features
+	cargo check --locked --no-default-features
 
 .PHONY: sdk-e2e-check
 sdk-e2e-check: ## No SDK E2E targets for this library crate
@@ -267,3 +272,8 @@ ci-changelog: ## CI: verify CHANGELOG.md has entry for current package version (
 	# to a pre-relocation copy on GitHub and made a lint gate depend on
 	# public network reachability.
 	@bash /opt/ci-workflows/ci-scripts/check-release-changelog.sh
+
+.PHONY: ci-sdk-autogenerate
+ci-sdk-autogenerate: ## Generate canonical TypeScript typed-field protobuf messages
+	cd api-bones-connect-ts && npm install --no-audit --no-fund && buf generate
+	cd tests/typescript && npm install --no-audit --no-fund && buf generate

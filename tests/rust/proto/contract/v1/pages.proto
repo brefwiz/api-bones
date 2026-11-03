@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
+//
+// A list service shaped as the platform's List RPCs declare it: a
+// bones.v1.PageRequest in, one repeated field and a bones.v1.PageResponse out.
+// The Rust lane serves it over the wire and iterates it with the generated
+// client. One RPC per idempotency level a List RPC can declare.
+
+syntax = "proto3";
+
+package contract.v1;
+
+import "bones/v1/pagination.proto";
+
+message ListNumbersRequest {
+  bones.v1.PageRequest page = 1;
+}
+
+message ListNumbersResponse {
+  repeated uint32 items = 1;
+  bones.v1.PageResponse page = 2;
+}
+
+service Numbers {
+  // Declared free of side effects.
+  rpc ListNoSideEffects(ListNumbersRequest) returns (ListNumbersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Declared idempotent.
+  rpc ListIdempotent(ListNumbersRequest) returns (ListNumbersResponse) {
+    option idempotency_level = IDEMPOTENT;
+  }
+
+  // Declares no idempotency level.
+  rpc List(ListNumbersRequest) returns (ListNumbersResponse);
+}
