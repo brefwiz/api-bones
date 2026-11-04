@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-11-04
+
+### Added
+
+- *(automation)* validate documents against admitted manifests
+
 ### Added
 
 - Shared document admission and publish check against admitted product manifests,
