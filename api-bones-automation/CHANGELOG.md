@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Shared document admission and publish check against admitted product manifests,
+  including cross-product binding types and required parameter values at publish.
+
 ## [0.2.8] - 2026-11-02
 
 ### Other

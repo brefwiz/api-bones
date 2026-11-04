@@ -163,6 +163,7 @@ internal_behavior_owners:
       - api-bones-automation/src/lib.rs
       - api-bones-automation/src/compile.rs
       - api-bones-automation/src/digest.rs
+      - api-bones-automation/src/document.rs
       - api-bones-automation/src/manifest.rs
       - api-bones-automation/src/pool.rs
       - api-bones-automation/src/signature.rs

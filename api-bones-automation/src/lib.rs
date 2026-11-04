@@ -7,6 +7,8 @@
 //! - [`compile`] turns a product's descriptor set into the serialized
 //!   `AutomationManifest`, refusing on rules D1-D6 of
 //!   `bones/v1/automation_manifest.proto`, byte-identically for equal input.
+//! - [`check_document`] resolves document bindings against admitted product
+//!   manifests and checks required parameter values when publishing.
 //! - [`declaration_digest`] is the digest the manifest carries and a product
 //!   serves in its `AutomationSurfaceRef`.
 //! - [`check_batch_of`] refuses a `bones.v1.batch_of` that does not name a
@@ -19,6 +21,7 @@
 mod batch_of;
 mod compile;
 mod digest;
+mod document;
 mod manifest;
 mod pool;
 pub mod signature;
@@ -26,4 +29,5 @@ pub mod signature;
 pub use batch_of::{BatchOfError, BatchOfReason, BatchOfRefusal, check_batch_of};
 pub use compile::{CompileError, CompileInput, Refusal, Rule, compile};
 pub use digest::declaration_digest;
+pub use document::{DocumentError, DocumentInput, DocumentPhase, check_document};
 pub use manifest::{MANIFEST_FORMAT, ManifestError, ManifestHeader, read_header};
