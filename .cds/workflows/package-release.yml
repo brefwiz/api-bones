@@ -42,13 +42,12 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
-    env:
-      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
-      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
-      CI_CDS_TOKEN: ${{ vars.brefwiz-secrets.CDS_RUN_READER_TOKEN }}
     steps:
       - id: verdict
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
         with:
+          registry-user: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
+          registry-token: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
+          cds-token: ${{ vars.brefwiz-secrets.CDS_RUN_READER_TOKEN }}
           jobs: |
             publish||${{ needs.publish.result }}

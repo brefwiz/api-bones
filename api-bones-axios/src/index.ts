@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // Structural types matching the api_bones::response shapes on the wire.
 // Defined inline so this package has zero runtime dependencies.
 

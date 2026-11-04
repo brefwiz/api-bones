@@ -8,10 +8,15 @@
 use api_bones_automation::signature::{
     AdmitError, SigningKey, TrustedKey, VerifyError, admit, sign, signed_manifest,
 };
-use api_bones_automation::{CompileError, CompileInput, compile, declaration_digest, read_header};
+use api_bones_automation::{
+    CompileError, CompileInput, DocumentError, DocumentPhase, compile, declaration_digest,
+    read_header,
+};
 use cucumber::{World, given, then, when};
 use protox::Compiler;
 
+#[path = "../../../api-bones-automation/tests/support/document.rs"]
+mod document;
 #[path = "../../../api-bones-automation/tests/support/resolver.rs"]
 mod resolver;
 use resolver::{PATH, Resolver};
@@ -25,6 +30,8 @@ struct ManifestWorld {
     envelope: Vec<u8>,
     trusted: Vec<TrustedKey>,
     admitted: Option<Result<(), AdmitError>>,
+    document: Option<document::Fixture>,
+    checked: Option<Result<(), DocumentError>>,
 }
 
 impl std::fmt::Debug for ManifestWorld {
@@ -255,6 +262,43 @@ fn then_admission_refused(world: &mut ManifestWorld, reason: String) {
         other => panic!("unexpected refusal {other:?}"),
     };
     assert_eq!(named, reason);
+}
+
+#[given(expr = "a document with {string} against admitted product manifests")]
+fn given_document(world: &mut ManifestWorld, case: String) {
+    world.document = Some(document::fixture(&case));
+}
+
+#[when(expr = "the shared document check runs for {string}")]
+fn when_document_checked(world: &mut ManifestWorld, phase: String) {
+    let phase = match phase.as_str() {
+        "admission" => DocumentPhase::Admission,
+        "publish" => DocumentPhase::Publish,
+        other => panic!("unknown phase {other}"),
+    };
+    world.checked = Some(world.document.as_ref().unwrap().check(phase));
+}
+
+#[then("the document check accepts it")]
+fn then_document_accepted(world: &mut ManifestWorld) {
+    world
+        .checked
+        .as_ref()
+        .unwrap()
+        .as_ref()
+        .expect("document accepted");
+}
+
+#[then(expr = "the document check refuses it under rule {string}")]
+fn then_document_refused(world: &mut ManifestWorld, rule: String) {
+    let error = world.checked.as_ref().unwrap().as_ref().unwrap_err();
+    let DocumentError::Refused(refusals) = error else {
+        panic!("{error}");
+    };
+    assert!(
+        refusals.iter().any(|r| r.rule.as_str() == rule),
+        "{refusals:?}"
+    );
 }
 
 #[tokio::main]

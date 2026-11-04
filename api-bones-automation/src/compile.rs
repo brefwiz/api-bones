@@ -11,6 +11,7 @@ use prost_reflect::{
 };
 
 use crate::digest::declaration_digest;
+use crate::document::{DocumentError, DocumentInput, DocumentPhase};
 use crate::manifest::MANIFEST_FORMAT;
 use crate::pool::{shipped, transcode};
 
@@ -374,6 +375,76 @@ struct Surface {
 }
 
 impl Surface {
+    fn from_manifest(manifest: &DynamicMessage) -> Result<Self, String> {
+        let schema = sub(manifest, "schema").ok_or("manifest has no schema")?;
+        let pool = DescriptorPool::decode(schema.encode_to_vec().as_slice())
+            .map_err(|e| format!("manifest schema does not decode: {e}"))?;
+        let mut surface = Self {
+            triggers: BTreeMap::new(),
+            actions: BTreeMap::new(),
+            templates: Vec::new(),
+            declaring_files: BTreeSet::new(),
+        };
+        for trigger in subs(manifest, "triggers") {
+            let event = string(&trigger, "event");
+            let message = pool
+                .get_message_by_name(&event)
+                .ok_or_else(|| format!("declared trigger {event:?} is absent from schema"))?;
+            let declaration = sub(&trigger, "declaration")
+                .ok_or_else(|| format!("trigger {event:?} has no declaration"))?;
+            if surface
+                .triggers
+                .insert(
+                    event.clone(),
+                    Trigger {
+                        event: event.clone(),
+                        message,
+                        declaration,
+                    },
+                )
+                .is_some()
+            {
+                return Err(format!("trigger {event:?} is declared twice"));
+            }
+        }
+        for action in subs(manifest, "actions") {
+            let method = string(&action, "method");
+            let descriptor = pool
+                .services()
+                .flat_map(|s| s.methods().collect::<Vec<_>>())
+                .find(|m| m.full_name() == method)
+                .ok_or_else(|| format!("declared action {method:?} is absent from schema"))?;
+            let declaration = sub(&action, "declaration")
+                .ok_or_else(|| format!("action {method:?} has no declaration"))?;
+            let mut authz = DynamicMessage::new(shipped("bones.v1.AuthzRule"));
+            authz.set_field_by_name(
+                "requires",
+                Value::List(
+                    strings(&action, "grants")
+                        .into_iter()
+                        .map(Value::String)
+                        .collect(),
+                ),
+            );
+            if surface
+                .actions
+                .insert(
+                    method.clone(),
+                    Action {
+                        method: method.clone(),
+                        descriptor,
+                        declaration,
+                        authz,
+                    },
+                )
+                .is_some()
+            {
+                return Err(format!("action {method:?} is declared twice"));
+            }
+        }
+        Ok(surface)
+    }
+
     fn read(pool: &DescriptorPool, ext: &Extensions) -> Self {
         let mut surface = Self {
             triggers: BTreeMap::new(),
@@ -561,6 +632,9 @@ struct Checker<'a> {
     /// descends only into messages defined in them.
     own_files: BTreeSet<&'a str>,
     refusals: Vec<Refusal>,
+    /// Present only for the layer's document check; compilation defers other
+    /// products until their manifests have been admitted.
+    admitted: Option<&'a BTreeMap<String, Surface>>,
 }
 
 impl<'a> Checker<'a> {
@@ -576,6 +650,7 @@ impl<'a> Checker<'a> {
             ext,
             own_files,
             refusals: Vec::new(),
+            admitted: None,
         }
     }
 
@@ -805,26 +880,32 @@ impl<'a> Checker<'a> {
         }
         let doc = sub(template, "document")
             .unwrap_or_else(|| DynamicMessage::new(shipped("bones.v1.AutomationDocument")));
-        let trigger = sub(&doc, "trigger");
-        let trigger_message = if let Some(reference) = &trigger {
-            self.trigger_of(&site, reference)
+        self.document(&site, &doc, None);
+    }
+
+    fn document(&mut self, site: &str, doc: &DynamicMessage, phase: Option<DocumentPhase>) {
+        let trigger_message = if let Some(reference) = sub(doc, "trigger") {
+            self.trigger_of(site, &reference)
         } else {
-            self.refuse(Rule::D1, &site, "the document names no trigger");
+            self.refuse(Rule::D1, site, "the document names no trigger");
             None
         };
-        let steps = subs(&doc, "steps");
+        let steps = subs(doc, "steps");
         if steps.is_empty() {
-            self.refuse(Rule::M1, &site, "the document has no steps");
+            self.refuse(Rule::M1, site, "the document has no steps");
         }
-        if !subs(&doc, "arguments").is_empty() {
-            self.refuse(Rule::D6, &site, "a template carries no arguments");
+        if phase.is_none() && !subs(doc, "arguments").is_empty() {
+            self.refuse(Rule::D6, site, "a template carries no arguments");
         }
         let mut scope = Scope {
             trigger: trigger_message,
-            params: self.parameters(&site, &doc),
+            params: self.parameters(site, doc),
             earlier: BTreeMap::new(),
             ids: steps.iter().map(|s| string(s, "id")).collect(),
         };
+        if let Some(phase) = phase {
+            self.arguments(site, doc, &scope.params, phase);
+        }
         for step in &steps {
             let id = string(step, "id");
             let step_site = format!("{site} step {id}");
@@ -837,36 +918,112 @@ impl<'a> Checker<'a> {
     }
 
     fn trigger_of(&mut self, site: &str, reference: &DynamicMessage) -> Option<MessageDescriptor> {
-        if !self.own(&string(reference, "product")) {
-            return None;
-        }
+        let surface = self.reference_surface(site, reference)?;
         let event = string(reference, "event");
-        let found = self.surface.triggers.get(&event).map(|t| t.message.clone());
+        let found = surface.triggers.get(&event).map(|t| t.message.clone());
         if found.is_none() {
             self.refuse(
                 Rule::D1,
                 site,
-                format!("{event:?} is not a declared trigger"),
+                format!(
+                    "{event:?} is not a declared trigger of product {:?}",
+                    self.reference_product(reference)
+                ),
             );
         }
         found
     }
 
     fn action_of(&mut self, site: &str, reference: &DynamicMessage) -> Option<&'a Action> {
-        if !self.own(&string(reference, "product")) {
-            return None;
-        }
+        let surface = self.reference_surface(site, reference)?;
         let method = string(reference, "method");
-        let surface: &'a Surface = self.surface;
         let found = surface.actions.get(&method);
         if found.is_none() {
             self.refuse(
                 Rule::D1,
                 site,
-                format!("{method:?} is not a declared action"),
+                format!(
+                    "{method:?} is not a declared action of product {:?}",
+                    self.reference_product(reference)
+                ),
             );
         }
         found
+    }
+
+    fn reference_product(&self, reference: &DynamicMessage) -> String {
+        let product = string(reference, "product");
+        if product.is_empty() {
+            self.product.to_owned()
+        } else {
+            product
+        }
+    }
+
+    fn reference_surface(&mut self, site: &str, reference: &DynamicMessage) -> Option<&'a Surface> {
+        let product = string(reference, "product");
+        if self.own(&product) {
+            return Some(self.surface);
+        }
+        let admitted = self.admitted?;
+        let found = admitted.get(&product);
+        if found.is_none() {
+            self.refuse(
+                Rule::D1,
+                site,
+                format!("product {product:?} has no admitted manifest"),
+            );
+        }
+        found
+    }
+
+    fn arguments(
+        &mut self,
+        site: &str,
+        doc: &DynamicMessage,
+        params: &BTreeMap<String, Option<Shape>>,
+        phase: DocumentPhase,
+    ) {
+        let mut supplied = BTreeSet::new();
+        for argument in subs(doc, "arguments") {
+            let name = string(&argument, "parameter");
+            let asite = format!("{site} argument {name}");
+            if !supplied.insert(name.clone()) {
+                self.refuse(Rule::D6, &asite, "the argument is supplied twice");
+            }
+            match params.get(&name) {
+                None => self.refuse(Rule::D6, &asite, "the parameter is not declared"),
+                Some(shape) => {
+                    let value = sub(&argument, "value").and_then(|v| literal_shape(&v));
+                    if shape.is_none() || value != *shape {
+                        self.refuse(
+                            Rule::D6,
+                            &asite,
+                            "the argument does not match the parameter's type",
+                        );
+                    }
+                }
+            }
+        }
+        if phase == DocumentPhase::Publish {
+            for parameter in subs(doc, "parameters") {
+                let name = string(&parameter, "name");
+                let required = parameter
+                    .get_field_by_name("required")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or_default();
+                if required
+                    && !supplied.contains(&name)
+                    && !parameter.has_field_by_name("default_value")
+                {
+                    self.refuse(
+                        Rule::D6,
+                        &format!("{site} parameter {name}"),
+                        "a required parameter has neither argument nor default at publish",
+                    );
+                }
+            }
+        }
     }
 
     fn parameters(&mut self, site: &str, doc: &DynamicMessage) -> BTreeMap<String, Option<Shape>> {
@@ -1046,8 +1203,12 @@ impl<'a> Checker<'a> {
         match resolve_path(message, path) {
             Err(why) => self.refuse(Rule::D4, site, format!("source {path:?}: {why}")),
             Ok(source) => {
-                if source.kind() != destination.kind() || source.is_list() != destination.is_list()
-                {
+                let same = if self.admitted.is_some() {
+                    same_field_type(&source, destination, &mut BTreeSet::new())
+                } else {
+                    source.kind() == destination.kind() && source.is_list() == destination.is_list()
+                };
+                if !same {
                     self.refuse(
                         Rule::D4,
                         site,
@@ -1097,6 +1258,88 @@ impl<'a> Checker<'a> {
                 inputs.sort_by_cached_key(|v| v.as_message().map(|m| string(m, "field")));
             }
         }
+    }
+}
+
+pub(crate) fn check_document_inner(input: &DocumentInput<'_>) -> Result<(), DocumentError> {
+    if input.product.is_empty() {
+        return Err(DocumentError::Input(
+            "declaring product is empty".to_owned(),
+        ));
+    }
+    let document = DynamicMessage::decode(shipped("bones.v1.AutomationDocument"), input.document)
+        .map_err(|e| DocumentError::Undecodable(e.to_string()))?;
+    let mut admitted = BTreeMap::new();
+    for (index, bytes) in input.manifests.iter().enumerate() {
+        let invalid = |detail| DocumentError::Manifest { index, detail };
+        let header = crate::read_header(bytes).map_err(|e| invalid(e.to_string()))?;
+        if header.product.is_empty() {
+            return Err(invalid("manifest product is empty".to_owned()));
+        }
+        let manifest = DynamicMessage::decode(shipped("bones.v1.AutomationManifest"), *bytes)
+            .map_err(|e| invalid(e.to_string()))?;
+        let surface = Surface::from_manifest(&manifest).map_err(invalid)?;
+        if admitted.insert(header.product.clone(), surface).is_some() {
+            return Err(DocumentError::Input(format!(
+                "product {:?} has more than one admitted manifest",
+                header.product
+            )));
+        }
+    }
+    let surface = admitted.get(input.product).ok_or_else(|| {
+        DocumentError::Input(format!(
+            "declaring product {:?} has no admitted manifest",
+            input.product
+        ))
+    })?;
+    let ext = Extensions::find(crate::pool::shipped_pool())
+        .expect("the shipped protos declare the automation extensions");
+    let mut checker = Checker::new(input.product, surface, &ext, BTreeSet::new());
+    checker.admitted = Some(&admitted);
+    checker.document("document", &document, Some(input.phase));
+    if checker.refusals.is_empty() {
+        Ok(())
+    } else {
+        Err(DocumentError::Refused(checker.refusals))
+    }
+}
+
+/// Compare field types across independently compiled product pools. Named
+/// types retain nominal identity, and their definitions must agree, including
+/// definitions reached through fields. Map entry names are synthetic.
+fn same_field_type(
+    source: &FieldDescriptor,
+    destination: &FieldDescriptor,
+    seen: &mut BTreeSet<String>,
+) -> bool {
+    if source.is_list() != destination.is_list() || source.is_map() != destination.is_map() {
+        return false;
+    }
+    if source.is_map() {
+        let (Kind::Message(a), Kind::Message(b)) = (source.kind(), destination.kind()) else {
+            return false;
+        };
+        return a
+            .fields()
+            .zip(b.fields())
+            .all(|(a, b)| same_field_type(&a, &b, seen));
+    }
+    match (source.kind(), destination.kind()) {
+        (Kind::Message(a), Kind::Message(b)) => {
+            if a.full_name() != b.full_name() || a.descriptor_proto() != b.descriptor_proto() {
+                return false;
+            }
+            if !seen.insert(a.full_name().to_owned()) {
+                return true;
+            }
+            a.fields()
+                .zip(b.fields())
+                .all(|(a, b)| same_field_type(&a, &b, seen))
+        }
+        (Kind::Enum(a), Kind::Enum(b)) => {
+            a.full_name() == b.full_name() && a.enum_descriptor_proto() == b.enum_descriptor_proto()
+        }
+        (a, b) => a == b,
     }
 }
 

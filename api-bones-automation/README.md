@@ -1,6 +1,6 @@
 # api-bones-automation
 
-The one implementation of two things every producer and consumer of an
+The shared implementation every producer and consumer of an
 automation manifest shares (`bones/v1/automation_manifest.proto`):
 
 - `compile`: builds the `AutomationManifest` from a product's serialized
@@ -18,11 +18,24 @@ D1-D6 (document rules), T1 (trigger label), A1-A7 (action
 declarations), C1 (field classification), U1 (unset closed choice) and M1 (template shape). A refusal
 names the rule and the site.
 
-## Rules NOT enforced yet
+## Document admission and publication
 
-- D6 refuses a default of the wrong type, but not "a required parameter has
-  neither an argument nor a default": templates carry no arguments, so that
-  half has nothing to check yet.
-- A binding to another product's action is not type-checked against that
-  action; the layer resolves such references against the admitted manifest of
-  that product.
+`check_document` checks serialized `AutomationDocument` bytes against the
+admitted manifests supplied in `DocumentInput`, including the declaring
+product's manifest. `DocumentPhase::Admission` resolves a template's references
+with open parameter slots; `DocumentPhase::Publish` additionally requires each
+required parameter to have an argument or default. Both phases validate
+argument names and types, references and bindings, including another product's
+trigger, action, resolver or earlier step response. Refusals name the rule,
+document site and failing predicate. Unusable documents and manifests carry
+separate input errors.
+
+Each product's schema stays in its own descriptor pool. Named message and enum
+types must have matching names and definitions; scalar types and collection
+shapes must match. Only the manifest's declared trigger/action inventory is
+callable. The caller supplies one already-admitted manifest per product and
+owns signature and identity verification; the check performs no I/O.
+
+`compile` checks references to the declaring product and leaves cross-product
+resolution for `check_document`. Templates carry no arguments, so compilation
+permits required parameter slots and never applies the publish-only condition.

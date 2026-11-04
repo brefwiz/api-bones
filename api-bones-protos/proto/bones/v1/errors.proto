@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Proprietary
+// SPDX-License-Identifier: MIT
 //
 // Canonical error-detail shapes — the proto-side companion to
 // `api_bones::error::ValidationError`.

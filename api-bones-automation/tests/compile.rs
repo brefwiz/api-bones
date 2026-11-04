@@ -12,6 +12,9 @@ use protox::Compiler;
 mod resolver;
 use resolver::{PATH, Resolver};
 
+#[path = "support/document_tests.rs"]
+mod document_tests;
+
 const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 
 fn descriptor_set(source: &str) -> Vec<u8> {

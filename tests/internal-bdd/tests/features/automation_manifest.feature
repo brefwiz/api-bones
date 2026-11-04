@@ -7,9 +7,8 @@ Feature: Automation manifest compilation, signature and admission
   verifies against a trusted key valid at that moment and the manifest is
   the product's own and matches the digest the product serves. A declaration
   that breaks a rule the compiler enforces is refused, naming the rule; the
-  rule that a required parameter has an argument or a default, and the
-  type-check of a binding against another product's action, are not enforced
-  yet.
+  shared document check resolves bindings against each product's admitted
+  manifest and requires required parameters to have values at publish.
 
   Scenario: A valid contract compiles into a manifest for its release
     Given a valid orders contract
@@ -65,3 +64,63 @@ Feature: Automation manifest compilation, signature and admission
     And the layer trusts only key "k2"
     When the layer admits it at 150 for product "orders" serving its own digest
     Then the admission is refused as "unknown key"
+
+  Scenario Outline: Admitted product schemas resolve valid document bindings
+    Given a document with "<case>" against admitted product manifests
+    When the shared document check runs for "admission"
+    Then the document check accepts it
+
+    Examples:
+      | case                    |
+      | open required parameter |
+      | local reference         |
+      | cross-product trigger   |
+      | matching trigger        |
+      | matching output         |
+      | matching repeated       |
+      | matching enum           |
+      | matching message        |
+      | matching map            |
+      | matching resolver       |
+
+  Scenario Outline: Publishing obtains required parameter values from arguments or defaults
+    Given a document with "<case>" against admitted product manifests
+    When the shared document check runs for "publish"
+    Then the document check accepts it
+
+    Examples:
+      | case               |
+      | argument value     |
+      | default value      |
+      | optional parameter |
+
+  Scenario Outline: A document is refused when its bindings or values violate a rule
+    Given a document with "<case>" against admitted product manifests
+    When the shared document check runs for "<phase>"
+    Then the document check refuses it under rule "<rule>"
+
+    Examples:
+      | case                      | phase     | rule |
+      | open required parameter   | publish   | D6   |
+      | wrong argument            | publish   | D6   |
+      | unknown argument          | publish   | D6   |
+      | duplicate argument        | publish   | D6   |
+      | wrong argument            | admission | D6   |
+      | unknown action            | admission | D1   |
+      | unknown product           | admission | D1   |
+      | unknown trigger           | admission | D1   |
+      | missing manifest          | admission | D1   |
+      | person-reserved action    | admission | D2   |
+      | later output              | admission | D3   |
+      | wrong binding type        | admission | D4   |
+      | unknown target field      | admission | D4   |
+      | unknown source field      | admission | D4   |
+      | repeated mismatch         | admission | D4   |
+      | different enum            | admission | D4   |
+      | different message         | admission | D4   |
+      | changed message           | admission | D4   |
+      | map mismatch              | admission | D4   |
+      | output mismatch           | admission | D4   |
+      | literal mismatch          | admission | D4   |
+      | unknown parameter         | admission | D5   |
+      | resolver without resolves | admission | D5   |
