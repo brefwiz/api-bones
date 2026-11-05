@@ -12,3 +12,4 @@ inputs:
       - ../api-bones-protos/proto/bones/v1/fields.proto
       - ../api-bones-protos/proto/bones/v1/annotations.proto
       - ../api-bones-protos/proto/bones/v1/errors.proto
+      - ../api-bones-protos/proto/bones/v1/pagination.proto

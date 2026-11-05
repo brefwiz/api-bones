@@ -67,7 +67,7 @@ impl api_bones_page::PagedResponse for ListNumbersResponse {
                 total: page.total.into_option().map(|total| api_bones_page::Total {
                     value: total.value,
                     kind: match total.kind.as_known() {
-                        Some(generated::bones::v1::total::Kind::EXACT) => {
+                        Some(generated::bones::v1::total::Kind::KIND_EXACT) => {
                             api_bones_page::TotalKind::Exact
                         }
                         _ => api_bones_page::TotalKind::Estimate,

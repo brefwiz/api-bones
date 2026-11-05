@@ -74,7 +74,7 @@ message PageResponse {
   Total total = 3;
 }
 
-// A collection size and how it was obtained. Both ESTIMATE and EXACT count
+// A collection size and how it was obtained. Both KIND_ESTIMATE and KIND_EXACT count
 // only items visible under the request's filter and caller authorization,
 // with the same scope as PageResponse.revision. Table-wide or planner-only
 // estimates across organizations are forbidden.
@@ -82,10 +82,10 @@ message Total {
   enum Kind {
     KIND_UNSPECIFIED = 0;
     // An estimate within the request's filter and authorization; may be off.
-    ESTIMATE = 1;
+    KIND_ESTIMATE = 1;
     // An exact count within the request's filter and authorization, computed
     // once per revision.
-    EXACT = 2;
+    KIND_EXACT = 2;
   }
 
   uint64 value = 1;

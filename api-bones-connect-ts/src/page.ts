@@ -6,6 +6,7 @@ import { BonesError } from "./error-info.js";
 import { assertSupportedPolicySchema, indexGeneratedPolicy, type GeneratedMethodPolicyDocument, type GeneratedPagingPolicy } from "./policy.js";
 import { RevisionCache } from "./revision-cache.js";
 import { platformBinding } from "./platform-client.js";
+import { Total_Kind } from "./generated/bones/v1/pagination_pb.js";
 
 export interface PageOptions {
   pageSize?: number;
@@ -160,7 +161,7 @@ export function listCall<T>(fetchPage: PageFetch, request: Record<string, unknow
           const total = metadata.total === undefined ? undefined : record(metadata.total);
           page = {
             items: values as T[], revision: String(metadata.revision ?? ""), fromCache: false,
-            ...(total && (total.kind === 1 || total.kind === 2) ? { total: { value: BigInt(total.value as bigint), kind: total.kind === 1 ? "estimate" as const : "exact" as const } } : {}),
+            ...(total && (total.kind === Total_Kind.ESTIMATE || total.kind === Total_Kind.EXACT) ? { total: { value: BigInt(total.value as bigint), kind: total.kind === Total_Kind.ESTIMATE ? "estimate" as const : "exact" as const } } : {}),
           };
           cursor = String(metadata.nextCursor ?? "");
         }
