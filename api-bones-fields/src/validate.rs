@@ -316,7 +316,7 @@ fn validate_other_constraints(constraints: Option<&Constraints>) -> Vec<FieldVio
         Some(Constraints::Text(c)) => {
             check(
                 &mut errors,
-                (1..=4096).contains(&c.max_length),
+                (1..=4096).contains(&c.max_length.unwrap_or_default()),
                 "/text/maxLength",
                 Rule::Range,
                 "text limit must be 1..4096",
@@ -427,7 +427,7 @@ fn validate_enum(c: &crate::EnumConstraints, id: &str) -> Result<(), FieldViolat
 
 fn validate_text(c: &crate::TextConstraints, text: &str) -> Result<(), FieldViolation> {
     require(
-        text.chars().count() <= c.max_length as usize,
+        text.chars().count() <= c.max_length.unwrap_or_default() as usize,
         Rule::MaxLength,
         "text exceeds Unicode scalar limit",
     )?;
@@ -598,7 +598,7 @@ pub fn validate_definition_change(
             false
         }
         (Some(Constraints::Text(a)), Some(Constraints::Text(b))) => {
-            b.max_length < a.max_length
+            b.max_length.unwrap_or_default() < a.max_length.unwrap_or_default()
                 || (a.format != b.format
                     && b.format.as_known() != Some(TextFormat::TEXT_FORMAT_PLAIN))
         }

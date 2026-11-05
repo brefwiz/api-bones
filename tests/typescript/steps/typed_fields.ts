@@ -53,7 +53,7 @@ function setting(d: FieldDefinition, name: string, value: string) {
     else if (name === "unit") c.value.unit = value;
     else if (name === "fraction") c.value.maxFractionDigits = Number(value);
     else throw new Error(`unknown number setting ${name}`);
-  } else if (c.case === "text") { assert.equal(name, "max_length"); c.value.maxLength = Number(value); }
+  } else if (c.case === "text") { assert.equal(name, "max_length"); c.value.maxLength = value === "absent" ? undefined : Number(value); }
   else if (c.case === "money") { if (name === "currency") c.value.currency = value; else { assert.equal(name, "max"); c.value.maxMinor = BigInt(value); } }
   else if (c.case === "recordLink") { assert.equal(name, "target_type"); c.value.targetRecordType = value; }
   else if (c.case === "enumeration") {

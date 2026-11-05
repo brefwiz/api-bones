@@ -88,6 +88,7 @@ Feature: Typed fields preserve their definition and option identities
       | enum        | option_count     | 201              | range         |
       | text        | max_length       | 0                | range         |
       | text        | max_length       | 4097             | range         |
+      | text        | max_length       | absent           | range         |
       | money       | currency         | ZZZ              | format        |
       | record_link | target_type      |                  | format        |
 

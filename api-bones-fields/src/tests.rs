@@ -293,7 +293,7 @@ fn integer_text_money_and_link_constraints_validate_actual_values() {
     let text = definition(
         FieldType::FIELD_TYPE_TEXT,
         Some(Constraints::Text(Box::new(TextConstraints {
-            max_length: 2,
+            max_length: Some(2),
             format: TextFormat::TEXT_FORMAT_PLAIN.into(),
             ..Default::default()
         }))),
@@ -379,7 +379,7 @@ fn calendar_timestamp_duration_and_text_formats_are_validated() {
         let text = definition(
             FieldType::FIELD_TYPE_TEXT,
             Some(Constraints::Text(Box::new(TextConstraints {
-                max_length: 256,
+                max_length: Some(256),
                 format: format.into(),
                 ..Default::default()
             }))),

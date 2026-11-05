@@ -36,7 +36,7 @@ enum TextFormat {
   TEXT_FORMAT_URI = 3;
   TEXT_FORMAT_PHONE_E164 = 4;
 }
-message TextConstraints { uint32 max_length = 1; TextFormat format = 2; }
+message TextConstraints { optional uint32 max_length = 1; TextFormat format = 2; }
 message MoneyConstraints { string currency = 1; optional int64 min_minor = 2; optional int64 max_minor = 3; }
 message RecordLinkConstraints { string target_record_type = 1; }
 message FieldDefinition {
