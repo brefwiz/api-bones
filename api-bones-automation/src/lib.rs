@@ -7,6 +7,10 @@
 //! - [`compile`] turns a product's descriptor set into the serialized
 //!   `AutomationManifest`, refusing on rules D1-D6 of
 //!   `bones/v1/automation_manifest.proto`, byte-identically for equal input.
+//! - [`check_surface`] applies the same rules to a product's declarations
+//!   without its identity and returns the digest the manifest will carry, so
+//!   a product's build refuses what its release would, save a template
+//!   naming its own product, which only [`compile`] can recognise.
 //! - [`check_document`] resolves document bindings against admitted product
 //!   manifests and checks required parameter values when publishing.
 //! - [`declaration_digest`] is the digest the manifest carries and a product
@@ -27,7 +31,9 @@ mod pool;
 pub mod signature;
 
 pub use batch_of::{BatchOfError, BatchOfReason, BatchOfRefusal, check_batch_of};
-pub use compile::{CompileError, CompileInput, Refusal, Rule, compile};
+pub use compile::{
+    CheckedSurface, CompileError, CompileInput, Refusal, Rule, SurfaceInput, check_surface, compile,
+};
 pub use digest::declaration_digest;
 pub use document::{DocumentError, DocumentInput, DocumentPhase, check_document};
 pub use manifest::{MANIFEST_FORMAT, ManifestError, ManifestHeader, read_header};

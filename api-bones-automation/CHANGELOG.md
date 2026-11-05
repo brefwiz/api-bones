@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `check_surface`: a product's build applies the compiler's rules to its
+  declarations without its identity and gets the `declaration_digest` its
+  release manifest carries.
+
+### Changed
+
+- `compile` refuses a template that names the declaring product (M1); its own
+  triggers and actions are referenced with `product` empty.
+
 ## [0.2.9] - 2026-11-04
 
 ### Added

@@ -2,7 +2,8 @@
 //! Real compiled product manifests shared by document tests and library BDD.
 
 use api_bones_automation::{
-    CompileInput, DocumentError, DocumentInput, DocumentPhase, check_document, compile,
+    CompileInput, DocumentError, DocumentInput, DocumentPhase, SurfaceInput, check_document,
+    check_surface, compile, read_header,
 };
 use prost_reflect::{DescriptorPool, DynamicMessage, Value, prost::Message};
 use protox::Compiler;
@@ -86,14 +87,29 @@ fn compiled(source: &str, product: &str) -> (Vec<u8>, DescriptorPool) {
     compiler.include_imports(true);
     compiler.open_file(PATH).expect("fixture protos compile");
     let pool = compiler.descriptor_pool();
+    let descriptor_set = compiler.encode_file_descriptor_set();
+    let sources = [(PATH.to_owned(), source.as_bytes().to_vec())];
     let bytes = compile(&CompileInput {
-        descriptor_set: &compiler.encode_file_descriptor_set(),
-        sources: &[(PATH.to_owned(), source.as_bytes().to_vec())],
+        descriptor_set: &descriptor_set,
+        sources: &sources,
         product,
         version: "1.2.3",
         commit: "0123456789abcdef0123456789abcdef01234567",
     })
     .expect("fixture manifest compiles");
+    // The build check sees the same set without an identity and must agree.
+    let checked = check_surface(&SurfaceInput {
+        descriptor_set: &descriptor_set,
+        sources: &sources,
+    })
+    .expect("fixture surface checks");
+    assert_eq!(
+        read_header(&bytes)
+            .expect("manifest header")
+            .declaration_digest,
+        checked.declaration_digest,
+        "build check and release must sign the same declaration digest",
+    );
     (bytes, pool)
 }
 

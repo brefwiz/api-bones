@@ -38,7 +38,11 @@
 //     };
 //   }
 //
-// A reference whose `product` is empty names the declaring product.
+// A reference whose `product` is empty names the declaring product. A
+// template a product ships references its own triggers and actions that way
+// and names only another product, so its declarations never carry its own
+// name and its build checks them without its identity; the surface compiler
+// refuses a template that names the declaring product (M1).
 //
 // Every closed choice here is a oneof whose unset state is refused: a step
 // with no kind, a binding with no source and a parameter with no type do not

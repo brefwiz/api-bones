@@ -166,6 +166,63 @@ pub(crate) fn write_refusals<T: fmt::Display>(
 
 impl std::error::Error for CompileError {}
 
+/// What a product's build checks: its declarations, without its identity.
+///
+/// The product is the service segment of the SVID its workloads present, so
+/// a build has none to give; the release names it in [`CompileInput`].
+#[derive(Debug, Clone, Copy)]
+pub struct SurfaceInput<'a> {
+    /// A serialized `FileDescriptorSet`, as in [`CompileInput::descriptor_set`].
+    pub descriptor_set: &'a [u8],
+    /// `(import path, source bytes)` of the product's repository files, as in
+    /// [`CompileInput::sources`].
+    pub sources: &'a [(String, Vec<u8>)],
+}
+
+/// A declared surface that [`check_surface`] accepts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CheckedSurface {
+    /// Full names of the event messages declared as triggers, ordered.
+    pub triggers: Vec<String>,
+    /// Full names of the methods declared as actions, ordered.
+    pub actions: Vec<String>,
+    /// Names of the templates the product ships, ordered.
+    pub templates: Vec<String>,
+    /// The `declaration_digest` of the manifest the release compiles from the
+    /// same input, which the product serves in its `AutomationSurfaceRef`.
+    pub declaration_digest: String,
+}
+
+/// Check a product's declarations without its identity.
+///
+/// Applies every rule [`compile`] applies, from the same code, and computes
+/// the digest it would put in the manifest. A template references its own
+/// product's triggers and actions with `product` empty; a reference naming a
+/// product names another one and is left to the layer. Naming the declaring
+/// product itself is the one refusal that needs the identity, so only
+/// [`compile`] makes it (M1).
+///
+/// # Errors
+///
+/// [`CompileError`] listing every rule the declarations break;
+/// [`CompileError::NoDeclarations`] when the set declares nothing.
+pub fn check_surface(input: &SurfaceInput<'_>) -> Result<CheckedSurface, CompileError> {
+    let checked = check(input.descriptor_set, input.sources, None)?;
+    let mut templates: Vec<String> = checked
+        .templates
+        .iter()
+        .map(|t| string(t, "name"))
+        .collect();
+    templates.sort();
+    Ok(CheckedSurface {
+        triggers: checked.surface.triggers.keys().cloned().collect(),
+        actions: checked.surface.actions.keys().cloned().collect(),
+        templates,
+        declaration_digest: checked.declaration_digest,
+    })
+}
+
 /// Compile the manifest of `input` and return its serialized bytes.
 ///
 /// Equal input gives equal bytes: every repeated field is ordered as the
@@ -176,7 +233,45 @@ impl std::error::Error for CompileError {}
 /// [`CompileError`] listing every rule the input breaks.
 pub fn compile(input: &CompileInput<'_>) -> Result<Vec<u8>, CompileError> {
     check_release(input)?;
-    let pool = DescriptorPool::decode(input.descriptor_set)
+    let Checked {
+        surface,
+        mut templates,
+        schema,
+        declaration_digest,
+    } = check(input.descriptor_set, input.sources, Some(input.product))?;
+
+    templates.sort_by_cached_key(|t| string(t, "name"));
+    let mut manifest = DynamicMessage::new(shipped("bones.v1.AutomationManifest"));
+    manifest.set_field_by_name("format", Value::U32(MANIFEST_FORMAT));
+    manifest.set_field_by_name("product", Value::String(input.product.to_owned()));
+    manifest.set_field_by_name("version", Value::String(input.version.to_owned()));
+    manifest.set_field_by_name("commit", Value::String(input.commit.to_owned()));
+    manifest.set_field_by_name("declaration_digest", Value::String(declaration_digest));
+    manifest.set_field_by_name("triggers", messages(surface.manifest_triggers()));
+    manifest.set_field_by_name("actions", messages(surface.manifest_actions()));
+    manifest.set_field_by_name("templates", messages(templates));
+    manifest.set_field_by_name("schema", Value::Message(schema));
+    Ok(manifest.encode_to_vec())
+}
+
+/// Declarations every rule accepts, with what the manifest is built from.
+struct Checked {
+    surface: Surface,
+    /// Each template as declared, its own references resolved when the
+    /// product is known.
+    templates: Vec<DynamicMessage>,
+    schema: DynamicMessage,
+    declaration_digest: String,
+}
+
+/// The checks [`compile`] and [`check_surface`] share; `product` is `None`
+/// when the identity is not known.
+fn check(
+    descriptor_set: &[u8],
+    sources: &[(String, Vec<u8>)],
+    product: Option<&str>,
+) -> Result<Checked, CompileError> {
+    let pool = DescriptorPool::decode(descriptor_set)
         .map_err(|e| CompileError::Descriptors(e.to_string()))?;
     let Some(ext) = Extensions::find(&pool) else {
         return Err(CompileError::NoDeclarations);
@@ -185,42 +280,34 @@ pub fn compile(input: &CompileInput<'_>) -> Result<Vec<u8>, CompileError> {
     if surface.triggers.is_empty() && surface.actions.is_empty() && surface.templates.is_empty() {
         return Err(CompileError::NoDeclarations);
     }
-    let own_files: BTreeSet<&str> = input.sources.iter().map(|(p, _)| p.as_str()).collect();
-    let mut checker = Checker::new(input.product, &surface, &ext, own_files);
-    checker.declarations();
-    let mut templates = checker.templates();
-    if !checker.refusals.is_empty() {
-        return Err(CompileError::Refused(checker.refusals));
-    }
+    let own_files: BTreeSet<&str> = sources.iter().map(|(p, _)| p.as_str()).collect();
+    let templates = {
+        let mut checker = Checker::new(product.unwrap_or_default(), &surface, &ext, own_files);
+        checker.declarations();
+        let templates = checker.templates();
+        if !checker.refusals.is_empty() {
+            return Err(CompileError::Refused(checker.refusals));
+        }
+        templates
+    };
 
     for file in &surface.declaring_files {
-        if !input.sources.iter().any(|(path, _)| path == file) {
+        if !sources.iter().any(|(path, _)| path == file) {
             return Err(CompileError::MissingSource(file.clone()));
         }
     }
-    let (schema, schema_files) = schema(input.descriptor_set, &pool, &surface.declaring_files);
-    let in_repo: Vec<(String, Vec<u8>)> = input
-        .sources
+    let (schema, schema_files) = schema(descriptor_set, &pool, &surface.declaring_files);
+    let in_repo: Vec<(String, Vec<u8>)> = sources
         .iter()
         .filter(|(path, _)| schema_files.contains(path))
         .cloned()
         .collect();
-
-    templates.sort_by_cached_key(|t| string(t, "name"));
-    let mut manifest = DynamicMessage::new(shipped("bones.v1.AutomationManifest"));
-    manifest.set_field_by_name("format", Value::U32(MANIFEST_FORMAT));
-    manifest.set_field_by_name("product", Value::String(input.product.to_owned()));
-    manifest.set_field_by_name("version", Value::String(input.version.to_owned()));
-    manifest.set_field_by_name("commit", Value::String(input.commit.to_owned()));
-    manifest.set_field_by_name(
-        "declaration_digest",
-        Value::String(declaration_digest(&in_repo)),
-    );
-    manifest.set_field_by_name("triggers", messages(surface.manifest_triggers()));
-    manifest.set_field_by_name("actions", messages(surface.manifest_actions()));
-    manifest.set_field_by_name("templates", messages(templates));
-    manifest.set_field_by_name("schema", Value::Message(schema));
-    Ok(manifest.encode_to_vec())
+    Ok(Checked {
+        surface,
+        templates,
+        schema,
+        declaration_digest: declaration_digest(&in_repo),
+    })
 }
 
 fn messages(items: Vec<DynamicMessage>) -> Value {
@@ -625,6 +712,7 @@ struct Scope {
 }
 
 struct Checker<'a> {
+    /// The declaring product; empty when a build checks without its identity.
     product: &'a str,
     surface: &'a Surface,
     ext: &'a Extensions,
@@ -660,10 +748,6 @@ impl<'a> Checker<'a> {
             site: site.to_owned(),
             detail: detail.into(),
         });
-    }
-
-    fn own(&self, product: &str) -> bool {
-        product.is_empty() || product == self.product
     }
 
     fn declarations(&mut self) {
@@ -925,10 +1009,7 @@ impl<'a> Checker<'a> {
             self.refuse(
                 Rule::D1,
                 site,
-                format!(
-                    "{event:?} is not a declared trigger of product {:?}",
-                    self.reference_product(reference)
-                ),
+                format!("{event:?} is not a declared trigger at {site}"),
             );
         }
         found
@@ -942,30 +1023,34 @@ impl<'a> Checker<'a> {
             self.refuse(
                 Rule::D1,
                 site,
-                format!(
-                    "{method:?} is not a declared action of product {:?}",
-                    self.reference_product(reference)
-                ),
+                format!("{method:?} is not a declared action at {site}"),
             );
         }
         found
     }
 
-    fn reference_product(&self, reference: &DynamicMessage) -> String {
-        let product = string(reference, "product");
-        if product.is_empty() {
-            self.product.to_owned()
-        } else {
-            product
-        }
-    }
-
     fn reference_surface(&mut self, site: &str, reference: &DynamicMessage) -> Option<&'a Surface> {
         let product = string(reference, "product");
-        if self.own(&product) {
+        if product.is_empty() {
             return Some(self.surface);
         }
-        let admitted = self.admitted?;
+        let Some(admitted) = self.admitted else {
+            // A product's own declarations never carry its name, so its build
+            // checks them without its identity and a rename touches no proto.
+            if product == self.product {
+                self.refuse(
+                    Rule::M1,
+                    site,
+                    format!(
+                        "a reference to the declaring product leaves product empty, not {product:?}"
+                    ),
+                );
+            }
+            return None;
+        };
+        if product == self.product {
+            return Some(self.surface);
+        }
         let found = admitted.get(&product);
         if found.is_none() {
             self.refuse(

@@ -6,7 +6,8 @@ Feature: Automation manifest compilation, signature and admission
   manifest, signs it, and the layer admits it only when the signature
   verifies against a trusted key valid at that moment and the manifest is
   the product's own and matches the digest the product serves. A declaration
-  that breaks a rule the compiler enforces is refused, naming the rule; the
+  that breaks a rule the compiler enforces is refused, naming the rule, and a
+  product's build applies the same rules without the product's identity; the
   shared document check resolves bindings against each product's admitted
   manifest and requires required parameters to have values at publish.
 
@@ -35,6 +36,37 @@ Feature: Automation manifest compilation, signature and admission
       | a request that carries an untyped payload | A6 |
       | a trigger field without a classification | C1 |
       | a template with no steps                 | M1   |
+
+  Scenario: A product's build checks its declarations without its identity
+    Given a valid orders contract
+    When the declarations are checked without a product identity
+    Then the check lists the declared trigger, action and template
+    And the check gives the digest the release manifest of product "orders" carries
+
+  Scenario Outline: A declaration that breaks a rule fails the product's build naming it
+    Given an orders contract with <defect>
+    When the declarations are checked without a product identity
+    Then the check is refused under rule "<rule>"
+
+    Examples: refused at build
+      | defect                                   | rule |
+      | a trigger without a label                | T1   |
+      | an action without an effect              | A1   |
+      | an action without a required grant       | A2   |
+      | an action that streams its response      | A3   |
+      | a template naming an undeclared trigger  | D1   |
+      | a template step on a person-reserved action | D2 |
+      | an action that is person-reserved and planner-pinned | A7 |
+      | a lasting action that does not declare its idempotency | A4 |
+      | a resolver on an action that is not a read | A5 |
+      | a request that carries an untyped payload | A6 |
+      | a trigger field without a classification | C1 |
+      | a template with no steps                 | M1   |
+
+  Scenario: A template that names its own product is refused at release
+    Given an orders contract with a template naming its own product
+    When the release "1.2.3" of product "orders" is compiled
+    Then the compilation is refused under rule "M1"
 
   Scenario: A signed manifest is admitted for the product that serves it
     Given a signed manifest of product "orders" under key "k1" valid from 100 to 200
