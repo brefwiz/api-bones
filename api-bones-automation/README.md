@@ -5,6 +5,11 @@ automation manifest shares (`bones/v1/automation_manifest.proto`):
 
 - `compile`: builds the `AutomationManifest` from a product's serialized
   descriptor set and its repository sources, byte-identically for equal input.
+- `check_surface`: applies the same rules to a product's declarations without
+  its identity, which only the serving workload's SVID carries, and returns the
+  declared trigger, action and template names and the `declaration_digest` the
+  release manifest will carry, so a product's build refuses what its release
+  would and serves the digest the release signs.
 - `signature`: signs and verifies the DSSE `{keyid, sig}` Ed25519 signature
   over the manifest (payload type
   `application/vnd.brefwiz.automation-manifest.v1+protobuf`), and admits a
@@ -17,6 +22,13 @@ automation manifest shares (`bones/v1/automation_manifest.proto`):
 D1-D6 (document rules), T1 (trigger label), A1-A7 (action
 declarations), C1 (field classification), U1 (unset closed choice) and M1 (template shape). A refusal
 names the rule and the site.
+
+A template references its own product's triggers and actions with `product`
+empty; a non-empty `product` names another product, whose references the layer
+resolves against that product's admitted manifest. `compile` refuses a template
+that names the declaring product (M1). That is the one rule that needs the
+identity, so `check_surface` leaves such a reference to the layer like any other
+product's, and everything else it refuses exactly as `compile` does.
 
 ## Document admission and publication
 

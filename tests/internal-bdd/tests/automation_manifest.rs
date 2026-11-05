@@ -9,8 +9,8 @@ use api_bones_automation::signature::{
     AdmitError, SigningKey, TrustedKey, VerifyError, admit, sign, signed_manifest,
 };
 use api_bones_automation::{
-    CompileError, CompileInput, DocumentError, DocumentPhase, compile, declaration_digest,
-    read_header,
+    CheckedSurface, CompileError, CompileInput, DocumentError, DocumentPhase, SurfaceInput,
+    check_surface, compile, declaration_digest, read_header,
 };
 use cucumber::{World, given, then, when};
 use protox::Compiler;
@@ -26,6 +26,7 @@ const COMMIT: &str = "0123456789abcdef0123456789abcdef01234567";
 struct ManifestWorld {
     source: String,
     outcome: Option<Result<Vec<u8>, CompileError>>,
+    surface: Option<Result<CheckedSurface, CompileError>>,
     manifest: Vec<u8>,
     envelope: Vec<u8>,
     trusted: Vec<TrustedKey>,
@@ -123,6 +124,9 @@ fn defective(defect: &str) -> String {
             " [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL]",
             "",
         ),
+        "a template naming its own product" => {
+            mutate("trigger: { event:", "trigger: { product: \"orders\" event:")
+        }
         "a template with no steps" => {
             let start = GOOD.find("      steps: {").expect("steps");
             let end = GOOD.find("    }\n  };\n  rpc Ship").expect("document end");
@@ -133,10 +137,7 @@ fn defective(defect: &str) -> String {
 }
 
 fn compile_world(world: &mut ManifestWorld, product: &str, version: &str) {
-    let mut compiler = Compiler::with_file_resolver(Resolver(world.source.clone()));
-    compiler.include_imports(true);
-    compiler.open_file(PATH).expect("fixture compiles");
-    let set = compiler.encode_file_descriptor_set();
+    let set = descriptor_set(&world.source);
     let sources = [(PATH.to_owned(), world.source.as_bytes().to_vec())];
     world.outcome = Some(compile(&CompileInput {
         descriptor_set: &set,
@@ -145,6 +146,52 @@ fn compile_world(world: &mut ManifestWorld, product: &str, version: &str) {
         version,
         commit: COMMIT,
     }));
+}
+
+fn descriptor_set(source: &str) -> Vec<u8> {
+    let mut compiler = Compiler::with_file_resolver(Resolver(source.to_owned()));
+    compiler.include_imports(true);
+    compiler.open_file(PATH).expect("fixture compiles");
+    compiler.encode_file_descriptor_set()
+}
+
+#[when("the declarations are checked without a product identity")]
+fn when_checked(world: &mut ManifestWorld) {
+    let set = descriptor_set(&world.source);
+    let sources = [(PATH.to_owned(), world.source.as_bytes().to_vec())];
+    world.surface = Some(check_surface(&SurfaceInput {
+        descriptor_set: &set,
+        sources: &sources,
+    }));
+}
+
+#[then("the check lists the declared trigger, action and template")]
+fn then_lists(world: &mut ManifestWorld) {
+    let checked = world.surface.as_ref().unwrap().as_ref().expect("checked");
+    assert_eq!(checked.triggers, ["orders.v1.OrderPlaced"]);
+    assert_eq!(checked.actions, ["orders.v1.Orders.Ship"]);
+    assert_eq!(checked.templates, ["ship-on-order"]);
+}
+
+#[then(expr = "the check gives the digest the release manifest of product {string} carries")]
+fn then_same_digest(world: &mut ManifestWorld, product: String) {
+    compile_world(world, &product, "1.2.3");
+    let bytes = world.outcome.as_ref().unwrap().as_ref().expect("compiled");
+    let checked = world.surface.as_ref().unwrap().as_ref().expect("checked");
+    assert_eq!(
+        checked.declaration_digest,
+        read_header(bytes).unwrap().declaration_digest
+    );
+}
+
+#[then(expr = "the check is refused under rule {string}")]
+fn then_check_refused(world: &mut ManifestWorld, name: String) {
+    match world.surface.as_ref().unwrap() {
+        Err(CompileError::Refused(list)) => {
+            assert!(list.iter().any(|r| r.rule.as_str() == name), "{list:?}");
+        }
+        other => panic!("expected a refusal, got {other:?}"),
+    }
 }
 
 #[given("a valid orders contract")]

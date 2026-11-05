@@ -3,7 +3,8 @@
 //! contract, then one mutation per refusal rule it enforces, and determinism.
 
 use api_bones_automation::{
-    CompileError, CompileInput, MANIFEST_FORMAT, Rule, compile, declaration_digest, read_header,
+    CheckedSurface, CompileError, CompileInput, MANIFEST_FORMAT, Rule, SurfaceInput, check_surface,
+    compile, declaration_digest, read_header,
 };
 use prost_reflect::{DescriptorPool, DynamicMessage};
 use protox::Compiler;
@@ -90,6 +91,24 @@ fn sources(source: &str) -> Vec<(String, Vec<u8>)> {
 }
 
 fn compile_source(source: &str) -> Result<Vec<u8>, CompileError> {
+    let released = release_source(source);
+    match (&released, check_source(source)) {
+        (Ok(bytes), Ok(checked)) => assert_eq!(
+            read_header(bytes).unwrap().declaration_digest,
+            checked.declaration_digest,
+            "the build and release digest the same declarations"
+        ),
+        (Err(release), Err(build)) => {
+            assert_eq!(release, &build, "the build and release refuse identically");
+            assert_eq!(release.to_string(), build.to_string());
+        }
+        other => panic!("expected build and release parity, got {other:?}"),
+    }
+    released
+}
+
+/// Compile without parity only when testing the release's identity requirement.
+fn release_source(source: &str) -> Result<Vec<u8>, CompileError> {
     let set = descriptor_set(source);
     compile(&CompileInput {
         descriptor_set: &set,
@@ -100,16 +119,29 @@ fn compile_source(source: &str) -> Result<Vec<u8>, CompileError> {
     })
 }
 
+/// What a product's build sees: the same set and sources, no identity.
+fn check_source(source: &str) -> Result<CheckedSurface, CompileError> {
+    let set = descriptor_set(source);
+    check_surface(&SurfaceInput {
+        descriptor_set: &set,
+        sources: &sources(source),
+    })
+}
+
 /// `GOOD` with `from` replaced by `to`; the mutation must find its target.
 fn mutated(from: &str, to: &str) -> String {
     assert!(GOOD.contains(from), "fixture lacks {from:?}");
     GOOD.replacen(from, to, 1)
 }
 
+/// The release's refusals, which the build check must make identically.
 fn refusals(source: &str) -> Vec<(Rule, String)> {
-    match compile_source(source) {
-        Err(CompileError::Refused(list)) => list.into_iter().map(|r| (r.rule, r.site)).collect(),
-        other => panic!("expected refusals, got {other:?}"),
+    match (compile_source(source), check_source(source)) {
+        (Err(CompileError::Refused(list)), Err(CompileError::Refused(at_build))) => {
+            assert_eq!(list, at_build, "the build refuses what the release refuses");
+            list.into_iter().map(|r| (r.rule, r.site)).collect()
+        }
+        other => panic!("expected refusals at release and build, got {other:?}"),
     }
 }
 
@@ -193,6 +225,67 @@ fn the_good_contract_compiles_into_a_complete_manifest() {
 }
 
 #[test]
+fn a_build_checks_the_surface_without_the_product_identity() {
+    let checked = check_source(GOOD).unwrap();
+    assert_eq!(checked.triggers, ["orders.v1.OrderPlaced"]);
+    assert_eq!(
+        checked.actions,
+        ["orders.v1.Orders.Find", "orders.v1.Orders.Ship"]
+    );
+    assert_eq!(checked.templates, ["ship-on-order"]);
+    let header = read_header(&compile_source(GOOD).unwrap()).unwrap();
+    assert_eq!(checked.declaration_digest, header.declaration_digest);
+}
+
+#[test]
+fn a_build_refuses_unusable_sets_as_the_release_does() {
+    let plain = "syntax = \"proto3\";\npackage orders.v1;\nmessage Nothing {}\n";
+    assert_eq!(
+        check_source(plain).unwrap_err(),
+        CompileError::NoDeclarations
+    );
+    let err = check_surface(&SurfaceInput {
+        descriptor_set: &[0xff, 0xff, 0xff],
+        sources: &[],
+    })
+    .unwrap_err();
+    assert!(matches!(err, CompileError::Descriptors(_)), "{err:?}");
+    let set = descriptor_set(GOOD);
+    let err = check_surface(&SurfaceInput {
+        descriptor_set: &set,
+        sources: &[],
+    })
+    .unwrap_err();
+    assert_eq!(err, CompileError::MissingSource(PATH.to_owned()));
+}
+
+#[test]
+fn m1_a_template_never_names_its_own_product() {
+    for (from, to) in [
+        (
+            "trigger: { event: \"orders.v1.OrderPlaced\" }",
+            "trigger: { product: \"orders\" event: \"orders.v1.OrderPlaced\" }",
+        ),
+        (
+            "action: { method: \"orders.v1.Orders.Ship\" }",
+            "action: { product: \"orders\" method: \"orders.v1.Orders.Ship\" }",
+        ),
+    ] {
+        let source = mutated(from, to);
+        match release_source(&source) {
+            Err(CompileError::Refused(list)) => assert!(
+                list.iter()
+                    .any(|r| r.rule == Rule::M1 && r.site.starts_with("template ship-on-order")),
+                "{list:?}"
+            ),
+            other => panic!("expected M1, got {other:?}"),
+        }
+        // Without the identity the name is another product's, left to the layer.
+        assert!(check_source(&source).is_ok());
+    }
+}
+
+#[test]
 fn a_template_is_resolved_to_its_own_product_with_ordered_inputs() {
     let templates = list(&manifest(), "templates");
     assert_eq!(templates.len(), 1);
@@ -237,14 +330,24 @@ fn equal_input_gives_equal_bytes_whatever_the_order_of_sources() {
     let one = vec![sources(GOOD).remove(0), extra.clone()];
     let two = vec![extra, sources(GOOD).remove(0)];
     let run = |s: &[(String, Vec<u8>)]| {
-        compile(&CompileInput {
+        let bytes = compile(&CompileInput {
             descriptor_set: &set,
             sources: s,
             product: "orders",
             version: "1.2.3",
             commit: COMMIT,
         })
-        .unwrap()
+        .unwrap();
+        let checked = check_surface(&SurfaceInput {
+            descriptor_set: &set,
+            sources: s,
+        })
+        .unwrap();
+        assert_eq!(
+            read_header(&bytes).unwrap().declaration_digest,
+            checked.declaration_digest
+        );
+        bytes
     };
     let first = run(&one);
     assert_eq!(first, run(&one));
@@ -589,6 +692,8 @@ fn references_to_another_product_are_left_to_the_layer() {
         "action: { product: \"billing\" method: \"billing.v1.Billing.Charge\" }",
     );
     assert!(compile_source(&action).is_ok());
+    assert!(check_source(&source).is_ok());
+    assert!(check_source(&action).is_ok());
 }
 
 #[test]
