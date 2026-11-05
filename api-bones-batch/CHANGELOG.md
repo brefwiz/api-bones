@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Generated unary List methods on `Batched`, sharing its credential source and a per-client revision cache, with paging request, response and method macros.
+
 ## [0.1.3] - 2026-11-06
 
 ### Other

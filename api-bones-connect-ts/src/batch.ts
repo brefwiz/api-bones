@@ -4,7 +4,7 @@ import { Code, ConnectError, type Client } from "@connectrpc/connect";
 import { trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { assertSupportedPolicySchema, indexGeneratedPolicy, type GeneratedBatchPolicy, type GeneratedMethodPolicy, type GeneratedMethodPolicyDocument } from "./policy.js";
 import { listCall, type ListCall } from "./page.js";
-import { platformBinding, prepareHeaders, dispatchPrepared, captureSession } from "./platform-client.js";
+import { platformBinding, prepareHeaders, dispatchPrepared, captureSession, inheritPlatformBinding } from "./platform-client.js";
 import { BatchScheduler } from "./batch-scheduler.js";
 import { batchError, batchHash, captureBatchHeaders, checkBatchIdentity, itemErrorToConnect, planBatch, sameBatchKey, BATCH_MAX_ITEMS, BATCH_MAX_REQUEST_BYTES, type CapturedBatchHeaders, type CapturedBatchKey, type ItemError, type ItemResult, type BatchResults } from "./batch-primitives.js";
 export { BATCH_MAX_ITEMS, BATCH_MAX_REQUEST_BYTES, allOk, authorizeBatchResults, serveBatchRequest, itemErrorToConnect, type ItemResult, type BatchResults } from "./batch-primitives.js";
@@ -231,5 +231,6 @@ export function batchedClient<S extends DescService>(client: Client<S>, policy: 
       }
     });
   }
+  inheritPlatformBinding(client, wrapped);
   return wrapped as BatchedClient<S>;
 }

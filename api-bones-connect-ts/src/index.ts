@@ -110,11 +110,11 @@ export {
 } from "./stream-keepalive.js";
 
 export { RevisionCache } from "./revision-cache.js";
-export { PageError, isCursorRejected, listCall, pages, items, pagedClient,
+export { PageError, PagingPolicyError, isCursorRejected, listCall, pages, items, pagedClient,
   type Page, type PageOptions, type Total, type PageErrorKind, type ListCall,
   type ListConfig, type PageFetch, type PagedClient } from "./page.js";
 export { type GeneratedPagingPolicy, type GeneratedBatchPolicy } from "./policy.js";
 export * from "./fields.js";
-export { createPlatformClient, anonymousSession, type SessionSource, type SessionSnapshot } from "./platform-client.js";
+export { createPlatformClient, anonymousSession, type PlatformClient, type SessionSource, type SessionSnapshot } from "./platform-client.js";
 export * from "./batch.js";
 export { TotalSchema, Total_Kind, type Total as TotalMessage } from "./generated/bones/v1/pagination_pb.js";

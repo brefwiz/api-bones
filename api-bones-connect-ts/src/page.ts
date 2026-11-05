@@ -1,12 +1,31 @@
 // SPDX-License-Identifier: MIT
-import type { DescService } from "@bufbuild/protobuf";
+import { getExtension, type DescMethod, type DescService } from "@bufbuild/protobuf";
+import type { BatchedClient } from "./batch.js";
 import { Code, ConnectError, type CallOptions, type Client } from "@connectrpc/connect";
 import { trace, SpanKind, SpanStatusCode, type Span } from "@opentelemetry/api";
 import { BonesError } from "./error-info.js";
 import { assertSupportedPolicySchema, indexGeneratedPolicy, type GeneratedMethodPolicyDocument, type GeneratedPagingPolicy } from "./policy.js";
 import { RevisionCache } from "./revision-cache.js";
-import { platformBinding } from "./platform-client.js";
+import { descriptorBinding } from "./platform-client.js";
 import { Total_Kind } from "./generated/bones/v1/pagination_pb.js";
+import { list_stream_of } from "./generated/bones/v1/annotations_pb.js";
+
+/** Generated discovery must account for every descriptor-shaped list. */
+export class PagingPolicyError extends Error {
+  override name = "PagingPolicyError";
+  constructor(readonly method: string) {
+    super(`missing paging policy for ${method}`);
+  }
+}
+
+function hasPagingShape(method: DescMethod): boolean {
+  if (method.methodKind !== "unary" && (method.methodKind !== "server_streaming" || method.proto.options === undefined || getExtension(method.proto.options, list_stream_of) === "")) return false;
+  const messageType = (field: DescMethod["input"]["fields"][number], name: string) =>
+    (field.fieldKind === "message" || (field.fieldKind === "list" && field.listKind === "message")) && field.message.typeName === name;
+  return method.input.fields.some(field => messageType(field, "bones.v1.PageRequest")) &&
+    method.output.fields.some(field => messageType(field, "bones.v1.PageResponse")) &&
+    method.output.fields.filter(field => field.fieldKind === "list").length === 1;
+}
 
 export interface PageOptions {
   pageSize?: number;
@@ -230,18 +249,23 @@ export function items<T>(fetchPage: PageFetch, request: Record<string, unknown>,
 
 type ListItem<R> = { [K in keyof R]: R[K] extends readonly (infer T)[] ? T : never }[keyof R];
 type HasPage<R> = Extract<R[keyof R], { nextCursor: string; revision: string }> extends never ? false : true;
-export type PagedClient<S extends DescService> = {
-  [K in keyof Client<S>]: Client<S>[K] extends (request: infer R, ...args: never[]) => Promise<infer O>
-    ? HasPage<O> extends true ? (request: R, options?: PageOptions) => ListCall<ListItem<O>> : Client<S>[K]
-    : Client<S>[K] extends (request: infer R, ...args: never[]) => AsyncIterable<infer O>
-      ? HasPage<O> extends true ? (request: R, options?: PageOptions) => ListCall<ListItem<O>> : Client<S>[K]
-      : Client<S>[K];
+export type PagedClient<S extends DescService, C = Client<S>> = {
+  [K in keyof C]: C[K] extends (request: infer R, ...args: never[]) => Promise<infer O>
+    ? HasPage<O> extends true ? (request: R, options?: PageOptions) => ListCall<ListItem<O>> : C[K]
+    : C[K] extends (request: infer R, ...args: never[]) => AsyncIterable<infer O>
+      ? HasPage<O> extends true ? (request: R, options?: PageOptions) => ListCall<ListItem<O>> : C[K]
+      : C[K];
 };
-export function pagedClient<S extends DescService>(client: Client<S>, policy: GeneratedMethodPolicyDocument, cache?: RevisionCache): PagedClient<S> {
+export function pagedClient<S extends DescService, C extends Client<S> | BatchedClient<S> = Client<S>>(client: C, policy: GeneratedMethodPolicyDocument, cache?: RevisionCache): PagedClient<S, C> {
   assertSupportedPolicySchema(policy);
-  const { service } = platformBinding(client);
+  const { service } = descriptorBinding(client);
+  const policies = indexGeneratedPolicy(policy);
+  for (const method of service.methods) {
+    const rpc = `/${service.typeName}/${method.name}`;
+    if (hasPagingShape(method) && !policies.get(rpc)?.paging) throw new PagingPolicyError(rpc);
+  }
   const wrapped = { ...client } as Record<string, unknown>;
-  for (const method of indexGeneratedPolicy(policy).values()) {
+  for (const method of policies.values()) {
     if (!method.paging || !method.rpc.startsWith(`/${service.typeName}/`)) continue;
     const name = method.rpc.slice(method.rpc.lastIndexOf("/") + 1);
     const localName = name.charAt(0).toLowerCase() + name.slice(1);
@@ -269,5 +293,5 @@ export function pagedClient<S extends DescService>(client: Client<S>, policy: Ge
       return listCall(fetchPage, request, { method: method.rpc, paging: method.paging!, cache }, method.paging!.kind === "stream" ? { ...options, cache: "bypass" } : options);
     };
   }
-  return wrapped as PagedClient<S>;
+  return wrapped as PagedClient<S, C>;
 }

@@ -3,6 +3,10 @@ import type { DescService, DescMethodUnary } from "@bufbuild/protobuf";
 import { Code, ConnectError, createClient, createContextKey, createContextValues, type Client, type Interceptor, type Transport } from "@connectrpc/connect";
 
 import { identityChanged } from "./batch-primitives.js";
+import { batchedClient, type BatchedClient } from "./batch.js";
+import { pagedClient, type PagedClient } from "./page.js";
+import type { GeneratedMethodPolicyDocument } from "./policy.js";
+import { RevisionCache } from "./revision-cache.js";
 
 export interface SessionSnapshot { readonly identityKey: string; readonly token?: string | null; readonly relayedCredential?: string; }
 export interface SessionSource { snapshot(): SessionSnapshot; }
@@ -96,18 +100,35 @@ export function preparationAttempt(getToken?: () => string | null | undefined, s
   };
 }
 /** Shared SDK composition constructor; descriptor and transport stay private. */
-export function createPlatformClient<S extends DescService>(service: S, transport: Transport): Client<S> {
+export type PlatformClient<S extends DescService> = PagedClient<S, BatchedClient<S>>;
+export function createPlatformClient<S extends DescService>(service: S, transport: Transport): Client<S>;
+export function createPlatformClient<S extends DescService>(service: S, transport: Transport, policy: GeneratedMethodPolicyDocument): PlatformClient<S>;
+export function createPlatformClient<S extends DescService>(service: S, transport: Transport, policy?: GeneratedMethodPolicyDocument): Client<S> | PlatformClient<S> {
   const prepared = transports.get(transport);
   if (!prepared) throw new Error("platform client requires a prepared platform transport");
   const client = createClient(service, transport);
   bindings.set(client, { service, transport, session: prepared.session });
-  return client;
+  if (policy === undefined) return client;
+  const batched = batchedClient(client, policy);
+  const { session } = platformBinding(batched);
+  return pagedClient<S, BatchedClient<S>>(batched, policy, new RevisionCache(() => captureSession(session).identityKey));
+}
+/** Preserve the private generated-client binding through runtime wrappers. */
+export function inheritPlatformBinding(source: object, target: object): void {
+  const binding = bindings.get(source);
+  if (!binding) throw new Error("cannot wrap an unbound platform client");
+  bindings.set(target, binding);
 }
 export function platformBinding(client: object): { service: DescService; transport: Transport; session: SessionSource } {
-  const binding = bindings.get(client);
-  if (!binding) throw new Error("batching requires createPlatformClient with a prepared platform transport");
+  const binding = descriptorBinding(client);
   if (!binding.session) throw new Error("batching requires a producer-owned session binding");
   return { ...binding, session: binding.session };
+}
+/** Paging discovery needs descriptors even on a transport without batching credentials. */
+export function descriptorBinding(client: object): { service: DescService; transport: Transport; session?: SessionSource } {
+  const binding = bindings.get(client);
+  if (!binding) throw new Error("batching requires createPlatformClient with a prepared platform transport");
+  return binding;
 }
 export async function prepareHeaders(transport: Transport, method: DescMethodUnary, input: Record<string, unknown>, headers?: HeadersInit, timeoutMs?: number, signal?: AbortSignal, guard?: () => void, capturedSession?: SessionSnapshot): Promise<Headers> {
   const supplied = new Headers(headers);
