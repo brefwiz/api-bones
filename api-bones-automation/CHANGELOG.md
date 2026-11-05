@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-11-05
+
+### Added
+
+- *(automation)* check a product's declarations without its identity
+
 ### Added
 
 - `check_surface`: a product's build applies the compiler's rules to its
