@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [16.0.0] - 2026-11-05
+
+### Fixed
+
+- *(protos)* [**breaking**] TextConstraints.max_length carries explicit presence
+
 ### Changed
 
 - *(protos)* **breaking:** `bones.v1.TextConstraints.max_length` is `optional uint32` (same tag; Rust `Option<u32>`, TypeScript `number | undefined`), satisfying the proto-presence law.
@@ -14,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Canonical typed field definitions, stable enum option references, and pure definition/value validation in `api-bones-fields`.
+
+### Breaking changes merged after the version was prepared
+
+- fix(protos)!: TextConstraints.max_length carries explicit presence
+- fix(protos)!: TextConstraints.max_length carries explicit presence
 
 ## [15.0.0] - 2026-11-05
 
