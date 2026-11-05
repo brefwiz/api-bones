@@ -66,7 +66,7 @@ export function validateDefinition(definition: FieldDefinition): FieldViolation[
       check(Boolean(option.label?.text.trim()), `/enumeration/options/${index}/label/text`, "format", "option label must be nonblank");
     });
   } else if (c.case === "text") {
-    check(c.value.maxLength >= 1 && c.value.maxLength <= 4096, "/text/maxLength", "range", "text limit must be 1..4096");
+    check((c.value.maxLength ?? 0) >= 1 && (c.value.maxLength ?? 0) <= 4096, "/text/maxLength", "range", "text limit must be 1..4096");
     check(c.value.format >= TextFormat.PLAIN && c.value.format <= TextFormat.PHONE_E164, "/text/format", "format", "text format must be specified");
   } else if (c.case === "recordLink") check(reference(c.value.targetRecordType), "/recordLink/targetRecordType", "format", "record target type must be nonblank");
   return errors;
@@ -102,7 +102,7 @@ export function validateValue(definition: FieldDefinition, value: TypedValue): F
     return !option ? fail("unknown_option", "unknown enum option") : option.archived ? fail("option_archived", "enum option is archived") : undefined;
   }
   if (definition.type === FieldType.TEXT && c.case === "text" && v.case === "text") {
-    if ([...v.value].length > c.value.maxLength) return fail("max_length", "text exceeds Unicode scalar limit");
+    if ([...v.value].length > (c.value.maxLength ?? 0)) return fail("max_length", "text exceeds Unicode scalar limit");
     return textValid(v.value, c.value.format) ? undefined : fail("format", "text does not match declared format");
   }
   if (definition.type === FieldType.DATE && c.case === undefined && v.case === "date") {
@@ -135,7 +135,7 @@ export function validateDefinitionChange(old: FieldDefinition, next: FieldDefini
   else if (a.case === "money" && b.case === "money") {
     if (a.value.currency !== b.value.currency) violations.push(violation("/money/currency", "currency_mismatch", "currency is immutable"));
     narrowing = narrowed(a.value.minMinor, a.value.maxMinor, b.value.minMinor, b.value.maxMinor);
-  } else if (a.case === "text" && b.case === "text") narrowing = b.value.maxLength < a.value.maxLength || (a.value.format !== b.value.format && b.value.format !== TextFormat.PLAIN);
+  } else if (a.case === "text" && b.case === "text") narrowing = (b.value.maxLength ?? 0) < (a.value.maxLength ?? 0) || (a.value.format !== b.value.format && b.value.format !== TextFormat.PLAIN);
   else if (a.case === "enumeration" && b.case === "enumeration") for (const option of a.value.options) if (!b.value.options.some((candidate) => candidate.id === option.id)) violations.push(violation("/enumeration/options", "unknown_option", "archive enum options instead of removing them"));
   if (violations.length) return { violations };
   return { change: equals(FieldDefinitionSchema, old, next) ? "unchanged" : narrowing ? "narrowing" : "compatible", violations };

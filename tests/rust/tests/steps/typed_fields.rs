@@ -73,7 +73,7 @@ fn field(world: &mut FieldsWorld, kind: String) {
                 FieldType::FIELD_TYPE_TEXT,
                 Some(Constraints::Text(
                     TextConstraints {
-                        max_length,
+                        max_length: Some(max_length),
                         format: format.into(),
                         ..Default::default()
                     }
@@ -149,7 +149,7 @@ fn setting(definition: &mut FieldDefinition, name: &str, value: &str) {
             },
             Constraints::Text(c) => {
                 assert_eq!(name, "max_length");
-                c.max_length = value.parse().expect("max length");
+                c.max_length = (value != "absent").then(|| value.parse().expect("max length"));
             }
             Constraints::Money(c) => match name {
                 "currency" => c.currency = value.into(),

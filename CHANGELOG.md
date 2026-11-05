@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- *(protos)* **breaking:** `bones.v1.TextConstraints.max_length` is `optional uint32` (same tag; Rust `Option<u32>`, TypeScript `number | undefined`), satisfying the proto-presence law.
+
+### Added
+
+- Canonical typed field definitions, stable enum option references, and pure definition/value validation in `api-bones-fields`.
+
 ## [15.0.0] - 2026-11-05
 
 ### Fixed
@@ -16,10 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - *(release)* metadata for #196
-
-### Added
-
-- Canonical typed field definitions, stable enum option references, and pure definition/value validation in `api-bones-fields`.
 
 ### Breaking changes merged after the version was prepared
 
