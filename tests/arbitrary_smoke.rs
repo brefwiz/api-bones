@@ -16,6 +16,10 @@ mod arbitrary_tests {
     /// Generate `n` random instances of `T` from a pre-built byte buffer and
     /// assert that no panic occurs.
     fn smoke<T: for<'a> Arbitrary<'a>>(n: usize) {
+        smoke_with::<T>(n, |_| {});
+    }
+
+    fn smoke_with<T: for<'a> Arbitrary<'a>>(n: usize, mut check: impl FnMut(T)) {
         // A fixed seed so the test is deterministic.
         let raw: Vec<u8> = (0u8..=255).cycle().take(n * 256).collect();
         let mut u = Unstructured::new(&raw);
@@ -24,7 +28,9 @@ mod arbitrary_tests {
             if u.is_empty() {
                 u = Unstructured::new(&raw);
             }
-            let _ = T::arbitrary(&mut u);
+            if let Ok(value) = T::arbitrary(&mut u) {
+                check(value);
+            }
         }
     }
 
@@ -100,23 +106,14 @@ mod arbitrary_tests {
 
     #[test]
     fn smoke_pagination_params_constrained() {
-        use arbitrary::{Arbitrary, Unstructured};
-        let raw: Vec<u8> = (0u8..=255).cycle().take(256_000).collect();
-        let mut u = Unstructured::new(&raw);
-        for _ in 0..1000 {
-            if u.is_empty() {
-                u = Unstructured::new(&raw);
+        smoke_with::<api_bones::pagination::PaginationParams>(1000, |p| {
+            if let Some(limit) = p.limit {
+                assert!(
+                    (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
+                    "PaginationParams.limit out of range: {limit}"
+                );
             }
-            if let Ok(p) = api_bones::pagination::PaginationParams::arbitrary(&mut u) {
-                // Constraint: limit must be None or Some(1..=MAX_LIMIT)
-                if let Some(limit) = p.limit {
-                    assert!(
-                        (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
-                        "PaginationParams.limit out of range: {limit}"
-                    );
-                }
-            }
-        }
+        });
     }
 
     #[test]
@@ -131,22 +128,14 @@ mod arbitrary_tests {
 
     #[test]
     fn smoke_cursor_pagination_params_constrained() {
-        use arbitrary::{Arbitrary, Unstructured};
-        let raw: Vec<u8> = (0u8..=255).cycle().take(256_000).collect();
-        let mut u = Unstructured::new(&raw);
-        for _ in 0..1000 {
-            if u.is_empty() {
-                u = Unstructured::new(&raw);
-            }
-            if let Ok(p) = api_bones::pagination::CursorPaginationParams::arbitrary(&mut u)
-                && let Some(limit) = p.limit
-            {
+        smoke_with::<api_bones::pagination::CursorPaginationParams>(1000, |p| {
+            if let Some(limit) = p.limit {
                 assert!(
                     (1..=api_bones::pagination::MAX_LIMIT).contains(&limit),
                     "CursorPaginationParams.limit out of range: {limit}"
                 );
             }
-        }
+        });
     }
 
     #[test]
@@ -171,21 +160,13 @@ mod arbitrary_tests {
 
     #[test]
     fn smoke_search_params_constrained() {
-        use arbitrary::{Arbitrary, Unstructured};
-        let raw: Vec<u8> = (0u8..=255).cycle().take(256_000).collect();
-        let mut u = Unstructured::new(&raw);
-        for _ in 0..1000 {
-            if u.is_empty() {
-                u = Unstructured::new(&raw);
-            }
-            if let Ok(p) = api_bones::query::SearchParams::arbitrary(&mut u) {
-                assert!(
-                    !p.query.is_empty() && p.query.len() <= 500,
-                    "SearchParams.query length out of range: {}",
-                    p.query.len()
-                );
-            }
-        }
+        smoke_with::<api_bones::query::SearchParams>(1000, |p| {
+            assert!(
+                !p.query.is_empty() && p.query.len() <= 500,
+                "SearchParams.query length out of range: {}",
+                p.query.len()
+            );
+        });
     }
 
     #[test]

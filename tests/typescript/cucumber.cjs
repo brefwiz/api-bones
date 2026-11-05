@@ -2,7 +2,7 @@
 // The contracts live beside this lane, at ../features. The Rust lane answers
 // the retry-eligibility file too; workload identity, the public lane, the CSRF synchronizer echo, the
 // default precondition, retry observability and undelivered-request replay are TypeScript-only entries.
-// The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation contracts are answered by both lanes.
+// The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation and stream-keepalive contracts are answered by both lanes.
 module.exports = {
   default: {
     paths: [
@@ -19,6 +19,12 @@ module.exports = {
       "../features/field_labels.feature",
       "../features/overridable_defaults.feature",
       "../features/connect_stream_rotation.feature",
+      "../features/connect_pagination.feature",
+      "../features/connect_batch.feature",
+      "../features/connect_batch_client_construction.feature",
+      "../features/connect_batch_identity_guard.feature",
+      "../features/typed_fields.feature",
+      "../features/connect_stream_keepalive.feature",
     ],
     import: [
       "steps/retry_eligibility.ts",
@@ -34,6 +40,12 @@ module.exports = {
       "steps/field_labels.ts",
       "steps/overridable_defaults.ts",
       "steps/stream_rotation.ts",
+      "steps/pagination.ts",
+      "steps/batch.ts",
+      "steps/batch_client_construction.ts",
+      "steps/batch_identity_guard.ts",
+      "steps/typed_fields.ts",
+      "steps/stream_keepalive.ts",
     ],
     strict: true,
     format: ["progress"],

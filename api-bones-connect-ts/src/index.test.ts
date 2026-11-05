@@ -78,29 +78,83 @@ describe("backoff", () => {
 });
 
 describe("policy", () => {
-  it.each([1, 2])("indexes a well-formed schema %s document", (schemaVersion) => {
+  const paging = {
+    kind: "stream",
+    streamOf: "ListWidgets",
+    itemField: "widgets",
+    pageField: "page",
+    requestPageField: "page",
+  };
+  const batch = {
+    kind: "get",
+    method: "GetWidget",
+    keyField: "id",
+    keysField: "ids",
+    resultsField: "results",
+  };
+
+  it.each([1, 2, 3])("indexes a well-formed schema %s document", (schemaVersion) => {
     const index = indexGeneratedPolicy({ schemaVersion, methods: [method()] });
     expect(index.size).toBe(1);
   });
 
-  it.each([0, 3, null, undefined, "2"])("fails closed on unsupported schema %s", (schemaVersion) => {
+  it("indexes schema 3 paging and batch fields without dropping their declarations", () => {
+    const pageMethod = method({ rpc: "/svc.v1.S/ListWidgets", procedure: "streaming", paging });
+    const batchMethod = method({ rpc: "/svc.v1.S/BatchGetWidgets", batch });
+    const index = indexGeneratedPolicy({ schemaVersion: 3, methods: [pageMethod, batchMethod] });
+    expect([...index.values()]).toEqual([pageMethod, batchMethod]);
+  });
+
+  it.each([
+    ["paging is not an object", { paging: null }],
+    ["paging kind is unknown", { paging: { ...paging, kind: "offset" } }],
+    ...["itemField", "pageField", "requestPageField"].flatMap((field) =>
+      ["", 1, undefined].map((value) => [
+        `paging ${field} is ${String(value)}`,
+        { paging: { ...paging, [field]: value } },
+      ]),
+    ),
+    ["paging streamOf is not a string", { paging: { ...paging, streamOf: 1 } }],
+    ["batch is not an object", { batch: null }],
+    ["batch kind is unknown", { batch: { ...batch, kind: "write" } }],
+    ...["method", "keyField", "keysField", "resultsField"].flatMap((field) =>
+      ["", 1, undefined].map((value) => [
+        `batch ${field} is ${String(value)}`,
+        { batch: { ...batch, [field]: value } },
+      ]),
+    ),
+  ])("refuses malformed schema 3 declarations: %s", async (_description, declaration) => {
+    const policy = { schemaVersion: 3, methods: [method(declaration as Record<string, unknown>)] };
+    expect(indexGeneratedPolicy(policy).size).toBe(0);
+    await expect(configureNodeConnectTransport({
+      baseUrl: "https://svc",
+      profile: "service",
+      policy,
+    })).rejects.toThrow(new Error(
+      "configureNodeConnectTransport: connect-method-policy.json is malformed or has " +
+        "duplicate RPC entries. Regenerate it (check-connect-read-profile.py --write) " +
+        "rather than hand-editing.",
+    ));
+  });
+
+  it.each([0, 4, null, undefined, "2"])("fails closed on unsupported schema %s", (schemaVersion) => {
     expect(indexGeneratedPolicy({ schemaVersion, methods: [method()] }).size).toBe(0);
   });
 
-  it.each([1, 2])("accepts schema %s and an absent policy", (schemaVersion) => {
+  it.each([1, 2, 3])("accepts schema %s and an absent policy", (schemaVersion) => {
     expect(() => assertSupportedPolicySchema({ schemaVersion, methods: [] })).not.toThrow();
     expect(() => assertSupportedPolicySchema(undefined)).not.toThrow();
   });
 
   it.each([
     [0, "0"],
-    [3, "3"],
+    [4, "4"],
     [null, "null"],
     ["2", '"2"'],
     [undefined, "missing"],
   ])("refuses schema %s, naming the version found and the versions supported", (schemaVersion, found) => {
     expect(() => assertSupportedPolicySchema({ schemaVersion, methods: [] })).toThrow(
-      `schemaVersion ${found} is not supported; supported versions: 1, 2`,
+      `schemaVersion ${found} is not supported; supported versions: 1, 2, 3`,
     );
   });
 
@@ -110,7 +164,7 @@ describe("policy", () => {
 
   // Fail-closed is the security property: a partially-parseable policy must
   // grant nothing, not the subset that happened to parse.
-  it.each([1, 2])("fails closed to an empty index on a duplicate rpc in schema %s", (schemaVersion) => {
+  it.each([1, 2, 3])("fails closed to an empty index on a duplicate rpc in schema %s", (schemaVersion) => {
     const index = indexGeneratedPolicy({
       schemaVersion,
       methods: [method(), method()],
@@ -118,7 +172,7 @@ describe("policy", () => {
     expect(index.size).toBe(0);
   });
 
-  it.each([1, 2])("fails closed on a malformed entry in schema %s", (schemaVersion) => {
+  it.each([1, 2, 3])("fails closed on a malformed entry in schema %s", (schemaVersion) => {
     const index = indexGeneratedPolicy({
       schemaVersion,
       methods: [method(), method({ browserCache: { scope: "BOGUS", maxAgeSeconds: 1 } })],
@@ -142,7 +196,7 @@ describe("policy", () => {
 });
 
 describe("explicit policy declarations", () => {
-  it.each([1, 2])("parses NON_IDEMPOTENT and SENSITIVE as declared in schema %s", (schemaVersion) => {
+  it.each([1, 2, 3])("parses NON_IDEMPOTENT and SENSITIVE as declared in schema %s", (schemaVersion) => {
     const index = indexGeneratedPolicy({
       schemaVersion,
       methods: [method({ idempotency: "NON_IDEMPOTENT", sensitivity: "SENSITIVE" })],
@@ -152,7 +206,7 @@ describe("explicit policy declarations", () => {
     expect(parsed?.sensitivity).toBe("SENSITIVE");
   });
 
-  it.each([1, 2])("reads unknown declarations conservatively in schema %s", (schemaVersion) => {
+  it.each([1, 2, 3])("reads unknown declarations conservatively in schema %s", (schemaVersion) => {
     const index = indexGeneratedPolicy({
       schemaVersion,
       methods: [method({ idempotency: "FUTURE_VALUE", sensitivity: "FUTURE_VALUE" })],

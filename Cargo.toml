@@ -9,6 +9,9 @@ members = [
     "api-bones-test",
     "api-bones-protos",
     "api-bones-stream",
+    "api-bones-page",
+    "api-bones-batch",
+    "api-bones-fields",
     "api-bones-automation",
     # The Rust step lane for the shared Gherkin contract. A member rather than
     # an integration test of the crate it exercises, because the contract is
@@ -22,6 +25,19 @@ members = [
 ]
 resolver = "2"
 
+[workspace.dependencies]
+prost-reflect = "0.16"
+serde = { version = "1", features = ["derive"] }
+sha2 = "0.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
+testcontainers = "0.28"
+tokio-postgres = "0.7"
+ucum = { package = "ucum-units", version = "0.1" }
+iso_currency = "0.7"
+email_address = "0.2"
+url = "2"
+
 [workspace.lints.rust]
 warnings    = "deny"
 unsafe_code = "deny"
@@ -32,7 +48,7 @@ pedantic = { level = "deny", priority = -1 }
 
 [package]
 name = "api-bones"
-version = "14.3.0"
+version = "14.4.0"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
@@ -64,7 +80,7 @@ chrono = ["dep:chrono", "utoipa?/chrono"]
 ## Provides chrono_to_timestamp, parse_uuid, build_page (OffsetPage), and
 ## ConnectOptionExt. Activates the uuid and chrono features as side-effects.
 ## Zero impact on consumers who do not declare this feature.
-connect = ["dep:api-bones-stream", "dep:connectrpc", "dep:buffa", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "dep:base64", "dep:bytes", "dep:http-body-util", "uuid", "chrono", "http", "std"]
+connect = ["dep:api-bones-stream", "dep:connectrpc", "dep:buffa", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "dep:base64", "dep:bytes", "dep:futures-core", "dep:http-body-util", "uuid", "chrono", "http", "std"]
 http = ["dep:http", "alloc"]
 axum = ["dep:axum", "http", "serde", "std"]
 utoipa = ["dep:utoipa", "std"]
@@ -103,6 +119,7 @@ rand = { version = "0.10", optional = true }
 schemars = { version = "1", optional = true }
 base64 = { version = "0.23", default-features = false, features = ["alloc"], optional = true }
 bytes = { version = "1", optional = true }
+futures-core = { version = "0.3", optional = true }
 http-body-util = { version = "0.1", optional = true }
 hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.11", optional = true }
@@ -165,6 +182,7 @@ mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
 opentelemetry_sdk = { version = "0.32", features = ["trace", "rt-tokio"] }
 bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http-body-util = "0.1"
 
 [[example]]
@@ -269,3 +287,4 @@ api-bones-sdk-gen = { path = "api-bones-sdk-gen" }
 api-bones-test = { path = "api-bones-test" }
 api-bones-protos = { path = "api-bones-protos" }
 api-bones-stream = { path = "api-bones-stream" }
+api-bones-page = { path = "api-bones-page" }

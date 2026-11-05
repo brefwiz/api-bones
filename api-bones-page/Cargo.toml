@@ -1,0 +1,33 @@
+[package]
+name = "api-bones-page"
+version = "0.1.0"
+publish = ["brefwiz"]
+edition = "2024"
+rust-version = "1.85"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "The SDK page iterator for keyset-paginated List RPCs: auto-follows next_cursor, prefetches one page, retries idempotent fetches only."
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-page"
+keywords = ["pagination", "connectrpc", "sdk"]
+categories = ["api-bindings"]
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+api-bones = { version = "^14.4.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
+connectrpc = "0.9.1"
+futures-core = "0.3"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+thiserror = "2"
+tracing = { workspace = true }
+sha2 = { workspace = true }
+tokio = { version = "1", default-features = false, features = ["rt", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "time", "test-util"] }

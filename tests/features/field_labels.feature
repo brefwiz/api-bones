@@ -39,7 +39,7 @@ Feature: Field labels
   Scenario: The shipped field vocabulary labels meaning and classification and restates no value type
     Given the shipped field vocabulary
     When the vocabulary is read back through descriptor reflection
-    Then the field options it declares are "attr, classification, defaulted_from, meaning"
+    Then the field options it declares are "attr, classification, defaulted_from, meaning, typed_by"
     And the classification enums it declares are "bones.v1.DataClassification"
 
   Scenario: The shipped stream control is exactly a drain or a checkpoint

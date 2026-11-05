@@ -1,0 +1,36 @@
+[package]
+name = "api-bones-batch"
+version = "0.1.0"
+publish = ["brefwiz"]
+edition = "2024"
+rust-version = "1.85"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "The SDK batch runtime: explicit batch calls with chunking and per-item results, and same-tick coalescing of single Gets, under a per-chunk identity guard."
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-batch"
+keywords = ["batch", "connectrpc", "sdk"]
+categories = ["api-bindings"]
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+prost-reflect = { workspace = true }
+api-bones-page = { version = "0.1.0", path = "../api-bones-page", registry = "brefwiz" }
+base64 = { version = "0.23", default-features = false, features = ["alloc"] }
+buffa = "0.9"
+api-bones = { version = "^14.4.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
+connectrpc = { version = "0.9.1", features = ["client"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http = "1.4.2"
+sha2 = "0.11"
+tokio = { version = "1", default-features = false, features = ["rt", "sync", "time", "macros"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "test-util"] }

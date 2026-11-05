@@ -33,7 +33,23 @@ export interface GeneratedPublicReadPolicy {
   };
 }
 
+export interface GeneratedPagingPolicy {
+  readonly kind: "unary" | "stream";
+  readonly streamOf?: string;
+  readonly itemField: string;
+  readonly pageField: string;
+  readonly requestPageField: string;
+}
+export interface GeneratedBatchPolicy {
+  readonly kind: "get" | "list";
+  readonly method: string;
+  readonly keyField: string;
+  readonly keysField: string;
+  readonly resultsField: string;
+}
 export interface GeneratedMethodPolicy {
+  readonly paging?: GeneratedPagingPolicy;
+  readonly batch?: GeneratedBatchPolicy;
   readonly rpc: string;
   readonly procedure: "unary" | "streaming";
   /**
@@ -51,7 +67,7 @@ export interface GeneratedMethodPolicy {
 }
 
 export interface GeneratedMethodPolicyDocument {
-  readonly schemaVersion: 1 | 2;
+  readonly schemaVersion: 1 | 2 | 3;
   readonly methods: readonly GeneratedMethodPolicy[];
 }
 
@@ -125,6 +141,19 @@ export function parseMethodPolicy(value: unknown): GeneratedMethodPolicy | null 
     sensitivity,
     maxEncodedUrlBytes: value.maxEncodedUrlBytes,
   };
+  if (value.paging !== undefined) {
+    const paging = value.paging;
+    if (!isRecord(paging) || (paging.kind !== "unary" && paging.kind !== "stream") ||
+      ![paging.itemField, paging.pageField, paging.requestPageField].every((field) => typeof field === "string" && field.length > 0) ||
+      (paging.streamOf !== undefined && typeof paging.streamOf !== "string")) return null;
+    Object.assign(method, { paging: { ...paging } });
+  }
+  if (value.batch !== undefined) {
+    const batch = value.batch;
+    if (!isRecord(batch) || (batch.kind !== "get" && batch.kind !== "list") ||
+      ![batch.method, batch.keyField, batch.keysField, batch.resultsField].every((field) => typeof field === "string" && field.length > 0)) return null;
+    Object.assign(method, { batch: { ...batch } });
+  }
   if (value.publicRead === undefined) return method;
   const publicRead = parsePublicRead(value.publicRead);
   return publicRead ? { ...method, publicRead } : null;
@@ -155,7 +184,7 @@ function parsePublicRead(value: unknown): GeneratedPublicReadPolicy | null {
 }
 
 /** The `schemaVersion` values of the policy document this reader understands. */
-export const SUPPORTED_POLICY_SCHEMA_VERSIONS: readonly number[] = [1, 2];
+export const SUPPORTED_POLICY_SCHEMA_VERSIONS: readonly number[] = [1, 2, 3];
 
 /**
  * Refuse a policy document whose `schemaVersion` is missing, not a number, or
@@ -185,7 +214,7 @@ export function assertSupportedPolicySchema(value: unknown): void {
 export function indexGeneratedPolicy(value: unknown): ReadonlyMap<string, GeneratedMethodPolicy> {
   if (
     !isRecord(value) ||
-    (value.schemaVersion !== 1 && value.schemaVersion !== 2) ||
+    !SUPPORTED_POLICY_SCHEMA_VERSIONS.includes(value.schemaVersion as number) ||
     !Array.isArray(value.methods)
   ) {
     return new Map();

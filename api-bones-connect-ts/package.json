@@ -31,7 +31,7 @@
   },
   "peerDependencies": {
     "@brefwiz/spiffe-client": "^0.44.0",
-    "@bufbuild/protobuf": "^2.0.0",
+    "@bufbuild/protobuf": "^2.16.0",
     "@connectrpc/connect": "^2.0.0"
   },
   "peerDependenciesMeta": {
@@ -44,13 +44,15 @@
   },
   "devDependencies": {
     "@brefwiz/spiffe-client": "^0.44.0",
-    "@bufbuild/protobuf": "^2.0.0",
+    "@bufbuild/protobuf": "^2.16.0",
     "@connectrpc/connect": "^2.0.0",
     "@connectrpc/connect-node": "^2.0.0",
     "@connectrpc/connect-web": "^2.0.0",
     "@types/node": "^22.20.1",
     "typescript": "^5.0.0",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.0",
+    "@bufbuild/protoc-gen-es": "^2.16.0",
+    "@types/validator": "^13.15.0"
   },
   "publishConfig": {
     "registry": "https://git.brefwiz.com/api/packages/brefwiz/npm/",
@@ -59,5 +61,11 @@
   "type": "module",
   "overrides": {
     "nanoid": "^3.3.18"
+  },
+  "dependencies": {
+    "@opentelemetry/api": ">=1.9.0 <1.10.0",
+    "currency-codes": "^2.2.0",
+    "validator": "^13.15.15",
+    "@fhir-toolkit/ucum": "^0.2.0"
   }
 }

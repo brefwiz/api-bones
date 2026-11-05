@@ -55,11 +55,11 @@ Feature: Connect default precondition
   Scenario Outline: A policy of an unsupported schema version is refused when the client is built
     Given a policy document whose schemaVersion is <declared>
     When the client is built from it
-    Then construction is refused naming version <found> and the supported versions "1, 2"
+    Then construction is refused naming version <found> and the supported versions "1, 2, 3"
 
     Examples:
       | declared | found   |
-      | 3        | 3       |
+      | 4        | 4       |
       | 0        | 0       |
       | "2"      | "2"     |
       | null     | null    |

@@ -12,30 +12,47 @@ publish = false
 license = "LicenseRef-Brefwiz-Proprietary"
 
 [dependencies]
+testcontainers = { workspace = true }
+tokio-postgres = { workspace = true }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time", "sync"] }
+
 api-bones = { path = "../..", features = ["connect"] }
+api-bones-batch = { path = "../../api-bones-batch" }
+api-bones-fields = { path = "../../api-bones-fields", version = "0.1.0", registry = "brefwiz" }
 api-bones-connect = { path = "../../api-bones-connect" }
+api-bones-page = { path = "../../api-bones-page" }
 api-bones-protos = { path = "../../api-bones-protos" }
 api-bones-stream = { path = "../../api-bones-stream" }
 prost-reflect = "0.16"
 serde_json = "1"
+serde.workspace = true
 protox = "0.9"
-connectrpc = "0.9.1"
+connectrpc = { version = "0.9.1", features = ["client", "server"] }
 # The generated message type that `stream_controlled!` is invoked over.
-buffa = "0.9"
+buffa = { version = "0.9", features = ["json"] }
+buffa-types = { version = "0.9", features = ["json"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4.2"
 bytes = "1"
 http-body-util = "0.1"
 
 [build-dependencies]
+api-bones-automation = { path = "../../api-bones-automation", version = "^0.2.10", registry = "brefwiz" }
+prost-reflect = "0.16"
+serde_json = "1"
 connectrpc-build = "0.9"
 protox = "0.9"
 
 [dev-dependencies]
+quorum-chain-issuer = { version = "0.5.0", registry = "brefwiz" }
+quorum-identity = { version = "0.36.0", registry = "brefwiz" }
+quorum-workload-identity = { version = "0.40.0", registry = "brefwiz", features = ["biscuit"] }
+quorum-workload-identity-issuer = { version = "0.7.0", registry = "brefwiz" }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 cucumber = "0.23"
 # The platform BDD runner.
 brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time", "sync"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs"] }
 rcgen = "0.13"
 hyper = { version = "1", features = ["http2", "server"] }
@@ -75,4 +92,25 @@ harness = false
 
 [[test]]
 name = "connect_stream_rotation"
+harness = false
+
+[[test]]
+name = "connect_stream_keepalive"
+harness = false
+
+[[test]]
+name = "connect_pagination"
+harness = false
+
+[[test]]
+name = "connect_batch"
+harness = false
+
+[[test]]
+name = "connect_batch_identity_guard"
+path = "tests/connect_batch_identity_guard.rs"
+harness = false
+
+[[test]]
+name = "typed_fields"
 harness = false

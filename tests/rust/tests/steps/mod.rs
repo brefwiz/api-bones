@@ -4,15 +4,18 @@
 //! The TypeScript half answers the same file; neither keeps its own copy of
 //! the rows.
 
+mod batch;
 mod csrf_replay_rule;
 mod error_info;
 mod field_labels;
 mod overridable_defaults;
+mod pagination;
 mod pinned_peer;
 mod precondition;
 #[path = "../../../shared/shipped_resolver.rs"]
 mod shipped_resolver;
 mod stream_control;
+mod stream_keepalive;
 mod stream_rotation;
 
 use crate::world::RetryWorld;

@@ -68,6 +68,7 @@ mod error_info;
 mod etag;
 mod ext;
 mod get_read_client;
+mod keepalive;
 mod page;
 mod parse;
 pub mod precondition_client;
@@ -90,6 +91,7 @@ pub use get_read_client::{
     GetReadTransport, MAX_CONNECT_GET_URL_BYTES, PublicReadTransport, ReadPolicy,
     index_public_read_policy, index_read_policy,
 };
+pub use keepalive::{is_keepalive_message, skip_keepalives, with_stream_keepalive};
 pub use page::{DEFAULT_LIMIT, MAX_LIMIT, OffsetPage, build_offset_page, build_page};
 pub use parse::parse_rfc3339;
 pub use precondition_client::{
@@ -97,13 +99,15 @@ pub use precondition_client::{
     UnsupportedPolicySchema, index_generated_policy,
 };
 pub use retry_eligibility::{
-    connection_failure_as_unavailable, is_connection_write_failure,
-    is_replayable_transport_failure, is_unprompted_retryable,
+    connection_failure_as_unavailable, fetch_with_retry, is_connection_write_failure,
+    is_replayable_transport_failure, is_unprompted_retryable, retries_for,
 };
 pub use scoped::{CallCredential, ScopeCall, ScopedClient, TokenInjector};
 pub use stream_control::{
     CONTROL_FIELD_JSON_NAME, MalformedControl, STREAM_CONTROL_FIELD_NUMBER, STREAM_CONTROL_HEADER,
-    STREAM_CONTROL_HEADER_VALUE, StreamControl,
+    STREAM_CONTROL_HEADER_VALUE, STREAM_KEEPALIVE_FIELD_NUMBER, STREAM_KEEPALIVE_HEADER,
+    STREAM_KEEPALIVE_HEADER_VALUE, STREAM_KEEPALIVE_INTERVAL, STREAM_KEEPALIVE_PAYLOAD,
+    StreamControl, is_keepalive_payload,
 };
 pub use timestamp::{chrono_opt_to_timestamp, chrono_to_timestamp};
 pub use transport::{

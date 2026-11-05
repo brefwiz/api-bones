@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 syntax = "proto3";
 package billing.v1;
 message Invoice { string id = 1; }

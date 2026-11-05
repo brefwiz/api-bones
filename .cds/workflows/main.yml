@@ -128,7 +128,20 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
       memory: "24576"
+    services:
+      postgres:
+        image: registry.brefwiz.com/brefwiz/ci-postgres:v0.3.85@sha256:b4fece4be264e5709d7d118d2cf6246cda06d0af4feca91c21c7d4dcb02e8ad2
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: postgres
+        readiness:
+          command: "bash -c '</dev/tcp/postgres/5432'"
+          interval: "2s"
+          timeout: "5s"
+          retries: 30
     env:
+      DATABASE_URL: "postgres://postgres@postgres:5432/postgres"
+      SKIP_TESTCONTAINERS: "1"
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
       REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
@@ -142,6 +155,8 @@ jobs:
     steps:
       - id: checkout
         uses: actions/checkout
+      # No inline reachability step here: a ram-build job may hold only `uses:`
+      # steps; the postgres service's readiness probe gates this job instead.
       - id: test
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/test@main
         with:
@@ -163,7 +178,20 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
       memory: "16384"
+    services:
+      postgres:
+        image: registry.brefwiz.com/brefwiz/ci-postgres:v0.3.85@sha256:b4fece4be264e5709d7d118d2cf6246cda06d0af4feca91c21c7d4dcb02e8ad2
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: postgres
+        readiness:
+          command: "bash -c '</dev/tcp/postgres/5432'"
+          interval: "2s"
+          timeout: "5s"
+          retries: 30
     env:
+      DATABASE_URL: "postgres://postgres@postgres:5432/postgres"
+      SKIP_TESTCONTAINERS: "1"
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
     steps:
       - id: checkout
@@ -186,6 +214,14 @@ jobs:
           checkout: "false"
           npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
           registry-url: "https://git.brefwiz.com/api/packages/brefwiz/npm/"
+      - id: require-database
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if ! timeout 5 bash -c '</dev/tcp/postgres/5432' 2>/dev/null; then
+            echo "::error::ts: the postgres service this job declares is not reachable at postgres:5432." >&2
+            exit 1
+          fi
       - id: ts
         run: |
           #!/usr/bin/env bash

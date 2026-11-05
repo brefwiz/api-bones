@@ -4,7 +4,9 @@
 //! The shipped proto vocabulary is library code callers embed directly; no
 //! generated contract reaches it (SPEC.md `internal_behavior_owners`).
 
-use api_bones_automation::{BatchOfError, check_batch_of};
+use api_bones_automation::{
+    BatchOfError, BatchPolicy, PagingPolicy, batch_policy, check_batch_of, paging_policy,
+};
 use cucumber::{World, given, then, when};
 use prost_reflect::prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, ReflectMessage, Value};
@@ -20,6 +22,8 @@ struct VocabularyWorld {
     signed: Vec<u8>,
     served: Option<DynamicMessage>,
     batch_check: Option<Result<(), BatchOfError>>,
+    batch_policy: Option<Result<Option<BatchPolicy>, String>>,
+    paging_policy: Option<PagingPolicy>,
 }
 
 impl std::fmt::Debug for VocabularyWorld {
@@ -269,16 +273,73 @@ fn given_batch_of(world: &mut VocabularyWorld, single: String) {
 
 #[given(expr = "a service whose batch method declares batch_of {string}")]
 fn given_batch_service(world: &mut VocabularyWorld, named: String) {
-    world.source = format!(
+    world.source = batch_contract(
+        &named,
+        "option idempotency_level = NO_SIDE_EFFECTS;",
+        "service Other { rpc Do(Req) returns (Res); }",
+    );
+}
+
+fn batch_contract(named: &str, option: &str, other: &str) -> String {
+    format!(
         "syntax = \"proto3\";\npackage contract.v1;\n\
          import \"bones/v1/annotations.proto\";\n\
          message Req {{ string id = 1; }}\n\
          message Res {{ string id = 1; }}\n\
          service Svc {{\n\
            rpc Do(Req) returns (Res);\n\
-           rpc DoMany(Req) returns (Res) {{ option (bones.v1.batch_of) = \"{named}\"; }}\n\
+           rpc DoMany(Req) returns (Res) {{ option (bones.v1.batch_of) = \"{named}\"; {option} }}\n\
          }}\n\
-         service Other {{ rpc Do(Req) returns (Res); }}\n"
+{other}"
+    )
+}
+
+#[given(expr = "a contract with the batch policy shape {string}")]
+fn given_batch_policy_shape(world: &mut VocabularyWorld, shape: String) {
+    let keys = match shape.as_str() {
+        "no repeated string key" => "string ids = 1;",
+        "multiple repeated string keys" => "repeated string ids = 1; repeated string names = 2;",
+        "non-plural key" => "repeated string id = 1;",
+        _ => "repeated string ids = 1;",
+    };
+    let single_key = if shape == "missing matching single key" {
+        "string name = 1;"
+    } else {
+        "string id = 1;"
+    };
+    let list = matches!(shape.as_str(), "list without groups" | "stream" | "list");
+    let outcomes = match shape.as_str() {
+        "get without results" => "repeated Thing items = 1;",
+        "list without groups" => "repeated Thing results = 1;",
+        _ if list => "repeated Thing groups = 1;",
+        _ => "repeated Thing results = 1;",
+    };
+    let single_response = if list { "ListResponse" } else { "Thing" };
+    let sibling = if shape == "multiple siblings" {
+        "rpc DoMore(BatchRequest) returns (BatchResponse) { option (bones.v1.batch_of) = \"Do\"; }"
+    } else {
+        ""
+    };
+    let stream = if shape == "stream" {
+        "rpc Stream(ListRequest) returns (stream ListResponse) { option (bones.v1.list_stream_of) = \"Do\"; }"
+    } else {
+        ""
+    };
+    world.source = format!(
+        "syntax = \"proto3\"; package contract.v1;
+         import \"bones/v1/annotations.proto\";
+         import \"bones/v1/pagination.proto\";
+         message Thing {{ string id = 1; }}
+         message ListRequest {{ {single_key} bones.v1.PageRequest request_page = 2; }}
+         message ListResponse {{ repeated Thing things = 1; bones.v1.PageResponse response_page = 2; }}
+         message BatchRequest {{ {keys} }}
+         message BatchResponse {{ {outcomes} }}
+         service Svc {{
+           rpc Do(ListRequest) returns ({single_response});
+           rpc DoMany(BatchRequest) returns (BatchResponse) {{ option (bones.v1.batch_of) = \"Do\"; }}
+           {sibling}
+           {stream}
+         }}"
     );
 }
 
@@ -299,6 +360,16 @@ fn authz_option(spec: &str) -> String {
     }
 }
 
+#[given(expr = "a service whose batch method declares idempotency {string}")]
+fn given_batch_idempotency(world: &mut VocabularyWorld, level: String) {
+    let option = if level == "none" {
+        String::new()
+    } else {
+        format!("option idempotency_level = {level};")
+    };
+    world.source = batch_contract("Do", &option, "");
+}
+
 #[given(expr = "a service whose single is {string} and whose batch is {string}")]
 fn given_authz_pair(world: &mut VocabularyWorld, single: String, batch: String) {
     world.source = format!(
@@ -308,7 +379,7 @@ fn given_authz_pair(world: &mut VocabularyWorld, single: String, batch: String) 
          message Res {{ string id = 1; }}\n\
          service Svc {{\n\
            rpc Do(Req) returns (Res) {{ {} }}\n\
-           rpc DoMany(Req) returns (Res) {{ option (bones.v1.batch_of) = \"Do\"; {} }}\n\
+           rpc DoMany(Req) returns (Res) {{ option (bones.v1.batch_of) = \"Do\"; option idempotency_level = NO_SIDE_EFFECTS; {} }}\n\
          }}\n",
         authz_option(&single),
         authz_option(&batch)
@@ -424,6 +495,71 @@ fn when_compiled(world: &mut VocabularyWorld) {
 #[when("the batch_of declarations are checked")]
 fn when_batch_checked(world: &mut VocabularyWorld) {
     world.batch_check = Some(check_batch_of(&pool(world).encode_to_vec()));
+}
+
+#[when("the batch policy is discovered")]
+fn when_batch_policy(world: &mut VocabularyWorld) {
+    let method = policy_method(world, "Do");
+    world.batch_policy = Some(batch_policy(pool(world), &method));
+}
+
+fn policy_method(world: &VocabularyWorld, name: &str) -> prost_reflect::MethodDescriptor {
+    pool(world)
+        .get_service_by_name("contract.v1.Svc")
+        .expect("service")
+        .methods()
+        .find(|method| method.name() == name)
+        .expect("policy method")
+}
+
+#[when("the stream paging policy is discovered")]
+fn when_stream_paging_policy(world: &mut VocabularyWorld) {
+    let method = policy_method(world, "Stream");
+    world.paging_policy = paging_policy(pool(world), &method);
+}
+
+#[then(expr = "the batch policy is refused as {string}")]
+fn then_batch_policy_refused(world: &mut VocabularyWorld, reason: String) {
+    let outcome = world
+        .batch_policy
+        .as_ref()
+        .expect("batch policy not discovered");
+    let Err(error) = outcome else {
+        panic!("batch policy must be refused: {outcome:?}");
+    };
+    let method = if reason == "has multiple batch siblings" {
+        "Do"
+    } else {
+        "DoMany"
+    };
+    assert_eq!(error, &format!("contract.v1.Svc.{method} {reason}"));
+}
+
+#[then(expr = "the discovered batch policy has kind {string} and outcomes {string}")]
+fn then_batch_policy(world: &mut VocabularyWorld, kind: String, outcomes: String) {
+    let policy = world
+        .batch_policy
+        .as_ref()
+        .expect("batch policy not discovered")
+        .as_ref()
+        .expect("valid batch policy")
+        .as_ref()
+        .expect("batch sibling");
+    assert_eq!(policy.kind, kind);
+    assert_eq!(policy.method, "DoMany");
+    assert_eq!(policy.key_field, "id");
+    assert_eq!(policy.keys_field, "ids");
+    assert_eq!(policy.results_field, outcomes);
+}
+
+#[then("the discovered paging policy streams the declared list with its canonical fields")]
+fn then_stream_paging_policy(world: &mut VocabularyWorld) {
+    let policy = world.paging_policy.as_ref().expect("stream paging policy");
+    assert_eq!(policy.kind, "stream");
+    assert_eq!(policy.stream_of.as_deref(), Some("Do"));
+    assert_eq!(policy.item_field, "things");
+    assert_eq!(policy.page_field, "responsePage");
+    assert_eq!(policy.request_page_field, "requestPage");
 }
 
 #[when(

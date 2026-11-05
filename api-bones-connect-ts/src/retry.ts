@@ -221,6 +221,7 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
     if (req.stream) return next(req);
     const policy = opts.policyByRpc.get(rpcIdentity(req.method));
     const methodRetryable = isRetryableMethod(policy);
+    const maxRetries = policy?.paging ? 2 : MAX_RETRY_ATTEMPTS;
     // A reset before any response byte replays only a read that cannot change
     // anything, and only once: a second reset is not a stale pooled socket.
     const replaysStaleReset = policy?.procedure === "unary" && policy.idempotency === "NO_SIDE_EFFECTS";
@@ -233,7 +234,7 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
         throttle.recordSuccess();
         return response;
       } catch (err) {
-        if (!(err instanceof ConnectError) || attempt >= MAX_RETRY_ATTEMPTS) throw err;
+        if (!(err instanceof ConnectError) || attempt >= maxRetries) throw err;
 
         const pushbackMs = serverPushbackMs(err);
         // A request that provably never left the client is replay-safe whatever

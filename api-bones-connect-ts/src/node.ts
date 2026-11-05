@@ -24,6 +24,8 @@ import {
   createConnectTransport,
 } from "@connectrpc/connect-node";
 
+import { preparedTransport, preparationMetadata, preparationBoundary, preparationAttempt, preparationAuth, preparationSession, type SessionSource } from "./platform-client.js";
+export { createPlatformClient, anonymousSession, type SessionSource, type SessionSnapshot } from "./platform-client.js";
 import type { BackoffOptions } from "./backoff.js";
 import { ObservedHttp2SessionManager } from "./node-http2.js";
 import {
@@ -41,6 +43,7 @@ import {
   type RetryEvent,
 } from "./retry.js";
 import { makePreconditionInterceptor } from "./precondition.js";
+import { makeStreamKeepaliveInterceptor } from "./stream-keepalive.js";
 import { pinnedPeerTlsOptions, startWatcherSafe, type PinnedPeer } from "@brefwiz/spiffe-client";
 import { clientTlsIdentityFor, WATCHER_ATTEMPTS, WorkloadIdentityError } from "./workload-identity.js";
 
@@ -88,6 +91,8 @@ export interface NodeConnectTransportOptions {
   policy?: unknown;
   /** Bearer token provider for service-to-service calls. */
   getToken?: () => string | null | undefined;
+  /** The SDK producer's atomic identity and credential source. */
+  session?: SessionSource;
   /** Called when the server returns Unauthenticated. */
   onUnauthorized?: () => void;
   /**
@@ -159,15 +164,7 @@ export interface NodeConnectTransportOptions {
   defaultTimeoutMs?: number;
 }
 
-function makeAuthInterceptor(getToken: () => string | null | undefined): Interceptor {
-  return (next) => (req) => {
-    const token = getToken();
-    if (token) {
-      req.header.set("Authorization", `Bearer ${token}`);
-    }
-    return next(req);
-  };
-}
+
 
 function makeUnauthInterceptor(onUnauthorized: () => void): Interceptor {
   return (next) => async (req) => {
@@ -206,6 +203,7 @@ export async function configureNodeConnectTransport(
 ): Promise<ClosableTransport> {
   const { baseUrl, profile, policy, getToken, onUnauthorized, useBinaryFormat, retry, onRetry } =
     opts;
+  if (opts.session && getToken) throw new Error("session and getToken are exclusive credential sources");
 
   if (profile !== "service") {
     throw new Error(
@@ -246,16 +244,21 @@ export async function configureNodeConnectTransport(
   const diagnostics = new ConnectionFactsRecorder();
 
   const interceptors: Interceptor[] = [
-    ...(opts.interceptors ?? []),
-    ...(getToken ? [makeAuthInterceptor(getToken)] : []),
+    ...(opts.interceptors ?? []).map(preparationMetadata),
+    // Outermost of the core interceptors: nothing below it, a rotating
+    // stream's legs included, ever reads a keepalive.
+    makeStreamKeepaliveInterceptor(),
+    ...(opts.session ? [preparationSession(opts.session)] : getToken ? [preparationAuth(getToken)] : []),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
     // Ahead of retry: a mutating call carries its default precondition on
     // every attempt, not just the first.
-    makePreconditionInterceptor({ policyByRpc }),
+    preparationMetadata(makePreconditionInterceptor({ policyByRpc })),
+    preparationBoundary,
     // Outside the retry interceptor: `isConnectionWriteFailure` matches on the
     // Internal code, so re-coding any earlier would make these unretryable.
     makeConnectionFailureNormalizer(),
     makeRetryInterceptor({ policyByRpc, backoff: retry, onRetry }),
+    preparationAttempt(getToken, opts.session),
     // Inside the retry interceptor: a failure the policy lets us replay never
     // reaches a caller, so only the ones that actually surface get rewritten.
     makeConnectionDiagnosticsInterceptor(diagnostics),
@@ -315,6 +318,7 @@ export async function configureNodeConnectTransport(
         nodeOptions: { agent },
       }),
       () => agent.destroy(),
+      opts.session,
     );
   }
   // h2 resolves the identity once, at composition: the session manager owns
@@ -328,16 +332,18 @@ export async function configureNodeConnectTransport(
   return withClose(
     createConnectTransport({ ...common, httpVersion: "2", sessionManager }),
     () => sessionManager.abort(),
+    opts.session,
   );
 }
 
-function withClose(transport: Transport, release: () => void): ClosableTransport {
+function withClose(transport: Transport, release: () => void, session?: SessionSource): ClosableTransport {
   let closed = false;
-  return Object.assign(transport, {
+  return preparedTransport(Object.assign(transport, {
     close(): void {
       if (closed) return;
       closed = true;
       release();
     },
-  });
+  }), session);
 }
+export * from "./batch.js";

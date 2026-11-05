@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "api-bones-fields"
+version = "0.1.0"
+publish = ["brefwiz"]
+edition = "2024"
+license = "MIT"
+description = "Pure validation of canonical typed field definitions and values"
+repository = "https://github.com/brefwiz/api-bones"
+
+[lints]
+workspace = true
+
+[dependencies]
+buffa = "0.9"
+buffa-types = "0.9"
+ucum.workspace = true
+iso_currency.workspace = true
+email_address.workspace = true
+url.workspace = true
+
+[build-dependencies]
+api-bones-protos = { path = "../api-bones-protos", version = "^0.6.8", registry = "brefwiz" }
+connectrpc-build = "0.9"
+protox = "0.9"

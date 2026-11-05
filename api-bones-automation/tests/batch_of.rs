@@ -3,8 +3,12 @@
 //! protox: the accepted spellings, each refusal reason, ordering, and the
 //! error rendering.
 
-use api_bones_automation::{BatchOfError, BatchOfReason, BatchOfRefusal, check_batch_of};
+use api_bones_automation::{
+    BatchOfError, BatchOfReason, BatchOfRefusal, check_batch_of, check_batch_of_against_pool,
+};
 use protox::Compiler;
+use protox::prost::Message;
+use protox::prost_reflect::DescriptorPool;
 
 #[path = "support/resolver.rs"]
 mod resolver;
@@ -19,6 +23,62 @@ fn descriptor_set(source: &str) -> Vec<u8> {
     compiler.encode_file_descriptor_set()
 }
 
+#[test]
+fn expected_batch_declarations_cannot_disappear_or_change_in_serialized_bytes() {
+    let source = contract("Orders", &[("One", ""), ("Many", "One")]);
+    let mut compiler = Compiler::with_file_resolver(Resolver(source));
+    compiler.include_imports(true);
+    compiler.open_file(PATH).expect("contract compiles");
+    let pool = compiler.descriptor_pool();
+    assert_eq!(
+        check_batch_of_against_pool(&compiler.encode_file_descriptor_set(), &pool),
+        Ok(())
+    );
+    let stripped = compiler.file_descriptor_set().encode_to_vec();
+    let stripped_pool = DescriptorPool::decode(stripped.as_slice()).expect("standard descriptor");
+    let service = stripped_pool
+        .get_service_by_name("orders.v1.Orders")
+        .expect("Orders service");
+    let batch = service
+        .methods()
+        .find(|method| method.name() == "Many")
+        .expect("Many method");
+    assert_eq!(
+        batch
+            .options()
+            .get_field_by_name("idempotency_level")
+            .and_then(|value| value.as_enum_number()),
+        Some(1)
+    );
+    let extension = stripped_pool
+        .get_extension_by_name("bones.v1.batch_of")
+        .expect("extension schema");
+    assert!(!batch.options().has_extension(&extension));
+    let no_declarations = descriptor_set(&contract("Orders", &[("One", ""), ("Many", "")]));
+    let substituted = descriptor_set(&contract("Orders", &[("One", "Many"), ("Many", "")]));
+    for bytes in [stripped, Vec::new(), no_declarations, substituted] {
+        let error =
+            check_batch_of_against_pool(&bytes, &pool).expect_err("declaration mismatch refused");
+        assert_eq!(
+            error.to_string(),
+            "descriptor set is unusable: orders.v1.Orders/Many: batch_of declaration mismatch: expected Some(\"One\"), serialized None"
+        );
+    }
+    let changed = descriptor_set(&contract("Orders", &[("One", ""), ("Many", "Other")]));
+    assert_eq!(
+        check_batch_of_against_pool(&changed, &pool)
+            .expect_err("changed target refused")
+            .to_string(),
+        "descriptor set is unusable: orders.v1.Orders/Many: batch_of declaration mismatch: expected Some(\"One\"), serialized Some(\"Other\")"
+    );
+    let valid_pool = DescriptorPool::decode(compiler.encode_file_descriptor_set().as_slice())
+        .expect("preserved descriptor pool");
+    assert_eq!(
+        check_batch_of_against_pool(&valid_pool.encode_to_vec(), &pool),
+        Ok(())
+    );
+}
+
 /// A contract whose `Orders` service declares each `(method, batch_of)` pair.
 fn contract(service: &str, methods: &[(&str, &str)]) -> String {
     let rpcs: String = methods
@@ -28,7 +88,7 @@ fn contract(service: &str, methods: &[(&str, &str)]) -> String {
                 format!("  rpc {name}(Req) returns (Res);\n")
             } else {
                 format!(
-                    "  rpc {name}(Req) returns (Res) {{ option (bones.v1.batch_of) = \"{batch_of}\"; }}\n"
+                    "  rpc {name}(Req) returns (Res) {{ option (bones.v1.batch_of) = \"{batch_of}\"; option idempotency_level = NO_SIDE_EFFECTS; }}\n"
                 )
             }
         })
@@ -158,9 +218,21 @@ fn authz_contract(single: &str, batch: &str) -> String {
         "syntax = \"proto3\";\npackage orders.v1;\nimport \"bones/v1/annotations.proto\";\n\
          message Req {{}}\nmessage Res {{}}\nservice Orders {{\n\
            rpc One(Req) returns (Res) {{ {single} }}\n\
-           rpc Many(Req) returns (Res) {{ option (bones.v1.batch_of) = \"One\"; {batch} }}\n\
+           rpc Many(Req) returns (Res) {{ option (bones.v1.batch_of) = \"One\"; option idempotency_level = NO_SIDE_EFFECTS; {batch} }}\n\
          }}\n"
     )
+}
+
+#[test]
+fn a_batch_without_no_side_effects_is_refused() {
+    let source = contract("Orders", &[("One", ""), ("Many", "One")]);
+    for option in ["", "option idempotency_level = IDEMPOTENT;"] {
+        let source = source.replace("option idempotency_level = NO_SIDE_EFFECTS;", option);
+        let refusals = refused(&descriptor_set(&source));
+        assert_eq!(refusals.len(), 1);
+        assert_eq!(refusals[0].reason, BatchOfReason::NotNoSideEffects);
+        assert_eq!(refusals[0].method, "orders.v1.Orders/Many");
+    }
 }
 
 const READ: &str =

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Canonical typed field definitions, stable enum option references, and pure definition/value validation in `api-bones-fields`.
+
+## [14.4.0] - 2026-11-04
+
+### Added
+
+- *(connect)* shared retry policy and request retry helper for SDK consumers.
+
 ## [14.3.0] - 2026-11-04
 
 ### Added

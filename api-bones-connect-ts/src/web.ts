@@ -20,6 +20,8 @@ import { Code, ConnectError, type Interceptor, type Transport } from "@connectrp
 import { createClientMethodSerializers, createMethodUrl } from "@connectrpc/connect/protocol";
 import { createConnectTransport, createGrpcWebTransport } from "@connectrpc/connect-web";
 
+import { preparedTransport, preparationMetadata, preparationBoundary, preparationAttempt, preparationAuth, preparationSession, anonymousSession, type SessionSource } from "./platform-client.js";
+export { createPlatformClient, anonymousSession, type SessionSource, type SessionSnapshot } from "./platform-client.js";
 import type { BackoffOptions } from "./backoff.js";
 import {
   eligibleBrowserReadPolicy,
@@ -38,6 +40,7 @@ import {
 } from "./retry.js";
 import { CSRF_HEADER, csrfReplayToken } from "./csrf.js";
 import { makePreconditionInterceptor } from "./precondition.js";
+import { makeStreamKeepaliveInterceptor } from "./stream-keepalive.js";
 
 export interface ConnectTransportOptions {
   baseUrl: string;
@@ -52,6 +55,8 @@ export interface ConnectTransportOptions {
    * when present, `Authorization: Bearer <token>` is added.
    */
   getToken?: () => string | null | undefined;
+  /** The SDK producer's atomic identity and credential source. */
+  session?: SessionSource;
   /**
    * Called when the server returns Unauthenticated. Typically triggers a logout
    * or redirect to the login page.
@@ -83,15 +88,7 @@ export interface ConnectTransportOptions {
   fetch?: typeof globalThis.fetch;
 }
 
-function makeAuthInterceptor(getToken: () => string | null | undefined): Interceptor {
-  return (next) => (req) => {
-    const token = getToken();
-    if (token) {
-      req.header.set("Authorization", `Bearer ${token}`);
-    }
-    return next(req);
-  };
-}
+
 
 /**
  * The latest synchronizer the BFF handed out, per BFF origin. Module-level so
@@ -211,9 +208,12 @@ function classifiedFetch(
 ): typeof globalThis.fetch {
   return async (input, init) => {
     try {
+      const anonymousHeaders = credentials === "omit" ? new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined)) : undefined;
+      if (anonymousHeaders) for (const name of ["authorization", "brefwiz-relayed-credential", "cookie", CSRF_HEADER]) anonymousHeaders.delete(name);
       return await fetchImpl(input, {
         ...init,
         credentials,
+        ...(anonymousHeaders ? { headers: anonymousHeaders } : {}),
         cache: init?.method === "GET" && credentials === "include" ? "no-cache" : init?.cache,
       });
     } catch (error) {
@@ -268,6 +268,7 @@ function anonymous(fetchImpl: typeof globalThis.fetch): typeof globalThis.fetch 
  * ```
  */
 export function configureConnectTransport(opts: ConnectTransportOptions): Transport {
+  if (opts.session && opts.getToken) throw new Error("session and getToken are exclusive credential sources");
   const {
     baseUrl,
     profile,
@@ -283,30 +284,35 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
   const policyByRpc = indexGeneratedPolicy(policy);
 
   const interceptors: Interceptor[] = [
-    ...(opts.interceptors ?? []),
-    ...(getToken ? [makeAuthInterceptor(getToken)] : []),
-    makeCsrfInterceptor(baseUrl),
+    ...(opts.interceptors ?? []).map(preparationMetadata),
+    // Outermost of the core interceptors: nothing below it, a rotating
+    // stream's legs included, ever reads a keepalive.
+    makeStreamKeepaliveInterceptor(),
+    ...(opts.session ? [preparationSession(opts.session)] : getToken ? [preparationAuth(getToken)] : []),
+    preparationMetadata(makeCsrfInterceptor(baseUrl)),
     ...(onUnauthorized ? [makeUnauthInterceptor(onUnauthorized)] : []),
     // Ahead of retry: a mutating call carries its default precondition on
     // every attempt, not just the first.
-    makePreconditionInterceptor({ policyByRpc }),
+    preparationMetadata(makePreconditionInterceptor({ policyByRpc })),
+    preparationBoundary,
     // Outside the retry interceptor: `isConnectionWriteFailure` matches on the
     // Internal code, so re-coding any earlier would make these unretryable.
     makeConnectionFailureNormalizer(),
     makeRetryInterceptor({ policyByRpc, backoff: retry, onRetry }),
+    preparationAttempt(getToken, opts.session),
   ];
 
   const transportOpts = {
     baseUrl,
     useBinaryFormat: useBinaryFormat ?? true,
     interceptors,
-    fetch: withCredentials(opts.fetch ?? globalThis.fetch),
+    fetch: opts.session === anonymousSession ? anonymous(opts.fetch ?? globalThis.fetch) : withCredentials(opts.fetch ?? globalThis.fetch),
   };
 
   const postTransport = useGrpcWeb
     ? createGrpcWebTransport(transportOpts)
     : createConnectTransport(transportOpts);
-  if (profile !== "webapp" || useGrpcWeb) return postTransport;
+  if (profile !== "webapp" || useGrpcWeb) return preparedTransport(postTransport, opts.session);
 
   const getTransport = createConnectTransport({
     ...transportOpts,
@@ -320,11 +326,11 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
       baseUrl: publicLaneUrl(baseUrl),
       useBinaryFormat: useBinaryFormat ?? true,
       useHttpGet: true,
-      interceptors: [makeConnectionFailureNormalizer()],
+      interceptors: [preparationBoundary, makeConnectionFailureNormalizer(), preparationAttempt()],
       fetch: anonymous(opts.fetch ?? globalThis.fetch),
     }));
 
-  return {
+  return preparedTransport({
     async unary(method, signal, timeoutMs, header, input, contextValues) {
       const declared = policyByRpc.get(rpcIdentity(method));
       if (eligiblePublicReadPolicy(declared)) {
@@ -342,5 +348,6 @@ export function configureConnectTransport(opts: ConnectTransportOptions): Transp
     stream(method, signal, timeoutMs, header, input, contextValues) {
       return postTransport.stream(method, signal, timeoutMs, header, input, contextValues);
     },
-  };
+  }, opts.session);
 }
+export * from "./batch.js";
