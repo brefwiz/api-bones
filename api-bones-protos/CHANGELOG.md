@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING** Rename `bones.v1.Total.Kind.ESTIMATE` to `KIND_ESTIMATE` and `EXACT` to `KIND_EXACT` for Buf enum lint compatibility. Proto3 JSON names and generated identifiers change; wire numbers 1 and 2 remain unchanged.
+
 ## [0.6.9] - 2026-11-05
 
 ### Added

@@ -17,6 +17,95 @@ use futures_util::StreamExt;
 const METHOD: &str = "contract.v1.Widgets/ListWidgetParts";
 const PARENT: &str = "paged";
 
+#[given(expr = "the server reports a total of kind {int}")]
+fn given_total_kind(world: &mut PagingWorld, number: u8) {
+    use api_bones_contract_rust::field_wire::Total;
+    world.reported_total = Some(Total {
+        value: 42,
+        kind: i32::from(number).into(),
+        ..Default::default()
+    });
+}
+
+#[when("the caller fetches the first page with a list call")]
+async fn when_first_total_page(world: &mut PagingWorld) {
+    use api_bones_contract_rust::field_wire::Total;
+    use api_bones_contract_rust::{ListNumbersRequest, ListNumbersResponse, PageResponse};
+    use buffa::Message;
+
+    let wire = world
+        .reported_total
+        .as_ref()
+        .expect("reported total")
+        .encode_to_vec();
+    let decoded = Total::decode_from_slice(&wire).expect("decode response total");
+    let fetch: api_bones_page::Fetch<ListNumbersRequest, ListNumbersResponse> =
+        Arc::new(move |_| {
+            let total = decoded.clone();
+            Box::pin(async move {
+                Ok(ListNumbersResponse {
+                    items: vec![1],
+                    page: PageResponse {
+                        revision: "total-revision".into(),
+                        total: total.into(),
+                        ..Default::default()
+                    }
+                    .into(),
+                    ..Default::default()
+                })
+            })
+        });
+    let call = ListCall::new(
+        "contract.v1.Numbers/ListNoSideEffects",
+        Idempotency::NoSideEffects,
+        fetch,
+        ListNumbersRequest::default(),
+    );
+    world.total_page = Some(
+        api_bones_page::ListCall::first_page(call)
+            .await
+            .expect("SDK page with total"),
+    );
+}
+
+#[then(expr = "the page total kind is {string}")]
+fn then_page_total_kind(world: &mut PagingWorld, kind: String) {
+    let expected = match kind.as_str() {
+        "estimate" => api_bones_page::TotalKind::Estimate,
+        "exact" => api_bones_page::TotalKind::Exact,
+        _ => panic!("unknown expected total kind"),
+    };
+    assert_eq!(
+        world
+            .total_page
+            .as_ref()
+            .expect("SDK page with total")
+            .total,
+        Some(api_bones_page::Total {
+            value: 42,
+            kind: expected
+        })
+    );
+}
+
+#[then(expr = "the total kind travels as {int} on the wire and {string} in JSON")]
+fn then_total_encoding(world: &mut PagingWorld, number: u8, name: String) {
+    use api_bones_contract_rust::field_wire::Total;
+    use buffa::Message;
+
+    let total = world.reported_total.as_ref().expect("reported total");
+    let json = serde_json::to_value(total).expect("serialize canonical total");
+    assert_eq!(json, serde_json::json!({ "value": "42", "kind": name }));
+    let from_json: Total = serde_json::from_value(json).expect("deserialize canonical total");
+    assert_eq!(&from_json, total);
+    let wire = total.encode_to_vec();
+    assert_eq!(wire, vec![8, 42, 16, number]);
+    assert_eq!(
+        &Total::decode_from_slice(&wire).expect("decode total"),
+        total
+    );
+}
+
 #[derive(Default)]
 struct ListTelemetry {
     open: std::collections::HashMap<u64, std::collections::BTreeMap<String, String>>,

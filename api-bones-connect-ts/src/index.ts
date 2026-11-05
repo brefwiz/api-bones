@@ -117,3 +117,4 @@ export { type GeneratedPagingPolicy, type GeneratedBatchPolicy } from "./policy.
 export * from "./fields.js";
 export { createPlatformClient, anonymousSession, type SessionSource, type SessionSnapshot } from "./platform-client.js";
 export * from "./batch.js";
+export { TotalSchema, Total_Kind, type Total as TotalMessage } from "./generated/bones/v1/pagination_pb.js";

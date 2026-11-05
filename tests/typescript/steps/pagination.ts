@@ -5,6 +5,8 @@ import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { Code, ConnectError } from "@connectrpc/connect";
+import { create, fromBinary, fromJson, toBinary, toJson } from "@bufbuild/protobuf";
+import { TotalSchema, type TotalMessage as Total } from "@brefwiz/api-bones-connect";
 import { After, Given, Then, When } from "@cucumber/cucumber";
 import { createPlatformClient, encodeErrorInfo, isCursorRejected, listCall, pagedClient, PageError, RevisionCache, type Page, type ListCall, type ListConfig, type PageFetch } from "@brefwiz/api-bones-connect";
 import { storedWidgetOwner, storedWidgetParts, lockWidgetReads, unlockWidgetReads, waitForBlockedWidgetRead, startWidgetsListener, stopWidgetsListener } from "../provider/widgets.ts";
@@ -13,10 +15,38 @@ import { CONNECT_CODE_NAMES } from "./support.ts";
 import { listSpans } from "./list-observability.ts";
 
 const PARENT = "paginated-widget";
+Given("the server reports a total of kind {int}", function (this: PagingWorld, number: number) {
+  this.reportedTotal = create(TotalSchema, { value: 42n, kind: number });
+});
+When("the caller fetches the first page with a list call", async function (this: PagingWorld) {
+  assert.ok(this.reportedTotal, "reported total");
+  const wire = toBinary(TotalSchema, this.reportedTotal);
+  const decoded = fromBinary(TotalSchema, wire);
+  const call = listCall<string>(async () => ({ items: ["1"], page: { nextCursor: "", revision: "total-revision", total: decoded } }), {}, {
+    method: "/contract.v1.Numbers/ListNoSideEffects",
+    paging: { kind: "unary", itemField: "items", pageField: "page", requestPageField: "page" },
+  });
+  this.pagingFirst = await call.firstPage();
+});
+Then("the page total kind is {string}", function (this: PagingWorld, kind: string) {
+  assert.ok(this.pagingFirst, "SDK page with total");
+  assert.deepEqual(this.pagingFirst.total, { value: 42n, kind });
+});
+Then("the total kind travels as {int} on the wire and {string} in JSON", function (this: PagingWorld, number: number, name: string) {
+  assert.ok(this.reportedTotal, "reported total");
+  const total = this.reportedTotal;
+  const json = toJson(TotalSchema, total);
+  assert.deepEqual(json, { value: "42", kind: name });
+  assert.deepEqual(fromJson(TotalSchema, json), total);
+  const wire = toBinary(TotalSchema, total);
+  assert.deepEqual(wire, Uint8Array.of(8, 42, 16, number));
+  assert.deepEqual(fromBinary(TotalSchema, wire), total);
+});
 const pagingPolicy = { kind: "unary" as const, itemField: "items", pageField: "page", requestPageField: "page" };
 type PartList = (request: object, options?: object) => ListCall<string>;
 type PartsResponse = { items: string[]; page?: { nextCursor: string; revision: string } };
 interface PagingWorld extends BatchWorld {
+  reportedTotal?: Total;
   pagingItems: string[];
   pagingPages: Page<string>[];
   pagingError?: PageError;

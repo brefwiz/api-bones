@@ -18,6 +18,17 @@ Feature: Paginated lists
   The server clamp above the maximum is proven in service-kit's keyset helper
   e2e, not here.
 
+  Scenario Outline: Collection total kinds reach the page consumer with canonical wire and JSON names
+    Given the server reports a total of kind <number>
+    When the caller fetches the first page with a list call
+    Then the page total kind is "<kind>"
+    And the total kind travels as <number> on the wire and "<name>" in JSON
+
+    Examples:
+      | number | name          | kind     |
+      | 1      | KIND_ESTIMATE | estimate |
+      | 2      | KIND_EXACT    | exact    |
+
   Scenario: The iterator follows the cursor to the last page
     Given a list of pages "1,2" "3,4" "5"
     When the consumer reads every item
