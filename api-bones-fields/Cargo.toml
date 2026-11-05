@@ -20,6 +20,6 @@ email_address.workspace = true
 url.workspace = true
 
 [build-dependencies]
-api-bones-protos = { path = "../api-bones-protos", version = "^0.6.8", registry = "brefwiz" }
+api-bones-protos = { path = "../api-bones-protos", version = "^0.6.9", registry = "brefwiz" }
 connectrpc-build = "0.9"
 protox = "0.9"

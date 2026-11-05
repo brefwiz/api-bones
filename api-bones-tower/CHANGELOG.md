@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-11-05
+
+### Added
+
+- platform pagination, safe batch providers and typed fields
+
 ## [5.0.4] - 2026-11-04
 
 ### Other
