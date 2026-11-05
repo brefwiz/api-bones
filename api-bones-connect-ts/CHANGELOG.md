@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Share CSRF synchronizers and not-delivered evidence across bundled package copies on one page, preserving BFF origin isolation.
+
 ### Changed
 
 - **BREAKING** Change `bones.v1.Total.Kind` proto3 JSON names from `ESTIMATE` and `EXACT` to `KIND_ESTIMATE` and `KIND_EXACT`, and map page total kinds through the generated enum. Wire numbers 1 and 2 remain unchanged.

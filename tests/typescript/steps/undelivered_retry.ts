@@ -17,6 +17,7 @@ import { Given, Then, When, World } from "@cucumber/cucumber";
 import { Code, ConnectError, markNotDelivered, markResetBeforeResponse } from "@brefwiz/api-bones-connect";
 import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
 
+import { packageCopy } from "./package_copy.ts";
 import { unaryMethodFixture, unaryPolicyDoc } from "./support.ts";
 
 const RPC_TYPE_NAME = "pkg.v1.UndeliveredRetryService";
@@ -26,6 +27,7 @@ interface UndeliveredWorld extends World {
   idempotency: string;
   failures: number;
   undelivered: boolean;
+  markFromCopy?: typeof markNotDelivered;
   failureMessage?: string;
   /** Set when the failure is a connection reset seen by the read side. */
   reset?: "before-response" | "after-response";
@@ -106,6 +108,12 @@ Given(
   },
 );
 
+Given("another bundled package copy marks the undelivered failure", async function (this: UndeliveredWorld) {
+  const copy = await packageCopy();
+  assert.notEqual(copy.root.markNotDelivered, markNotDelivered);
+  this.markFromCopy = copy.root.markNotDelivered;
+});
+
 When("the call is sent through the retry interceptor", async function (this: UndeliveredWorld) {
   let attempts = 0;
   // A fetch that can prove its connection never carried the request marks the
@@ -122,7 +130,7 @@ When("the call is sent through the retry interceptor", async function (this: Und
         `${this.failureMessage ?? "write EPIPE"} on attempt ${attempts}`,
         this.failureMessage === undefined ? Code.Internal : Code.Unavailable,
       );
-      throw this.undelivered ? markNotDelivered(failure) : failure;
+      throw this.undelivered ? (this.markFromCopy ?? markNotDelivered)(failure) : failure;
     }
     return new Response(new Uint8Array(), {
       status: 200,
