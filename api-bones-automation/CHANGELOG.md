@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-11-05
+
+### Other
+
+- updated the following local packages: api-bones-protos
+
 ## [0.2.11] - 2026-11-05
 
 ### Added
