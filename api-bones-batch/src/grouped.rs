@@ -177,6 +177,7 @@ where
             });
         let page = Page {
             from_cache: false,
+            has_next: !first.next_cursor.is_empty(),
             items: first.items.into(),
             revision: String::new(),
             total: None,

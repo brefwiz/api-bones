@@ -40,6 +40,8 @@ export interface Page<T> {
   readonly revision: string;
   readonly total?: Total;
   readonly fromCache: boolean;
+  /** True exactly when the response carried a non-empty next cursor. */
+  readonly hasNext: boolean;
 }
 export type PageErrorKind = "cursor_invalid" | "cursor_expired" | "cursor_query_mismatch" | "rpc";
 export class PageError extends BonesError {
@@ -153,7 +155,7 @@ export function listCall<T>(fetchPage: PageFetch, request: Record<string, unknow
       for (;;) {
         if (controller.signal.aborted) throw new ConnectError("list cancelled", Code.Canceled);
         let page: Page<T>;
-        if (seed) { page = seed; seed = undefined; }
+        if (seed) { page = { ...seed, hasNext: cursor !== "" }; seed = undefined; }
         else {
           if (prefetched) { hits++; prefetched = false; }
           const response = await pending!;
@@ -180,7 +182,7 @@ export function listCall<T>(fetchPage: PageFetch, request: Record<string, unknow
           if (!Array.isArray(values)) throw new ConnectError("list response has no items", Code.Internal);
           const total = metadata.total === undefined ? undefined : record(metadata.total);
           page = {
-            items: values as T[], revision: String(metadata.revision ?? ""), fromCache: false,
+            items: values as T[], revision: String(metadata.revision ?? ""), fromCache: false, hasNext: String(metadata.nextCursor ?? "") !== "",
             ...(total && (total.kind === Total_Kind.ESTIMATE || total.kind === Total_Kind.EXACT) ? { total: { value: BigInt(total.value as bigint), kind: total.kind === Total_Kind.ESTIMATE ? "estimate" as const : "exact" as const } } : {}),
           };
           cursor = String(metadata.nextCursor ?? "");

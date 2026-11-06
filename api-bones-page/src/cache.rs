@@ -23,6 +23,7 @@ pub struct RevisionCache(Arc<Mutex<State>>);
 
 pub(crate) struct Cached<T> {
     items: Weak<[T]>,
+    has_next: bool,
     revision: String,
     total: Option<Total>,
 }
@@ -31,6 +32,7 @@ impl<T> Cached<T> {
     pub(crate) fn of(page: &Page<T>) -> Self {
         Self {
             items: Arc::downgrade(&page.items),
+            has_next: page.has_next,
             revision: page.revision.clone(),
             total: page.total,
         }
@@ -99,6 +101,7 @@ impl RevisionCache {
                     revision: entry.revision.clone(),
                     total: entry.total,
                     from_cache: true,
+                    has_next: entry.has_next,
                 })
             })
             .collect()
@@ -129,6 +132,7 @@ mod tests {
             revision: revision.into(),
             total: None,
             from_cache: false,
+            has_next: false,
         }
     }
 

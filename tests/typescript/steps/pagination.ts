@@ -206,7 +206,7 @@ Given("the consumer retains every generated list page across a write changing re
 });
 function holdSeed(world: PagingWorld, response: PartsResponse) {
   assert.ok(response.page);
-  world.paging.seed = { first: { items: response.items, revision: response.page.revision, fromCache: false }, nextCursor: response.page.nextCursor };
+  world.paging.seed = { first: { items: response.items, revision: response.page.revision, fromCache: false, hasNext: response.page.nextCursor !== "" }, nextCursor: response.page.nextCursor };
 }
 Given("the caller holds the first stored list page", async function (this: PagingWorld) {
   const s = await prepareBatch(this); const raw = createPlatformClient(s.service!, s.transport!);
@@ -370,6 +370,9 @@ When(/^the consumer (?:changes identity to "([^"]*)"|clears the revision cache) 
 Then("the consumer receives items {string}", function (this: PagingWorld, expected: string) { assert.deepEqual(this.pagingItems, split(expected)); });
 Then("the consumer receives pages {string}", function (this: PagingWorld, expected: string) { assert.deepEqual(this.pagingPages.map(page => [...page.items]), expected.split("|").map(split)); });
 Then(/^every (?:generated list )?page carries (?:the )?revision "([^"]*)"$/, function (this: PagingWorld, label: string) { assert.ok(this.pagingPages.length); for (const page of this.pagingPages) assert.equal(page.revision, remembered(this, label)); });
+Then("the delivered pages report whether another page follows as {string}", function (this: PagingWorld, expected: string) {
+  assert.deepEqual(this.pagingPages.map(page => page.hasNext), expected.split(",").map(flag => flag === "true"));
+});
 Then("every generated list page is marked from cache {word}", async function (this: PagingWorld, expected: string) {
   assert.ok(this.pagingPages.length); assert.ok(this.pagingPages.every(page => page.fromCache === (expected === "true")));
   const s = state(this); const stored = await storedWidgetParts(s, s.session.org, PARENT);

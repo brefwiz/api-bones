@@ -171,7 +171,7 @@ export function batchedClient<S extends DescService>(client: Client<S>, policy: 
         return dispatchPrepared(transport, relation.single, next, headers, () => checkBatchIdentity(identityKey, prepared.identity), callOptions.signal, options.timeoutMs, prepared.effective);
       }, request, {
         method: `${service.typeName}/${relation.single.name}`, paging,
-        initialPage: { items: (group.items ?? []) as unknown[], revision: String(metadata.revision ?? ""), fromCache: false }, nextCursor: String(metadata.nextCursor ?? ""),
+        initialPage: { items: (group.items ?? []) as unknown[], revision: String(metadata.revision ?? ""), fromCache: false, hasNext: String(metadata.nextCursor ?? "") !== "" }, nextCursor: String(metadata.nextCursor ?? ""),
       }, { signal: options.signal, cache: "bypass" });
       return { parentId, call };
     });
