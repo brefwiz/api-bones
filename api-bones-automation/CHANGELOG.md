@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.14] - 2026-11-06
+
+### Added
+
+- *(sdk)* paged client fails closed, platform composition, Rust paging emitter
+
 ### Added
 
 - Emit Rust page traits and platform-client list extension methods from descriptor paging policy.
