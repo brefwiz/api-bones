@@ -37,7 +37,8 @@ export class RevisionCache {
     const chain = this.chains.get(key);
     if (!chain?.complete) return undefined;
     const pages = chain.pages.map((ref) => ref.deref());
-    if (pages.some((page) => page === undefined || page.revision !== chain.revision)) {
+    // Entries retained without a next-cursor signal cannot be replayed faithfully.
+    if (pages.some((page) => page === undefined || page.revision !== chain.revision || typeof page.hasNext !== "boolean")) {
       this.chains.delete(key);
       return undefined;
     }

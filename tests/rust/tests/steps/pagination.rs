@@ -546,6 +546,7 @@ async fn given_first(world: &mut PagingWorld) {
         revision: metadata.revision,
         total: metadata.total,
         from_cache: false,
+        has_next: !metadata.next_cursor.is_empty(),
     });
     world.seed_cursor = metadata.next_cursor;
     world.seed_request_count = world
@@ -587,6 +588,7 @@ async fn given_grouped_first(world: &mut PagingWorld) {
         revision: metadata.revision,
         total: None,
         from_cache: false,
+        has_next: !metadata.next_cursor.is_empty(),
     });
     world.seed_cursor = metadata.next_cursor;
 }
@@ -1182,6 +1184,13 @@ async fn then_revision(world: &mut PagingWorld, label: String) {
     assert_eq!(world.remembered_revisions.get(&label), Some(&revision));
     assert!(!world.latest.is_empty());
     assert!(world.latest.iter().all(|page| page.revision == revision));
+}
+
+#[then(expr = "the delivered pages report whether another page follows as {string}")]
+fn then_has_next(world: &mut PagingWorld, expected: String) {
+    let expected: Vec<bool> = expected.split(',').map(|flag| flag == "true").collect();
+    let actual: Vec<bool> = world.latest.iter().map(|page| page.has_next).collect();
+    assert_eq!(actual, expected);
 }
 
 #[then(expr = "every generated list page is marked from cache {word}")]

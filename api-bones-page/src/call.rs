@@ -132,6 +132,8 @@ impl Default for PageOptions {
 pub struct Page<T> {
     /// Replayed after the server confirmed the chain revision.
     pub from_cache: bool,
+    /// True exactly when the response carried a non-empty next cursor.
+    pub has_next: bool,
     /// The page's items.
     pub items: Arc<[T]>,
     /// Opaque revision of the list.
@@ -563,6 +565,7 @@ fn page_request<Req: PagedRequest>(base: &Req, cursor: &str, page_size: Option<u
 fn page_of<T>(items: Vec<T>, info: PageInfo) -> Page<T> {
     Page {
         from_cache: false,
+        has_next: !info.next_cursor.is_empty(),
         items: items.into(),
         revision: info.revision,
         total: info.total,

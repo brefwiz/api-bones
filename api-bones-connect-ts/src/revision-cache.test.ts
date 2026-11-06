@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { RevisionCache } from "./revision-cache.js";
 import type { Page } from "./page.js";
 
-const page = (revision: string, value: number): Page<number> => ({ items: [value], revision, fromCache: false });
+const page = (revision: string, value: number): Page<number> => ({ items: [value], revision, fromCache: false, hasNext: false });
 
 describe("holder-bound revision chains", () => {
   it("replays only a completed chain with one revision", () => {
