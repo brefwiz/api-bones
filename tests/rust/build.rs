@@ -32,6 +32,13 @@ fn main() {
     std::fs::write(&descriptor_set, &descriptor_bytes).expect("write descriptor set");
 
     let pool = compiler.descriptor_pool();
+    let paging = api_bones_automation::emit_rust_paging(
+        &pool,
+        &["contract.v1.Numbers", "contract.v1.Widgets"],
+        &|package| format!("crate::generated::{}", package.replace('.', "::")),
+    )
+    .expect("emit Rust paging glue");
+    std::fs::write(out_dir.join("paged.rs"), paging).expect("write Rust paging glue");
     api_bones_automation::check_batch_of_against_pool(&descriptor_bytes, &pool)
         .expect("valid batch declarations");
     let mut methods = Vec::new();

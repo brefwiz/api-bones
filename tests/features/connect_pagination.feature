@@ -31,7 +31,7 @@ Feature: Paginated lists
 
   Scenario: The iterator follows the cursor to the last page
     Given a list of pages "1,2" "3,4" "5"
-    When the consumer reads every item
+    When the consumer reads every item through the platform list call
     Then the consumer receives items "1,2,3,4,5"
     And the server saw the cursors ",c2,c4"
     And the stream ended without an error
@@ -42,6 +42,12 @@ Feature: Paginated lists
     When the consumer reads every page
     Then the consumer receives pages "1,2|3,4|5"
     And every page carries the revision "r1.abc"
+
+  Scenario: Platform composition shares retained list pages across clones and isolates new clients
+    Given a list of pages "1,2" "3,4" "5"
+    When the platform client batch-gets the parent and replays its list call across a clone
+    Then the consumer receives items "1,2,3,4,5"
+    And an independently constructed platform client fetches its own pages
 
   Scenario: The page size hint reaches the server
     Given a list of pages "1,2" "3"

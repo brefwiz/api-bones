@@ -26,6 +26,7 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
+heck = "0.5"
 prost-reflect = "0.16"
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.11"

@@ -244,6 +244,44 @@ Given(/^the consumer has (listed bypassing the revision cache|continued a batch-
   this.pagingPages = result.values; this.pagingItems = []; this.pagingError = undefined;
 });
 
+When("the consumer reads every item through the platform list call", async function (this: PagingWorld) {
+  const s = await prepareBatch(this);
+  const client = createPlatformClient(s.service!, s.transport!, s.policy!);
+  const call = client[methodName(this)] as unknown as PartList;
+  const result = await collectIteration(call({ widgetId: PARENT }).items());
+  this.pagingItems = result.values; this.pagingPages = []; this.pagingError = result.error;
+});
+When("the platform client batch-gets the parent and replays its list call across a clone", async function (this: PagingWorld) {
+  const s = await prepareBatch(this);
+  const client = createPlatformClient(s.service!, s.transport!, s.policy!) as unknown as import("./batch.ts").BatchClient & { listWidgetParts: PartList };
+  const batch = await client.batchGetWidgets([PARENT]);
+  assert.equal(batch.length, 1);
+  assert.ok(batch[0].ok);
+  assert.equal(batch[0].value.id, PARENT);
+  const retained = await collectIteration(client.listWidgetParts({ widgetId: PARENT }, { prefetch: 0 }).pages());
+  assert.equal(retained.error, undefined);
+  assert.ok(retained.values.every(page => !page.fromCache));
+  // A JavaScript client reference is its clone: both retain one owned cache.
+  const clone = client;
+  const replay = await collectIteration(clone.listWidgetParts({ widgetId: PARENT }, { prefetch: 0 }).pages());
+  assert.equal(replay.error, undefined);
+  assert.ok(replay.values.every(page => page.fromCache));
+  assert.equal(requests(this).length, retained.values.length + 1);
+  this.paging.held = retained.values;
+  this.pagingPages = replay.values;
+  this.pagingItems = replay.values.flatMap(page => [...page.items]);
+});
+Then("an independently constructed platform client fetches its own pages", async function (this: PagingWorld) {
+  const s = await prepareBatch(this);
+  const client = createPlatformClient(s.service!, s.transport!, s.policy!);
+  const list = client.listWidgetParts as unknown as PartList;
+  const before = requests(this).length;
+  const own = await collectIteration(list({ widgetId: PARENT }, { prefetch: 0 }).pages());
+  assert.equal(own.error, undefined);
+  assert.ok(own.values.every(page => !page.fromCache));
+  assert.equal(requests(this).length - before, this.paging.held.length);
+  assert.deepEqual(own.values.flatMap(page => [...page.items]), this.pagingItems);
+});
 When(/^the consumer reads every item(?: with page size (\d+))?$/, async function (this: PagingWorld, pageSize?: string) {
   const prepared = await preparePageFetch(this);
   const result = await collectIteration(listCall<string>(prepared.fetch, { widgetId: PARENT }, prepared.config, pageSize === undefined ? {} : { pageSize: Number(pageSize) }).items());

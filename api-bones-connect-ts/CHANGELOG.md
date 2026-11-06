@@ -8,10 +8,12 @@
 
 ### Changed
 
+- Refuse generated List and declared finite-list stream methods without a paging policy entry, naming the method in `PagingPolicyError`.
 - **BREAKING** Change `bones.v1.Total.Kind` proto3 JSON names from `ESTIMATE` and `EXACT` to `KIND_ESTIMATE` and `KIND_EXACT`, and map page total kinds through the generated enum. Wire numbers 1 and 2 remain unchanged.
 
 ### Added
 
+- Add `createPlatformClient(service, transport, policy)` and `PlatformClient` for generated SDK composition: batching, paging and one identity-bound revision cache per client. Preserve the two-argument raw constructor.
 - Export the generated `bones.v1.Total` schema as `TotalSchema`, `Total_Kind` and `TotalMessage` from the package root.
 
 ## [0.3.2](https://git.brefwiz.com/brefwiz/api-bones/releases/tag/sdk/v0.3.2) - 2026-09-14

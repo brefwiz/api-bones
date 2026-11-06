@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Emit Rust page traits and platform-client list extension methods from descriptor paging policy.
+
 ## [0.2.13] - 2026-11-05
 
 ### Other

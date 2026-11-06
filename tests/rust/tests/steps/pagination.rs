@@ -666,6 +666,75 @@ async fn when_items(world: &mut PagingWorld) {
     world.ended = true;
 }
 
+#[when("the consumer reads every item through the platform list call")]
+async fn when_platform_items(world: &mut PagingWorld) {
+    use api_bones_contract_rust::WidgetsLists;
+
+    let client = super::batch::client(&mut world.batch).await;
+    let call = client.list_widget_parts(request());
+    let results = api_bones_page::ListCall::items(call).collect().await;
+    let (items, error) = split_results(results);
+    world.items = items;
+    world.error = error;
+    world.ended = true;
+}
+
+async fn platform_pages(
+    call: ListCall<ListWidgetPartsRequest, ListWidgetPartsResponse>,
+) -> Vec<Page<String>> {
+    api_bones_page::ListCall::pages(call.options(without_prefetch()))
+        .map(|page| page.expect("platform list succeeds"))
+        .collect()
+        .await
+}
+
+#[when("the platform client batch-gets the parent and replays its list call across a clone")]
+async fn when_platform_composition(world: &mut PagingWorld) {
+    use api_bones_contract_rust::{BatchGetWidgetsRequest, WidgetGets, WidgetsLists};
+
+    let client = super::batch::client(&mut world.batch).await;
+    let batch = client
+        .batch_get_widgets(BatchGetWidgetsRequest {
+            ids: vec![PARENT.into()],
+            ..Default::default()
+        })
+        .await
+        .into_vec();
+    assert_eq!(batch.len(), 1);
+    assert_eq!(batch[0].as_ref().expect("parent widget").id, PARENT);
+    let retained = platform_pages(client.list_widget_parts(request())).await;
+    assert!(retained.iter().all(|page| !page.from_cache));
+    let clone = client.clone();
+    world.latest = platform_pages(clone.list_widget_parts(request())).await;
+    assert!(world.latest.iter().all(|page| page.from_cache));
+    assert_eq!(seen(world).len(), retained.len() + 1);
+    world.retained = retained;
+    record_pages(world);
+}
+
+#[then("an independently constructed platform client fetches its own pages")]
+async fn then_independent_platform_pages(world: &mut PagingWorld) {
+    use api_bones_contract_rust::WidgetsLists;
+
+    let client = super::batch::client(&mut world.batch).await;
+    let source = world.batch.credential.clone();
+    let independent = api_bones_batch::Batched::new(client.raw().clone(), move || {
+        Ok(source.lock().expect("credential").clone())
+    })
+    .expect("independent platform client");
+    let before = seen(world).len();
+    let pages = platform_pages(independent.list_widget_parts(request())).await;
+    assert!(pages.iter().all(|page| !page.from_cache));
+    assert_eq!(seen(world).len() - before, world.retained.len());
+    assert_eq!(
+        pages
+            .iter()
+            .flat_map(|page| page.items.iter().cloned())
+            .collect::<Vec<_>>(),
+        world.items
+    );
+}
+
 #[when(expr = "the consumer reads every item with page size {int}")]
 async fn when_items_sized(world: &mut PagingWorld, size: u32) {
     let stream = Box::pin(api_bones_page::ListCall::items(

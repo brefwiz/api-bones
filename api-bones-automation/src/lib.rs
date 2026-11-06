@@ -28,6 +28,7 @@ mod digest;
 mod document;
 mod manifest;
 mod pool;
+mod rust_paging;
 pub mod signature;
 
 pub use batch_of::{
@@ -39,6 +40,7 @@ pub use compile::{
 pub use digest::declaration_digest;
 pub use document::{DocumentError, DocumentInput, DocumentPhase, check_document};
 pub use manifest::{MANIFEST_FORMAT, ManifestError, ManifestHeader, read_header};
+pub use rust_paging::{RustPagingError, emit_rust_paging};
 
 mod method_shape;
 pub use method_shape::{BatchPolicy, PagingPolicy, batch_policy, paging_policy};

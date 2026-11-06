@@ -23,6 +23,7 @@ mod grouped;
 mod item_error;
 mod key;
 mod macros;
+mod paged;
 mod results;
 mod span;
 mod wire;
@@ -45,6 +46,7 @@ pub use key::{
     Anonymous, CallHeaders, CoalesceKey, Credential, CredentialSource, HeaderPair, Identity,
     QueueKey, TIMEOUT_HEADER, digest, header_hash,
 };
+pub use paged::{BONES_LIST_CACHE, BONES_NOT_MODIFIED, ListFn, not_modified};
 pub use results::{BatchResults, ItemResult};
 pub use span::{BatchRecord, Observer, Outcome};
 pub use wire::{BatchFn, Boxed, Wire, WireResults};
@@ -87,8 +89,11 @@ macro_rules! batch_client {
 #[doc(hidden)]
 pub mod __private {
     pub use crate::macros::{tag_len, template_bytes};
+    pub use crate::paged::CanonicalPagedRequest;
     pub use api_bones::connect::Idempotency;
-    pub use api_bones_page::PagedResponse;
+    pub use api_bones_page::{
+        ListCall, ListResponse, PageInfo, PagedRequest, PagedResponse, Total, TotalKind,
+    };
     pub use buffa;
     pub use connectrpc;
     pub use connectrpc::ConnectError;
@@ -97,8 +102,8 @@ pub mod __private {
 
 type Coalescers = Mutex<HashMap<&'static str, Arc<dyn Any + Send + Sync>>>;
 
-/// A generated Connect client with batch runtime: one wire and one set of
-/// coalescers per instance.
+/// A generated Connect client with batch and paging runtime: one wire, one
+/// revision cache and one set of coalescers per instance.
 ///
 /// Clones share them, so the in-flight bound and the coalescing windows hold
 /// across clones.
@@ -107,6 +112,7 @@ pub struct Batched<C> {
     wire: Arc<Wire>,
     coalescers: Arc<Coalescers>,
     methods: Arc<descriptor::Methods>,
+    revisions: api_bones_page::RevisionCache,
 }
 
 impl<C> Clone for Batched<C> {
@@ -116,6 +122,7 @@ impl<C> Clone for Batched<C> {
             wire: Arc::clone(&self.wire),
             coalescers: Arc::clone(&self.coalescers),
             methods: Arc::clone(&self.methods),
+            revisions: self.revisions.clone(),
         }
     }
 }
@@ -147,6 +154,7 @@ impl<C> Batched<C> {
             wire: Arc::new(Wire::new(Arc::new(source), None)),
             coalescers: Arc::new(Mutex::new(HashMap::new())),
             methods: Arc::new(methods),
+            revisions: api_bones_page::RevisionCache::default(),
         })
     }
 
@@ -181,6 +189,7 @@ impl<C> Batched<C> {
             wire: Arc::new(wire),
             coalescers: Arc::new(Mutex::new(HashMap::new())),
             methods: self.methods,
+            revisions: api_bones_page::RevisionCache::default(),
         }
     }
 
@@ -252,6 +261,7 @@ mod tests {
             wire: Arc::new(Wire::new(Arc::new(Anonymous), None)),
             coalescers: Arc::new(Mutex::new(HashMap::new())),
             methods: Arc::new(descriptor::Methods::new()),
+            revisions: api_bones_page::RevisionCache::default(),
         }
     }
 

@@ -177,14 +177,13 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
-  # The page iterator for keyset-paginated List RPCs. The Rust runtime lands
-  # first; the TypeScript runtime joins this surface when it ships.
+  # Page iteration on generated platform clients in Rust and TypeScript.
   connect-pagination:
     contract: tests/features/connect_pagination.feature
     targets:
       rust:
         delivery: package
-        packages: [api-bones-page, api-bones-protos]
+        packages: [api-bones-page, api-bones-batch, api-bones-protos]
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
@@ -199,6 +198,12 @@ sdk_surfaces:
         packages: ["@brefwiz/api-bones-connect"]
   connect-batch-client-construction:
     contract: tests/features/connect_batch_client_construction.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
+  connect-pagination-client-construction:
+    contract: tests/features/connect_pagination_client_construction.feature
     targets:
       typescript:
         delivery: package

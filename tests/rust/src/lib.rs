@@ -40,64 +40,7 @@ pub use generated::contract::v1::{
     Fields, FieldsClient, FieldsExt, ValidateFieldRequest, ValidateFieldResponse,
 };
 
-fn page_request(cursor: &str, page_size: Option<u32>) -> generated::bones::v1::PageRequest {
-    generated::bones::v1::PageRequest {
-        cursor: cursor.to_owned(),
-        page_size: page_size.unwrap_or(0),
-        ..Default::default()
-    }
-}
-
-impl api_bones_page::PagedRequest for ListNumbersRequest {
-    fn set_page(&mut self, cursor: &str, page_size: Option<u32>) {
-        self.page = page_request(cursor, page_size).into();
-    }
-}
-
-impl api_bones_page::PagedResponse for ListNumbersResponse {
-    type Item = u32;
-
-    fn split(self) -> (Vec<u32>, api_bones_page::PageInfo) {
-        let info = self
-            .page
-            .into_option()
-            .map(|page| api_bones_page::PageInfo {
-                next_cursor: page.next_cursor,
-                revision: page.revision,
-                total: page.total.into_option().map(|total| api_bones_page::Total {
-                    value: total.value,
-                    kind: match total.kind.as_known() {
-                        Some(generated::bones::v1::total::Kind::KIND_EXACT) => {
-                            api_bones_page::TotalKind::Exact
-                        }
-                        _ => api_bones_page::TotalKind::Estimate,
-                    },
-                }),
-            })
-            .unwrap_or_default();
-        (self.items, info)
-    }
-}
-
-impl api_bones_page::PagedRequest for ListWidgetPartsRequest {
-    fn set_page(&mut self, cursor: &str, page_size: Option<u32>) {
-        self.page = page_request(cursor, page_size).into();
-    }
-}
-
-impl api_bones_page::PagedResponse for ListWidgetPartsResponse {
-    type Item = String;
-
-    fn split(self) -> (Vec<String>, api_bones_page::PageInfo) {
-        let page = self.page.into_option().unwrap_or_default();
-        let info = api_bones_page::PageInfo {
-            next_cursor: page.next_cursor,
-            revision: page.revision,
-            ..Default::default()
-        };
-        (self.items, info)
-    }
-}
+include!(concat!(env!("OUT_DIR"), "/paged.rs"));
 
 impl From<&GetWidgetRequest> for BatchGetWidgetsRequest {
     fn from(request: &GetWidgetRequest) -> Self {
@@ -120,6 +63,12 @@ impl api_bones_batch::ListRequestFor<BatchListWidgetPartsRequest> for ListWidget
 
 /// The generated descriptor set used by the contract clients.
 pub const CONTRACT_DESCRIPTOR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/watch.fds"));
+
+api_bones_batch::batch_client! {
+    client: NumbersClient<connectrpc::client::HttpClient>,
+    service: "contract.v1.Numbers",
+    descriptor: CONTRACT_DESCRIPTOR,
+}
 
 api_bones_batch::batch_client! {
     client: WidgetsClient<connectrpc::client::HttpClient>,
