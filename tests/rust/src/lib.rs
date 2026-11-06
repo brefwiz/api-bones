@@ -120,6 +120,12 @@ api_bones_batch::batch_method! {
     },
 }
 
+api_bones_batch::batch_client! {
+    client: FieldsClient<connectrpc::client::HttpClient>,
+    service: "contract.v1.Fields",
+    descriptor: CONTRACT_DESCRIPTOR,
+}
+
 api_bones_stream::stream_controlled!(WatchEvent, bones_control);
 
 /// The compiler's answer to whether a response type opens through

@@ -217,6 +217,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  connect-paged-without-batch:
+    contract: tests/features/connect_paged_without_batch.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-batch]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
   typed-fields:
     contract: tests/features/typed_fields.feature
     targets:

@@ -9,6 +9,7 @@ mod csrf_replay_rule;
 mod error_info;
 mod field_labels;
 mod overridable_defaults;
+mod paged_without_batch;
 mod pagination;
 mod pinned_peer;
 mod precondition;

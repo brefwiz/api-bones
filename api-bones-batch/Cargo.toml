@@ -34,3 +34,5 @@ tracing = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "test-util"] }
+api-bones-protos = { path = "../api-bones-protos", version = "^0.8.0", registry = "brefwiz" }
+protox = "0.9"

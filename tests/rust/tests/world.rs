@@ -421,6 +421,46 @@ type PagingStream = futures_util::stream::BoxStream<
     Result<api_bones_page::Page<String>, api_bones_page::PageError>,
 >;
 
+/// A list-only service, the client that pages it and what they returned.
+#[derive(cucumber::World)]
+#[world(init = Self::new)]
+pub struct UnbatchedPagingWorld {
+    pub pages: Vec<Vec<u32>>,
+    pub requests: Arc<std::sync::atomic::AtomicUsize>,
+    pub server: Option<tokio::task::JoinHandle<()>>,
+    pub items: Vec<u32>,
+    pub refusal: Option<ConnectError>,
+}
+
+impl std::fmt::Debug for UnbatchedPagingWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UnbatchedPagingWorld")
+            .field("pages", &self.pages)
+            .field("items", &self.items)
+            .finish_non_exhaustive()
+    }
+}
+
+impl UnbatchedPagingWorld {
+    fn new() -> Self {
+        Self {
+            pages: Vec::new(),
+            requests: Arc::default(),
+            server: None,
+            items: Vec::new(),
+            refusal: None,
+        }
+    }
+}
+
+impl Drop for UnbatchedPagingWorld {
+    fn drop(&mut self) {
+        if let Some(server) = self.server.take() {
+            server.abort();
+        }
+    }
+}
+
 /// The page iterator and the PostgreSQL-backed widget service it calls.
 #[derive(cucumber::World)]
 #[world(init = Self::new)]

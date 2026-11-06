@@ -3,7 +3,7 @@ import { create, fromBinary, toBinary, ScalarType, type DescField, type DescMess
 import { Code, ConnectError, type Client } from "@connectrpc/connect";
 import { trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import { assertSupportedPolicySchema, indexGeneratedPolicy, type GeneratedBatchPolicy, type GeneratedMethodPolicy, type GeneratedMethodPolicyDocument } from "./policy.js";
-import { listCall, type ListCall } from "./page.js";
+import { hasPagingShape, listCall, type ListCall } from "./page.js";
 import { platformBinding, prepareHeaders, dispatchPrepared, captureSession, inheritPlatformBinding } from "./platform-client.js";
 import { BatchScheduler } from "./batch-scheduler.js";
 import { batchError, batchHash, captureBatchHeaders, checkBatchIdentity, itemErrorToConnect, planBatch, sameBatchKey, BATCH_MAX_ITEMS, BATCH_MAX_REQUEST_BYTES, type CapturedBatchHeaders, type CapturedBatchKey, type ItemError, type ItemResult, type BatchResults } from "./batch-primitives.js";
@@ -46,7 +46,7 @@ export function batchedClient<S extends DescService>(client: Client<S>, policy: 
   const identityKey = () => captureSession(session).identityKey;
   assertSupportedPolicySchema(policy);
   const policies = indexGeneratedPolicy(policy);
-  if (service.methods.length && !policies.size) throw new Error("empty batch policy discovery");
+  if (service.methods.length && !policies.size && !service.methods.some(candidate => candidate.methodKind === "unary" && hasPagingShape(candidate))) throw new Error("empty batch policy discovery");
   const scheduler = new BatchScheduler();
   const wrapped = { ...client } as Record<string, unknown>;
   const relations: Relation[] = [];
