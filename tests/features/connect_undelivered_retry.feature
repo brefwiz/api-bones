@@ -97,3 +97,10 @@ Feature: Connect replays requests that never left the client
     And its connection is reset 1 times after the response began
     When the call is sent through the retry interceptor
     Then the call fails on attempt 1
+
+  Scenario: Undelivered evidence from another bundled package copy permits replay
+    Given a method declared "UNSPECIFIED"
+    And its connection fails 1 times before the TLS handshake completed
+    And another bundled package copy marks the undelivered failure
+    When the call is sent through the retry interceptor
+    Then the call succeeds on attempt 2

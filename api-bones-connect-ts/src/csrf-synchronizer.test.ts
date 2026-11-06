@@ -103,6 +103,26 @@ describe("csrf synchronizer", () => {
     expect(other).toEqual([null]);
   });
 
+  it("shares a synchronizer across independent package copies only for its BFF origin", async () => {
+    vi.resetModules();
+    const copyA = await import("./web.js");
+    vi.resetModules();
+    const copyB = await import("./web.js");
+    expect(copyA.configureConnectTransport).not.toBe(copyB.configureConnectTransport);
+    const origin = "https://bundled-copy.example.com";
+    const token = crypto.randomUUID();
+    const options = (base: string, fetch: typeof globalThis.fetch) => ({
+      baseUrl: `${base}/app`, profile: "webapp" as const, policy, fetch,
+    });
+    await call(copyA.configureConnectTransport(options(origin, bff([{ status: 200, token }]))), "SignIn");
+    const same: Array<string | null> = [];
+    await call(copyB.configureConnectTransport(options(origin, bff([{ status: 200 }], same))));
+    const other: Array<string | null> = [];
+    await call(copyB.configureConnectTransport(options("https://bundled-other.example.com", bff([{ status: 200 }], other))));
+    expect(same).toEqual([token]);
+    expect(other).toEqual([null]);
+  });
+
   it("never retries a stream", async () => {
     const sent: Array<string | null> = [];
     const t = transportFor("https://h.example.com", bff([{ status: 403, token: "fresh" }], sent));

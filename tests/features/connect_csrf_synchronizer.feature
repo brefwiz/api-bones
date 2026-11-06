@@ -72,3 +72,17 @@ Feature: The browser transport echoes the BFF's CSRF synchronizer
     And it calls the session method "Book"
     Then the call was sent once
     And the call failed as Unauthenticated
+
+  Scenario: Another bundled package copy reuses the token on the same BFF origin
+    Given a webapp transport for "https://app.example.com/itinerwiz"
+    And another package copy on the page learned a generated synchronizer from "https://app.example.com/itinerwiz"
+    When a second transport for "https://app.example.com/itinerwiz" calls the session method "Book"
+    Then the "Book" call carried the generated synchronizer
+    And the call was sent once
+
+  Scenario: Another bundled package copy cannot send the token to another BFF origin
+    Given a webapp transport for "https://app.example.com/itinerwiz"
+    And another package copy on the page learned a generated synchronizer from "https://app.example.com/itinerwiz"
+    When a second transport for "https://other.example.com/itinerwiz" calls the session method "Book"
+    Then the "Book" call carried no token
+    And the call was sent once

@@ -38,6 +38,7 @@ import {
   rpcIdentity,
   type RetryEvent,
 } from "./retry.js";
+import { pageShared } from "./page-state.js";
 import { CSRF_HEADER, csrfReplayToken } from "./csrf.js";
 import { makePreconditionInterceptor } from "./precondition.js";
 import { makeStreamKeepaliveInterceptor } from "./stream-keepalive.js";
@@ -91,12 +92,12 @@ export interface ConnectTransportOptions {
 
 
 /**
- * The latest synchronizer the BFF handed out, per BFF origin. Module-level so
+ * The latest synchronizer the BFF handed out, per BFF origin. Shared per page so
  * every transport built against the same origin on a page (the shared UI
  * package and each product SDK) echoes one token instead of each rediscovering
  * its own.
  */
-const csrfTokens = new Map<string, string>();
+const csrfTokens = pageShared("csrf-tokens", () => new Map<string, string>(), (v): v is Map<string, string> => v instanceof Map);
 
 function csrfKey(baseUrl: string): string {
   try {

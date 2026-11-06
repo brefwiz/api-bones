@@ -12,6 +12,7 @@ import { Before, Given, Then, When, World } from "@cucumber/cucumber";
 
 import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
 
+import { packageCopy } from "./package_copy.ts";
 import { descriptors, policy, SYNC } from "./csrf_fixtures.ts";
 
 const { unary, watch } = descriptors(StringValueSchema, EmptySchema);
@@ -56,14 +57,22 @@ function bffFor(world: CsrfWorld): typeof fetch {
     if (method === "SignIn") {
       return new Response(new Uint8Array(), {
         status: 200,
-        headers: { ...echo, "content-type": "application/proto", [SYNC]: world.signInToken },
+        headers: {
+          ...echo,
+          "content-type": "application/proto",
+          [SYNC]: world.signInToken,
+        },
       });
     }
     const refusal = world.refusals.shift();
     if (refusal) {
       return new Response(JSON.stringify({ code: refusal.code, message: "csrf" }), {
         status: refusal.status,
-        headers: { ...echo, "content-type": "application/json", [SYNC]: refusal.token },
+        headers: {
+          ...echo,
+          "content-type": "application/json",
+          [SYNC]: refusal.token,
+        },
       });
     }
     return new Response(new Uint8Array(), {
@@ -94,7 +103,12 @@ function scoped(world: CsrfWorld, base: string): string {
 }
 
 function optionsFor(world: CsrfWorld, base: string) {
-  return { baseUrl: scoped(world, base), profile: "webapp" as const, policy, fetch: bffFor(world) };
+  return {
+    baseUrl: scoped(world, base),
+    profile: "webapp" as const,
+    policy,
+    fetch: bffFor(world),
+  };
 }
 
 Given("a webapp transport for {string}", function (this: CsrfWorld, base: string) {
@@ -201,6 +215,28 @@ When(
   },
 );
 
+Given(
+  "another package copy on the page learned a generated synchronizer from {string}",
+  async function (this: CsrfWorld, base: string) {
+    const copy = await packageCopy();
+    assert.notEqual(copy.web.configureConnectTransport, configureConnectTransport);
+    this.signInToken = crypto.randomUUID();
+    await copy.web
+      .configureConnectTransport(optionsFor(this, base))
+      .unary(unary("SignIn"), undefined, undefined, undefined, { value: "x" });
+    this.seen = [];
+  },
+);
+
+Then(
+  "the {string} call carried the generated synchronizer",
+  function (this: CsrfWorld, name: string) {
+    assert.ok(this.last, "no answer was kept");
+    assert.equal(this.last.get(SEEN), this.signInToken);
+    assert.deepEqual(this.seen, [{ method: name, token: this.signInToken }]);
+  },
+);
+
 Then(
   "the {string} call carried the token {string}",
   function (this: CsrfWorld, _name: string, token: string) {
@@ -209,9 +245,10 @@ Then(
   },
 );
 
-Then("the {string} call carried no token", function (this: CsrfWorld, _name: string) {
+Then("the {string} call carried no token", function (this: CsrfWorld, name: string) {
   assert.ok(this.last, "no answer was kept");
   assert.equal(this.last.get(SEEN), null);
+  assert.deepEqual(this.seen.at(-1), { method: name, token: null });
 });
 
 Then("the call failed as {word}", function (this: CsrfWorld, code: string) {

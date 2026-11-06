@@ -16,7 +16,9 @@
 
 import type { ConnectError } from "@connectrpc/connect";
 
-const NOT_DELIVERED = new WeakSet<ConnectError>();
+import { pageShared } from "./page-state.js";
+
+const NOT_DELIVERED = pageShared("not-delivered", () => new WeakSet<object>(), (v): v is WeakSet<object> => v instanceof WeakSet);
 
 /** Record that the request behind `err` provably never reached the server. */
 export function markNotDelivered<E extends ConnectError>(err: E): E {
