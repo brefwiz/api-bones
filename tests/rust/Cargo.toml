@@ -107,6 +107,10 @@ name = "connect_batch"
 harness = false
 
 [[test]]
+name = "connect_paged_without_batch"
+harness = false
+
+[[test]]
 name = "connect_batch_identity_guard"
 path = "tests/connect_batch_identity_guard.rs"
 harness = false

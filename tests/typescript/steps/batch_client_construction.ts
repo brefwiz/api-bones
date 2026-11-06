@@ -64,7 +64,12 @@ async function constructWithPolicyDrift(this: ConstructionWorld, drift: string) 
   assert.ok(entry?.batch, "generated fixture declares GetWidget batch relationship");
   switch (drift) {
     case "unsupported schema": policy.schemaVersion = 999; break;
-    case "empty discovery": policy.methods = []; break;
+    case "empty discovery": {
+      policy.methods = [];
+      const pagesOf = (field: { fieldKind: string; message?: { typeName: string } }) => field.fieldKind === "message" && field.message?.typeName === "bones.v1.PageRequest";
+      service = { ...service, methods: service.methods.filter(method => !method.input.fields.some(pagesOf)) } as typeof service;
+      break;
+    }
     case "missing single": entry.rpc = "/contract.v1.Widgets/Missing"; break;
     case "missing batch": entry.batch.method = "/contract.v1.Widgets/Missing"; break;
     case "missing key": entry.batch.keyField = "missing"; break;

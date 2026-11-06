@@ -18,7 +18,8 @@ export class PagingPolicyError extends Error {
   }
 }
 
-function hasPagingShape(method: DescMethod): boolean {
+/** Canonical paging shape shared with the generated policy: a page request in, a page response and exactly one repeated field out. */
+export function hasPagingShape(method: DescMethod): boolean {
   if (method.methodKind !== "unary" && (method.methodKind !== "server_streaming" || method.proto.options === undefined || getExtension(method.proto.options, list_stream_of) === "")) return false;
   const messageType = (field: DescMethod["input"]["fields"][number], name: string) =>
     (field.fieldKind === "message" || (field.fieldKind === "list" && field.listKind === "message")) && field.message.typeName === name;
