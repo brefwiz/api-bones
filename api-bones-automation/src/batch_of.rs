@@ -232,13 +232,4 @@ pub enum BatchOfError {
     Refused(Vec<BatchOfRefusal>),
 }
 
-impl fmt::Display for BatchOfError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Descriptors(why) => write!(f, "descriptor set is unusable: {why}"),
-            Self::Refused(refusals) => crate::compile::write_refusals(f, refusals),
-        }
-    }
-}
-
-impl std::error::Error for BatchOfError {}
+crate::compile::impl_check_error!(BatchOfError);

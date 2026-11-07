@@ -41,6 +41,8 @@ fn main() {
     std::fs::write(out_dir.join("paged.rs"), paging).expect("write Rust paging glue");
     api_bones_automation::check_batch_of_against_pool(&descriptor_bytes, &pool)
         .expect("valid batch declarations");
+    api_bones_automation::check_nested_write_of(&descriptor_bytes)
+        .expect("valid nested write declarations");
     let mut methods = Vec::new();
     for service in pool.services() {
         for method in service.methods() {

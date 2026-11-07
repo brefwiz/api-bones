@@ -103,3 +103,45 @@ service Widgets {
     option (bones.v1.batch_of) = "ListWidgetParts";
   }
 }
+
+message WidgetPart {
+  string key = 1;
+  string label = 2;
+}
+
+message WidgetPartSet {
+  repeated WidgetPart items = 1;
+}
+
+message PutWidgetPartRequest {
+  string widget_id = 1;
+  WidgetPart part = 2;
+}
+
+message CreateWidgetRequest {
+  string name = 1;
+  // At most 200 parts per call.
+  repeated WidgetPart parts = 2 [(bones.v1.nested_write_of) = "PutWidgetPart"];
+}
+
+message UpdateWidgetRequest {
+  string id = 1;
+  // Unset leaves the stored parts unchanged; set, even empty, is the
+  // complete set.
+  optional WidgetPartSet parts = 2 [(bones.v1.nested_write_of) = "PutWidgetPart"];
+}
+
+// The widget and its stored parts.
+message WidgetWithParts {
+  Widget widget = 1;
+  repeated WidgetPart parts = 2;
+}
+
+// A widget written together with its parts in one call.
+service WidgetAssembly {
+  rpc PutWidgetPart(PutWidgetPartRequest) returns (WidgetPart);
+
+  rpc CreateWidget(CreateWidgetRequest) returns (WidgetWithParts);
+
+  rpc UpdateWidget(UpdateWidgetRequest) returns (WidgetWithParts);
+}

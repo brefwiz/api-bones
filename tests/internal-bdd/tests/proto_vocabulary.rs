@@ -5,7 +5,8 @@
 //! generated contract reaches it (SPEC.md `internal_behavior_owners`).
 
 use api_bones_automation::{
-    BatchOfError, BatchPolicy, PagingPolicy, batch_policy, check_batch_of, paging_policy,
+    BatchOfError, BatchPolicy, NestedWriteOfError, PagingPolicy, batch_policy, check_batch_of,
+    check_nested_write_of, paging_policy,
 };
 use cucumber::{World, given, then, when};
 use prost_reflect::prost::Message;
@@ -22,6 +23,7 @@ struct VocabularyWorld {
     signed: Vec<u8>,
     served: Option<DynamicMessage>,
     batch_check: Option<Result<(), BatchOfError>>,
+    nested_check: Option<Result<(), NestedWriteOfError>>,
     batch_policy: Option<Result<Option<BatchPolicy>, String>>,
     paging_policy: Option<PagingPolicy>,
 }
@@ -280,6 +282,30 @@ fn given_batch_service(world: &mut VocabularyWorld, named: String) {
     );
 }
 
+#[given(expr = "a service whose request carries the field {string} naming {string}")]
+fn given_nested_service(world: &mut VocabularyWorld, shape: String, named: String) {
+    world.source = format!(
+        "syntax = \"proto3\";\npackage contract.v1;\n\
+         import \"bones/v1/annotations.proto\";\n\
+         message Item {{ string id = 1; }}\n\
+         message ItemSet {{ repeated Item items = 1; }}\n\
+         message Res {{ string id = 1; }}\n\
+         message CreateRequest {{ {shape} children = 1 [(bones.v1.nested_write_of) = \"{named}\"]; }}\n\
+         service Svc {{\n\
+           rpc Put(Item) returns (Res);\n\
+           rpc Create(CreateRequest) returns (Res);\n\
+         }}\n\
+         service Other {{ rpc Put(Item) returns (Res); }}\n"
+    );
+}
+
+#[given("the field sits on a message no RPC takes")]
+fn given_nested_orphan(world: &mut VocabularyWorld) {
+    world.source = world
+        .source
+        .replace("rpc Create(CreateRequest)", "rpc Create(Item)");
+}
+
 fn batch_contract(named: &str, option: &str, other: &str) -> String {
     format!(
         "syntax = \"proto3\";\npackage contract.v1;\n\
@@ -495,6 +521,11 @@ fn when_compiled(world: &mut VocabularyWorld) {
 #[when("the batch_of declarations are checked")]
 fn when_batch_checked(world: &mut VocabularyWorld) {
     world.batch_check = Some(check_batch_of(&pool(world).encode_to_vec()));
+}
+
+#[when("the nested_write_of declarations are checked")]
+fn when_nested_checked(world: &mut VocabularyWorld) {
+    world.nested_check = Some(check_nested_write_of(&pool(world).encode_to_vec()));
 }
 
 #[when("the batch policy is discovered")]
@@ -1023,6 +1054,32 @@ fn then_served_classification(
 fn then_batch_conforms(world: &mut VocabularyWorld) {
     let outcome = world.batch_check.as_ref().expect("batch_of not checked");
     assert_eq!(outcome, &Ok(()));
+}
+
+#[then("every nested_write_of conforms")]
+fn then_nested_conforms(world: &mut VocabularyWorld) {
+    let outcome = world
+        .nested_check
+        .as_ref()
+        .expect("nested_write_of not checked");
+    assert_eq!(outcome, &Ok(()));
+}
+
+#[then(expr = "the nested_write_of is refused as {string}")]
+fn then_nested_refused(world: &mut VocabularyWorld, reason: String) {
+    let outcome = world
+        .nested_check
+        .as_ref()
+        .expect("nested_write_of not checked");
+    let Err(NestedWriteOfError::Refused(refusals)) = outcome else {
+        panic!("the nested_write_of conformed but must be refused: {outcome:?}");
+    };
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    assert!(
+        refusals[0].to_string().ends_with(&reason),
+        "refusal `{}` does not end with `{reason}`",
+        refusals[0]
+    );
 }
 
 #[then(expr = "the batch_of is refused as {string}")]

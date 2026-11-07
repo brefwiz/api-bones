@@ -18,6 +18,9 @@
 //! - [`check_batch_of`] refuses a `bones.v1.batch_of` that does not name a
 //!   method of its own service, or whose method does not keep that method's
 //!   authorization.
+//! - [`check_nested_write_of`] refuses a `bones.v1.nested_write_of` that does
+//!   not name a sibling method, sits on a message no RPC takes, or is not a
+//!   children field.
 //! - [`signature`] signs and verifies the DSSE Ed25519 signature over the
 //!   manifest. The crate holds no key and no pin: signing takes the caller's
 //!   key, verifying takes the caller's key set with validity epochs.
@@ -27,6 +30,7 @@ mod compile;
 mod digest;
 mod document;
 mod manifest;
+mod nested_write_of;
 mod pool;
 mod rust_paging;
 pub mod signature;
@@ -40,6 +44,9 @@ pub use compile::{
 pub use digest::declaration_digest;
 pub use document::{DocumentError, DocumentInput, DocumentPhase, check_document};
 pub use manifest::{MANIFEST_FORMAT, ManifestError, ManifestHeader, read_header};
+pub use nested_write_of::{
+    NestedWriteOfError, NestedWriteOfReason, NestedWriteOfRefusal, check_nested_write_of,
+};
 pub use rust_paging::{RustPagingError, emit_rust_paging};
 
 mod method_shape;

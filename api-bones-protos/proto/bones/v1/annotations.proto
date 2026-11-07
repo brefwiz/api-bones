@@ -466,6 +466,40 @@
 //     }
 //   }
 //
+// `bones.v1.nested_write_of` is set on the children field of a parent write
+// request and names, as a bare method name like `batch_of`, the single child
+// write of the same service that each child passes through. On create the
+// field is `repeated <Child> <children>`, at most 200. On update it is
+// `optional <Child>Set <children>`, with `message <Child>Set { repeated <Child>
+// items = 1; }`: unset leaves the stored children unchanged; set, even empty,
+// is the complete set, so listed keys are upserted and every other key is
+// deleted. The parent and its children commit in one transaction, all or
+// nothing: one refused child refuses the call and nothing commits, answered
+// `invalid_argument` with `bones.v1.ValidationFailure.field`
+// `<children>[i].<field>`. Each child passes the validation and authorization
+// of the single child write. The server writes any number of children with a
+// statement count independent of how many there are, and the response echoes
+// the stored children. This is deliberately unlike `batch_of`, whose items
+// each have their own outcome: a partial nested write would leave the caller
+// to compensate.
+//
+// Usage:
+//
+//   message CreateWidgetRequest {
+//     string name = 1;
+//     repeated WidgetPart parts = 2 [(bones.v1.nested_write_of) = "PutWidgetPart"];
+//   }
+//   message WidgetPartSet { repeated WidgetPart items = 1; }
+//   message UpdateWidgetRequest {
+//     string id = 1;
+//     optional WidgetPartSet parts = 2 [(bones.v1.nested_write_of) = "PutWidgetPart"];
+//   }
+//   service WidgetService {
+//     rpc PutWidgetPart(PutWidgetPartRequest) returns (WidgetPart);
+//     rpc CreateWidget(CreateWidgetRequest) returns (CreateWidgetResponse);
+//     rpc UpdateWidget(UpdateWidgetRequest) returns (UpdateWidgetResponse);
+//   }
+//
 // `bones.v1.instance_of` names the message an instance message is
 // instantiated from, by fully-qualified name: a slot names the schedule rule
 // it is generated from, a booking line the price-list item it prices. An
@@ -714,6 +748,11 @@ extend google.protobuf.FieldOptions {
   // F1: The sibling string field holding the definition id that types this
   // bones.v1.TypedValue. Every TypedValue field names its definition this way.
   string typed_by = 5102372;
+
+  // The single child write of the same service that each child in this
+  // field passes through when it is written with its parent. Absent means
+  // the field is not a nested write. See file header.
+  string nested_write_of = 5102373;
 }
 
 // One capability a service depends on, and the authority it intends to

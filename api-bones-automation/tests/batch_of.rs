@@ -14,14 +14,9 @@ use protox::prost_reflect::DescriptorPool;
 mod resolver;
 use resolver::{PATH, Resolver};
 
-fn descriptor_set(source: &str) -> Vec<u8> {
-    let mut compiler = Compiler::with_file_resolver(Resolver(source.to_owned()));
-    compiler.include_imports(true);
-    compiler
-        .open_file(PATH)
-        .unwrap_or_else(|e| panic!("fixture does not compile: {e}\n{source}"));
-    compiler.encode_file_descriptor_set()
-}
+#[path = "support/fixture.rs"]
+mod fixture;
+use fixture::descriptor_set;
 
 #[test]
 fn expected_batch_declarations_cannot_disappear_or_change_in_serialized_bytes() {
@@ -232,6 +227,10 @@ fn a_batch_without_no_side_effects_is_refused() {
         assert_eq!(refusals.len(), 1);
         assert_eq!(refusals[0].reason, BatchOfReason::NotNoSideEffects);
         assert_eq!(refusals[0].method, "orders.v1.Orders/Many");
+        assert_eq!(
+            refusals[0].to_string(),
+            "orders.v1.Orders/Many: batch_of \"One\" does not declare idempotency_level = NO_SIDE_EFFECTS"
+        );
     }
 }
 
