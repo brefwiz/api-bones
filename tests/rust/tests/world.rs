@@ -835,3 +835,20 @@ impl BatchWorld {
         }
     }
 }
+
+/// The peer a fleet client dials and what came of the call.
+#[derive(Default, cucumber::World)]
+pub struct FleetConnectBoundWorld {
+    pub port: u16,
+    pub plaintext: bool,
+    pub peer: Option<tokio::task::JoinHandle<()>>,
+    pub elapsed: Option<std::time::Duration>,
+    pub failure: Option<ConnectError>,
+}
+
+impl std::fmt::Debug for FleetConnectBoundWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FleetConnectBoundWorld")
+            .finish_non_exhaustive()
+    }
+}

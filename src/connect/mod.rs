@@ -111,7 +111,8 @@ pub use stream_control::{
 };
 pub use timestamp::{chrono_opt_to_timestamp, chrono_to_timestamp};
 pub use transport::{
-    ConnectConfigExt, client_tls_config, connect_http_client, is_caller_rejection,
+    ConnectConfigExt, FLEET_CONNECT_BOUND, client_tls_config, connect_http_client,
+    failed_to_connect, fleet_client_builder, fleet_http_client, is_caller_rejection,
 };
 pub use uuid::parse_uuid;
 

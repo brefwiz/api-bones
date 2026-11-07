@@ -177,6 +177,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The bound a fleet-internal channel puts on establishing its connection, and
+  # the failure that says it happened while connecting. TypeScript has no
+  # fleet client, so this surface is Rust alone.
+  connect-fleet-connect-bound:
+    contract: tests/features/connect_fleet_connect_bound.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones, api-bones-connect]
   # Page iteration on generated platform clients in Rust and TypeScript.
   connect-pagination:
     contract: tests/features/connect_pagination.feature
