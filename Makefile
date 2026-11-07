@@ -77,6 +77,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_control
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_rotation
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_keepalive
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_fleet_connect_bound
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pagination --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_identity_guard --locked

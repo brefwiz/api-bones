@@ -66,9 +66,9 @@ use http::Uri;
 pub async fn connect_http_client(uri: &Uri) -> Result<HttpClient, WorkloadIdentityError> {
     if uri.scheme_str() == Some("https") {
         let tls = workload_client_tls_config().await?;
-        Ok(HttpClient::with_tls(tls))
+        Ok(api_bones::connect::fleet_client_builder().with_tls(tls))
     } else {
-        Ok(HttpClient::plaintext_http2_only())
+        Ok(api_bones::connect::fleet_client_builder().plaintext_http2_only())
     }
 }
 

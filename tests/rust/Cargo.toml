@@ -118,3 +118,7 @@ harness = false
 [[test]]
 name = "typed_fields"
 harness = false
+
+[[test]]
+name = "connect_fleet_connect_bound"
+harness = false

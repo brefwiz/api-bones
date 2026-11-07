@@ -8,6 +8,7 @@ mod batch;
 mod csrf_replay_rule;
 mod error_info;
 mod field_labels;
+mod fleet_connect_bound;
 mod overridable_defaults;
 mod paged_without_batch;
 mod pagination;
