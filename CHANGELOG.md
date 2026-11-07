@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [16.3.0] - 2026-11-07
+
+### Added
+
+- *(connect)* bound fleet connection establishment
+
 ## [16.2.0] - 2026-11-06
 
 ### Added
