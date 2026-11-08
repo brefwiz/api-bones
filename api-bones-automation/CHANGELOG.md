@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.15] - 2026-11-08
+
+### Added
+
+- *(protos)* add bones.v1.nested_write_of for atomic nested child writes
+
 ## [0.2.14] - 2026-11-06
 
 ### Added
