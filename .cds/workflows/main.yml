@@ -10,7 +10,7 @@
 
 name: api-bones-ci
 
-vars: [brefwiz-secrets, brefwiz-vars]
+vars: [brefwiz-vars]
 
 on:
   push:
@@ -35,6 +35,7 @@ jobs:
       memory: "4096"
       memory-request: 128Mi
       cpu-request: 300m
+    vars: [brefwiz-secrets]
     outputs:
       proven:
         value: ${{ steps.check.outputs.proven }}
@@ -57,7 +58,7 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
-    vars: [brefwiz-pr-readonly]
+    vars: [brefwiz-pr-readonly, brefwiz-secrets]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-pr-readonly.REGISTRY_USER }}
@@ -85,6 +86,7 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
       memory: "24576"
+    vars: [brefwiz-secrets, brefwiz-vars]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
       REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
@@ -121,13 +123,69 @@ jobs:
           checkout: "false"
       - id: sccache-stats
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sccache-stats@main
-  test:
+  # The instrumented build, archived once for the coverage job.
+  # DAG contract: requirement = the instrumented test binaries, compiled off the
+  # worker that runs them, and the workspace rustdoc JSON; outputs = the
+  # coverage archive (target/coverage-nextest-archive.tar.zst) and the rustdoc
+  # JSON artifact; consumers = coverage and duplication-typed; needs =
+  # rc-tree-proof, checks. No services: it compiles and runs no test.
+  # Reservation: 24576, the ram-build profile default (no usage record exists
+  # yet).
+  coverage-build:
     needs: [rc-tree-proof, checks]
     if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
       memory: "24576"
+    vars: [brefwiz-pr-readonly, brefwiz-vars]
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-pr-readonly.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-pr-readonly.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-pr-readonly.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-pr-readonly.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-pr-readonly.CI_CACHE_KEY_SECRET }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: coverage-archive
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/coverage@main
+        with:
+          checkout: "false"
+          make-target: ci-coverage-archive
+      # Emitted from the job that already compiled the workspace rather than
+      # paying for a second compile purely to feed the analysis.
+      - id: rustdoc-json
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rustdoc-json-emit@main
+        with:
+          artifact-name: rustdoc-json
+      - id: sccache-stats
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sccache-stats@main
+      - id: upload-coverage-archive
+        uses: actions/uploadArtifact
+        with:
+          path: "target/coverage-nextest-archive.tar.zst"
+
+  # The Gherkin contracts and doctests nextest cannot carry (harness = false).
+  # DAG contract: requirement = every cucumber lane and the stream doctests
+  # pass; outputs = none, a gate judged by the verdict only; needs =
+  # rc-tree-proof, checks. It executes against Postgres, so it runs on the
+  # default profile with its service, and its cargo tests compile and run
+  # natively on either architecture, so it opts into the arm64 node.
+  # Reservation: 16384, the default profile's request.
+  gate-e2e-rust:
+    needs: [rc-tree-proof, checks]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: default
+      memory: "16384"
+    vars: [brefwiz-pr-readonly, brefwiz-vars]
     services:
       postgres:
         image: registry.brefwiz.com/brefwiz/ci-postgres:v0.3.85@sha256:b4fece4be264e5709d7d118d2cf6246cda06d0af4feca91c21c7d4dcb02e8ad2
@@ -140,36 +198,40 @@ jobs:
           timeout: "5s"
           retries: 30
     env:
+      CI_ALLOW_ARM64_NODE: "true"
       DATABASE_URL: "postgres://postgres@postgres:5432/postgres"
       SKIP_TESTCONTAINERS: "1"
-      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
-      REGISTRY_USER: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
-      REGISTRY_TOKEN: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
-      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-pr-readonly.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-pr-readonly.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-pr-readonly.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
       RUSTC_WRAPPER: sccache
       SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
       CARGO_INCREMENTAL: "0"
       CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
-      CI_CACHE_KEY_ID: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_ID }}
-      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-secrets.CI_CACHE_KEY_SECRET }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-pr-readonly.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-pr-readonly.CI_CACHE_KEY_SECRET }}
     steps:
       - id: checkout
         uses: actions/checkout
-      # No inline reachability step here: a ram-build job may hold only `uses:`
-      # steps; the postgres service's readiness probe gates this job instead.
-      - id: test
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/test@main
+      # make-target embeds no target-dir cache, so this job restores and saves
+      # its own snapshot beside sccache.
+      - id: rust-cache-restore
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rust-cache-restore@main
+        with:
+          job-class: gate-e2e-rust
+      - id: e2e-rust
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/make-target@main
         with:
           checkout: "false"
-      # Emitted from the job that already compiled the workspace rather than
-      # paying for a second compile purely to feed the analysis.
-      - id: rustdoc-json
-        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rustdoc-json-emit@main
-        with:
-          artifact-name: rustdoc-json
+          make-target: ci-e2e-rust
       - id: sccache-stats
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sccache-stats@main
-
+      - id: rust-cache-save
+        if: ${{ always() }}
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rust-cache-save@main
+        with:
+          job-class: gate-e2e-rust
 
   ts:
     needs: [rc-tree-proof, checks]
@@ -178,6 +240,7 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
       memory: "16384"
+    vars: [brefwiz-secrets, brefwiz-vars]
     services:
       postgres:
         image: registry.brefwiz.com/brefwiz/ci-postgres:v0.3.85@sha256:b4fece4be264e5709d7d118d2cf6246cda06d0af4feca91c21c7d4dcb02e8ad2
@@ -239,8 +302,53 @@ jobs:
         with:
           artifact-name: typerel-typescript
 
+  # The instrumented suite from coverage-build's archive, then the report that
+  # grades it (the platform default line floor, from the shared recipe) and stages target/nextest/ci/junit.xml.
+  # DAG contract: requirement = the nextest suite passes under llvm-cov and the
+  # coverage line floor holds; outputs = none, a gate judged by the verdict only;
+  # needs = coverage-build (the archive). No services: no nextest-run test
+  # touches a database (only api-bones-contract-rust does, and it runs in
+  # gate-e2e-rust), so the run is one job, not partitions.
+  # Reservation: 24576, the ram-build profile default (no usage record exists
+  # yet).
+  coverage:
+    needs: [coverage-build]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: ram-build
+      memory: "24576"
+    vars: [brefwiz-pr-readonly, brefwiz-vars]
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-pr-readonly.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-pr-readonly.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-pr-readonly.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-pr-readonly.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-pr-readonly.CI_CACHE_KEY_SECRET }}
+      COVERAGE_PROFILE_FILES: target/coverage-profiles.tar.zst
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      - id: download-coverage-archive
+        uses: actions/downloadArtifact
+        with:
+          name: "coverage-nextest-archive.tar.zst"
+          path: "target/"
+      - id: coverage-report
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/coverage@main
+        with:
+          checkout: "false"
+          make-target: ci-coverage-run ci-coverage-report
+      - id: sccache-stats
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sccache-stats@main
+
   # Its own job because it is its own worker class: it compiles nothing and
-  # reads type relations out of the JSON `test` and `ts` uploaded. Without it a
+  # reads type relations out of the JSON `coverage-build` and `ts` uploaded. Without it a
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
@@ -249,7 +357,8 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
-    needs: [test, ts]
+    vars: [brefwiz-secrets]
+    needs: [coverage-build, ts]
     env:
       CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
       PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
@@ -274,12 +383,13 @@ jobs:
   # failed predecessor does not stop it. Nothing needs it: it gates no job
   # and no promotion.
   verdict:
-    needs: [test, ts, duplication-typed, cargo-package, checks, rc-tree-proof]
+    needs: [coverage-build, coverage, gate-e2e-rust, ts, duplication-typed, cargo-package, checks, rc-tree-proof]
     if: ${{ (always()) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
       memory: "4096"
+    vars: [brefwiz-secrets]
     steps:
       - id: verdict
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
@@ -289,8 +399,10 @@ jobs:
           cds-token: ${{ vars.brefwiz-secrets.CDS_RUN_READER_TOKEN }}
           jobs: |
             rc-tree-proof||${{ needs.rc-tree-proof.result }}
-            test|rc-tree-proof,checks|${{ needs.test.result }}
+            coverage-build|rc-tree-proof,checks|${{ needs.coverage-build.result }}
+            coverage|coverage-build|${{ needs.coverage.result }}
+            gate-e2e-rust|rc-tree-proof,checks|${{ needs.gate-e2e-rust.result }}
             ts|rc-tree-proof,checks|${{ needs.ts.result }}
-            duplication-typed|test,ts|${{ needs.duplication-typed.result }}
+            duplication-typed|coverage-build,ts|${{ needs.duplication-typed.result }}
             cargo-package|rc-tree-proof,checks|${{ needs.cargo-package.result }}
             checks|rc-tree-proof|${{ needs.checks.result }}

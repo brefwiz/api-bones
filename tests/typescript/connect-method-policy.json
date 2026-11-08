@@ -67,6 +67,39 @@
         "maxAgeSeconds": 0,
         "scope": "NO_STORE"
       },
+      "idempotency": "UNSPECIFIED",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.WidgetAssembly/CreateWidget",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "UNSPECIFIED",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.WidgetAssembly/PutWidgetPart",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "UNSPECIFIED",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.WidgetAssembly/UpdateWidget",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
       "idempotency": "NO_SIDE_EFFECTS",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",

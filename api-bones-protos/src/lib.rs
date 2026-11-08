@@ -468,6 +468,7 @@ mod tests {
             "string instance_of = 5102369;",
             "string defaulted_from = 5102370;",
             "string list_stream_of = 5102371;",
+            "string nested_write_of = 5102373;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
@@ -497,7 +498,9 @@ mod tests {
         numbers.sort_unstable();
         assert_eq!(
             numbers,
-            [5_102_360, 5_102_365, 5_102_368, 5_102_370, 5_102_372]
+            [
+                5_102_360, 5_102_365, 5_102_368, 5_102_370, 5_102_372, 5_102_373
+            ]
         );
     }
 

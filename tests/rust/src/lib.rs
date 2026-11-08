@@ -7,6 +7,8 @@
 //! and the `Widgets` service whose batch glue the batch steps drive.
 
 pub mod batch_descriptor;
+#[cfg(test)]
+mod nested_descriptor;
 pub mod widget_fixture;
 
 use std::marker::PhantomData;

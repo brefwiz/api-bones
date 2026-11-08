@@ -76,6 +76,39 @@ Feature: Proto vocabulary shipped to contract authors
       | contract.v1.Svc/Nope  | names a method the service does not declare  |
       | DoMany                | names the RPC itself                         |
 
+  Scenario Outline: A nested_write_of on a children field naming a sibling method conforms
+    Given a service whose request carries the field "<field>" naming "<named>"
+    When the contract is compiled against the shipped files
+    And the nested_write_of declarations are checked
+    Then every nested_write_of conforms
+
+    Examples:
+      | field                    | named              |
+      | repeated Item            | Put                |
+      | optional ItemSet         | contract.v1.Svc/Put |
+
+  Scenario Outline: A nested_write_of that is misplaced or names no sibling method is refused
+    Given a service whose request carries the field "<field>" naming "<named>"
+    When the contract is compiled against the shipped files
+    And the nested_write_of declarations are checked
+    Then the nested_write_of is refused as "<reason>"
+
+    Examples:
+      | field                  | named                | reason                                                                   |
+      | repeated Item          | Missing              | names a method the service does not declare                              |
+      | repeated Item          | contract.v1.Other/Put | names a method of another service                                        |
+      | repeated Item          | Create               | names the RPC that carries the field                                     |
+      | map<string, Item>      | Put                  | is on a field that is not `repeated <Child>` or `optional <Child>Set`    |
+      | repeated string        | Put                  | is on a field that is not `repeated <Child>` or `optional <Child>Set`    |
+      | optional Item          | Put                  | is on a field that is not `repeated <Child>` or `optional <Child>Set`    |
+
+  Scenario: A nested_write_of on a message no RPC takes is refused
+    Given a service whose request carries the field "repeated Item" naming "Put"
+    And the field sits on a message no RPC takes
+    When the contract is compiled against the shipped files
+    And the nested_write_of declarations are checked
+    Then the nested_write_of is refused as "is on a message no RPC takes as its input"
+
   Scenario Outline: A batch method keeps the authorization of the single it names
     Given a service whose single is "<single>" and whose batch is "<batch>"
     When the contract is compiled against the shipped files
@@ -172,6 +205,7 @@ Feature: Proto vocabulary shipped to contract authors
       | bones.v1.instance_of          | 5102369 |
       | bones.v1.defaulted_from       | 5102370 |
       | bones.v1.list_stream_of       | 5102371 |
+      | bones.v1.nested_write_of      | 5102373 |
 
   Scenario Outline: The call shape enum values are fixed
     Given a contract using the shipped vocabulary

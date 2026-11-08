@@ -19,6 +19,17 @@ CODEGEN_INPUTS := tests/rust/proto tests/shared/proto api-bones-protos/proto
 
 include build/brefwiz-codegen.mk
 
+# Coverage runs as an archive build, a run and a report (CDS jobs
+# coverage-build and coverage). Both fragments are vendored byte-for-byte and
+# never edited here; ci-workflows revendor-build-fragments.py refreshes them.
+# The two cucumber lanes are harness = false, which nextest cannot enumerate,
+# so they stay out of the archive and ci-e2e-rust runs them in gate-e2e-rust.
+COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-internal-bdd
+COVERAGE_ALL_FEATURES := true
+
+include build/brefwiz-coverage-common.mk
+include build/brefwiz-coverage-split.mk
+
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
@@ -47,13 +58,10 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 	cargo check --locked --no-default-features --features alloc
 	cargo check --locked --no-default-features --features alloc,serde
 
-ci-test: ci-e2e-rust ## Run tests with nextest (CI)
-	# --profile ci selects the JUnit-emitting profile the test composite consumes.
-	# Without it the suite passes and the job still fails, on a missing artifact
-	# rather than a failing test.
+ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the coverage archive)
 	# Both cucumber lanes are excluded: their test targets are harness = false,
 	# and nextest enumerates targets with `--list`, which such a binary does
-	# not accept ("unexpected argument '--list' found"). ci-e2e-rust runs them.
+	# not accept. ci-e2e-rust runs them.
 	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
 
 ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctests
@@ -65,7 +73,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	# nextest runs no doctests. The rotating client refuses a response type
 	# without stream control at compile time, and a compile_fail example on
 	# rotating_stream is the proof, so that crate's doctests run here, where
-	# both ci-test and ci-coverage reach them.
+	# gate-e2e-rust reaches them.
 	cargo test --locked --doc --no-fail-fast -p api-bones-stream --all-features
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_precondition
@@ -91,7 +99,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test proto_vocabulary
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test automation_manifest
 
-ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (CI)
+ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (local one-shot; CI splits it into archive, run, report)
 	# Excluded for the same reason as ci-test: nextest cannot enumerate a
 	# harness = false target.
 	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --fail-under-functions 100
@@ -146,7 +154,7 @@ proto-breaking: ## Check api-bones-protos/proto/ for breaking changes vs origin/
 # Satellite crates (those with a path dep on api-bones) cannot be verify-compiled
 # until the parent version is live on crates.io — the verify step substitutes the
 # path dep with the registry version. They are packaged (checking include-list
-# completeness, the main failure mode) but compiled via ci-test / ci-lint instead.
+# completeness, the main failure mode) but compiled via the coverage archive / ci-lint instead.
 UNIT_CLOSURE_SCRIPT ?= $(firstword $(wildcard /opt/ci-workflows/build/cargo_package_unit_closure.py ../ci-workflows/build/cargo_package_unit_closure.py))
 
 ci-release-readiness: ## CI: package the release unit against itself, in dependency order

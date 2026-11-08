@@ -150,6 +150,24 @@ impl fmt::Display for CompileError {
     }
 }
 
+/// Implement `Display` and `Error` for a check's error enum shaped
+/// `Descriptors(String)` / `Refused(Vec<_>)`, so each check states only its type.
+macro_rules! impl_check_error {
+    ($error:ty) => {
+        impl fmt::Display for $error {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                match self {
+                    Self::Descriptors(why) => write!(f, "descriptor set is unusable: {why}"),
+                    Self::Refused(refusals) => crate::compile::write_refusals(f, refusals),
+                }
+            }
+        }
+
+        impl std::error::Error for $error {}
+    };
+}
+pub(crate) use impl_check_error;
+
 /// Write `refusals` separated by `"; "`.
 pub(crate) fn write_refusals<T: fmt::Display>(
     f: &mut fmt::Formatter<'_>,
