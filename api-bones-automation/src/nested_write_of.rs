@@ -5,6 +5,8 @@ use core::fmt;
 
 use prost_reflect::{DescriptorPool, FieldDescriptor, Kind, MessageDescriptor, MethodDescriptor};
 
+use crate::batch_of::{NO_SIDE_EFFECTS, idempotency_level};
+
 /// The extension the check reads.
 const NESTED_WRITE_OF: &str = "bones.v1.nested_write_of";
 
@@ -30,6 +32,9 @@ pub enum NestedWriteOfReason {
     UnknownMethod,
     /// The value names the RPC whose request carries the field.
     SelfReference,
+    /// The named method is not a single child write: it streams, or it
+    /// declares `idempotency_level = NO_SIDE_EFFECTS`.
+    NotUnaryWrite,
     /// The field is not a children field: a map, a repeated scalar, or a
     /// singular field that is not a `<Child>Set` holding exactly
     /// `repeated <Child> items = 1`.
@@ -43,6 +48,9 @@ impl fmt::Display for NestedWriteOfRefusal {
             NestedWriteOfReason::OtherService => "names a method of another service",
             NestedWriteOfReason::UnknownMethod => "names a method the service does not declare",
             NestedWriteOfReason::SelfReference => "names the RPC that carries the field",
+            NestedWriteOfReason::NotUnaryWrite => {
+                "names a method that is not a unary write (it streams or declares NO_SIDE_EFFECTS)"
+            }
             NestedWriteOfReason::NotChildren => {
                 "is on a field that is not `repeated <Child>` or `optional <Child>Set`"
             }
@@ -59,7 +67,8 @@ impl fmt::Display for NestedWriteOfRefusal {
 /// `FileDescriptorSet` that includes `bones/v1/annotations.proto`).
 ///
 /// The value is the bare name of a method of the same service, or that method
-/// written `<package>.<Service>/<Method>`. The field is `repeated <Child>`
+/// written `<package>.<Service>/<Method>`, and that method is the single child
+/// write: unary, and not `NO_SIDE_EFFECTS`. The field is `repeated <Child>`
 /// (create) or `optional <Child>Set` (update) with
 /// `message <Child>Set { repeated <Child> items = 1; }`. A set that does not
 /// import the vocabulary declares no `nested_write_of` and passes.
@@ -144,11 +153,17 @@ fn names_sibling(carrier: &MethodDescriptor, named: &str) -> Result<(), NestedWr
     if name == carrier.name() {
         return Err(NestedWriteOfReason::SelfReference);
     }
-    service
+    let method = service
         .methods()
         .find(|m| m.name() == name)
-        .map(|_| ())
-        .ok_or(NestedWriteOfReason::UnknownMethod)
+        .ok_or(NestedWriteOfReason::UnknownMethod)?;
+    if method.is_client_streaming()
+        || method.is_server_streaming()
+        || idempotency_level(&method) == NO_SIDE_EFFECTS
+    {
+        return Err(NestedWriteOfReason::NotUnaryWrite);
+    }
+    Ok(())
 }
 
 /// `repeated <Child>`, or a `<Child>Set` message holding only

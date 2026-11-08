@@ -293,6 +293,10 @@ fn given_nested_service(world: &mut VocabularyWorld, shape: String, named: Strin
          message CreateRequest {{ {shape} children = 1 [(bones.v1.nested_write_of) = \"{named}\"]; }}\n\
          service Svc {{\n\
            rpc Put(Item) returns (Res);\n\
+           rpc Get(Item) returns (Res) {{ option idempotency_level = NO_SIDE_EFFECTS; }}\n\
+           rpc Watch(Item) returns (stream Res);\n\
+           rpc Upload(stream Item) returns (Res);\n\
+           rpc Chat(stream Item) returns (stream Res);\n\
            rpc Create(CreateRequest) returns (Res);\n\
          }}\n\
          service Other {{ rpc Put(Item) returns (Res); }}\n"

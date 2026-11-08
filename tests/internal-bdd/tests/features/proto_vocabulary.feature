@@ -87,20 +87,24 @@ Feature: Proto vocabulary shipped to contract authors
       | repeated Item            | Put                |
       | optional ItemSet         | contract.v1.Svc/Put |
 
-  Scenario Outline: A nested_write_of that is misplaced or names no sibling method is refused
+  Scenario Outline: A nested_write_of that is misplaced or names no sibling child write is refused
     Given a service whose request carries the field "<field>" naming "<named>"
     When the contract is compiled against the shipped files
     And the nested_write_of declarations are checked
     Then the nested_write_of is refused as "<reason>"
 
     Examples:
-      | field                  | named                | reason                                                                   |
-      | repeated Item          | Missing              | names a method the service does not declare                              |
-      | repeated Item          | contract.v1.Other/Put | names a method of another service                                        |
-      | repeated Item          | Create               | names the RPC that carries the field                                     |
-      | map<string, Item>      | Put                  | is on a field that is not `repeated <Child>` or `optional <Child>Set`    |
-      | repeated string        | Put                  | is on a field that is not `repeated <Child>` or `optional <Child>Set`    |
-      | optional Item          | Put                  | is on a field that is not `repeated <Child>` or `optional <Child>Set`    |
+      | field             | named                 | reason                                                                            |
+      | repeated Item     | Missing               | names a method the service does not declare                                       |
+      | repeated Item     | contract.v1.Other/Put | names a method of another service                                                 |
+      | repeated Item     | Create                | names the RPC that carries the field                                              |
+      | repeated Item     | Get                   | names a method that is not a unary write (it streams or declares NO_SIDE_EFFECTS) |
+      | repeated Item     | Watch                 | names a method that is not a unary write (it streams or declares NO_SIDE_EFFECTS) |
+      | repeated Item     | Upload                | names a method that is not a unary write (it streams or declares NO_SIDE_EFFECTS) |
+      | repeated Item     | Chat                  | names a method that is not a unary write (it streams or declares NO_SIDE_EFFECTS) |
+      | map<string, Item> | Put                   | is on a field that is not `repeated <Child>` or `optional <Child>Set`             |
+      | repeated string   | Put                   | is on a field that is not `repeated <Child>` or `optional <Child>Set`             |
+      | optional Item     | Put                   | is on a field that is not `repeated <Child>` or `optional <Child>Set`             |
 
   Scenario: A nested_write_of on a message no RPC takes is refused
     Given a service whose request carries the field "repeated Item" naming "Put"

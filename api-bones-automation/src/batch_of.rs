@@ -13,7 +13,7 @@ const BATCH_OF: &str = "bones.v1.batch_of";
 const AUTHZ: &str = "bones.v1.authz";
 
 /// `google.protobuf.MethodOptions.IdempotencyLevel.NO_SIDE_EFFECTS`.
-const NO_SIDE_EFFECTS: i32 = 1;
+pub(crate) const NO_SIDE_EFFECTS: i32 = 1;
 
 /// One `batch_of` declaration that does not name a method of its own service.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,7 +184,7 @@ fn resolve(
 }
 
 /// The declared `idempotency_level` number; 0 (unknown) when the RPC declares none.
-fn idempotency_level(method: &MethodDescriptor) -> i32 {
+pub(crate) fn idempotency_level(method: &MethodDescriptor) -> i32 {
     method
         .options()
         .get_field_by_name("idempotency_level")
