@@ -430,20 +430,31 @@ fn list_mut<'a>(
 
 // ---- the declared surface ----
 
+/// The automation options a descriptor set defines. An option the set does
+/// not define is one the product does not use: `trigger` and `action` live in
+/// the annotations file, `templates` only in the manifest file, which a
+/// product declaring actions or triggers need not import.
 struct Extensions {
-    trigger: ExtensionDescriptor,
-    action: ExtensionDescriptor,
-    templates: ExtensionDescriptor,
+    trigger: Option<ExtensionDescriptor>,
+    action: Option<ExtensionDescriptor>,
+    templates: Option<ExtensionDescriptor>,
     authz: ExtensionDescriptor,
     classification: ExtensionDescriptor,
 }
 
 impl Extensions {
+    /// `None` when the set defines none of the automation options.
     fn find(pool: &DescriptorPool) -> Option<Self> {
+        let trigger = pool.get_extension_by_name("bones.v1.automation_trigger");
+        let action = pool.get_extension_by_name("bones.v1.automation_action");
+        let templates = pool.get_extension_by_name("bones.v1.automation_templates");
+        if trigger.is_none() && action.is_none() && templates.is_none() {
+            return None;
+        }
         Some(Self {
-            trigger: pool.get_extension_by_name("bones.v1.automation_trigger")?,
-            action: pool.get_extension_by_name("bones.v1.automation_action")?,
-            templates: pool.get_extension_by_name("bones.v1.automation_templates")?,
+            trigger,
+            action,
+            templates,
             authz: pool.get_extension_by_name("bones.v1.authz")?,
             classification: pool.get_extension_by_name("bones.v1.classification")?,
         })
@@ -559,10 +570,13 @@ impl Surface {
         };
         for message in pool.all_messages() {
             let options = message.options();
-            if !options.has_extension(&ext.trigger) {
+            let Some(trigger) = &ext.trigger else {
+                break;
+            };
+            if !options.has_extension(trigger) {
                 continue;
             }
-            let value = options.get_extension(&ext.trigger);
+            let value = options.get_extension(trigger);
             let declaration = value.as_message().expect("a trigger is a message");
             let event = message.full_name().to_owned();
             surface
@@ -585,8 +599,8 @@ impl Surface {
 
     fn read_service(&mut self, service: &prost_reflect::ServiceDescriptor, ext: &Extensions) {
         let options = service.options();
-        if options.has_extension(&ext.templates) {
-            let found = options.get_extension(&ext.templates);
+        if let Some(templates) = ext.templates.as_ref().filter(|t| options.has_extension(t)) {
+            let found = options.get_extension(templates);
             for template in found.as_list().unwrap_or_default() {
                 let template = template.as_message().expect("a template is a message");
                 self.declaring_files
@@ -597,10 +611,13 @@ impl Surface {
         }
         for method in service.methods() {
             let options = method.options();
-            if !options.has_extension(&ext.action) {
+            let Some(action) = &ext.action else {
+                break;
+            };
+            if !options.has_extension(action) {
                 continue;
             }
-            let declaration = options.get_extension(&ext.action);
+            let declaration = options.get_extension(action);
             let authz = if options.has_extension(&ext.authz) {
                 options.get_extension(&ext.authz).as_message().cloned()
             } else {

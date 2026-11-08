@@ -27,7 +27,24 @@ fn descriptor_set(source: &str) -> Vec<u8> {
     compiler.encode_file_descriptor_set()
 }
 
-const GOOD: &str = r#"
+/// The `Ship` rpc of `orders.v1.Orders`, shared by every fixture contract
+/// that declares the action.
+macro_rules! ship_rpc {
+    () => {
+        r#"  rpc Ship(ShipRequest) returns (ShipResponse) {
+    option (bones.v1.authz) = { kind: AUTHZ_KIND_AUTHENTICATED, requires: "orders:ship" };
+    option (bones.v1.automation_action) = {
+      label: { text: "Ship an order" }
+      effect: ACTION_EFFECT_COMPENSABLE
+      idempotency: IDEMPOTENCY_MODE_NATURAL
+    };
+  }
+"#
+    };
+}
+
+const GOOD: &str = concat!(
+    r#"
 syntax = "proto3";
 package orders.v1;
 import "bones/v1/annotations.proto";
@@ -75,16 +92,10 @@ service Orders {
       resolves: { query_field: "query", results_field: "orders", value_field: "id", label_field: "title" }
     };
   }
-  rpc Ship(ShipRequest) returns (ShipResponse) {
-    option (bones.v1.authz) = { kind: AUTHZ_KIND_AUTHENTICATED, requires: "orders:ship" };
-    option (bones.v1.automation_action) = {
-      label: { text: "Ship an order" }
-      effect: ACTION_EFFECT_COMPENSABLE
-      idempotency: IDEMPOTENCY_MODE_NATURAL
-    };
-  }
-}
-"#;
+"#,
+    ship_rpc!(),
+    "}\n"
+);
 
 fn sources(source: &str) -> Vec<(String, Vec<u8>)> {
     vec![(PATH.to_owned(), source.as_bytes().to_vec())]
@@ -1114,4 +1125,65 @@ fn templates_are_ordered_by_name_in_the_manifest() {
         .map(|t| text(t, "name"))
         .collect();
     assert_eq!(names, ["a-ship", "ship-on-order"]);
+}
+
+const PRODUCT: &str = concat!(
+    r#"
+syntax = "proto3";
+package orders.v1;
+import "bones/v1/annotations.proto";
+
+message OrderPlaced {
+  option (bones.v1.automation_trigger) = { label: { text: "Order placed" } };
+  string order_id = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
+}
+message ShipRequest { string order_id = 1; }
+message ShipResponse { string shipment_id = 1; }
+
+service Orders {
+"#,
+    ship_rpc!(),
+    "}\n"
+);
+
+#[test]
+fn a_set_without_the_manifest_proto_still_declares_its_actions_and_triggers() {
+    let set = descriptor_set(PRODUCT);
+    let checked = check_surface(&SurfaceInput {
+        descriptor_set: &set,
+        sources: &sources(PRODUCT),
+    })
+    .expect("the declarations are read, not reported as absent");
+    assert_eq!(checked.triggers, ["orders.v1.OrderPlaced"]);
+    assert_eq!(checked.actions, ["orders.v1.Orders.Ship"]);
+    assert_eq!(checked.templates, [] as [String; 0]);
+    assert_ne!(checked.declaration_digest, "");
+
+    let manifest = compile(&CompileInput {
+        descriptor_set: &set,
+        sources: &sources(PRODUCT),
+        product: "orders",
+        version: "1.2.3",
+        commit: COMMIT,
+    })
+    .expect("the release compiles the same declarations");
+    assert_eq!(
+        read_header(&manifest).unwrap().declaration_digest,
+        checked.declaration_digest,
+        "the build and release digest the same declarations"
+    );
+}
+
+#[test]
+fn a_set_defining_no_automation_option_declares_nothing() {
+    let plain = "syntax = \"proto3\";\npackage orders.v1;\nmessage Nothing {}\n";
+    let set = descriptor_set(plain);
+    assert_eq!(
+        check_surface(&SurfaceInput {
+            descriptor_set: &set,
+            sources: &sources(plain),
+        })
+        .unwrap_err(),
+        CompileError::NoDeclarations
+    );
 }
