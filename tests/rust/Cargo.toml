@@ -37,7 +37,7 @@ bytes = "1"
 http-body-util = "0.1"
 
 [build-dependencies]
-api-bones-automation = { path = "../../api-bones-automation", version = "^0.2.15", registry = "brefwiz" }
+api-bones-automation = { path = "../../api-bones-automation", version = "^0.3.0", registry = "brefwiz" }
 prost-reflect = "0.16"
 serde_json = "1"
 connectrpc-build = "0.9"
