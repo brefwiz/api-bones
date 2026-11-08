@@ -116,6 +116,84 @@ fn naming_the_carrying_rpc_is_refused() {
 }
 
 #[test]
+fn a_named_method_that_is_not_a_unary_write_is_refused() {
+    for (rpc, named) in [
+        (
+            "  rpc Read(Line) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; }\n",
+            "Read",
+        ),
+        ("  rpc Upload(stream Line) returns (Res);\n", "Upload"),
+        ("  rpc Follow(Line) returns (stream Res);\n", "Follow"),
+        ("  rpc Chat(stream Line) returns (stream Res);\n", "Chat"),
+        (
+            "  rpc Read(Line) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; }\n",
+            "orders.v1.Orders/Read",
+        ),
+    ] {
+        let field = format!("repeated Line lines = 2 [(bones.v1.nested_write_of) = \"{named}\"];");
+        assert_eq!(
+            reason_of(&field, rpc),
+            NestedWriteOfReason::NotUnaryWrite,
+            "{named}"
+        );
+    }
+}
+
+#[test]
+fn a_non_unary_write_is_reported_before_a_non_children_field() {
+    let read = "  rpc Read(Line) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; }\n";
+    for (field, rpc, named) in [
+        ("map<string, Line> lines = 2", read, "Read"),
+        ("optional Line lines = 2", read, "Read"),
+        (
+            "map<string, Line> lines = 2",
+            "  rpc Chat(stream Line) returns (stream Res);\n",
+            "Chat",
+        ),
+    ] {
+        let field = format!("{field} [(bones.v1.nested_write_of) = \"{named}\"];");
+        assert_eq!(
+            reason_of(&field, rpc),
+            NestedWriteOfReason::NotUnaryWrite,
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn a_streaming_carrier_naming_itself_is_a_self_reference() {
+    let source = contract(
+        "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"Create\"];",
+        "",
+    )
+    .replace(
+        "rpc Create(CreateReq) returns (Res);",
+        "rpc Create(stream CreateReq) returns (stream Res);",
+    );
+    let found = refused(&source);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].reason, NestedWriteOfReason::SelfReference);
+}
+
+#[test]
+fn an_idempotent_or_unspecified_unary_write_passes() {
+    for rpc in [
+        "  rpc Save(Line) returns (Res) { option idempotency_level = IDEMPOTENT; }\n",
+        "  rpc Save(Line) returns (Res);\n",
+    ] {
+        let source = contract(
+            "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"Save\"];",
+            rpc,
+        );
+        assert_eq!(
+            check_nested_write_of(&descriptor_set(&source)),
+            Ok(()),
+            "{rpc}"
+        );
+    }
+}
+
+#[test]
 fn fields_that_are_not_children_are_refused() {
     let shapes = [
         "map<string, Line> lines = 2 [(bones.v1.nested_write_of) = \"Put\"];",
@@ -193,6 +271,10 @@ fn every_refusal_reason_renders_its_own_sentence() {
         (
             NestedWriteOfReason::SelfReference,
             "names the RPC that carries the field",
+        ),
+        (
+            NestedWriteOfReason::NotUnaryWrite,
+            "names a method that is not a unary write (it streams or declares NO_SIDE_EFFECTS)",
         ),
         (
             NestedWriteOfReason::NotChildren,
