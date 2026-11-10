@@ -8,9 +8,9 @@ import assert from "node:assert/strict";
 
 import { EmptySchema, StringValueSchema } from "@bufbuild/protobuf/wkt";
 import { Code, ConnectError } from "@connectrpc/connect";
-import { Before, Given, Then, When, World } from "@cucumber/cucumber";
+import { After, Before, Given, Then, When, World } from "@cucumber/cucumber";
 
-import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
+import { configureConnectTransport, forgetCsrfSynchronizer } from "@brefwiz/api-bones-connect/web";
 
 import { packageCopy } from "./package_copy.ts";
 import { descriptors, policy, SYNC } from "./csrf_fixtures.ts";
@@ -82,9 +82,34 @@ function bffFor(world: CsrfWorld): typeof fetch {
   };
 }
 
+/** The page-wide synchronizer memory a reload empties (storage in the tab outlives it). */
+const PAGE_MEMORY = Symbol.for("@brefwiz/api-bones-connect/csrf-tokens/v1");
+
+function installTabStorage(refuses: boolean): void {
+  const held = new Map<string, string>();
+  const refuse = (): never => {
+    throw new Error("storage refused");
+  };
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: refuses
+      ? { getItem: refuse, setItem: refuse, removeItem: refuse }
+      : {
+          getItem: (k: string) => held.get(k) ?? null,
+          setItem: (k: string, v: string) => void held.set(k, v),
+          removeItem: (k: string) => void held.delete(k),
+        },
+  });
+}
+
 let scenarios = 0;
 
+After(function () {
+  Reflect.deleteProperty(globalThis, "sessionStorage");
+});
+
 Before(function (this: CsrfWorld) {
+  installTabStorage(false);
   this.tag = `s${++scenarios}`;
   this.signInToken = "";
   this.base = "";
@@ -110,6 +135,20 @@ function optionsFor(world: CsrfWorld, base: string) {
     fetch: bffFor(world),
   };
 }
+
+Given("the tab refuses storage", function () {
+  installTabStorage(true);
+});
+
+When("the page is reloaded", function () {
+  const memory = (globalThis as Record<symbol, unknown>)[PAGE_MEMORY];
+  assert.ok(memory instanceof Map, "the page keeps no synchronizer memory");
+  memory.clear();
+});
+
+When("the synchronizer for {string} is forgotten", function (this: CsrfWorld, base: string) {
+  forgetCsrfSynchronizer(scoped(this, base));
+});
 
 Given("a webapp transport for {string}", function (this: CsrfWorld, base: string) {
   this.base = base;

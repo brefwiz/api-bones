@@ -107,6 +107,49 @@ function csrfKey(baseUrl: string): string {
   }
 }
 
+const CSRF_STORAGE_PREFIX = "brefwiz.csrf-synchronizer:";
+
+/** The tab-scoped store a synchronizer survives a page load in, when there is one. */
+function tabStorage(): Pick<Storage, "getItem" | "setItem" | "removeItem"> | null {
+  try {
+    return globalThis.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function storedCsrfToken(key: string): string | null {
+  try {
+    return tabStorage()?.getItem(CSRF_STORAGE_PREFIX + key) || null;
+  } catch {
+    return null;
+  }
+}
+
+function persistCsrfToken(key: string, token: string): void {
+  csrfTokens.set(key, token);
+  try {
+    tabStorage()?.setItem(CSRF_STORAGE_PREFIX + key, token);
+  } catch {
+    // Storage refused: the in-memory copy still serves this page.
+  }
+}
+
+/**
+ * Drop the synchronizer learned for a BFF origin, in memory and in the tab's
+ * storage. Call it when the session ends (logout) so a later session on this
+ * tab does not present the previous session's token.
+ */
+export function forgetCsrfSynchronizer(baseUrl: string): void {
+  const key = csrfKey(baseUrl);
+  csrfTokens.delete(key);
+  try {
+    tabStorage()?.removeItem(CSRF_STORAGE_PREFIX + key);
+  } catch {
+    // Storage refused: nothing persisted to forget.
+  }
+}
+
 /** Read a synchronizer token rendered into the page `<meta>`, if any. */
 function getCsrfTokenFromMeta(): string | null {
   if (typeof document === "undefined") return null;
@@ -123,15 +166,22 @@ function getCsrfTokenFromMeta(): string | null {
  * carries a token different from the one sent was stopped by the BFF's CSRF
  * layer before reaching the handler, so it is replayed exactly once with the
  * fresh token. Streams are never replayed. Token values are never logged.
+ *
+ * The latest token is also kept in the tab's `sessionStorage` per origin, so a
+ * cold page load's first unsafe call already carries it; a stale one is
+ * refused and replayed as above. Without usable storage the in-memory copy
+ * is all there is.
  */
 function makeCsrfInterceptor(baseUrl: string): Interceptor {
   const key = csrfKey(baseUrl);
   const remember = (token: string | null | undefined): void => {
-    if (token) csrfTokens.set(key, token);
+    if (token) persistCsrfToken(key, token);
   };
   return (next) => async (req) => {
     const sent =
-      csrfTokens.get(key) ?? (key === globalThis.location?.origin ? getCsrfTokenFromMeta() : null);
+      csrfTokens.get(key) ??
+      (key === globalThis.location?.origin ? getCsrfTokenFromMeta() : null) ??
+      storedCsrfToken(key);
     if (sent) req.header.set(CSRF_HEADER, sent);
     const onWire = req.header.get(CSRF_HEADER);
 
@@ -141,6 +191,11 @@ function makeCsrfInterceptor(baseUrl: string): Interceptor {
       return res;
     } catch (err) {
       const refusal = ConnectError.from(err);
+      if (refusal.code === Code.Unauthenticated) {
+        // The session ended: its synchronizer is dead with it.
+        forgetCsrfSynchronizer(baseUrl);
+        throw err;
+      }
       const fresh = refusal.metadata.get(CSRF_HEADER);
       remember(fresh);
       const status = refusal.code === Code.PermissionDenied ? 403 : 0;

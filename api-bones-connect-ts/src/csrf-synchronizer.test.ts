@@ -4,7 +4,7 @@ import { Code } from "@connectrpc/connect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { descriptors, policy, SYNC } from "../../tests/typescript/steps/csrf_fixtures.ts";
-import { configureConnectTransport } from "./web.js";
+import { configureConnectTransport, forgetCsrfSynchronizer } from "./web.js";
 
 const { unary, watch } = descriptors(StringValueSchema, EmptySchema);
 
@@ -206,5 +206,64 @@ describe("csrf synchronizer", () => {
     const sent: Array<string | null> = [];
     await call(transportFor("https://elsewhere.example.com", bff([{ status: 200 }], sent)));
     expect(sent).toEqual([null]);
+  });
+});
+
+describe("csrf synchronizer persistence", () => {
+  const memoryStorage = () => {
+    const m = new Map<string, string>();
+    return {
+      m,
+      getItem: (k: string) => m.get(k) ?? null,
+      setItem: (k: string, v: string) => void m.set(k, v),
+      removeItem: (k: string) => void m.delete(k),
+    };
+  };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("first call carries the persisted token; stale one is replayed once and the new one persisted", async () => {
+    const store = memoryStorage();
+    vi.stubGlobal("sessionStorage", store);
+    const origin = "https://persist1.example.com";
+    store.m.set(`brefwiz.csrf-synchronizer:${origin}`, "stored");
+    const sent: Array<string | null> = [];
+    const t = transportFor(origin, bff([{ status: 403, token: "fresh" }, { status: 200 }], sent));
+    await call(t);
+    expect(sent).toEqual(["stored", "fresh"]);
+    expect(store.m.get(`brefwiz.csrf-synchronizer:${origin}`)).toBe("fresh");
+  });
+
+  it("first call carries a fresh page's persisted token without a refusal", async () => {
+    const store = memoryStorage();
+    vi.stubGlobal("sessionStorage", store);
+    const origin = "https://persist2.example.com";
+    store.m.set(`brefwiz.csrf-synchronizer:${origin}`, "stored");
+    const sent: Array<string | null> = [];
+    await call(transportFor(origin, bff([{ status: 200 }], sent)));
+    expect(sent).toEqual(["stored"]);
+  });
+
+  it("falls back to memory when storage throws", async () => {
+    const boom = () => { throw new Error("denied"); };
+    vi.stubGlobal("sessionStorage", { getItem: boom, setItem: boom, removeItem: boom });
+    const sent: Array<string | null> = [];
+    const t = transportFor("https://persist3.example.com", bff([{ status: 200, token: "m1" }, { status: 200 }], sent));
+    await call(t, "SignIn");
+    await call(t);
+    expect(sent).toEqual([null, "m1"]);
+  });
+
+  it("forget clears memory and storage", async () => {
+    const store = memoryStorage();
+    vi.stubGlobal("sessionStorage", store);
+    const origin = "https://persist4.example.com";
+    const sent: Array<string | null> = [];
+    const t = transportFor(origin, bff([{ status: 200, token: "k" }, { status: 200 }], sent));
+    await call(t, "SignIn");
+    expect(store.m.get(`brefwiz.csrf-synchronizer:${origin}`)).toBe("k");
+    forgetCsrfSynchronizer(`${origin}/app`);
+    expect(store.m.size).toBe(0);
+    await call(t);
+    expect(sent).toEqual([null, null]);
   });
 });
