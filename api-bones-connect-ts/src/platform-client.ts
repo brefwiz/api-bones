@@ -10,14 +10,14 @@ import { RevisionCache } from "./revision-cache.js";
 
 export interface SessionSnapshot { readonly identityKey: string; readonly token?: string | null; readonly relayedCredential?: string; }
 export interface SessionSource { snapshot(): SessionSnapshot; }
-export const anonymousSession: SessionSource = Object.freeze({ snapshot: (): SessionSnapshot => ({ identityKey: "anonymous" }) });
+export const anonymousSession: SessionSource = /* @__PURE__ */ Object.freeze({ snapshot: (): SessionSnapshot => ({ identityKey: "anonymous" }) });
 interface PreparedCredentials { readonly identityKey?: string; readonly bearer: boolean; readonly relayed: boolean; }
 interface Preparation { readonly phase: "prepare" | "dispatch"; headers?: Headers; guard?: () => void; identityKey?: string; credentials?: PreparedCredentials; }
 const credentialOwnership = new WeakMap<Headers, PreparedCredentials>();
-const preparation = createContextKey<Preparation | undefined>(undefined);
+const preparation = /* @__PURE__ */ createContextKey<Preparation | undefined>(undefined);
 const transports = new WeakMap<Transport, { session?: SessionSource }>();
 const bindings = new WeakMap<object, { service: DescService; transport: Transport; session?: SessionSource }>();
-const captured = new ConnectError("batch headers prepared", Code.Canceled);
+const captured = /* @__PURE__ */ new ConnectError("batch headers prepared", Code.Canceled);
 /** Platform transport adapters alone install preparation support. */
 export function preparedTransport<T extends Transport>(transport: T, session?: SessionSource): T { transports.set(transport, { session }); return transport; }
 function snapshot(source: SessionSource, state?: Preparation): SessionSnapshot {

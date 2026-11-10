@@ -2,6 +2,7 @@
 // The contracts live beside this lane, at ../features. The Rust lane answers
 // the retry-eligibility file too; workload identity, the public lane, the CSRF synchronizer echo, the
 // default precondition, retry observability and undelivered-request replay are TypeScript-only entries.
+// The package-shaking contract is TypeScript-only: Rust has no bundler.
 // The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation and stream-keepalive contracts are answered by both lanes.
 module.exports = {
   default: {
@@ -27,6 +28,7 @@ module.exports = {
       "../features/connect_paged_without_batch.feature",
       "../features/typed_fields.feature",
       "../features/connect_stream_keepalive.feature",
+      "../features/connect_tree_shaking.feature",
     ],
     import: [
       "steps/retry_eligibility.ts",
@@ -50,6 +52,7 @@ module.exports = {
       "steps/paged_without_batch.ts",
       "steps/typed_fields.ts",
       "steps/stream_keepalive.ts",
+      "steps/tree_shaking.ts",
     ],
     strict: true,
     format: ["progress"],
