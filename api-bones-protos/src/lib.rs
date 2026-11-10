@@ -6,8 +6,9 @@
 //! `(relative_path, bytes)` pairs ready for staging onto a protoc
 //! include path at consumer build time.
 //!
-//! **Zero runtime dependencies.** This crate exists purely as a
-//! distribution mechanism for the bytes. Pair it with any staging
+//! The bytes need no dependency: this crate is a distribution mechanism for
+//! them, and [`delegation_templates`] is the one reader of a compiled
+//! descriptor pool it ships. Pair it with any staging
 //! library (e.g. [`proto-build-kit`](https://crates.io/crates/proto-build-kit))
 //! to assemble a tempdir for codegen tools (connectrpc-build,
 //! tonic-prost-build, ...).
@@ -39,6 +40,8 @@
 //! The shapes match the proto/bones/v1/ directory in the api-bones
 //! repo. See the README for the canonical schema inventory.
 
+pub mod delegation_templates;
+
 const PAGINATION_PROTO: &[u8] = include_bytes!("../proto/bones/v1/pagination.proto");
 const QUERIES_PROTO: &[u8] = include_bytes!("../proto/bones/v1/queries.proto");
 const ERRORS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/errors.proto");
@@ -46,6 +49,7 @@ const RATELIMIT_PROTO: &[u8] = include_bytes!("../proto/bones/v1/ratelimit.proto
 const ANNOTATIONS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/annotations.proto");
 const AUTOMATION_MANIFEST_PROTO: &[u8] =
     include_bytes!("../proto/bones/v1/automation_manifest.proto");
+const DELEGATION_PROTO: &[u8] = include_bytes!("../proto/bones/v1/delegation.proto");
 const BATCH_PROTO: &[u8] = include_bytes!("../proto/bones/v1/batch.proto");
 const FIELDS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/fields.proto");
 const STREAM_PROTO: &[u8] = include_bytes!("../proto/bones/v1/stream.proto");
@@ -69,6 +73,7 @@ pub fn files() -> impl Iterator<Item = (&'static str, &'static [u8])> {
             "bones/v1/automation_manifest.proto",
             AUTOMATION_MANIFEST_PROTO,
         ),
+        ("bones/v1/delegation.proto", DELEGATION_PROTO),
         ("bones/v1/stream.proto", STREAM_PROTO),
         ("bones/v1/batch.proto", BATCH_PROTO),
         ("bones/v1/fields.proto", FIELDS_PROTO),
@@ -82,9 +87,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ships_ten_files() {
+    fn ships_eleven_files() {
         let v: Vec<_> = files().collect();
-        assert_eq!(v.len(), 10);
+        assert_eq!(v.len(), 11);
     }
 
     #[test]
@@ -292,6 +297,20 @@ mod tests {
             "string attr = 5102360;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
+        }
+    }
+
+    /// The delegation template option number is pinned where it is declared.
+    #[test]
+    fn delegation_proto_declares_the_delegation_templates_option() {
+        let body = std::str::from_utf8(DELEGATION_PROTO).expect("utf8");
+        for line in [
+            "extend google.protobuf.ServiceOptions {",
+            "repeated DelegationTemplate delegation_templates = 5102374;",
+            "message DelegationTemplate {",
+            "import \"bones/v1/annotations.proto\";",
+        ] {
+            assert!(body.contains(line), "delegation.proto missing `{line}`");
         }
     }
 

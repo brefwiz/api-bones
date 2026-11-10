@@ -6,6 +6,7 @@
 
 mod batch;
 mod csrf_replay_rule;
+mod delegation_templates;
 mod error_info;
 mod field_labels;
 mod fleet_connect_bound;

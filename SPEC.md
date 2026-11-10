@@ -68,6 +68,17 @@ sdk_surfaces:
       rust:
         delivery: package
         packages: [api-bones-protos]
+  # The delegation types a provider ships as templates, read back from a
+  # descriptor and checked against what the provider declares. The artefact is
+  # the shipped `bones/v1` proto and the check api-bones-protos carries, which
+  # no TypeScript package wraps -- so this surface is Rust alone, the same way
+  # field-labels is.
+  delegation-templates:
+    contract: tests/features/delegation_templates.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-protos]
   # Which entry of the TypeScript package carries workload identity. Rust has
   # no entry split: the crate is server-only, so this surface is TS alone.
   connect-workload-identity:

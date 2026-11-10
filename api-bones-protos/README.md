@@ -9,8 +9,10 @@ Embedded bytes of the canonical proto shapes shipped by the
 from googleapis commit `525d4c82dc1d`. The vendored file is Apache-2.0 licensed by its
 own header; the rest of the crate is MIT.
 
-**Zero runtime dependencies.** This crate exists purely as a
-distribution mechanism for the proto bytes. Pair it with a staging
+This crate is a distribution mechanism for the proto bytes; its one
+dependency serves `delegation_templates::check_delegation_templates`, which
+refuses a provider's delegation template that names a scope, group or
+dimension the provider's descriptor does not declare. Pair it with a staging
 library (e.g.
 [`proto-build-kit`](https://crates.io/crates/proto-build-kit)) to
 write the bytes to a tempdir at protoc-relative paths at consumer
@@ -44,6 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `bones/v1/ratelimit.proto`        | `RateLimitInfo` |
 | `bones/v1/stream.proto`           | `StreamControl`, `Drain`, `Checkpoint` |
 | `bones/v1/annotations.proto`      | method options `errors`, `authz`, `mcp`, `call_shape`, `batch_of`, `automation_action`; message options `resource`, `automation_trigger`; field options `attr`, `classification`; service options `capability`, `required_capabilities`, `provided_capabilities`, `capability_labels`, `permission_labels`, `provided_broker_scopes`, `capability_scopes`, `attributes`; `AuthzKind`, `AuthzRule`, `RequiredCapability`, `Label`, `CapabilityLabel`, `PermissionLabel`, `BrokerScope`, `CapabilityScopes`, `AttributeDimension`, `McpProjection`, `ResourceOption`, `ResourceMethods`, `CallShape`, `AutomationTrigger`, `AutomationAction`, `EntityResolver`, `ActionEffect`, `IdempotencyMode`, `DataClassification` and their enums |
+| `bones/v1/delegation.proto`       | service option `delegation_templates`; `DelegationTemplate`, `ProviderGrant`, `AttributeSelector`, `Budget`, `ApprovalMode` |
 | `bones/v1/automation_manifest.proto` | service option `automation_templates`; `AutomationTemplate`, `AutomationDocument`, `TriggerRef`, `ActionRef`, `Step`, `ActionStep`, `InputBinding`, `Parameter`, `Value`, `Argument`, `AutomationManifest`, `ManifestTrigger`, `ManifestAction`, `SignedAutomationManifest` |
 
 See `proto/README.md` in the api-bones repo for the canonical
