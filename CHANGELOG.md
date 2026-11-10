@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [16.4.1] - 2026-11-10
+
+### Fixed
+
+- *(connect-web)* the first unsafe call carries the last CSRF token the server named
+
 ## [16.4.0] - 2026-11-08
 
 ### Added
