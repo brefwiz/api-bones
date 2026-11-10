@@ -6,7 +6,10 @@ Feature: The browser transport echoes the BFF's CSRF synchronizer
   out on the answer that signs the caller in and on every answer under that
   session, and refuses an unsafe call that does not echo the current one. The
   browser transport keeps the latest token it was given and sends it back on
-  every call, so a page never has to be told the token.
+  every call, so a page never has to be told the token. It also keeps the token
+  in the tab, so the first call after a page load carries it; a token that has
+  gone stale is refused and replayed, and a session that ended takes its token
+  with it.
 
   Scenario: The token handed out on sign-in is sent on the next call
     Given a webapp transport for "https://app.example.com/itinerwiz"
@@ -86,3 +89,44 @@ Feature: The browser transport echoes the BFF's CSRF synchronizer
     When a second transport for "https://other.example.com/itinerwiz" calls the session method "Book"
     Then the "Book" call carried no token
     And the call was sent once
+
+  Scenario: The first call after a page reload carries the token the BFF last named
+    Given a webapp transport for "https://app.example.com/itinerwiz"
+    And it signed in and holds the token "kept"
+    When the page is reloaded
+    And it calls the session method "Book"
+    Then the "Book" call carried the token "kept"
+    And the call was sent once
+
+  Scenario: A token gone stale across a page reload is replayed once with the fresh one
+    Given a webapp transport for "https://app.example.com/itinerwiz"
+    And it signed in and holds the token "stale"
+    And the page is reloaded
+    When the BFF refuses the next call and hands out the token "fresh"
+    And it calls the session method "Book"
+    Then the call was sent twice, with "stale" and then "fresh"
+    And the call succeeded
+
+  Scenario: A session that ended leaves no token for the next page load
+    Given a webapp transport for "https://app.example.com/itinerwiz"
+    And it signed in and holds the token "old"
+    When the BFF fails the next call as unauthenticated and hands out the token "new"
+    And it calls the session method "Book"
+    And the page is reloaded
+    And it calls the session method "Book"
+    Then the "Book" call carried no token
+
+  Scenario: Forgetting the synchronizer stops it being sent, now and after a reload
+    Given a webapp transport for "https://app.example.com/itinerwiz"
+    And it signed in and holds the token "ended"
+    When the synchronizer for "https://app.example.com/itinerwiz" is forgotten
+    And the page is reloaded
+    And it calls the session method "Book"
+    Then the "Book" call carried no token
+
+  Scenario: A tab that refuses storage still echoes the token within the page
+    Given a webapp transport for "https://app.example.com/itinerwiz"
+    And the tab refuses storage
+    And it signed in and holds the token "memory"
+    When it calls the session method "Book"
+    Then the "Book" call carried the token "memory"

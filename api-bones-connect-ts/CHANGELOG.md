@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- The web transport keeps the last CSRF synchronizer the server named in `sessionStorage` per origin, so a cold page load's first unsafe call carries it instead of being refused and replayed. `forgetCsrfSynchronizer(baseUrl)` (from `/web`) drops it on logout; an Unauthenticated answer drops it too.
 - Share CSRF synchronizers and not-delivered evidence across bundled package copies on one page, preserving BFF origin isolation.
 
 ### Changed
