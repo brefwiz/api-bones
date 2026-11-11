@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-batch"
-version = "0.3.0"
+version = "0.3.1"
 publish = ["brefwiz"]
 edition = "2024"
 rust-version = "1.85"
@@ -21,7 +21,7 @@ path = "src/lib.rs"
 
 [dependencies]
 prost-reflect = { workspace = true }
-api-bones-transport = { version = "0.1.0", path = "../api-bones-transport", registry = "brefwiz" }
+api-bones-transport = { version = "0.1.1", path = "../api-bones-transport", registry = "brefwiz" }
 api-bones-page = { version = "0.3.0", path = "../api-bones-page", registry = "brefwiz" }
 base64 = { version = "0.23", default-features = false, features = ["alloc"] }
 buffa = "0.9"
