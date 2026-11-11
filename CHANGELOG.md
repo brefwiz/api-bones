@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [16.4.2] - 2026-11-11
+
+### Fixed
+
+- *(connect)* tree-shakeable package so consumers ship only what they import
+
 ## [16.4.1] - 2026-11-10
 
 ### Fixed
