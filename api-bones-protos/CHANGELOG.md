@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-11-11
+
+### Added
+
+- *(bones)* declare delegation template types in provider contracts
+
 ## [0.8.1] - 2026-11-08
 
 ### Added

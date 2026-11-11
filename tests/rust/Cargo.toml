@@ -18,7 +18,7 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "
 
 api-bones = { path = "../..", features = ["connect"] }
 api-bones-batch = { path = "../../api-bones-batch" }
-api-bones-fields = { path = "../../api-bones-fields", version = "0.2.1", registry = "brefwiz" }
+api-bones-fields = { path = "../../api-bones-fields", version = "0.2.2", registry = "brefwiz" }
 api-bones-connect = { path = "../../api-bones-connect" }
 api-bones-page = { path = "../../api-bones-page" }
 api-bones-protos = { path = "../../api-bones-protos" }
@@ -37,7 +37,7 @@ bytes = "1"
 http-body-util = "0.1"
 
 [build-dependencies]
-api-bones-automation = { path = "../../api-bones-automation", version = "^0.3.1", registry = "brefwiz" }
+api-bones-automation = { path = "../../api-bones-automation", version = "^0.3.2", registry = "brefwiz" }
 prost-reflect = "0.16"
 serde_json = "1"
 connectrpc-build = "0.9"
