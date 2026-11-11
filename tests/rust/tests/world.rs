@@ -294,6 +294,27 @@ impl std::fmt::Debug for FieldLabelsWorld {
     }
 }
 
+/// The provider a scenario declares, and the contract it compiles to.
+#[derive(Debug, Default, cucumber::World)]
+pub struct DelegationTemplatesWorld {
+    pub rpc_scopes: Vec<String>,
+    pub public_scopes: Vec<String>,
+    pub capabilities: Vec<String>,
+    pub singular_capability: Option<String>,
+    pub broker_scopes: Vec<(String, String)>,
+    /// Each group with the scopes its entry lists; empty for a group listing none.
+    pub groups: Vec<(String, Vec<String>)>,
+    pub dimensions: Vec<String>,
+    pub templates: Vec<String>,
+    pub second_rpc_scopes: Vec<String>,
+    pub second_templates: Vec<String>,
+    /// The contract leaves out the import that declares the templates option.
+    pub without_templates_import: bool,
+    pub pool: Option<prost_reflect::DescriptorPool>,
+    pub outcome:
+        Option<Result<(), api_bones_protos::delegation_templates::DelegationTemplateError>>,
+}
+
 /// The stream control under test: the control a scenario declares, the frame
 /// it was written into, and what the codec read back from that frame.
 #[derive(Default, cucumber::World)]

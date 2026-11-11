@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: MIT
+//
+// The grammar of one grant a delegation type makes at one provider.
+//
+// A delegation type is composed, per provider, of these grants: an
+// authorization server's delegation type holds a list of `ProviderGrant` for
+// each provider it reaches, and a provider's own template
+// (`bones.v1.delegation_templates`, declared below) holds a list of the same
+// message for the provider that declares it. There is one grammar, so a template a product
+// ships, a person's type and an organization's type are read, validated and
+// compared by one engine.
+//
+// A grant is closed. It names:
+//   - the operation it covers: one scope, or one capability group, both
+//     declared by the provider's own contract (`authz.requires` or
+//     `provided_broker_scopes` for a scope, `capability_scopes` for a group);
+//   - selectors over the resource attribute dimensions the provider declares
+//     in `bones.v1.attributes`;
+//   - an approval mode;
+//   - a budget.
+//
+// A selector holds no match kind. Its match kind is its dimension's: `EXACT`,
+// or `SEGMENT_PREFIX` with the separator the dimension declares. A selector
+// value is a literal. There is no wildcard, glob, regular-expression or
+// free-text condition field, and a value containing whitespace, a control or
+// format character, `*`, `?`, `>` or Datalog punctuation is refused where the
+// grant is validated. A new kind of condition arrives as a
+// typed field in a new grammar version, never as text in a value.
+//
+// `bones.v1.delegation_templates` declares the delegation types a provider
+// ships as templates, the way it declares default roles. A template has a
+// lower_snake_case `name` unique within the service, a `Label`, and `grants`,
+// each a `ProviderGrant`, so a template and a person's or organization's type
+// share one grammar. A provider imports this file to use the option.
+//
+//   service DepartureService {
+//     option (bones.v1.attributes) = {
+//       name: "departure_group", type: ATTRIBUTE_TYPE_STRING,
+//       polarity: ATTRIBUTE_POLARITY_NARROWABLE,
+//       matching: ATTRIBUTE_MATCHING_SEGMENT_PREFIX, separator: "/"
+//     };
+//     option (bones.v1.delegation_templates) = {
+//       name: "departure_assistant",
+//       label: { text: "Departure assistant" },
+//       grants: {
+//         scope: "departure:confirm",
+//         selectors: { dimension: "departure_group", values: "summer/alps" },
+//         approval_mode: APPROVAL_MODE_ASK,
+//         budget: { count: 20, window_seconds: 86400 }
+//       }
+//     };
+//   }
+//
+// Where a service descriptor is validated, a template is refused when any
+// holds:
+//   N1. its name is not lower_snake_case, or two templates of the service
+//       share it;
+//   N2. it carries no label text, or no grant;
+//   N3. a grant breaks a rule G1-G5 below.
+//
+// Where a provider's template is validated against its descriptor, a grant is
+// refused when any holds:
+//   G1. it names no scope and no group, or names one its contract does not
+//       declare, or one carrying a character a value may not (G3). A declared
+//       scope is one an authenticated RPC requires or
+//       `provided_broker_scopes` names; a
+//       declared group is a `capability_scopes` capability the contract
+//       provides whose scopes are all declared;
+//   G2. a selector names a dimension its contract does not declare, or one
+//       carrying a character a value may not (G3), or two selectors in one
+//       grant name the same dimension;
+//   G3. a selector carries no value, or a value is empty, carries a wildcard
+//       character, whitespace, a control or format character (any Unicode
+//       format character: zero-width and bidirectional controls, the
+//       byte-order mark, tag characters) or one of
+//       `" ( ) , ; [ ] { } $ \`, or, for a dimension matched by
+//       `SEGMENT_PREFIX`, has an empty segment, or, for a UUID dimension, is not a UUID;
+//   G4. its approval mode is not PRE_APPROVED or ASK;
+//   G5. its budget is present and its count or window is zero.
+
+syntax = "proto3";
+
+package bones.v1;
+
+import "bones/v1/annotations.proto";
+import "google/protobuf/descriptor.proto";
+
+extend google.protobuf.ServiceOptions {
+  // Delegation types this service ships as templates. Absent means it ships
+  // none. See file header.
+  repeated DelegationTemplate delegation_templates = 5102374;
+}
+
+// One delegation type a provider ships as a template.
+message DelegationTemplate {
+  // lower_snake_case, unique within the service.
+  string name = 1;
+
+  // What a person reads in place of `name`.
+  Label label = 2;
+
+  // The grants the type makes at this service, in the grammar a delegation
+  // type composes.
+  repeated ProviderGrant grants = 3;
+}
+
+// One grant at one provider.
+message ProviderGrant {
+  // The operation the grant covers. Exactly one is set.
+  oneof target {
+    // A scope the provider's contract declares, byte-identical to how
+    // `authz.requires` or `provided_broker_scopes` names it.
+    string scope = 1;
+
+    // A capability group the provider's contract declares: the `capability`
+    // of one of its `capability_scopes` entries, a capability the contract
+    // provides. It covers every scope that entry confers.
+    string group = 2;
+  }
+
+  // Narrowing over the provider's declared attribute dimensions. Absent means
+  // the grant is not narrowed beyond its scopes.
+  repeated AttributeSelector selectors = 3;
+
+  // Whether a use of the operation needs a person's approval.
+  ApprovalMode approval_mode = 4;
+
+  // How often the operation may be used. Absent means the organization
+  // policy's default budget applies.
+  Budget budget = 5;
+}
+
+// The values a grant permits on one dimension.
+message AttributeSelector {
+  // The name of a dimension in the provider's `bones.v1.attributes`.
+  string dimension = 1;
+
+  // Literal values. Each is compared as the dimension's match kind says: for
+  // `EXACT` the request value equals it, for `SEGMENT_PREFIX` the request
+  // value equals it or lies beneath it. The grant permits a request value any
+  // of them matches.
+  repeated string values = 2;
+}
+
+// Whether an operation is used without or with a person's approval.
+enum ApprovalMode {
+  // No declaration. Invalid on a grant.
+  APPROVAL_MODE_UNSPECIFIED = 0;
+
+  // The operation runs when its scopes and selectors hold.
+  APPROVAL_MODE_PRE_APPROVED = 1;
+
+  // Each use is raised to the person and runs once they approve it.
+  APPROVAL_MODE_ASK = 2;
+}
+
+// A count of uses per window.
+message Budget {
+  // The uses permitted in one window. Zero is invalid.
+  uint32 count = 1;
+
+  // The length of the window in seconds. Zero is invalid.
+  uint32 window_seconds = 2;
+}

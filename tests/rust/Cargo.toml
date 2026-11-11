@@ -87,6 +87,10 @@ name = "overridable_defaults"
 harness = false
 
 [[test]]
+name = "delegation_templates"
+harness = false
+
+[[test]]
 name = "connect_stream_control"
 harness = false
 
