@@ -84,7 +84,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api-bones"
-version = "16.5.0"
+version = "17.0.0"
 dependencies = [
  "api-bones-stream",
  "api-bones-transport",
@@ -124,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-automation"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "api-bones-protos",
  "base64 0.22.1",
@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-batch"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "api-bones",
  "api-bones-page",
@@ -248,7 +248,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-page"
-version = "0.2.5"
+version = "0.3.0"
 dependencies = [
  "api-bones",
  "connectrpc",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-reqwest"
-version = "12.0.9"
+version = "13.0.0"
 dependencies = [
  "api-bones",
  "mockito",
@@ -314,7 +314,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-test"
-version = "13.0.9"
+version = "14.0.0"
 dependencies = [
  "api-bones",
  "async-nats",
@@ -336,7 +336,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-tower"
-version = "5.1.11"
+version = "6.0.0"
 dependencies = [
  "api-bones",
  "http",
