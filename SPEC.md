@@ -165,6 +165,14 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # What a page that imports one export carries: only the TS package is bundled
+  # for a browser, so this surface is TS alone.
+  connect-tree-shaking:
+    contract: tests/features/connect_tree_shaking.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
   # The keepalive an idle server stream carries so a proxy does not cut it:
   # the reserved-field payload, the opt-in header, and the reader that drops
   # it before the caller sees it. Both languages answer the one contract.
