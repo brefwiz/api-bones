@@ -197,14 +197,16 @@ sdk_surfaces:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
   # The bound a fleet-internal channel puts on establishing its connection, and
-  # the failure that says it happened while connecting. TypeScript has no
-  # fleet client, so this surface is Rust alone.
+  # the failure that says it happened while connecting. Both live in
+  # api-bones-transport, the fleet's one Connect client transport, which
+  # api-bones-connect builds its in-fleet client from. TypeScript has no fleet
+  # client, so this surface is Rust alone.
   connect-fleet-connect-bound:
     contract: tests/features/connect_fleet_connect_bound.feature
     targets:
       rust:
         delivery: package
-        packages: [api-bones, api-bones-connect]
+        packages: [api-bones-transport, api-bones-connect]
   # Page iteration on generated platform clients in Rust and TypeScript.
   connect-pagination:
     contract: tests/features/connect_pagination.feature
@@ -245,6 +247,14 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # A batch read through a generated client on the fleet transport. TypeScript
+  # has no fleet client, so this surface is Rust alone.
+  connect-batch-fleet-transport:
+    contract: tests/features/connect_batch_fleet_transport.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-batch, api-bones-transport]
   connect-paged-without-batch:
     contract: tests/features/connect_paged_without_batch.feature
     targets:
@@ -341,6 +351,7 @@ library_crates:
   - api-bones-sdk-gen
   - api-bones-stream
   - api-bones-test
+  - api-bones-transport
   - api-bones-tower
 rpc_protocols:
   supported: [proto, json]

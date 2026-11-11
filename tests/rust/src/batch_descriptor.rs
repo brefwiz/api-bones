@@ -2,15 +2,16 @@
 //! Constructor checks against changed generated method options.
 
 use api_bones_batch::{Batched, CredentialNeutralClient};
+use api_bones_transport::HttpTransport;
 use connectrpc::ConnectError;
-use connectrpc::client::{ClientConfig, HttpClient};
+use connectrpc::client::ClientConfig;
 use prost_reflect::{DescriptorPool, DynamicMessage, Value, prost::Message};
 
 use crate::{CONTRACT_DESCRIPTOR, WidgetsClient};
 
 /// Generated Widgets client bound to its changed method-option descriptor.
 pub struct DescriptorClient {
-    inner: WidgetsClient<HttpClient>,
+    inner: WidgetsClient<HttpTransport>,
     descriptor: Vec<u8>,
 }
 
@@ -86,7 +87,7 @@ fn descriptor_with_idempotency(level: Option<i32>) -> Vec<u8> {
 
 fn client(descriptor: Vec<u8>) -> DescriptorClient {
     let inner = WidgetsClient::new(
-        HttpClient::plaintext_http2_only(),
+        HttpTransport::h2c(),
         ClientConfig::new("http://127.0.0.1:1".parse().expect("loopback URI")),
     );
     DescriptorClient { inner, descriptor }
@@ -166,7 +167,7 @@ mod tests {
     #[test]
     fn method_glue_cannot_dispatch_outside_its_validated_relation() {
         let inner = WidgetsClient::new(
-            HttpClient::plaintext_http2_only(),
+            HttpTransport::h2c(),
             ClientConfig::new("http://127.0.0.1:1".parse().expect("loopback URI")),
         );
         let client = Batched::anonymous(inner).expect("declared read batches");

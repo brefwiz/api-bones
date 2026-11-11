@@ -221,7 +221,7 @@ pub fn emit_rust_paging(
             entries.push_str(&output.method(&method, &policy, package_module)?);
         }
         if !entries.is_empty() {
-            writeln!(output.text, "api_bones_batch::paged_method! {{ ext: {name}Lists, client: {}::{name}Client<api_bones_batch::__private::connectrpc::client::HttpClient>, lists: [\n{entries}] }}", package_module(service.package_name())).expect("write to String");
+            writeln!(output.text, "api_bones_batch::paged_method! {{ ext: {name}Lists, client: {}::{name}Client<api_bones_batch::__private::api_bones_transport::HttpTransport>, lists: [\n{entries}] }}", package_module(service.package_name())).expect("write to String");
         }
     }
     Ok(output.text)

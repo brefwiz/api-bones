@@ -40,21 +40,25 @@ pub use pinned_peer::{
 };
 pub use workload_identity::{WorkloadIdentityError, workload_client_tls_config};
 
-use connectrpc::client::HttpClient;
+pub use api_bones_transport::{FLEET_CONNECT_BOUND, HttpTransport, failed_to_connect};
+
 use http::Uri;
 
-/// Build an [`HttpClient`] for `uri`, taking client identity from the Workload
+/// Build an [`HttpTransport`] for `uri`, taking client identity from the Workload
 /// API.
 ///
-/// This shadows [`api_bones::connect::connect_http_client`], which trusts the
-/// OS root store and presents no client certificate. That function remains
-/// available as [`os_trust_http_client`] for callers genuinely talking to the
-/// public internet.
+/// [`os_trust_http_client`] is the counterpart for callers genuinely talking to
+/// the public internet: it trusts the OS root store and presents no client
+/// certificate.
 ///
 /// - `https://` → mutual TLS with the live SVID, verifying the peer against the
-///   caller's own trust domain.
-/// - any other scheme → cleartext h2c, as before. A plaintext URI is an
-///   explicit choice by the caller, not a downgrade decided here.
+///   caller's own trust domain, with connection establishment bounded by
+///   [`FLEET_CONNECT_BOUND`].
+/// - any other scheme → cleartext h2c ([`HttpTransport::h2c`]). A plaintext
+///   URI is an explicit choice by the caller, not a downgrade decided here.
+///   Plaintext carries connectrpc's default connect bounds (5 s for TCP, 20 s
+///   for establishment), not the 250 ms [`FLEET_CONNECT_BOUND`], which only the
+///   mTLS transport has.
 ///
 /// # Errors
 ///
@@ -63,16 +67,16 @@ use http::Uri;
 /// retrying against the OS root store with no client certificate — a caller
 /// that reached this point believes it is talking to an in-fleet peer, and
 /// serving that with an anonymous transport is the failure this returns.
-pub async fn connect_http_client(uri: &Uri) -> Result<HttpClient, WorkloadIdentityError> {
+pub async fn connect_http_client(uri: &Uri) -> Result<HttpTransport, WorkloadIdentityError> {
     if uri.scheme_str() == Some("https") {
         let tls = workload_client_tls_config().await?;
-        Ok(api_bones::connect::fleet_client_builder().with_tls(tls))
+        Ok(HttpTransport::fleet(tls))
     } else {
-        Ok(api_bones::connect::fleet_client_builder().plaintext_http2_only())
+        Ok(HttpTransport::h2c())
     }
 }
 
-/// Build an [`HttpClient`] trusting the OS root store, presenting no client
+/// Build an [`HttpTransport`] trusting the OS root store, presenting no client
 /// certificate.
 ///
 /// The supported path for a caller **outside** the mesh — a CLI on a laptop, a
@@ -80,8 +84,12 @@ pub async fn connect_http_client(uri: &Uri) -> Result<HttpClient, WorkloadIdenti
 /// function rather than a fallback inside [`connect_http_client`], so that
 /// choosing an anonymous transport is something a caller writes down.
 #[must_use]
-pub fn os_trust_http_client(uri: &Uri) -> HttpClient {
-    api_bones::connect::connect_http_client(uri)
+pub fn os_trust_http_client(uri: &Uri) -> HttpTransport {
+    if uri.scheme_str() == Some("https") {
+        HttpTransport::tls(api_bones::connect::client_tls_config())
+    } else {
+        HttpTransport::h2c()
+    }
 }
 
 #[cfg(test)]

@@ -796,7 +796,7 @@ pub struct BatchWorld {
     pub served: Option<Arc<WidgetsServed>>,
     pub client: Option<
         api_bones_batch::Batched<
-            api_bones_contract_rust::WidgetsClient<connectrpc::client::HttpClient>,
+            api_bones_contract_rust::WidgetsClient<api_bones_transport::HttpTransport>,
         >,
     >,
     /// Ids a Given generated, in order.

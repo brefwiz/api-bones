@@ -79,7 +79,7 @@ macro_rules! __batch_item_error {
 /// ```ignore
 /// batch_method! {
 ///     ext: FooBatchExt,
-///     client: FooServiceClient<HttpClient>,
+///     client: FooServiceClient<HttpTransport>,
 ///     get: {
 ///         method: "pkg.FooService/GetFoo",
 ///         name: get_foo,

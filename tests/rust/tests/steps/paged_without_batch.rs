@@ -10,7 +10,8 @@ use api_bones_contract_rust::{
     FieldsClient, ListNumbersRequest, ListNumbersResponse, Numbers, NumbersClient, NumbersExt,
     NumbersLists, PageResponse,
 };
-use connectrpc::client::{ClientConfig, HttpClient};
+use api_bones_transport::HttpTransport;
+use connectrpc::client::ClientConfig;
 use connectrpc::{
     ConnectError, ConnectRpcService, ErrorCode, RequestContext, Response, Router, Server,
     ServiceRequest, ServiceResult,
@@ -108,11 +109,8 @@ async fn when_read_items(world: &mut UnbatchedPagingWorld) {
             .await;
     }));
     let config = ClientConfig::new(format!("http://{address}").parse().expect("a loopback uri"));
-    let client = Batched::anonymous(NumbersClient::new(
-        HttpClient::plaintext_http2_only(),
-        config,
-    ))
-    .expect("a list-only client binds without a batch method");
+    let client = Batched::anonymous(NumbersClient::new(HttpTransport::h2c(), config))
+        .expect("a list-only client binds without a batch method");
     let results: Vec<_> =
         api_bones_page::ListCall::items(client.list_no_side_effects(ListNumbersRequest::default()))
             .collect()
@@ -139,11 +137,7 @@ fn given_plain_service(_world: &mut UnbatchedPagingWorld) {}
 #[when("the SDK constructs a platform client for that service")]
 fn when_construct_plain(world: &mut UnbatchedPagingWorld) {
     let config = ClientConfig::new("http://127.0.0.1:1".parse().expect("a loopback uri"));
-    world.refusal = Batched::anonymous(FieldsClient::new(
-        HttpClient::plaintext_http2_only(),
-        config,
-    ))
-    .err();
+    world.refusal = Batched::anonymous(FieldsClient::new(HttpTransport::h2c(), config)).err();
 }
 
 #[then(expr = "platform client construction fails with {string}")]

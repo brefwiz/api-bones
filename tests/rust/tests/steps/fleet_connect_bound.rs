@@ -3,9 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use api_bones::connect::{
-    client_tls_config, failed_to_connect, fleet_client_builder, fleet_http_client,
-};
+use api_bones_transport::{HttpTransport, failed_to_connect};
 use buffa_types::google::protobuf::{Empty, EmptyView};
 use connectrpc::client::{CallOptions, ClientConfig, call_unary};
 use connectrpc::{ConnectRpcService, Router, Server, Spec, StreamType};
@@ -56,9 +54,12 @@ async fn given_failing_peer(world: &mut FleetConnectBoundWorld) {
 async fn when_call(world: &mut FleetConnectBoundWorld) {
     let _ = connectrpc::rustls::crypto::aws_lc_rs::default_provider().install_default();
     let (client, scheme) = if world.plaintext {
-        (fleet_client_builder().plaintext_http2_only(), "http")
+        (HttpTransport::h2c(), "http")
     } else {
-        (fleet_http_client(client_tls_config()), "https")
+        (
+            HttpTransport::fleet(api_bones::connect::client_tls_config()),
+            "https",
+        )
     };
     let config = ClientConfig::new(
         format!("{scheme}://127.0.0.1:{}", world.port)
