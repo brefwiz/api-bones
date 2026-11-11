@@ -16,7 +16,7 @@
 
 use std::sync::Arc;
 
-use connectrpc::client::HttpClient;
+use api_bones_transport::HttpTransport;
 use connectrpc::rustls::ClientConfig as RustlsClientConfig;
 use quorumauth_spiffe_client::SpiffeServerVerifier;
 pub use quorumauth_spiffe_client::{SpiffeError, spiffe_refusal, tls_verdict};
@@ -91,7 +91,7 @@ pub fn pinned_peer_client_tls_config(
         .with_no_client_auth())
 }
 
-/// Build an [`HttpClient`] that reaches one SPIFFE peer without holding an SVID.
+/// Build an [`HttpTransport`] that reaches one SPIFFE peer without holding an SVID.
 ///
 /// # Errors
 ///
@@ -99,9 +99,9 @@ pub fn pinned_peer_client_tls_config(
 pub fn pinned_peer_http_client(
     bundle_pem: &[u8],
     peer: &str,
-) -> Result<HttpClient, PinnedPeerError> {
+) -> Result<HttpTransport, PinnedPeerError> {
     let tls = pinned_peer_client_tls_config(bundle_pem, peer)?;
-    Ok(HttpClient::with_tls(Arc::new(tls)))
+    Ok(HttpTransport::fleet(Arc::new(tls)))
 }
 
 #[cfg(test)]
@@ -121,7 +121,7 @@ mod tests {
     fn a_valid_bundle_and_peer_build_a_tls_client() {
         let _ = connectrpc::rustls::crypto::aws_lc_rs::default_provider().install_default();
         let client = pinned_peer_http_client(ca_pem().as_bytes(), PEER).expect("client");
-        assert!(format!("{client:?}").contains("tls"));
+        assert!(format!("{client:?}").contains("fleet"));
     }
 
     #[test]

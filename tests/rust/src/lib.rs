@@ -67,20 +67,20 @@ impl api_bones_batch::ListRequestFor<BatchListWidgetPartsRequest> for ListWidget
 pub const CONTRACT_DESCRIPTOR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/watch.fds"));
 
 api_bones_batch::batch_client! {
-    client: NumbersClient<connectrpc::client::HttpClient>,
+    client: NumbersClient<api_bones_transport::HttpTransport>,
     service: "contract.v1.Numbers",
     descriptor: CONTRACT_DESCRIPTOR,
 }
 
 api_bones_batch::batch_client! {
-    client: WidgetsClient<connectrpc::client::HttpClient>,
+    client: WidgetsClient<api_bones_transport::HttpTransport>,
     service: "contract.v1.Widgets",
     descriptor: CONTRACT_DESCRIPTOR,
 }
 
 api_bones_batch::batch_method! {
     ext: WidgetGets,
-    client: WidgetsClient<connectrpc::client::HttpClient>,
+    client: WidgetsClient<api_bones_transport::HttpTransport>,
     get: {
         method: "contract.v1.Widgets/GetWidget",
         name: get_widget,
@@ -103,7 +103,7 @@ api_bones_batch::batch_method! {
 
 api_bones_batch::batch_method! {
     ext: WidgetPartLists,
-    client: WidgetsClient<connectrpc::client::HttpClient>,
+    client: WidgetsClient<api_bones_transport::HttpTransport>,
     list: {
         method: "contract.v1.Widgets/ListWidgetParts",
         with_options: list_widget_parts_with_options,
@@ -123,7 +123,7 @@ api_bones_batch::batch_method! {
 }
 
 api_bones_batch::batch_client! {
-    client: FieldsClient<connectrpc::client::HttpClient>,
+    client: FieldsClient<api_bones_transport::HttpTransport>,
     service: "contract.v1.Fields",
     descriptor: CONTRACT_DESCRIPTOR,
 }

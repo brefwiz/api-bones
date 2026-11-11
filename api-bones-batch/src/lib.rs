@@ -68,9 +68,9 @@ macro_rules! batch_client {
     (client: $client:ident<$transport:ty>, service: $service:literal, descriptor: $descriptor:expr $(,)?) => {
         const _: fn(
             $client<$transport>,
-        ) -> $client<$crate::__private::connectrpc::client::HttpClient> = |client| client;
+        ) -> $client<$crate::__private::api_bones_transport::HttpTransport> = |client| client;
         impl $crate::CredentialNeutralClient
-            for $client<$crate::__private::connectrpc::client::HttpClient>
+            for $client<$crate::__private::api_bones_transport::HttpTransport>
         {
             fn batch_client_config(&self) -> &$crate::__private::connectrpc::client::ClientConfig {
                 self.config()
@@ -94,6 +94,7 @@ pub mod __private {
     pub use api_bones_page::{
         ListCall, ListResponse, PageInfo, PagedRequest, PagedResponse, Total, TotalKind,
     };
+    pub use api_bones_transport;
     pub use buffa;
     pub use connectrpc;
     pub use connectrpc::ConnectError;

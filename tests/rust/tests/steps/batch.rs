@@ -28,7 +28,8 @@ use api_bones_contract_rust::{
     WidgetGets, WidgetPartLists, WidgetPartsGroup, WidgetResult, Widgets, WidgetsClient,
     WidgetsExt, WireErrorInfo, widget_result,
 };
-use connectrpc::client::{CallOptions, ClientConfig, HttpClient};
+use api_bones_transport::HttpTransport;
+use connectrpc::client::{CallOptions, ClientConfig};
 use connectrpc::{
     ConnectError, ErrorCode, RequestContext, Response, Router, Server, ServiceRequest,
     ServiceResult,
@@ -120,7 +121,7 @@ pub(super) fn reset_telemetry() {
 const EMITTER: &str = "widgets";
 const MIB: usize = 1_048_576;
 
-type WidgetsBatched = Batched<WidgetsClient<HttpClient>>;
+type WidgetsBatched = Batched<WidgetsClient<HttpTransport>>;
 type Outcome = Result<Widget, ConnectError>;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -825,7 +826,7 @@ pub(super) async fn client(world: &mut BatchWorld) -> WidgetsBatched {
     });
     let config = ClientConfig::new(format!("http://{addr}").parse().expect("a loopback uri"));
     let batched = Batched::new(
-        WidgetsClient::new(HttpClient::plaintext_http2_only(), config),
+        WidgetsClient::new(HttpTransport::h2c(), config),
         move || -> Result<Credential, ConnectError> {
             if source_failed.load(std::sync::atomic::Ordering::SeqCst) {
                 Err(ConnectError::unauthenticated("session source unavailable"))
@@ -1225,7 +1226,7 @@ fn when_unbound_client(world: &mut BatchWorld) {
         .map(|(_, value)| String::from_utf8(value.clone()).expect("bearer header"))
         .expect("the caller has a credential");
     let client = WidgetsClient::new(
-        HttpClient::plaintext_http2_only(),
+        HttpTransport::h2c(),
         ClientConfig::new("http://127.0.0.1:1".parse().expect("loopback URI"))
             .with_default_header("authorization", authorization),
     );

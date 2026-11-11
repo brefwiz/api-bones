@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- *(connect)* **breaking:** `connect_http_client`, `fleet_http_client`, `fleet_client_builder`, `FLEET_CONNECT_BOUND` and `failed_to_connect` leave `api_bones::connect`; every Connect client is built from `api_bones_transport::HttpTransport` (`fleet`, `tls`, `h2c`), and the bound and `failed_to_connect` live there. A plaintext `connect_http_client` now builds `HttpTransport::h2c()`, which has connectrpc's default connect bounds (5 s TCP, 20 s establishment) instead of the 250 ms fleet bound, which only the mTLS `fleet` transport carries.
+
 ## [16.5.0] - 2026-11-11
 
 ### Added

@@ -9,6 +9,7 @@ members = [
     "api-bones-test",
     "api-bones-protos",
     "api-bones-stream",
+    "api-bones-transport",
     "api-bones-page",
     "api-bones-batch",
     "api-bones-fields",
@@ -81,7 +82,7 @@ chrono = ["dep:chrono", "utoipa?/chrono"]
 ## Provides chrono_to_timestamp, parse_uuid, build_page (OffsetPage), and
 ## ConnectOptionExt. Activates the uuid and chrono features as side-effects.
 ## Zero impact on consumers who do not declare this feature.
-connect = ["dep:api-bones-stream", "dep:connectrpc", "dep:hyper-util", "dep:tokio", "dep:buffa", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "dep:base64", "dep:bytes", "dep:futures-core", "dep:http-body-util", "uuid", "chrono", "http", "std"]
+connect = ["dep:api-bones-stream", "dep:connectrpc", "dep:tokio", "dep:buffa", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:rustls-native-certs", "dep:base64", "dep:bytes", "dep:futures-core", "dep:http-body-util", "uuid", "chrono", "http", "std"]
 http = ["dep:http", "alloc"]
 axum = ["dep:axum", "http", "serde", "std"]
 utoipa = ["dep:utoipa", "std"]
@@ -127,7 +128,6 @@ sha2 = { version = "0.11", optional = true }
 # connect feature — versions must match what buffa-types / generated proto code use.
 # Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
 connectrpc  = { version = "0.9.1", features = ["client", "client-tls"], optional = true }
-hyper-util = { version = "0.1", features = ["client-legacy"], optional = true }
 tokio = { version = "1", features = ["time"], optional = true }
 buffa       = { version = "0.9", optional = true }
 buffa-types = { version = "0.9", features = ["json"], optional = true }
@@ -181,6 +181,7 @@ cast_possible_wrap = "allow"
 cast_sign_loss = "allow"
 
 [dev-dependencies]
+api-bones-transport = { path = "api-bones-transport" }
 mockito = "1.7.2"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
 opentelemetry_sdk = { version = "0.32", features = ["trace", "rt-tokio"] }
@@ -290,4 +291,5 @@ api-bones-sdk-gen = { path = "api-bones-sdk-gen" }
 api-bones-test = { path = "api-bones-test" }
 api-bones-protos = { path = "api-bones-protos" }
 api-bones-stream = { path = "api-bones-stream" }
+api-bones-transport = { path = "api-bones-transport" }
 api-bones-page = { path = "api-bones-page" }

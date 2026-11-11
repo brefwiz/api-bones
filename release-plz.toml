@@ -30,3 +30,6 @@ name = "api-bones-protos"
 
 [[package]]
 name = "api-bones-stream"
+
+[[package]]
+name = "api-bones-transport"

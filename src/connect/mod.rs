@@ -110,10 +110,7 @@ pub use stream_control::{
     StreamControl, is_keepalive_payload,
 };
 pub use timestamp::{chrono_opt_to_timestamp, chrono_to_timestamp};
-pub use transport::{
-    ConnectConfigExt, FLEET_CONNECT_BOUND, client_tls_config, connect_http_client,
-    failed_to_connect, fleet_client_builder, fleet_http_client, is_caller_rejection,
-};
+pub use transport::{ConnectConfigExt, client_tls_config, is_caller_rejection};
 pub use uuid::parse_uuid;
 
 /// Build an `InvalidArgument` `ConnectError` attributing the error to a named request field.

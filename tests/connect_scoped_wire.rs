@@ -12,10 +12,11 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use api_bones::connect::{CallCredential, ScopeCall, ScopedClient};
+use api_bones_transport::HttpTransport;
 use axum::extract::{ConnectInfo, State};
 use axum::http::HeaderMap;
 use buffa_types::google::protobuf::{Empty, EmptyView};
-use connectrpc::client::{ClientConfig, HttpClient, call_unary};
+use connectrpc::client::{ClientConfig, call_unary};
 use connectrpc::{Spec, StreamType};
 
 /// connectrpc 0.9 takes the whole procedure path as one `&'static str`, so the
@@ -110,7 +111,7 @@ async fn start_server(recorder: Recorder) -> SocketAddr {
 /// Stands in for a generated Connect client: one transport, one connection
 /// pool, one process-wide credential, plus a per-call scoped handle.
 struct Client {
-    transport: HttpClient,
+    transport: HttpTransport,
     config: ClientConfig,
     auth: CallCredential,
 }
@@ -126,7 +127,7 @@ impl Client {
             // idle pool asynchronously, so a call issued right after the last
             // one returned could open a second connection whatever the scoped
             // handle does, and the one-connection assertion below raced it.
-            transport: HttpClient::plaintext_http2_only(),
+            transport: HttpTransport::h2c(),
             config: ClientConfig::new(uri),
             auth,
         }

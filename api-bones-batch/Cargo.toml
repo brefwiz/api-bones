@@ -21,6 +21,7 @@ path = "src/lib.rs"
 
 [dependencies]
 prost-reflect = { workspace = true }
+api-bones-transport = { version = "0.1.0", path = "../api-bones-transport", registry = "brefwiz" }
 api-bones-page = { version = "0.2.5", path = "../api-bones-page", registry = "brefwiz" }
 base64 = { version = "0.23", default-features = false, features = ["alloc"] }
 buffa = "0.9"

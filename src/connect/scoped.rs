@@ -19,7 +19,7 @@
 //! use api_bones::connect::{CallCredential, ScopeCall, ScopedClient};
 //!
 //! // A generated client keeps its own process-wide credential…
-//! struct Client { transport: HttpClient, config: ClientConfig, auth: CallCredential }
+//! struct Client { transport: HttpTransport, config: ClientConfig, auth: CallCredential }
 //! impl ScopeCall for Client {}
 //!
 //! // …and gains a per-call handle over the very same transport.
