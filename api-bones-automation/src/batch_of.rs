@@ -15,6 +15,14 @@ const AUTHZ: &str = "bones.v1.authz";
 /// `google.protobuf.MethodOptions.IdempotencyLevel.NO_SIDE_EFFECTS`.
 pub(crate) const NO_SIDE_EFFECTS: i32 = 1;
 
+fn level_name(level: i32) -> &'static str {
+    match level {
+        1 => "NO_SIDE_EFFECTS",
+        2 => "IDEMPOTENT",
+        _ => "IDEMPOTENCY_UNKNOWN",
+    }
+}
+
 /// One `batch_of` declaration that does not name a method of its own service.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BatchOfRefusal {
@@ -37,9 +45,14 @@ pub enum BatchOfReason {
     SelfReference,
     /// The batch method's authorization is not the named single's.
     AuthzDiffers,
-    /// The batch method does not declare `idempotency_level = NO_SIDE_EFFECTS`.
-    /// Both batch forms, `BatchGet` and `BatchList`, are reads.
-    NotNoSideEffects,
+    /// The batch method's `idempotency_level` is not the named single's.
+    /// Levels are `google.protobuf.MethodOptions.IdempotencyLevel` numbers.
+    IdempotencyDiffers {
+        /// The single's declared level.
+        single: i32,
+        /// The batch method's declared level.
+        batch: i32,
+    },
 }
 
 impl fmt::Display for BatchOfRefusal {
@@ -49,8 +62,15 @@ impl fmt::Display for BatchOfRefusal {
             BatchOfReason::UnknownMethod => "names a method the service does not declare",
             BatchOfReason::SelfReference => "names the RPC itself",
             BatchOfReason::AuthzDiffers => "does not keep the authorization of the method it names",
-            BatchOfReason::NotNoSideEffects => {
-                "does not declare idempotency_level = NO_SIDE_EFFECTS"
+            BatchOfReason::IdempotencyDiffers { single, batch } => {
+                return write!(
+                    f,
+                    "{}: batch_of \"{}\" does not keep the idempotency level of the method it names (single {}, batch {})",
+                    self.method,
+                    self.batch_of,
+                    level_name(single),
+                    level_name(batch)
+                );
             }
         };
         write!(f, "{}: batch_of \"{}\" {why}", self.method, self.batch_of)
@@ -177,8 +197,12 @@ fn resolve(
     if authorization(batch, authz) != authorization(&single, authz) {
         return Err(BatchOfReason::AuthzDiffers);
     }
-    if idempotency_level(batch) != NO_SIDE_EFFECTS {
-        return Err(BatchOfReason::NotNoSideEffects);
+    let (single_level, batch_level) = (idempotency_level(&single), idempotency_level(batch));
+    if single_level != batch_level {
+        return Err(BatchOfReason::IdempotencyDiffers {
+            single: single_level,
+            batch: batch_level,
+        });
     }
     Ok(())
 }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 //
-// The per-item outcome of a batch read.
+// The per-item outcome of a batch.
 //
-// A batch read answers every requested item on its own: one item's refusal
+// A batch answers every requested item on its own: one item's refusal
 // never fails the others. A BatchGet response carries one result per
 // requested id, in request order, and a result holds either the item or an
 // `ItemError`; a grouped BatchList response carries one group per requested
@@ -35,7 +35,8 @@ import "bones/v1/errors.proto";
 // single call raises for the same cause.
 message ItemError {
   // The Connect code token: `not_found`, `permission_denied`,
-  // `invalid_argument` or `failed_precondition`.
+  // `invalid_argument`, `failed_precondition` or `aborted` (the item was not
+  // applied; safe to resend).
   string code = 1;
 
   // The message the single call raises for the same cause.

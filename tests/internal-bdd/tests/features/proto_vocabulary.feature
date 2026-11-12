@@ -140,23 +140,30 @@ Feature: Proto vocabulary shipped to contract authors
       | AUTHENTICATED orders:read | NONE                      |
       | NONE                      | AUTHENTICATED orders:read |
 
-  Scenario Outline: A batch method that does not declare NO_SIDE_EFFECTS is refused
-    Given a service whose batch method declares idempotency "<level>"
-    When the contract is compiled against the shipped files
-    And the batch_of declarations are checked
-    Then the batch_of is refused as "does not declare idempotency_level = NO_SIDE_EFFECTS"
-
-    Examples:
-      | level            |
-      | none             |
-      | IDEMPOTENT       |
-      | IDEMPOTENCY_UNKNOWN |
-
-  Scenario: A batch method declaring NO_SIDE_EFFECTS conforms
-    Given a service whose batch method declares idempotency "NO_SIDE_EFFECTS"
+  Scenario Outline: A batch method keeps the idempotency level of the single it names
+    Given a service whose single declares idempotency "<single>" and whose batch declares "<batch>"
     When the contract is compiled against the shipped files
     And the batch_of declarations are checked
     Then every batch_of conforms
+
+    Examples:
+      | single           | batch            |
+      | NO_SIDE_EFFECTS  | NO_SIDE_EFFECTS  |
+      | IDEMPOTENT       | IDEMPOTENT       |
+      | none             | none             |
+
+  Scenario Outline: A batch method that does not keep the idempotency level of its single is refused
+    Given a service whose single declares idempotency "<single>" and whose batch declares "<batch>"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then the batch_of is refused as "does not keep the idempotency level of the method it names (single <single_name>, batch <batch_name>)"
+
+    Examples:
+      | single           | batch            | single_name         | batch_name          |
+      | NO_SIDE_EFFECTS  | none             | NO_SIDE_EFFECTS     | IDEMPOTENCY_UNKNOWN |
+      | NO_SIDE_EFFECTS  | IDEMPOTENT       | NO_SIDE_EFFECTS     | IDEMPOTENT          |
+      | IDEMPOTENT       | NO_SIDE_EFFECTS  | IDEMPOTENT          | NO_SIDE_EFFECTS     |
+      | none             | IDEMPOTENT       | IDEMPOTENCY_UNKNOWN | IDEMPOTENT          |
 
   Scenario Outline: Batch policy discovery refuses ambiguous or noncanonical shapes
     Given a contract with the batch policy shape "<shape>"
