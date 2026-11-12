@@ -278,6 +278,7 @@ fn given_batch_service(world: &mut VocabularyWorld, named: String) {
     world.source = batch_contract(
         &named,
         "option idempotency_level = NO_SIDE_EFFECTS;",
+        "option idempotency_level = NO_SIDE_EFFECTS;",
         "service Other { rpc Do(Req) returns (Res); }",
     );
 }
@@ -310,14 +311,14 @@ fn given_nested_orphan(world: &mut VocabularyWorld) {
         .replace("rpc Create(CreateRequest)", "rpc Create(Item)");
 }
 
-fn batch_contract(named: &str, option: &str, other: &str) -> String {
+fn batch_contract(named: &str, single_option: &str, option: &str, other: &str) -> String {
     format!(
         "syntax = \"proto3\";\npackage contract.v1;\n\
          import \"bones/v1/annotations.proto\";\n\
          message Req {{ string id = 1; }}\n\
          message Res {{ string id = 1; }}\n\
          service Svc {{\n\
-           rpc Do(Req) returns (Res);\n\
+           rpc Do(Req) returns (Res) {{ {single_option} }}\n\
            rpc DoMany(Req) returns (Res) {{ option (bones.v1.batch_of) = \"{named}\"; {option} }}\n\
          }}\n\
 {other}"
@@ -390,14 +391,18 @@ fn authz_option(spec: &str) -> String {
     }
 }
 
-#[given(expr = "a service whose batch method declares idempotency {string}")]
-fn given_batch_idempotency(world: &mut VocabularyWorld, level: String) {
-    let option = if level == "none" {
-        String::new()
-    } else {
-        format!("option idempotency_level = {level};")
+#[given(
+    expr = "a service whose single declares idempotency {string} and whose batch declares {string}"
+)]
+fn given_single_and_batch_idempotency(world: &mut VocabularyWorld, single: String, batch: String) {
+    let option = |level: &str| {
+        if level == "none" {
+            String::new()
+        } else {
+            format!("option idempotency_level = {level};")
+        }
     };
-    world.source = batch_contract("Do", &option, "");
+    world.source = batch_contract("Do", &option(&single), &option(&batch), "");
 }
 
 #[given(expr = "a service whose single is {string} and whose batch is {string}")]
@@ -408,7 +413,7 @@ fn given_authz_pair(world: &mut VocabularyWorld, single: String, batch: String) 
          message Req {{ string id = 1; }}\n\
          message Res {{ string id = 1; }}\n\
          service Svc {{\n\
-           rpc Do(Req) returns (Res) {{ {} }}\n\
+           rpc Do(Req) returns (Res) {{ option idempotency_level = NO_SIDE_EFFECTS; {} }}\n\
            rpc DoMany(Req) returns (Res) {{ option (bones.v1.batch_of) = \"Do\"; option idempotency_level = NO_SIDE_EFFECTS; {} }}\n\
          }}\n",
         authz_option(&single),

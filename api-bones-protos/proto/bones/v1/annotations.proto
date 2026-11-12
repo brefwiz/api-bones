@@ -477,10 +477,20 @@
 //
 // `bones.v1.batch_of` names the single-item method of the same service that
 // this RPC batches, so a consumer reads the batch form of an operation from
-// the provider's surface instead of fanning out one call per item. A batch
-// method keeps the authorization of the single it names, and each item's
-// outcome is its own: one item's refusal never fails the others. The provider
-// documents its maximum items per call on the RPC.
+// the provider's surface instead of fanning out one call per item. It covers
+// reads and writes alike: N independent singles, each with its own outcome. A
+// batch method keeps the idempotency level, authorization and error set of the
+// single it names, and each item's outcome is its own: one item's refusal
+// never fails the others. The provider documents its maximum items per call on
+// the RPC. A set of a parent and its children that commits or fails together
+// is `nested_write_of`, not `batch_of`.
+//
+// A side-effecting batch runs its items in request order, each as the
+// single's own transaction. A repeated id runs once and is answered at each of
+// its positions. Pre-execution refusals, authentication and more than 200
+// items, refuse the call. Once execution starts the call never fails whole: a
+// failure that is not the item's own outcome answers that item `aborted`, and
+// every item not run `aborted` too.
 //
 // Usage:
 //

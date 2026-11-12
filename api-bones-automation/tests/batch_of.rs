@@ -80,7 +80,9 @@ fn contract(service: &str, methods: &[(&str, &str)]) -> String {
         .iter()
         .map(|(name, batch_of)| {
             if batch_of.is_empty() {
-                format!("  rpc {name}(Req) returns (Res);\n")
+                format!(
+                    "  rpc {name}(Req) returns (Res) {{ option idempotency_level = NO_SIDE_EFFECTS; }}\n"
+                )
             } else {
                 format!(
                     "  rpc {name}(Req) returns (Res) {{ option (bones.v1.batch_of) = \"{batch_of}\"; option idempotency_level = NO_SIDE_EFFECTS; }}\n"
@@ -118,8 +120,8 @@ fn bare_and_qualified_names_of_a_sibling_method_pass() {
 fn an_empty_batch_of_is_skipped() {
     let source = contract("Orders", &[("Many", "")]);
     let with_empty = source.replace(
-        "rpc Many(Req) returns (Res);",
-        "rpc Many(Req) returns (Res) { option (bones.v1.batch_of) = \"\"; }",
+        "rpc Many(Req) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; }",
+        "rpc Many(Req) returns (Res) { option (bones.v1.batch_of) = \"\"; option idempotency_level = NO_SIDE_EFFECTS; }",
     );
     assert_ne!(source, with_empty);
     assert_eq!(check_batch_of(&descriptor_set(&with_empty)), Ok(()));
@@ -212,24 +214,54 @@ fn authz_contract(single: &str, batch: &str) -> String {
     format!(
         "syntax = \"proto3\";\npackage orders.v1;\nimport \"bones/v1/annotations.proto\";\n\
          message Req {{}}\nmessage Res {{}}\nservice Orders {{\n\
-           rpc One(Req) returns (Res) {{ {single} }}\n\
+           rpc One(Req) returns (Res) {{ option idempotency_level = NO_SIDE_EFFECTS; {single} }}\n\
            rpc Many(Req) returns (Res) {{ option (bones.v1.batch_of) = \"One\"; option idempotency_level = NO_SIDE_EFFECTS; {batch} }}\n\
          }}\n"
     )
 }
 
+/// A contract whose `Many` batches `One`, each declaring the given idempotency option text.
+fn level_contract(single: &str, batch: &str) -> String {
+    format!(
+        "syntax = \"proto3\";\npackage orders.v1;\nimport \"bones/v1/annotations.proto\";\n\
+         message Req {{}}\nmessage Res {{}}\nservice Orders {{\n\
+           rpc One(Req) returns (Res) {{ {single} }}\n\
+           rpc Many(Req) returns (Res) {{ option (bones.v1.batch_of) = \"One\"; {batch} }}\n\
+         }}\n"
+    )
+}
+
+const NO_EFFECTS: &str = "option idempotency_level = NO_SIDE_EFFECTS;";
+const IDEMPOTENT: &str = "option idempotency_level = IDEMPOTENT;";
+
 #[test]
-fn a_batch_without_no_side_effects_is_refused() {
-    let source = contract("Orders", &[("One", ""), ("Many", "One")]);
-    for option in ["", "option idempotency_level = IDEMPOTENT;"] {
-        let source = source.replace("option idempotency_level = NO_SIDE_EFFECTS;", option);
-        let refusals = refused(&descriptor_set(&source));
+fn a_batch_keeping_its_singles_idempotency_level_passes() {
+    for (single, batch) in [(NO_EFFECTS, NO_EFFECTS), (IDEMPOTENT, IDEMPOTENT), ("", "")] {
+        let source = level_contract(single, batch);
+        assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+    }
+}
+
+#[test]
+fn a_batch_with_another_level_than_its_single_is_refused() {
+    for (single, batch, single_name, batch_name) in [
+        (NO_EFFECTS, "", "NO_SIDE_EFFECTS", "IDEMPOTENCY_UNKNOWN"),
+        (NO_EFFECTS, IDEMPOTENT, "NO_SIDE_EFFECTS", "IDEMPOTENT"),
+        (IDEMPOTENT, NO_EFFECTS, "IDEMPOTENT", "NO_SIDE_EFFECTS"),
+        ("", IDEMPOTENT, "IDEMPOTENCY_UNKNOWN", "IDEMPOTENT"),
+    ] {
+        let refusals = refused(&descriptor_set(&level_contract(single, batch)));
         assert_eq!(refusals.len(), 1);
-        assert_eq!(refusals[0].reason, BatchOfReason::NotNoSideEffects);
+        assert!(matches!(
+            refusals[0].reason,
+            BatchOfReason::IdempotencyDiffers { .. }
+        ));
         assert_eq!(refusals[0].method, "orders.v1.Orders/Many");
         assert_eq!(
             refusals[0].to_string(),
-            "orders.v1.Orders/Many: batch_of \"One\" does not declare idempotency_level = NO_SIDE_EFFECTS"
+            format!(
+                "orders.v1.Orders/Many: batch_of \"One\" does not keep the idempotency level of the method it names (single {single_name}, batch {batch_name})"
+            )
         );
     }
 }
