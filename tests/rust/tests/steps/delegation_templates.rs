@@ -13,6 +13,7 @@ use crate::world::DelegationTemplatesWorld;
 
 const TEMPLATES: &str = "bones.v1.delegation_templates";
 const SERVICE: &str = "contract.v1.ProviderService";
+const EVENTS_SERVICE: &str = "contract.v1.EventsService";
 
 /// The Unicode format characters a refusal must not carry raw, as inclusive
 /// ranges: the ones a scenario can write into a name or value.
@@ -68,6 +69,28 @@ impl DelegationTemplatesWorld {
                 &rpcs_source(&self.second_rpc_scopes, &[]),
             )
         };
+        let events = if self.events_scopes.is_empty() {
+            String::new()
+        } else {
+            let options: Vec<String> = self
+                .events_scopes
+                .iter()
+                .flat_map(|(capability, scope, implied_by)| {
+                    let implied = implied_by
+                        .iter()
+                        .map(|capability| format!(" implied_by: \"{capability}\""))
+                        .collect::<String>();
+                    [
+                        format!("  option (bones.v1.provided_capabilities) = \"{capability}\";"),
+                        format!(
+                            "  option (bones.v1.provided_broker_scopes) = {{ capability: \"{capability}\" scope: \"{scope}\"{implied} }};"
+                        ),
+                    ]
+                })
+                .chain(template_options(&self.events_templates))
+                .collect();
+            service_source("EventsService", &options, &[])
+        };
         let templates_import = if self.without_templates_import {
             ""
         } else {
@@ -77,7 +100,7 @@ impl DelegationTemplatesWorld {
             "syntax = \"proto3\";\npackage contract.v1;\n\
              import \"bones/v1/annotations.proto\";\n\
              {templates_import}\
-             message Req {{}}\nmessage Res {{}}\n{}{second}",
+             message Req {{}}\nmessage Res {{}}\n{}{second}{events}",
             service_source(
                 "ProviderService",
                 &options,
@@ -101,17 +124,25 @@ fn declared_templates(pool: Option<&DescriptorPool>) -> Vec<DynamicMessage> {
     let extension = pool
         .get_extension_by_name(TEMPLATES)
         .unwrap_or_else(|| panic!("{TEMPLATES} is not declared"));
-    let options = pool
-        .get_service_by_name(SERVICE)
-        .expect("the provider service")
-        .options();
-    let value = options.get_extension(&extension);
-    value
-        .as_list()
-        .expect("a repeated option")
-        .iter()
-        .map(|template| template.as_message().expect("a message").clone())
-        .collect()
+    let read = |name: &str| -> Vec<DynamicMessage> {
+        let options = pool
+            .get_service_by_name(name)
+            .expect("the service is declared")
+            .options();
+        let value = options.get_extension(&extension);
+        value
+            .as_list()
+            .expect("a repeated option")
+            .iter()
+            .map(|template| template.as_message().expect("a message").clone())
+            .collect()
+    };
+    let templates = read(SERVICE);
+    if templates.is_empty() && pool.get_service_by_name(EVENTS_SERVICE).is_some() {
+        read(EVENTS_SERVICE)
+    } else {
+        templates
+    }
 }
 
 fn declared_grant(pool: Option<&DescriptorPool>, index: usize) -> DynamicMessage {
@@ -396,6 +427,20 @@ fn given_broker_scope(world: &mut DelegationTemplatesWorld, scope: String, capab
     world.broker_scopes.push((capability, scope));
 }
 
+#[given(
+    expr = "a separate events service provides the capability {string} with the broker scope {string} implied by the capability {string}"
+)]
+fn given_implied_broker_scope(
+    world: &mut DelegationTemplatesWorld,
+    capability: String,
+    scope: String,
+    implied_by: String,
+) {
+    world
+        .events_scopes
+        .push((capability, scope, Some(implied_by)));
+}
+
 #[given(expr = "the provider declares the group {string} conferring no scope")]
 fn given_scopeless_group(world: &mut DelegationTemplatesWorld, group: String) {
     world.groups.push((group, Vec::new()));
@@ -417,6 +462,20 @@ fn given_second_service_template(
 ) {
     world
         .second_templates
+        .push(template_source(&name, &label, &[grant.as_str()]));
+}
+
+#[given(
+    expr = "the events service ships the template {string} labelled {string} with the grant {string}"
+)]
+fn given_events_service_template(
+    world: &mut DelegationTemplatesWorld,
+    name: String,
+    label: String,
+    grant: String,
+) {
+    world
+        .events_templates
         .push(template_source(&name, &label, &[grant.as_str()]));
 }
 
@@ -447,6 +506,39 @@ fn then_grant_scope(world: &mut DelegationTemplatesWorld, index: usize, expected
         text(&declared_grant(world.pool.as_ref(), index), "scope"),
         expected
     );
+}
+
+#[then(expr = "the provided broker scope {string} reads back implied by {string}")]
+fn then_broker_scope_implied_by(
+    world: &mut DelegationTemplatesWorld,
+    scope: String,
+    expected: String,
+) {
+    let pool = world
+        .pool
+        .as_ref()
+        .expect("the provider contract was not compiled");
+    let extension = pool
+        .get_extension_by_name("bones.v1.provided_broker_scopes")
+        .expect("the extension is declared");
+    let mut entries: Vec<DynamicMessage> = Vec::new();
+    for service in pool.services() {
+        let options = service.options();
+        let value = options.get_extension(&extension);
+        entries.extend(
+            value
+                .as_list()
+                .expect("a repeated option")
+                .iter()
+                .filter_map(Value::as_message)
+                .cloned(),
+        );
+    }
+    let entry = entries
+        .iter()
+        .find(|entry| text(entry, "scope") == scope)
+        .unwrap_or_else(|| panic!("no service provides the broker scope {scope}"));
+    assert_eq!(text(entry, "implied_by"), expected);
 }
 
 #[then(expr = "its grant {int} reads back the group {string}")]

@@ -337,8 +337,12 @@ mod tests {
             .collect();
         assert_eq!(
             fields,
-            ["string capability = 1;", "string scope = 2;"],
-            "BrokerScope is exactly {{capability, scope}}"
+            [
+                "string capability = 1;",
+                "string scope = 2;",
+                "string implied_by = 3;"
+            ],
+            "BrokerScope is exactly {{capability, scope, implied_by}}"
         );
     }
 

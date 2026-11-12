@@ -191,41 +191,57 @@
 // capability's scopes from RPC `requires` alone, so a capability over
 // events, which serves no RPC, would otherwise have no scope to confer.
 //
-// Each entry names the provided capability it belongs to and the scope,
-// nothing else. Its grant class is `capability` by construction, so the
-// entry states none: the scope is granted by capability consumption or an
-// explicit capability grant, exactly like an RPC-derived scope, and
+// Each entry names the provided capability it belongs to, the scope, and
+// optionally `implied_by`. Its grant class is `capability` by construction,
+// so the entry states none: the scope is granted by capability consumption
+// or an explicit capability grant, exactly like an RPC-derived scope, and
 // registered, granted, revoked and audited by the same authority, the
 // registration authority. It names no enforcer either: the event form is
 // recognized by its shape, and the enforcer of any other scope by the
-// registration authority's enforcer registry. Declaring one grants nothing.
+// registration authority's enforcer registry. Declaring a scope without
+// `implied_by` grants nothing.
+//
+// `implied_by` is a third grant path, for the
+// `<ns>:events:<topic>:subscribe:own` form only: the platform gives the
+// scope to every holder of the named capability with no grant record, and
+// only while the holder holds that capability. When the holder's standing
+// grant or consumption of that capability is withdrawn, the scope goes with
+// it at the next mint, and the relay consent facts follow the same rule.
 //
 // A broker scope is a CanonicalClaim scope, byte-identical wherever it is
 // named, and carries no subject. Its namespace is the text before its first
 // `:`, the same parse the registration authority applies to every scope.
 //
-// Admission. A broker scope is admitted in exactly three forms:
+// Admission. A broker scope is admitted in exactly four forms:
 //   - `<ns>:events:subscribe`, an event scope, declared by the workload whose
 //     service name (the service segment of its SVID) is `<ns>`;
 //   - `<ns>:events:<topic>:subscribe`, a topic event scope, declared by the
 //     same workload; `<topic>` is a single token with the characters of a
 //     namespace token and none of `:`, `.`, `*` or `>`;
+//   - `<ns>:events:<topic>:subscribe:own`, an own-events scope, declared by
+//     the same workload on a broker-only capability, with a single-token
+//     `<topic>` as above; the broker compiles it to the holder's own events
+//     only, never a sibling's, and `implied_by` grants it (S6-S8);
 //   - `<ns>:<right>`, a broker's own right, declared by the workload the
 //     enforcer registry names as the enforcer of `<ns>`.
 // Every other shape names a scope no broker enforces, and is refused as a
 // dead grant.
 //
-// The two event forms differ in how they are served. The namespace form
+// The three event forms differ in how they are served. The namespace form
 // `<ns>:events:subscribe` is served by the per-organization durables. A topic
 // scope is served live only: per-replica ephemeral core subscriptions that the
 // broker grants per granting organization, never a durable, with no queue
 // group and no replay. A consumer holding a topic scope by a platform grant
-// hears every organization. A fact a consumer must never miss belongs on the
-// namespace form.
+// hears every organization. The `:own` form is served by a short-lived
+// core-NATS subscription limited to the holder's own `/svc` segment, as the
+// last subject segment, never wider and never a per-organization durable; the
+// reconciler sets nothing up for it and creates no consumer object. A fact a
+// consumer must never miss belongs on the namespace form.
 //
 // The event forms are recognized by shape; the enforcer is recognized by the
 // registry, never by the scope. A registered enforcer declaring an event
-// scope of either form whose `<ns>` differs from its own service name is therefore still
+// scope of any of the three event forms whose `<ns>` differs from its own
+// service name is therefore still
 // refused, under A1 below.
 //
 // For an event scope, `<ns>` is the provider's event-subject service segment,
@@ -249,13 +265,15 @@
 // item below holds.
 //
 // Admission refusals:
-//   A1. its `scope` is an event scope, exactly `<ns>:events:subscribe` or
-//      `<ns>:events:<topic>:subscribe`, and `<ns>` is not the registering workload's service name, even when that
-//      workload is a registered enforcer;
-//   A2. its `scope` is any scope other than an event scope of either form, and the
+//   A1. its `scope` is an event scope, exactly `<ns>:events:subscribe`,
+//      `<ns>:events:<topic>:subscribe` or
+//      `<ns>:events:<topic>:subscribe:own`, and `<ns>` is not the registering
+//      workload's service name, even when that workload is a registered
+//      enforcer;
+//   A2. its `scope` is any scope other than an event scope of the three event forms, and the
 //      registering workload is not the registered enforcer of its namespace
 //      in the enforcer registry;
-//   A3. its `scope` is an event scope of either form, and the registering workload's
+//   A3. its `scope` is an event scope of any of the three forms, and the registering workload's
 //      canonical stream name equals that of another service already
 //      registered, as `order-book` and `order_book` both yield `ORDER_BOOK`:
 //      the first registrant keeps the stream, and the later registration is
@@ -273,6 +291,14 @@
 //      widen to an RPC surface;
 //   S5. the same scope is declared twice, or is also required by an RPC: one
 //      scope, one declaration.
+//   S6. its `implied_by` is non-empty and is not a syntactically valid
+//      capability name.
+//   S7. its `implied_by` is non-empty and does not name a capability the same
+//      contract or provider provides: a name of another provider's
+//      capability, or an unknown one, is refused at declaration;
+//   S8. its `implied_by` is non-empty and its `scope` is not of the form
+//      `<ns>:events:<topic>:subscribe:own` with a single-token topic: only
+//      that own-events form may be implied by a capability.
 //
 // Usage — a separate event capability, distinct from the RPC capability
 // `reservations.schedule`, registered by the workload whose service name is
@@ -647,7 +673,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file bones/v1/annotations.proto.
  */
 export const file_bones_v1_annotations: GenFile = /*@__PURE__*/
-  fileDesc("Chpib25lcy92MS9hbm5vdGF0aW9ucy5wcm90bxIIYm9uZXMudjEiMgoSUmVxdWlyZWRDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDgoGc2NvcGVzGAIgAygJIoMBCgVMYWJlbBIMCgR0ZXh0GAEgASgJEjcKDHRyYW5zbGF0aW9ucxgCIAMoCzIhLmJvbmVzLnYxLkxhYmVsLlRyYW5zbGF0aW9uc0VudHJ5GjMKEVRyYW5zbGF0aW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoPQ2FwYWJpbGl0eUxhYmVsEgwKBG5hbWUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJACg9QZXJtaXNzaW9uTGFiZWwSDQoFc2NvcGUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCIwCgtCcm9rZXJTY29wZRISCgpjYXBhYmlsaXR5GAEgASgJEg0KBXNjb3BlGAIgASgJIjYKEENhcGFiaWxpdHlTY29wZXMSEgoKY2FwYWJpbGl0eRgBIAEoCRIOCgZzY29wZXMYAiADKAkiUAoJQXV0aHpSdWxlEiEKBGtpbmQYASABKA4yEy5ib25lcy52MS5BdXRoektpbmQSDgoGcmVhc29uGAIgASgJEhAKCHJlcXVpcmVzGAMgAygJIroBChJBdHRyaWJ1dGVEaW1lbnNpb24SDAoEbmFtZRgBIAEoCRIlCgR0eXBlGAIgASgOMhcuYm9uZXMudjEuQXR0cmlidXRlVHlwZRItCghwb2xhcml0eRgDIAEoDjIbLmJvbmVzLnYxLkF0dHJpYnV0ZVBvbGFyaXR5Ei0KCG1hdGNoaW5nGAQgASgOMhsuYm9uZXMudjEuQXR0cmlidXRlTWF0Y2hpbmcSEQoJc2VwYXJhdG9yGAUgASgJIisKDU1jcFByb2plY3Rpb24SDQoFdGl0bGUYAiABKAlKBAgBEAJSBXNoYXBlImIKDlJlc291cmNlT3B0aW9uEgwKBHR5cGUYASABKAkSFgoOaWRlbnRpdHlfZmllbGQYAiABKAkSKgoHbWV0aG9kcxgDIAEoCzIZLmJvbmVzLnYxLlJlc291cmNlTWV0aG9kcyJcCg9SZXNvdXJjZU1ldGhvZHMSDgoGY3JlYXRlGAEgASgJEgsKA2dldBgCIAEoCRIOCgZ1cGRhdGUYAyABKAkSDgoGZGVsZXRlGAQgASgJEgwKBGxpc3QYBSABKAkiMwoRQXV0b21hdGlvblRyaWdnZXISHgoFbGFiZWwYASABKAsyDy5ib25lcy52MS5MYWJlbCKHAgoQQXV0b21hdGlvbkFjdGlvbhIeCgVsYWJlbBgBIAEoCzIPLmJvbmVzLnYxLkxhYmVsEiYKBmVmZmVjdBgCIAEoDjIWLmJvbmVzLnYxLkFjdGlvbkVmZmVjdBIuCgtpZGVtcG90ZW5jeRgDIAEoDjIZLmJvbmVzLnYxLklkZW1wb3RlbmN5TW9kZRIeChZpZGVtcG90ZW5jeV9rZXlfZmllbGRzGAQgAygJEhcKD3BlcnNvbl9yZXNlcnZlZBgFIAEoCBIWCg5wbGFubmVyX3Bpbm5lZBgGIAEoCBIqCghyZXNvbHZlcxgHIAEoCzIYLmJvbmVzLnYxLkVudGl0eVJlc29sdmVyImYKDkVudGl0eVJlc29sdmVyEhMKC3F1ZXJ5X2ZpZWxkGAEgASgJEhUKDXJlc3VsdHNfZmllbGQYAiABKAkSEwoLdmFsdWVfZmllbGQYAyABKAkSEwoLbGFiZWxfZmllbGQYBCABKAkqpAEKEkNhcGFiaWxpdHlBdWRpZW5jZRIjCh9DQVBBQklMSVRZX0FVRElFTkNFX1VOU1BFQ0lGSUVEEAASJgoiQ0FQQUJJTElUWV9BVURJRU5DRV9BRE1JTklTVFJBVE9SUxABEh8KG0NBUEFCSUxJVFlfQVVESUVOQ0VfTUVNQkVSUxACEiAKHENBUEFCSUxJVFlfQVVESUVOQ0VfRVZFUllPTkUQAyqNAQoJQXV0aHpLaW5kEhoKFkFVVEhaX0tJTkRfVU5TUEVDSUZJRUQQABIVChFBVVRIWl9LSU5EX1BVQkxJQxADEhwKGEFVVEhaX0tJTkRfQVVUSEVOVElDQVRFRBAEIgQIARABIgQIAhACKhJBVVRIWl9LSU5EX1NFUlZJQ0UqD0FVVEhaX0tJTkRfVVNFUipjCg1BdHRyaWJ1dGVUeXBlEh4KGkFUVFJJQlVURV9UWVBFX1VOU1BFQ0lGSUVEEAASGQoVQVRUUklCVVRFX1RZUEVfU1RSSU5HEAESFwoTQVRUUklCVVRFX1RZUEVfVVVJRBACKnoKEUF0dHJpYnV0ZVBvbGFyaXR5EiIKHkFUVFJJQlVURV9QT0xBUklUWV9VTlNQRUNJRklFRBAAEh4KGkFUVFJJQlVURV9QT0xBUklUWV9HUkFOVEVEEAESIQodQVRUUklCVVRFX1BPTEFSSVRZX05BUlJPV0FCTEUQAip8ChFBdHRyaWJ1dGVNYXRjaGluZxIiCh5BVFRSSUJVVEVfTUFUQ0hJTkdfVU5TUEVDSUZJRUQQABIcChhBVFRSSUJVVEVfTUFUQ0hJTkdfRVhBQ1QQARIlCiFBVFRSSUJVVEVfTUFUQ0hJTkdfU0VHTUVOVF9QUkVGSVgQAiq3AQoJQ2FsbFNoYXBlEhoKFkNBTExfU0hBUEVfVU5TUEVDSUZJRUQQABIUChBDQUxMX1NIQVBFX1VOQVJZEAESHAoYQ0FMTF9TSEFQRV9DTElFTlRfU1RSRUFNEAISHAoYQ0FMTF9TSEFQRV9GSU5JVEVfU1RSRUFNEAMSHwobQ0FMTF9TSEFQRV9VTkJPVU5ERURfU1RSRUFNEAQSGwoXQ0FMTF9TSEFQRV9MT05HX1JVTk5JTkcQBSqnAQoMQWN0aW9uRWZmZWN0Eh0KGUFDVElPTl9FRkZFQ1RfVU5TUEVDSUZJRUQQABIWChJBQ1RJT05fRUZGRUNUX1BVUkUQARIbChdBQ1RJT05fRUZGRUNUX0VQSEVNRVJBTBACEh0KGUFDVElPTl9FRkZFQ1RfQ09NUEVOU0FCTEUQAxIkCiBBQ1RJT05fRUZGRUNUX1BPSU5UX09GX05PX1JFVFVSThAEKm0KD0lkZW1wb3RlbmN5TW9kZRIgChxJREVNUE9URU5DWV9NT0RFX1VOU1BFQ0lGSUVEEAASHAoYSURFTVBPVEVOQ1lfTU9ERV9OQVRVUkFMEAESGgoWSURFTVBPVEVOQ1lfTU9ERV9LRVlFRBACKsUBChJEYXRhQ2xhc3NpZmljYXRpb24SIwofREFUQV9DTEFTU0lGSUNBVElPTl9VTlNQRUNJRklFRBAAEh4KGkRBVEFfQ0xBU1NJRklDQVRJT05fUFVCTElDEAESIAocREFUQV9DTEFTU0lGSUNBVElPTl9JTlRFUk5BTBACEiQKIERBVEFfQ0xBU1NJRklDQVRJT05fQ09ORklERU5USUFMEAMSIgoeREFUQV9DTEFTU0lGSUNBVElPTl9SRVNUUklDVEVEEAQ6QgoKY2FwYWJpbGl0eRIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiNtrcCIAEoCVIKY2FwYWJpbGl0eTp1ChVyZXF1aXJlZF9jYXBhYmlsaXRpZXMSHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYjra3AiADKAsyHC5ib25lcy52MS5SZXF1aXJlZENhcGFiaWxpdHlSFHJlcXVpcmVkQ2FwYWJpbGl0aWVzOlcKFXByb3ZpZGVkX2NhcGFiaWxpdGllcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiPtrcCIAMoCVIUcHJvdmlkZWRDYXBhYmlsaXRpZXM6agoRY2FwYWJpbGl0eV9sYWJlbHMSHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYkLa3AiADKAsyGS5ib25lcy52MS5DYXBhYmlsaXR5TGFiZWxSEGNhcGFiaWxpdHlMYWJlbHM6agoRcGVybWlzc2lvbl9sYWJlbHMSHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYkba3AiADKAsyGS5ib25lcy52MS5QZXJtaXNzaW9uTGFiZWxSEHBlcm1pc3Npb25MYWJlbHM6bwoWcHJvdmlkZWRfYnJva2VyX3Njb3BlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiStrcCIAMoCzIVLmJvbmVzLnYxLkJyb2tlclNjb3BlUhRwcm92aWRlZEJyb2tlclNjb3BlczpxChNjYXBhYmlsaXR5X2F1ZGllbmNlEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJO2twIgASgOMhwuYm9uZXMudjEuQ2FwYWJpbGl0eUF1ZGllbmNlUhJjYXBhYmlsaXR5QXVkaWVuY2U6awoRY2FwYWJpbGl0eV9zY29wZXMSHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYlLa3AiADKAsyGi5ib25lcy52MS5DYXBhYmlsaXR5U2NvcGVzUhBjYXBhYmlsaXR5U2NvcGVzOmAKCmF0dHJpYnV0ZXMSHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYlra3AiADKAsyHC5ib25lcy52MS5BdHRyaWJ1dGVEaW1lbnNpb25SCmF0dHJpYnV0ZXM6OQoGZXJyb3JzEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYi7a3AiADKAlSBmVycm9yczpMCgVhdXRoehIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGIy2twIgASgLMhMuYm9uZXMudjEuQXV0aHpSdWxlUgVhdXRoejpMCgNtY3ASHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiXtrcCIAEoCzIXLmJvbmVzLnYxLk1jcFByb2plY3Rpb25SA21jcDpVCgpjYWxsX3NoYXBlEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYmra3AiABKA4yEy5ib25lcy52MS5DYWxsU2hhcGVSCWNhbGxTaGFwZTo8CghiYXRjaF9vZhIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGJ+2twIgASgJUgdiYXRjaE9mOmoKEWF1dG9tYXRpb25fYWN0aW9uEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYnLa3AiABKAsyGi5ib25lcy52MS5BdXRvbWF0aW9uQWN0aW9uUhBhdXRvbWF0aW9uQWN0aW9uOkcKDmxpc3Rfc3RyZWFtX29mEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYo7a3AiABKAlSDGxpc3RTdHJlYW1PZjpYCghyZXNvdXJjZRIfLmdvb2dsZS5wcm90b2J1Zi5NZXNzYWdlT3B0aW9ucxiZtrcCIAEoCzIYLmJvbmVzLnYxLlJlc291cmNlT3B0aW9uUghyZXNvdXJjZTpuChJhdXRvbWF0aW9uX3RyaWdnZXISHy5nb29nbGUucHJvdG9idWYuTWVzc2FnZU9wdGlvbnMYm7a3AiABKAsyGy5ib25lcy52MS5BdXRvbWF0aW9uVHJpZ2dlclIRYXV0b21hdGlvblRyaWdnZXI6QwoLaW5zdGFuY2Vfb2YSHy5nb29nbGUucHJvdG9idWYuTWVzc2FnZU9wdGlvbnMYoba3AiABKAlSCmluc3RhbmNlT2Y6NAoEYXR0chIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYmLa3AiABKAlSBGF0dHI6ZgoOY2xhc3NpZmljYXRpb24SHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGJ22twIgASgOMhwuYm9uZXMudjEuRGF0YUNsYXNzaWZpY2F0aW9uUg5jbGFzc2lmaWNhdGlvbjo6CgdtZWFuaW5nEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxigtrcCIAEoCVIHbWVhbmluZzpHCg5kZWZhdWx0ZWRfZnJvbRIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYora3AiABKAlSDWRlZmF1bHRlZEZyb206OwoIdHlwZWRfYnkSHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGKS2twIgASgJUgd0eXBlZEJ5OkgKD25lc3RlZF93cml0ZV9vZhIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYpba3AiABKAlSDW5lc3RlZFdyaXRlT2ZiBnByb3RvMw", [file_google_protobuf_descriptor]);
+  fileDesc("Chpib25lcy92MS9hbm5vdGF0aW9ucy5wcm90bxIIYm9uZXMudjEiMgoSUmVxdWlyZWRDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDgoGc2NvcGVzGAIgAygJIoMBCgVMYWJlbBIMCgR0ZXh0GAEgASgJEjcKDHRyYW5zbGF0aW9ucxgCIAMoCzIhLmJvbmVzLnYxLkxhYmVsLlRyYW5zbGF0aW9uc0VudHJ5GjMKEVRyYW5zbGF0aW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoPQ2FwYWJpbGl0eUxhYmVsEgwKBG5hbWUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJACg9QZXJtaXNzaW9uTGFiZWwSDQoFc2NvcGUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJECgtCcm9rZXJTY29wZRISCgpjYXBhYmlsaXR5GAEgASgJEg0KBXNjb3BlGAIgASgJEhIKCmltcGxpZWRfYnkYAyABKAkiNgoQQ2FwYWJpbGl0eVNjb3BlcxISCgpjYXBhYmlsaXR5GAEgASgJEg4KBnNjb3BlcxgCIAMoCSJQCglBdXRoelJ1bGUSIQoEa2luZBgBIAEoDjITLmJvbmVzLnYxLkF1dGh6S2luZBIOCgZyZWFzb24YAiABKAkSEAoIcmVxdWlyZXMYAyADKAkiugEKEkF0dHJpYnV0ZURpbWVuc2lvbhIMCgRuYW1lGAEgASgJEiUKBHR5cGUYAiABKA4yFy5ib25lcy52MS5BdHRyaWJ1dGVUeXBlEi0KCHBvbGFyaXR5GAMgASgOMhsuYm9uZXMudjEuQXR0cmlidXRlUG9sYXJpdHkSLQoIbWF0Y2hpbmcYBCABKA4yGy5ib25lcy52MS5BdHRyaWJ1dGVNYXRjaGluZxIRCglzZXBhcmF0b3IYBSABKAkiKwoNTWNwUHJvamVjdGlvbhINCgV0aXRsZRgCIAEoCUoECAEQAlIFc2hhcGUiYgoOUmVzb3VyY2VPcHRpb24SDAoEdHlwZRgBIAEoCRIWCg5pZGVudGl0eV9maWVsZBgCIAEoCRIqCgdtZXRob2RzGAMgASgLMhkuYm9uZXMudjEuUmVzb3VyY2VNZXRob2RzIlwKD1Jlc291cmNlTWV0aG9kcxIOCgZjcmVhdGUYASABKAkSCwoDZ2V0GAIgASgJEg4KBnVwZGF0ZRgDIAEoCRIOCgZkZWxldGUYBCABKAkSDAoEbGlzdBgFIAEoCSIzChFBdXRvbWF0aW9uVHJpZ2dlchIeCgVsYWJlbBgBIAEoCzIPLmJvbmVzLnYxLkxhYmVsIocCChBBdXRvbWF0aW9uQWN0aW9uEh4KBWxhYmVsGAEgASgLMg8uYm9uZXMudjEuTGFiZWwSJgoGZWZmZWN0GAIgASgOMhYuYm9uZXMudjEuQWN0aW9uRWZmZWN0Ei4KC2lkZW1wb3RlbmN5GAMgASgOMhkuYm9uZXMudjEuSWRlbXBvdGVuY3lNb2RlEh4KFmlkZW1wb3RlbmN5X2tleV9maWVsZHMYBCADKAkSFwoPcGVyc29uX3Jlc2VydmVkGAUgASgIEhYKDnBsYW5uZXJfcGlubmVkGAYgASgIEioKCHJlc29sdmVzGAcgASgLMhguYm9uZXMudjEuRW50aXR5UmVzb2x2ZXIiZgoORW50aXR5UmVzb2x2ZXISEwoLcXVlcnlfZmllbGQYASABKAkSFQoNcmVzdWx0c19maWVsZBgCIAEoCRITCgt2YWx1ZV9maWVsZBgDIAEoCRITCgtsYWJlbF9maWVsZBgEIAEoCSqkAQoSQ2FwYWJpbGl0eUF1ZGllbmNlEiMKH0NBUEFCSUxJVFlfQVVESUVOQ0VfVU5TUEVDSUZJRUQQABImCiJDQVBBQklMSVRZX0FVRElFTkNFX0FETUlOSVNUUkFUT1JTEAESHwobQ0FQQUJJTElUWV9BVURJRU5DRV9NRU1CRVJTEAISIAocQ0FQQUJJTElUWV9BVURJRU5DRV9FVkVSWU9ORRADKo0BCglBdXRoektpbmQSGgoWQVVUSFpfS0lORF9VTlNQRUNJRklFRBAAEhUKEUFVVEhaX0tJTkRfUFVCTElDEAMSHAoYQVVUSFpfS0lORF9BVVRIRU5USUNBVEVEEAQiBAgBEAEiBAgCEAIqEkFVVEhaX0tJTkRfU0VSVklDRSoPQVVUSFpfS0lORF9VU0VSKmMKDUF0dHJpYnV0ZVR5cGUSHgoaQVRUUklCVVRFX1RZUEVfVU5TUEVDSUZJRUQQABIZChVBVFRSSUJVVEVfVFlQRV9TVFJJTkcQARIXChNBVFRSSUJVVEVfVFlQRV9VVUlEEAIqegoRQXR0cmlidXRlUG9sYXJpdHkSIgoeQVRUUklCVVRFX1BPTEFSSVRZX1VOU1BFQ0lGSUVEEAASHgoaQVRUUklCVVRFX1BPTEFSSVRZX0dSQU5URUQQARIhCh1BVFRSSUJVVEVfUE9MQVJJVFlfTkFSUk9XQUJMRRACKnwKEUF0dHJpYnV0ZU1hdGNoaW5nEiIKHkFUVFJJQlVURV9NQVRDSElOR19VTlNQRUNJRklFRBAAEhwKGEFUVFJJQlVURV9NQVRDSElOR19FWEFDVBABEiUKIUFUVFJJQlVURV9NQVRDSElOR19TRUdNRU5UX1BSRUZJWBACKrcBCglDYWxsU2hhcGUSGgoWQ0FMTF9TSEFQRV9VTlNQRUNJRklFRBAAEhQKEENBTExfU0hBUEVfVU5BUlkQARIcChhDQUxMX1NIQVBFX0NMSUVOVF9TVFJFQU0QAhIcChhDQUxMX1NIQVBFX0ZJTklURV9TVFJFQU0QAxIfChtDQUxMX1NIQVBFX1VOQk9VTkRFRF9TVFJFQU0QBBIbChdDQUxMX1NIQVBFX0xPTkdfUlVOTklORxAFKqcBCgxBY3Rpb25FZmZlY3QSHQoZQUNUSU9OX0VGRkVDVF9VTlNQRUNJRklFRBAAEhYKEkFDVElPTl9FRkZFQ1RfUFVSRRABEhsKF0FDVElPTl9FRkZFQ1RfRVBIRU1FUkFMEAISHQoZQUNUSU9OX0VGRkVDVF9DT01QRU5TQUJMRRADEiQKIEFDVElPTl9FRkZFQ1RfUE9JTlRfT0ZfTk9fUkVUVVJOEAQqbQoPSWRlbXBvdGVuY3lNb2RlEiAKHElERU1QT1RFTkNZX01PREVfVU5TUEVDSUZJRUQQABIcChhJREVNUE9URU5DWV9NT0RFX05BVFVSQUwQARIaChZJREVNUE9URU5DWV9NT0RFX0tFWUVEEAIqxQEKEkRhdGFDbGFzc2lmaWNhdGlvbhIjCh9EQVRBX0NMQVNTSUZJQ0FUSU9OX1VOU1BFQ0lGSUVEEAASHgoaREFUQV9DTEFTU0lGSUNBVElPTl9QVUJMSUMQARIgChxEQVRBX0NMQVNTSUZJQ0FUSU9OX0lOVEVSTkFMEAISJAogREFUQV9DTEFTU0lGSUNBVElPTl9DT05GSURFTlRJQUwQAxIiCh5EQVRBX0NMQVNTSUZJQ0FUSU9OX1JFU1RSSUNURUQQBDpCCgpjYXBhYmlsaXR5Eh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI22twIgASgJUgpjYXBhYmlsaXR5OnUKFXJlcXVpcmVkX2NhcGFiaWxpdGllcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiOtrcCIAMoCzIcLmJvbmVzLnYxLlJlcXVpcmVkQ2FwYWJpbGl0eVIUcmVxdWlyZWRDYXBhYmlsaXRpZXM6VwoVcHJvdmlkZWRfY2FwYWJpbGl0aWVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI+2twIgAygJUhRwcm92aWRlZENhcGFiaWxpdGllczpqChFjYXBhYmlsaXR5X2xhYmVscxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiQtrcCIAMoCzIZLmJvbmVzLnYxLkNhcGFiaWxpdHlMYWJlbFIQY2FwYWJpbGl0eUxhYmVsczpqChFwZXJtaXNzaW9uX2xhYmVscxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiRtrcCIAMoCzIZLmJvbmVzLnYxLlBlcm1pc3Npb25MYWJlbFIQcGVybWlzc2lvbkxhYmVsczpvChZwcm92aWRlZF9icm9rZXJfc2NvcGVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJK2twIgAygLMhUuYm9uZXMudjEuQnJva2VyU2NvcGVSFHByb3ZpZGVkQnJva2VyU2NvcGVzOnEKE2NhcGFiaWxpdHlfYXVkaWVuY2USHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYk7a3AiABKA4yHC5ib25lcy52MS5DYXBhYmlsaXR5QXVkaWVuY2VSEmNhcGFiaWxpdHlBdWRpZW5jZTprChFjYXBhYmlsaXR5X3Njb3BlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiUtrcCIAMoCzIaLmJvbmVzLnYxLkNhcGFiaWxpdHlTY29wZXNSEGNhcGFiaWxpdHlTY29wZXM6YAoKYXR0cmlidXRlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiWtrcCIAMoCzIcLmJvbmVzLnYxLkF0dHJpYnV0ZURpbWVuc2lvblIKYXR0cmlidXRlczo5CgZlcnJvcnMSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiLtrcCIAMoCVIGZXJyb3JzOkwKBWF1dGh6Eh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYjLa3AiABKAsyEy5ib25lcy52MS5BdXRoelJ1bGVSBWF1dGh6OkwKA21jcBIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGJe2twIgASgLMhcuYm9uZXMudjEuTWNwUHJvamVjdGlvblIDbWNwOlUKCmNhbGxfc2hhcGUSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiatrcCIAEoDjITLmJvbmVzLnYxLkNhbGxTaGFwZVIJY2FsbFNoYXBlOjwKCGJhdGNoX29mEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYn7a3AiABKAlSB2JhdGNoT2Y6agoRYXV0b21hdGlvbl9hY3Rpb24SHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxictrcCIAEoCzIaLmJvbmVzLnYxLkF1dG9tYXRpb25BY3Rpb25SEGF1dG9tYXRpb25BY3Rpb246RwoObGlzdF9zdHJlYW1fb2YSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxijtrcCIAEoCVIMbGlzdFN0cmVhbU9mOlgKCHJlc291cmNlEh8uZ29vZ2xlLnByb3RvYnVmLk1lc3NhZ2VPcHRpb25zGJm2twIgASgLMhguYm9uZXMudjEuUmVzb3VyY2VPcHRpb25SCHJlc291cmNlOm4KEmF1dG9tYXRpb25fdHJpZ2dlchIfLmdvb2dsZS5wcm90b2J1Zi5NZXNzYWdlT3B0aW9ucxibtrcCIAEoCzIbLmJvbmVzLnYxLkF1dG9tYXRpb25UcmlnZ2VyUhFhdXRvbWF0aW9uVHJpZ2dlcjpDCgtpbnN0YW5jZV9vZhIfLmdvb2dsZS5wcm90b2J1Zi5NZXNzYWdlT3B0aW9ucxihtrcCIAEoCVIKaW5zdGFuY2VPZjo0CgRhdHRyEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxiYtrcCIAEoCVIEYXR0cjpmCg5jbGFzc2lmaWNhdGlvbhIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYnba3AiABKA4yHC5ib25lcy52MS5EYXRhQ2xhc3NpZmljYXRpb25SDmNsYXNzaWZpY2F0aW9uOjoKB21lYW5pbmcSHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGKC2twIgASgJUgdtZWFuaW5nOkcKDmRlZmF1bHRlZF9mcm9tEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxiitrcCIAEoCVINZGVmYXVsdGVkRnJvbTo7Cgh0eXBlZF9ieRIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYpLa3AiABKAlSB3R5cGVkQnk6SAoPbmVzdGVkX3dyaXRlX29mEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxiltrcCIAEoCVINbmVzdGVkV3JpdGVPZmIGcHJvdG8z", [file_google_protobuf_descriptor]);
 
 /**
  * One capability a service depends on, and the authority it intends to
@@ -788,12 +814,30 @@ export type BrokerScope = Message<"bones.v1.BrokerScope"> & {
   /**
    * The CanonicalClaim scope, carrying no subject: `<ns>:events:subscribe`
    * for the provider's own events, `<ns>:events:<topic>:subscribe` for one
-   * live-only topic of them, or `<ns>:<right>` for a broker's own right.
+   * live-only topic of them, `<ns>:events:<topic>:subscribe:own` for one
+   * topic of the holder's own entity's events only, or `<ns>:<right>` for a
+   * broker's own right.
    * The file header holds its forms and the complete refusal list.
    *
    * @generated from field: string scope = 2;
    */
   scope: string;
+
+  /**
+   * A capability that implies this scope. Applies only to the own-events
+   * form `<ns>:events:<topic>:subscribe:own`, and names a capability the same
+   * provider provides. When set, every workload that holds the named
+   * capability, through its own standing grant or its consumption, is granted
+   * this broker scope without a grant record.
+   * Only while the holder holds that capability; the scope drops at the next
+   * mint once it is withdrawn.
+   * Empty: nothing is implied; the scope is granted only by consuming
+   * `capability` or by an explicit grant. Names a capability by the same
+   * grammar as `capability`.
+   *
+   * @generated from field: string implied_by = 3;
+   */
+  impliedBy: string;
 };
 
 /**
