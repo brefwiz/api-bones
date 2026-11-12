@@ -302,6 +302,11 @@ pub struct DelegationTemplatesWorld {
     pub capabilities: Vec<String>,
     pub singular_capability: Option<String>,
     pub broker_scopes: Vec<(String, String)>,
+    /// Broker scopes of a separate, RPC-free events service: capability, scope
+    /// and the capability implying it.
+    pub events_scopes: Vec<(String, String, Option<String>)>,
+    /// The templates the separate events service ships.
+    pub events_templates: Vec<String>,
     /// Each group with the scopes its entry lists; empty for a group listing none.
     pub groups: Vec<(String, Vec<String>)>,
     pub dimensions: Vec<String>,

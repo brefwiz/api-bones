@@ -624,3 +624,84 @@ fn a_template_named_with_a_control_or_format_character_renders_escaped() {
         );
     }
 }
+
+/// The `implied_by` of each `provided_broker_scopes` entry of `p.v1.B`, in
+/// declaration order, read back through descriptor reflection.
+fn implied_by_of_entries(pool: &DescriptorPool) -> Vec<String> {
+    let extension = pool
+        .get_extension_by_name("bones.v1.provided_broker_scopes")
+        .expect("the extension is declared");
+    let options = pool
+        .get_service_by_name("p.v1.B")
+        .expect("service")
+        .options();
+    let value = options.get_extension(&extension);
+    value
+        .as_list()
+        .expect("a repeated option")
+        .iter()
+        .map(|entry| {
+            let entry = entry.as_message().expect("a message");
+            entry
+                .get_field_by_name("implied_by")
+                .expect("the field is declared")
+                .as_str()
+                .expect("a string")
+                .to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn a_broker_scope_reads_back_the_capability_that_implies_it() {
+    let pool = contract(&[String::from(
+        "service B {\n  option (bones.v1.provided_capabilities) = \"events\";\n  \
+         option (bones.v1.provided_capabilities) = \"reader\";\n  \
+         option (bones.v1.provided_broker_scopes) = { capability: \"events\" scope: \"b:events:t:subscribe:own\" implied_by: \"reader\" };\n  \
+         option (bones.v1.provided_broker_scopes) = { capability: \"events\" scope: \"b:events:t:subscribe\" implied_by: \"\" };\n  \
+         option (bones.v1.provided_broker_scopes) = { capability: \"events\" scope: \"b:right\" };\n  \
+         rpc Open(Req) returns (Req);\n}\n",
+    )]);
+    assert_eq!(implied_by_of_entries(&pool), ["reader", "", ""]);
+}
+
+#[test]
+fn an_implied_by_survives_a_wire_round_trip() {
+    use prost_reflect::prost::Message as _;
+    use prost_reflect::{DynamicMessage, Value};
+
+    let pool = contract(&[String::from(
+        "service B {\n  option (bones.v1.provided_capabilities) = \"events\";\n  \
+         option (bones.v1.provided_capabilities) = \"reader\";\n  \
+         option (bones.v1.provided_broker_scopes) = { capability: \"events\" scope: \"b:events:t:subscribe:own\" implied_by: \"reader\" };\n  \
+         rpc Open(Req) returns (Req);\n}\n",
+    )]);
+    let descriptor = pool
+        .get_message_by_name("bones.v1.BrokerScope")
+        .expect("BrokerScope is declared");
+    let field = descriptor
+        .get_field_by_name("implied_by")
+        .expect("implied_by is declared");
+    assert_eq!(field.number(), 3);
+
+    let mut message = DynamicMessage::new(descriptor.clone());
+    message.set_field_by_name("capability", Value::String("events".into()));
+    message.set_field_by_name("scope", Value::String("b:events:t:subscribe:own".into()));
+    message.set_field_by_name("implied_by", Value::String("reader".into()));
+    let decoded = DynamicMessage::decode(descriptor.clone(), message.encode_to_vec().as_slice())
+        .expect("decodes");
+    assert_eq!(decoded, message);
+    assert_eq!(
+        decoded.get_field_by_name("implied_by").unwrap().as_str(),
+        Some("reader")
+    );
+
+    let mut bare = DynamicMessage::new(descriptor.clone());
+    bare.set_field_by_name("scope", Value::String("b:right".into()));
+    let decoded =
+        DynamicMessage::decode(descriptor, bare.encode_to_vec().as_slice()).expect("decodes");
+    assert_eq!(
+        decoded.get_field_by_name("implied_by").unwrap().as_str(),
+        Some("")
+    );
+}

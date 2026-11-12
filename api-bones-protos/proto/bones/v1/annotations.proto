@@ -191,41 +191,57 @@
 // capability's scopes from RPC `requires` alone, so a capability over
 // events, which serves no RPC, would otherwise have no scope to confer.
 //
-// Each entry names the provided capability it belongs to and the scope,
-// nothing else. Its grant class is `capability` by construction, so the
-// entry states none: the scope is granted by capability consumption or an
-// explicit capability grant, exactly like an RPC-derived scope, and
+// Each entry names the provided capability it belongs to, the scope, and
+// optionally `implied_by`. Its grant class is `capability` by construction,
+// so the entry states none: the scope is granted by capability consumption
+// or an explicit capability grant, exactly like an RPC-derived scope, and
 // registered, granted, revoked and audited by the same authority, the
 // registration authority. It names no enforcer either: the event form is
 // recognized by its shape, and the enforcer of any other scope by the
-// registration authority's enforcer registry. Declaring one grants nothing.
+// registration authority's enforcer registry. Declaring a scope without
+// `implied_by` grants nothing.
+//
+// `implied_by` is a third grant path, for the
+// `<ns>:events:<topic>:subscribe:own` form only: the platform gives the
+// scope to every holder of the named capability with no grant record, and
+// only while the holder holds that capability. When the holder's standing
+// grant or consumption of that capability is withdrawn, the scope goes with
+// it at the next mint, and the relay consent facts follow the same rule.
 //
 // A broker scope is a CanonicalClaim scope, byte-identical wherever it is
 // named, and carries no subject. Its namespace is the text before its first
 // `:`, the same parse the registration authority applies to every scope.
 //
-// Admission. A broker scope is admitted in exactly three forms:
+// Admission. A broker scope is admitted in exactly four forms:
 //   - `<ns>:events:subscribe`, an event scope, declared by the workload whose
 //     service name (the service segment of its SVID) is `<ns>`;
 //   - `<ns>:events:<topic>:subscribe`, a topic event scope, declared by the
 //     same workload; `<topic>` is a single token with the characters of a
 //     namespace token and none of `:`, `.`, `*` or `>`;
+//   - `<ns>:events:<topic>:subscribe:own`, an own-events scope, declared by
+//     the same workload on a broker-only capability, with a single-token
+//     `<topic>` as above; the broker compiles it to the holder's own events
+//     only, never a sibling's, and `implied_by` grants it (S6-S8);
 //   - `<ns>:<right>`, a broker's own right, declared by the workload the
 //     enforcer registry names as the enforcer of `<ns>`.
 // Every other shape names a scope no broker enforces, and is refused as a
 // dead grant.
 //
-// The two event forms differ in how they are served. The namespace form
+// The three event forms differ in how they are served. The namespace form
 // `<ns>:events:subscribe` is served by the per-organization durables. A topic
 // scope is served live only: per-replica ephemeral core subscriptions that the
 // broker grants per granting organization, never a durable, with no queue
 // group and no replay. A consumer holding a topic scope by a platform grant
-// hears every organization. A fact a consumer must never miss belongs on the
-// namespace form.
+// hears every organization. The `:own` form is served by a short-lived
+// core-NATS subscription limited to the holder's own `/svc` segment, as the
+// last subject segment, never wider and never a per-organization durable; the
+// reconciler sets nothing up for it and creates no consumer object. A fact a
+// consumer must never miss belongs on the namespace form.
 //
 // The event forms are recognized by shape; the enforcer is recognized by the
 // registry, never by the scope. A registered enforcer declaring an event
-// scope of either form whose `<ns>` differs from its own service name is therefore still
+// scope of any of the three event forms whose `<ns>` differs from its own
+// service name is therefore still
 // refused, under A1 below.
 //
 // For an event scope, `<ns>` is the provider's event-subject service segment,
@@ -249,13 +265,15 @@
 // item below holds.
 //
 // Admission refusals:
-//   A1. its `scope` is an event scope, exactly `<ns>:events:subscribe` or
-//      `<ns>:events:<topic>:subscribe`, and `<ns>` is not the registering workload's service name, even when that
-//      workload is a registered enforcer;
-//   A2. its `scope` is any scope other than an event scope of either form, and the
+//   A1. its `scope` is an event scope, exactly `<ns>:events:subscribe`,
+//      `<ns>:events:<topic>:subscribe` or
+//      `<ns>:events:<topic>:subscribe:own`, and `<ns>` is not the registering
+//      workload's service name, even when that workload is a registered
+//      enforcer;
+//   A2. its `scope` is any scope other than an event scope of the three event forms, and the
 //      registering workload is not the registered enforcer of its namespace
 //      in the enforcer registry;
-//   A3. its `scope` is an event scope of either form, and the registering workload's
+//   A3. its `scope` is an event scope of any of the three forms, and the registering workload's
 //      canonical stream name equals that of another service already
 //      registered, as `order-book` and `order_book` both yield `ORDER_BOOK`:
 //      the first registrant keeps the stream, and the later registration is
@@ -273,6 +291,14 @@
 //      widen to an RPC surface;
 //   S5. the same scope is declared twice, or is also required by an RPC: one
 //      scope, one declaration.
+//   S6. its `implied_by` is non-empty and is not a syntactically valid
+//      capability name.
+//   S7. its `implied_by` is non-empty and does not name a capability the same
+//      contract or provider provides: a name of another provider's
+//      capability, or an unknown one, is refused at declaration;
+//   S8. its `implied_by` is non-empty and its `scope` is not of the form
+//      `<ns>:events:<topic>:subscribe:own` with a single-token topic: only
+//      that own-events form may be implied by a capability.
 //
 // Usage — a separate event capability, distinct from the RPC capability
 // `reservations.schedule`, registered by the workload whose service name is
@@ -811,9 +837,23 @@ message BrokerScope {
 
   // The CanonicalClaim scope, carrying no subject: `<ns>:events:subscribe`
   // for the provider's own events, `<ns>:events:<topic>:subscribe` for one
-  // live-only topic of them, or `<ns>:<right>` for a broker's own right.
+  // live-only topic of them, `<ns>:events:<topic>:subscribe:own` for one
+  // topic of the holder's own entity's events only, or `<ns>:<right>` for a
+  // broker's own right.
   // The file header holds its forms and the complete refusal list.
   string scope = 2;
+
+  // A capability that implies this scope. Applies only to the own-events
+  // form `<ns>:events:<topic>:subscribe:own`, and names a capability the same
+  // provider provides. When set, every workload that holds the named
+  // capability, through its own standing grant or its consumption, is granted
+  // this broker scope without a grant record.
+  // Only while the holder holds that capability; the scope drops at the next
+  // mint once it is withdrawn.
+  // Empty: nothing is implied; the scope is granted only by consuming
+  // `capability` or by an explicit grant. Names a capability by the same
+  // grammar as `capability`.
+  string implied_by = 3;
 }
 
 // One permission group: a provided capability and the scopes it confers.

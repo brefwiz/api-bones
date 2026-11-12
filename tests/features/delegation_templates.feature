@@ -285,6 +285,17 @@ Feature: Delegation templates a provider ships
     When the provider contract is validated
     Then its grant 0 reads back the scope "departure:events"
     And the delegation templates are accepted
+    And the provided broker scope "departure:events" reads back implied by ""
+
+  @state:happy
+  Scenario: A provided broker scope implied by a capability is the provider's to grant
+    Given the provider provides the capability "reader"
+    And a separate events service provides the capability "departure.events" with the broker scope "departure:events:status:subscribe:own" implied by the capability "reader"
+    And the events service ships the template "departure_watcher" labelled "Departure watcher" with the grant 'scope: "departure:events:status:subscribe:own" approval_mode: APPROVAL_MODE_ASK'
+    When the provider contract is validated
+    Then its grant 0 reads back the scope "departure:events:status:subscribe:own"
+    And the delegation templates are accepted
+    And the provided broker scope "departure:events:status:subscribe:own" reads back implied by "reader"
 
   @state:happy
   Scenario: A group whose capability the provider declares through the singular capability option is accepted
