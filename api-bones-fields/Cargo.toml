@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 [package]
 name = "api-bones-fields"
-version = "0.2.3"
+version = "0.2.4"
 publish = ["brefwiz"]
 edition = "2024"
 license = "MIT"
@@ -20,6 +20,6 @@ email_address.workspace = true
 url.workspace = true
 
 [build-dependencies]
-api-bones-protos = { path = "../api-bones-protos", version = "^0.8.3", registry = "brefwiz" }
+api-bones-protos = { path = "../api-bones-protos", version = "^0.8.4", registry = "brefwiz" }
 connectrpc-build = "0.9"
 protox = "0.9"
