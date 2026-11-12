@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-page"
-version = "0.3.0"
+version = "0.3.1"
 publish = ["brefwiz"]
 edition = "2024"
 rust-version = "1.85"
@@ -20,7 +20,7 @@ workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-api-bones = { version = "^17.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
+api-bones = { version = "^17.1.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
 connectrpc = "0.9.1"
 futures-core = "0.3"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
