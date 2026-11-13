@@ -291,9 +291,13 @@ fn given_nested_service(world: &mut VocabularyWorld, shape: String, named: Strin
          message Item {{ string id = 1; }}\n\
          message ItemSet {{ repeated Item items = 1; }}\n\
          message Res {{ string id = 1; }}\n\
+         message PutItemRequest {{ string parent_id = 1; Item item = 2; }}\n\
+         message MoveItemRequest {{ Item from = 1; Item to = 2; }}\n\
          message CreateRequest {{ {shape} children = 1 [(bones.v1.nested_write_of) = \"{named}\"]; }}\n\
          service Svc {{\n\
            rpc Put(Item) returns (Res);\n\
+           rpc PutWrapped(PutItemRequest) returns (Res);\n\
+           rpc MoveItem(MoveItemRequest) returns (Res);\n\
            rpc Get(Item) returns (Res) {{ option idempotency_level = NO_SIDE_EFFECTS; }}\n\
            rpc Watch(Item) returns (stream Res);\n\
            rpc Upload(stream Item) returns (Res);\n\
@@ -301,6 +305,23 @@ fn given_nested_service(world: &mut VocabularyWorld, shape: String, named: Strin
            rpc Create(CreateRequest) returns (Res);\n\
          }}\n\
          service Other {{ rpc Put(Item) returns (Res); }}\n"
+    );
+}
+
+#[given("another service takes the same request")]
+fn given_nested_second_carrier(world: &mut VocabularyWorld) {
+    world.source = world.source.replace(
+        "service Other { rpc Put(Item) returns (Res); }",
+        "service Other { rpc Put(Item) returns (Res); rpc Create(CreateRequest) returns (Res); }",
+    );
+}
+
+#[given("a read takes the same request")]
+fn given_nested_read_carrier(world: &mut VocabularyWorld) {
+    world.source = world.source.replace(
+        "rpc Create(CreateRequest) returns (Res);",
+        "rpc Create(CreateRequest) returns (Res);\n\
+         rpc Peek(CreateRequest) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; }",
     );
 }
 

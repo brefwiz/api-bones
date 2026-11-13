@@ -86,6 +86,8 @@ Feature: Proto vocabulary shipped to contract authors
       | field                    | named              |
       | repeated Item            | Put                |
       | optional ItemSet         | contract.v1.Svc/Put |
+      | repeated Item            | PutWrapped         |
+      | optional ItemSet         | PutWrapped         |
 
   Scenario Outline: A nested_write_of that is misplaced or names no sibling child write is refused
     Given a service whose request carries the field "<field>" naming "<named>"
@@ -105,6 +107,23 @@ Feature: Proto vocabulary shipped to contract authors
       | map<string, Item> | Put                   | is on a field that is not `repeated <Child>` or `optional <Child>Set`             |
       | repeated string   | Put                   | is on a field that is not `repeated <Child>` or `optional <Child>Set`             |
       | optional Item     | Put                   | is on a field that is not `repeated <Child>` or `optional <Child>Set`             |
+      | repeated Res      | Put                   | is on children of a message the named method does not write                       |
+      | repeated Res      | PutWrapped            | is on children of a message the named method does not write                       |
+      | repeated Item     | MoveItem              | is on children of a message the named method does not write                       |
+
+  Scenario: A nested_write_of whose name another carrier of the request cannot resolve is refused
+    Given a service whose request carries the field "repeated Item" naming "PutWrapped"
+    And another service takes the same request
+    When the contract is compiled against the shipped files
+    And the nested_write_of declarations are checked
+    Then the nested_write_of is refused as "names a method the service does not declare"
+
+  Scenario: A nested_write_of on a request a read takes is refused
+    Given a service whose request carries the field "repeated Item" naming "Put"
+    And a read takes the same request
+    When the contract is compiled against the shipped files
+    And the nested_write_of declarations are checked
+    Then the nested_write_of is refused as "is on the request of a method that declares NO_SIDE_EFFECTS"
 
   Scenario: A nested_write_of on a message no RPC takes is refused
     Given a service whose request carries the field "repeated Item" naming "Put"
