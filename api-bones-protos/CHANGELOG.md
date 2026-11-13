@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-11-13
+
+### Added
+
+- *(batch,nested-write)* an existing record is an item's own refusal; a nested write may name a sibling service's method
+
 ## [0.8.5] - 2026-11-13
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-batch"
-version = "0.3.4"
+version = "0.3.5"
 publish = ["brefwiz"]
 edition = "2024"
 rust-version = "1.85"
@@ -22,10 +22,10 @@ path = "src/lib.rs"
 [dependencies]
 prost-reflect = { workspace = true }
 api-bones-transport = { version = "0.1.1", path = "../api-bones-transport", registry = "brefwiz" }
-api-bones-page = { version = "0.3.3", path = "../api-bones-page", registry = "brefwiz" }
+api-bones-page = { version = "0.3.4", path = "../api-bones-page", registry = "brefwiz" }
 base64 = { version = "0.23", default-features = false, features = ["alloc"] }
 buffa = "0.9"
-api-bones = { version = "^17.3.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
+api-bones = { version = "^17.4.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
 connectrpc = { version = "0.9.1", features = ["client"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4.2"
@@ -35,5 +35,5 @@ tracing = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "test-util"] }
-api-bones-protos = { path = "../api-bones-protos", version = "^0.8.5", registry = "brefwiz" }
+api-bones-protos = { path = "../api-bones-protos", version = "^0.8.6", registry = "brefwiz" }
 protox = "0.9"
