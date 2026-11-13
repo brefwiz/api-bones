@@ -509,15 +509,22 @@
 // `optional <Child>Set <children>`, with `message <Child>Set { repeated <Child>
 // items = 1; }`: unset leaves the stored children unchanged; set, even empty,
 // is the complete set, so listed keys are upserted and every other key is
-// deleted. The parent and its children commit in one transaction, all or
-// nothing: one refused child refuses the call and nothing commits, answered
-// `invalid_argument` with `bones.v1.ValidationFailure.field`
-// `<children>[i].<field>`. Each child passes the validation and authorization
-// of the single child write. The server writes any number of children with a
-// statement count independent of how many there are, and the response echoes
-// the stored children. This is deliberately unlike `batch_of`, whose items
-// each have their own outcome: a partial nested write would leave the caller
-// to compensate.
+// deleted. `<Child>` is the message the named single writes: that method's
+// request message itself, or the type of the one singular message field of
+// that type in its request; a request with two such fields is ambiguous and
+// refused. The request carrying `nested_write_of` is never the input of a
+// read, an RPC declaring `NO_SIDE_EFFECTS`. Every RPC that has that request
+// as its input resolves the name in its own service and passes the whole
+// check; one refusal refuses the field. The cap of 200 is the server's to
+// enforce; no option declares it. The parent and its children commit in one
+// transaction, all or nothing: one refused child refuses the call and
+// nothing commits, answered `invalid_argument` with
+// `bones.v1.ValidationFailure.field` `<children>[i].<field>`. Each child
+// passes the validation and authorization of the single child write. The
+// server writes any number of children with a statement count independent of
+// how many there are, and the response echoes the stored children. This is
+// deliberately unlike `batch_of`, whose items each have their own outcome: a
+// partial nested write would leave the caller to compensate.
 //
 // Usage:
 //
@@ -525,6 +532,7 @@
 //     string name = 1;
 //     repeated WidgetPart parts = 2 [(bones.v1.nested_write_of) = "PutWidgetPart"];
 //   }
+//   message PutWidgetPartRequest { string widget_id = 1; WidgetPart part = 2; }
 //   message WidgetPartSet { repeated WidgetPart items = 1; }
 //   message UpdateWidgetRequest {
 //     string id = 1;

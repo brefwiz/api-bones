@@ -280,6 +280,14 @@ fn every_refusal_reason_renders_its_own_sentence() {
             NestedWriteOfReason::NotChildren,
             "is on a field that is not `repeated <Child>` or `optional <Child>Set`",
         ),
+        (
+            NestedWriteOfReason::ReadRequest,
+            "is on the request of a method that declares NO_SIDE_EFFECTS",
+        ),
+        (
+            NestedWriteOfReason::ChildMismatch,
+            "is on children of a message the named method does not write",
+        ),
     ];
     for (reason, sentence) in cases {
         let refusal = NestedWriteOfRefusal {
@@ -316,28 +324,97 @@ fn several_refusals_render_joined() {
 }
 
 #[test]
-fn one_carrier_that_accepts_the_name_is_enough() {
-    // `Create` accepts "Create2"; `Create2` refuses it as itself. One
-    // accepting carrier passes the field.
-    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"Create2\"];";
+fn every_carrier_must_accept_the_name() {
+    // Deliberate contract change: a second carrier that refuses the name
+    // (`Create2` names itself) now refuses the field, instead of one
+    // accepting carrier being enough. `head` makes `Create2` a write of `Line`.
+    let field =
+        "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"Create2\"]; Line head = 3;";
     let source = contract(field, "  rpc Create2(CreateReq) returns (Res);\n");
-    assert_eq!(check_nested_write_of(&descriptor_set(&source)), Ok(()));
+    assert_eq!(
+        reason_of_source(&source),
+        NestedWriteOfReason::SelfReference
+    );
+}
+
+/// `contract` with `Billing` also taking `CreateReq` through `Bill`, its
+/// `Put` as `billing_put`, and the two services in either declaration order.
+fn two_carriers(named: &str, billing_put: &str, billing_first: bool) -> String {
+    let field = format!("repeated Line lines = 2 [(bones.v1.nested_write_of) = \"{named}\"];");
+    let source =
+        contract(&field, "").replace("service Billing { rpc Put(Line) returns (Res); }\n", "");
+    let orders_at = source.find("service Orders").unwrap();
+    let (head, orders) = source.split_at(orders_at);
+    let billing = format!(
+        "service Billing {{ rpc Put({billing_put}) returns (Res); rpc Bill(CreateReq) returns (Res); }}\n"
+    );
+    if billing_first {
+        format!("{head}{billing}{orders}")
+    } else {
+        format!("{head}{orders}{billing}")
+    }
+}
+
+#[test]
+fn two_carriers_that_both_resolve_a_matching_single_pass() {
+    for billing_first in [false, true] {
+        let source = two_carriers("Put", "Line", billing_first);
+        assert_eq!(check_nested_write_of(&descriptor_set(&source)), Ok(()));
+    }
+}
+
+#[test]
+fn a_second_carrier_with_a_mismatching_single_is_refused_in_either_order() {
+    for billing_first in [false, true] {
+        let source = two_carriers("Put", "Pair", billing_first);
+        assert_eq!(
+            reason_of_source(&source),
+            NestedWriteOfReason::ChildMismatch,
+            "billing_first={billing_first}"
+        );
+    }
+}
+
+#[test]
+fn a_qualified_name_of_another_service_refuses_in_either_order() {
+    for named in ["orders.v1.Orders/Put", "orders.v1.Billing/Put"] {
+        for billing_first in [false, true] {
+            let source = two_carriers(named, "Line", billing_first);
+            assert_eq!(
+                reason_of_source(&source),
+                NestedWriteOfReason::OtherService,
+                "{named} billing_first={billing_first}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_single_whose_request_has_two_child_slots_is_refused() {
+    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"MoveLine\"];";
+    let source = contract(field, "  rpc MoveLine(MoveLineReq) returns (Res);\n").replace(
+        "message Res {}",
+        "message MoveLineReq { Line from = 1; Line to = 2; }\nmessage Res {}",
+    );
+    assert_eq!(
+        reason_of_source(&source),
+        NestedWriteOfReason::ChildMismatch
+    );
 }
 
 #[test]
 fn when_every_carrier_refuses_the_first_reason_is_reported() {
     // `Orders.Create` refuses "Create" as itself; `Billing.Bill` has no such
-    // method. The first carrier's reason wins.
+    // method. Carriers sort by method name, so `Billing.Bill` reports first.
     let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"Create\"];";
     let source = contract(field, "").replace(
         "service Billing { rpc Put(Line) returns (Res); }",
         "service Billing { rpc Put(Line) returns (Res); rpc Bill(CreateReq) returns (Res); }",
     );
     assert_eq!(
-        refused(&source)[0].reason,
-        NestedWriteOfReason::SelfReference
+        reason_of_source(&source),
+        NestedWriteOfReason::UnknownMethod
     );
-    assert_eq!(refused(&source).len(), 1);
 }
 
 #[test]
@@ -390,4 +467,107 @@ fn refusals_come_in_message_then_field_order() {
             "orders.v1.AReq.a"
         ]
     );
+}
+
+#[test]
+fn a_single_whose_request_carries_the_child_passes() {
+    for (field, rpc) in [
+        (
+            "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"PutLine\"];",
+            "  rpc PutLine(PutLineReq) returns (Res);\n",
+        ),
+        (
+            "optional LineSet lines = 2 [(bones.v1.nested_write_of) = \"PutLine\"];",
+            "  rpc PutLine(PutLineReq) returns (Res);\n",
+        ),
+    ] {
+        let source = contract(field, rpc).replace(
+            "message Res {}",
+            "message PutLineReq { string order_id = 1; Line line = 2; }\nmessage Res {}",
+        );
+        assert_eq!(
+            check_nested_write_of(&descriptor_set(&source)),
+            Ok(()),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn children_of_a_message_the_single_does_not_write_are_refused() {
+    // `Pair` is not `Line`; `PutLines` carries `Line` only repeated, and
+    // `PutLineMap` only in a map, so neither request carries the child as a
+    // singular field.
+    for (field, rpc, req) in [
+        (
+            "repeated Pair lines = 2 [(bones.v1.nested_write_of) = \"Put\"];",
+            "",
+            "",
+        ),
+        (
+            "optional PairSet lines = 2 [(bones.v1.nested_write_of) = \"Put\"];",
+            "",
+            "",
+        ),
+        (
+            "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"PutLines\"];",
+            "  rpc PutLines(PutLinesReq) returns (Res);\n",
+            "message PutLinesReq { string order_id = 1; repeated Line lines = 2; }\n",
+        ),
+        (
+            "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"PutLineMap\"];",
+            "  rpc PutLineMap(PutLineMapReq) returns (Res);\n",
+            "message PutLineMapReq { map<string, Line> lines = 1; }\n",
+        ),
+    ] {
+        let source =
+            contract(field, rpc).replace("message Res {}", &format!("{req}message Res {{}}"));
+        assert_eq!(
+            reason_of_source(&source),
+            NestedWriteOfReason::ChildMismatch,
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn a_non_children_field_is_reported_before_a_child_mismatch() {
+    let field = "map<string, Pair> lines = 2 [(bones.v1.nested_write_of) = \"Put\"];";
+    assert_eq!(reason_of(field, ""), NestedWriteOfReason::NotChildren);
+}
+
+#[test]
+fn a_request_a_read_takes_is_refused() {
+    // `Create` is a write, but `Peek` takes the same request and declares
+    // NO_SIDE_EFFECTS; the read is refused before the name is resolved.
+    for named in ["Put", "Nope"] {
+        let field = format!("repeated Line lines = 2 [(bones.v1.nested_write_of) = \"{named}\"];");
+        let rpc =
+            "  rpc Peek(CreateReq) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; }\n";
+        assert_eq!(
+            reason_of(&field, rpc),
+            NestedWriteOfReason::ReadRequest,
+            "{named}"
+        );
+    }
+}
+
+#[test]
+fn a_request_only_a_read_takes_is_refused() {
+    let source = contract(
+        "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"Put\"];",
+        "",
+    )
+    .replace(
+        "rpc Create(CreateReq) returns (Res);",
+        "rpc Create(CreateReq) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; }",
+    );
+    assert_eq!(reason_of_source(&source), NestedWriteOfReason::ReadRequest);
+}
+
+fn reason_of_source(source: &str) -> NestedWriteOfReason {
+    let found = refused(source);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].field, "orders.v1.CreateReq.lines");
+    found[0].reason
 }

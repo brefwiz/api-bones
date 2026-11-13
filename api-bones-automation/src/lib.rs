@@ -19,8 +19,9 @@
 //!   method of its own service, or whose method does not keep that method's
 //!   authorization.
 //! - [`check_nested_write_of`] refuses a `bones.v1.nested_write_of` that does
-//!   not name a sibling method, sits on a message no RPC takes, or is not a
-//!   children field.
+//!   not name a sibling unary write, sits on a message no RPC or a read takes,
+//!   is not a children field, or holds children the named write does not
+//!   write.
 //! - [`signature`] signs and verifies the DSSE Ed25519 signature over the
 //!   manifest. The crate holds no key and no pin: signing takes the caller's
 //!   key, verifying takes the caller's key set with validity epochs.
