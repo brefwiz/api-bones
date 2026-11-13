@@ -490,7 +490,11 @@
 // its positions. Pre-execution refusals, authentication and more than 200
 // items, refuse the call. Once execution starts the call never fails whole: a
 // failure that is not the item's own outcome answers that item `aborted`, and
-// every item not run `aborted` too.
+// every item not run `aborted` too. An item's own refusals are the codes its
+// single declares: `not_found`, `permission_denied`, `invalid_argument`,
+// `failed_precondition` and, only when the single declares ALREADY_EXISTS,
+// `already_exists` (a duplicate in a create batch: a resend fails again). A
+// refused item never stops the later items, which still run.
 //
 // Usage:
 //
@@ -503,8 +507,11 @@
 //   }
 //
 // `bones.v1.nested_write_of` is set on the children field of a parent write
-// request and names, as a bare method name like `batch_of`, the single child
-// write of the same service that each child passes through. On create the
+// request and names the single child write that each child passes through: a
+// bare method name of the same service, like `batch_of`, or
+// `<package>.<Service>/<Method>` for a method of another service of the same
+// proto package as the RPC carrying the field (a name in another package is refused; so is an
+// unknown service or method). On create the
 // field is `repeated <Child> <children>`, at most 200. On update it is
 // `optional <Child>Set <children>`, with `message <Child>Set { repeated <Child>
 // items = 1; }`: unset leaves the stored children unchanged; set, even empty,
@@ -515,7 +522,11 @@
 // refused. The request carrying `nested_write_of` is never the input of a
 // read, an RPC declaring `NO_SIDE_EFFECTS`. Every RPC that has that request
 // as its input resolves the name in its own service and passes the whole
-// check; one refusal refuses the field. The cap of 200 is the server's to
+// check; one refusal refuses the field. The resolved method follows every rule
+// of a same-service one. When the field is set, the server runs each child
+// through the named method in-process and authorizes it as that method
+// requires, even when it lives in another service: the call then needs the
+// parent method's authorization and the child method's. The cap of 200 is the server's to
 // enforce; no option declares it. The parent and its children commit in one
 // transaction, all or nothing: one refused child refuses the call and
 // nothing commits, answered `invalid_argument` with

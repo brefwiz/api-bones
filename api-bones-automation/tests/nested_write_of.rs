@@ -98,9 +98,104 @@ fn a_message_no_rpc_takes_is_refused() {
 }
 
 #[test]
-fn a_method_of_another_service_is_refused() {
-    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"orders.v1.Billing/Put\"];";
+fn a_service_in_another_package_is_refused() {
+    let field =
+        "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"billing.v1.Billing/Put\"];";
     assert_eq!(reason_of(field, ""), NestedWriteOfReason::OtherService);
+}
+
+#[test]
+fn a_package_that_is_not_exactly_the_carriers_is_refused() {
+    for named in [
+        "orders.v1x.Billing/Put",
+        "orders.Billing/Put",
+        "orders.v1.sub.Billing/Put",
+        "Billing/Put",
+        "/Put",
+    ] {
+        let field = format!("repeated Line lines = 2 [(bones.v1.nested_write_of) = \"{named}\"];");
+        assert_eq!(
+            reason_of(&field, ""),
+            NestedWriteOfReason::OtherService,
+            "{named}"
+        );
+    }
+}
+
+#[test]
+fn a_malformed_name_in_the_carriers_package_is_refused() {
+    for (named, reason) in [
+        ("orders.v1.Billing/", NestedWriteOfReason::UnknownMethod),
+        (
+            "orders.v1.Billing/Put/Extra",
+            NestedWriteOfReason::UnknownMethod,
+        ),
+    ] {
+        let field = format!("repeated Line lines = 2 [(bones.v1.nested_write_of) = \"{named}\"];");
+        assert_eq!(reason_of(&field, ""), reason, "{named}");
+    }
+}
+
+#[test]
+fn a_package_less_carrier_accepts_a_package_less_service_name() {
+    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"Billing/Put\"];";
+    let source = contract(field, "").replace("package orders.v1;\n", "");
+    assert!(!source.contains("package"), "{source}");
+    assert_eq!(check_nested_write_of(&descriptor_set(&source)), Ok(()));
+}
+
+#[test]
+fn a_method_of_another_service_of_the_same_package_passes() {
+    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"orders.v1.Billing/Put\"];";
+    let source = contract(field, "");
+    assert_eq!(check_nested_write_of(&descriptor_set(&source)), Ok(()));
+}
+
+#[test]
+fn an_unknown_service_of_the_same_package_is_refused() {
+    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"orders.v1.Nope/Put\"];";
+    assert_eq!(reason_of(field, ""), NestedWriteOfReason::UnknownMethod);
+}
+
+#[test]
+fn an_unknown_method_of_a_named_other_service_is_refused() {
+    let field =
+        "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"orders.v1.Billing/Nope\"];";
+    assert_eq!(reason_of(field, ""), NestedWriteOfReason::UnknownMethod);
+}
+
+#[test]
+fn a_child_mismatch_through_another_service_is_refused() {
+    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"orders.v1.Billing/Put\"];";
+    let source = contract(field, "").replace(
+        "service Billing { rpc Put(Line) returns (Res); }",
+        "service Billing { rpc Put(Pair) returns (Res); }",
+    );
+    assert_eq!(
+        reason_of_source(&source),
+        NestedWriteOfReason::ChildMismatch
+    );
+}
+
+#[test]
+fn another_service_method_that_is_not_a_unary_write_is_refused() {
+    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"orders.v1.Billing/Put\"];";
+    let source = contract(field, "").replace(
+        "service Billing { rpc Put(Line) returns (Res); }",
+        "service Billing { rpc Put(Line) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; } }",
+    );
+    assert_eq!(
+        reason_of_source(&source),
+        NestedWriteOfReason::NotUnaryWrite
+    );
+}
+
+#[test]
+fn a_request_a_read_takes_is_refused_for_another_service_name() {
+    let field = "repeated Line lines = 2 [(bones.v1.nested_write_of) = \"orders.v1.Billing/Put\"];";
+    let rpc =
+        "  rpc Peek(CreateReq) returns (Res) { option idempotency_level = NO_SIDE_EFFECTS; }\n";
+    assert_eq!(reason_of(field, rpc), NestedWriteOfReason::ReadRequest);
 }
 
 #[test]
@@ -262,7 +357,7 @@ fn every_refusal_reason_renders_its_own_sentence() {
         ),
         (
             NestedWriteOfReason::OtherService,
-            "names a method of another service",
+            "names a method of a service in another package",
         ),
         (
             NestedWriteOfReason::UnknownMethod,
@@ -376,16 +471,40 @@ fn a_second_carrier_with_a_mismatching_single_is_refused_in_either_order() {
 }
 
 #[test]
-fn a_qualified_name_of_another_service_refuses_in_either_order() {
+fn a_qualified_name_in_another_package_refuses_in_either_order() {
+    for billing_first in [false, true] {
+        let source = two_carriers("billing.v1.Billing/Put", "Line", billing_first);
+        assert_eq!(
+            reason_of_source(&source),
+            NestedWriteOfReason::OtherService,
+            "billing_first={billing_first}"
+        );
+    }
+}
+
+#[test]
+fn two_carriers_in_two_services_resolve_one_qualified_name_in_either_order() {
     for named in ["orders.v1.Orders/Put", "orders.v1.Billing/Put"] {
         for billing_first in [false, true] {
             let source = two_carriers(named, "Line", billing_first);
             assert_eq!(
-                reason_of_source(&source),
-                NestedWriteOfReason::OtherService,
+                check_nested_write_of(&descriptor_set(&source)),
+                Ok(()),
                 "{named} billing_first={billing_first}"
             );
         }
+    }
+}
+
+#[test]
+fn two_carriers_refuse_a_qualified_name_whose_child_one_of_them_cannot_take() {
+    for billing_first in [false, true] {
+        let source = two_carriers("orders.v1.Billing/Put", "Pair", billing_first);
+        assert_eq!(
+            reason_of_source(&source),
+            NestedWriteOfReason::ChildMismatch,
+            "billing_first={billing_first}"
+        );
     }
 }
 

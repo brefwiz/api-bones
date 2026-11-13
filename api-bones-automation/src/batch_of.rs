@@ -12,6 +12,12 @@ const BATCH_OF: &str = "bones.v1.batch_of";
 /// The authorization extension a batch method must share with its single.
 const AUTHZ: &str = "bones.v1.authz";
 
+/// The extension listing the error variants an RPC declares.
+const ERRORS: &str = "bones.v1.errors";
+
+/// The error variant a create declares when a duplicate is its own refusal.
+const ALREADY_EXISTS: &str = "ALREADY_EXISTS";
+
 /// `google.protobuf.MethodOptions.IdempotencyLevel.NO_SIDE_EFFECTS`.
 pub(crate) const NO_SIDE_EFFECTS: i32 = 1;
 
@@ -53,6 +59,10 @@ pub enum BatchOfReason {
         /// The batch method's declared level.
         batch: i32,
     },
+    /// The batch method declares `ALREADY_EXISTS` in `bones.v1.errors` while
+    /// the named single does not. An item refuses with `already_exists` only
+    /// when its single declares it.
+    AlreadyExistsUndeclared,
 }
 
 impl fmt::Display for BatchOfRefusal {
@@ -62,6 +72,9 @@ impl fmt::Display for BatchOfRefusal {
             BatchOfReason::UnknownMethod => "names a method the service does not declare",
             BatchOfReason::SelfReference => "names the RPC itself",
             BatchOfReason::AuthzDiffers => "does not keep the authorization of the method it names",
+            BatchOfReason::AlreadyExistsUndeclared => {
+                "declares ALREADY_EXISTS but the method it names does not"
+            }
             BatchOfReason::IdempotencyDiffers { single, batch } => {
                 return write!(
                     f,
@@ -82,6 +95,8 @@ impl fmt::Display for BatchOfRefusal {
 ///
 /// The value is the bare name of a method of the same service, or that
 /// method written `<package>.<Service>/<Method>`. Anything else is refused.
+/// The batch method also keeps its single's authorization and idempotency
+/// level, and declares `ALREADY_EXISTS` only when its single does.
 /// A set that does not import the vocabulary declares no `batch_of` and passes.
 ///
 /// # Errors
@@ -148,6 +163,7 @@ fn check_pool(pool: &DescriptorPool) -> Result<(), BatchOfError> {
         return Ok(());
     };
     let authz = pool.get_extension_by_name(AUTHZ);
+    let errors = pool.get_extension_by_name(ERRORS);
     let mut refusals = Vec::new();
     for service in pool.services() {
         for method in service.methods() {
@@ -160,7 +176,8 @@ fn check_pool(pool: &DescriptorPool) -> Result<(), BatchOfError> {
                 continue;
             };
             let site = format!("{}/{}", service.full_name(), method.name());
-            if let Err(reason) = resolve(&service, named, &method, authz.as_ref()) {
+            if let Err(reason) = resolve(&service, named, &method, authz.as_ref(), errors.as_ref())
+            {
                 refusals.push(BatchOfRefusal {
                     method: site,
                     batch_of: named.to_owned(),
@@ -181,6 +198,7 @@ fn resolve(
     named: &str,
     batch: &MethodDescriptor,
     authz: Option<&ExtensionDescriptor>,
+    errors: Option<&ExtensionDescriptor>,
 ) -> Result<(), BatchOfReason> {
     let name = match named.split_once('/') {
         Some((svc, name)) if svc == service.full_name() => name,
@@ -204,7 +222,26 @@ fn resolve(
             batch: batch_level,
         });
     }
+    if declares_already_exists(batch, errors) && !declares_already_exists(&single, errors) {
+        return Err(BatchOfReason::AlreadyExistsUndeclared);
+    }
     Ok(())
+}
+
+/// Whether the RPC lists `ALREADY_EXISTS` in its `bones.v1.errors`.
+fn declares_already_exists(
+    method: &MethodDescriptor,
+    errors: Option<&ExtensionDescriptor>,
+) -> bool {
+    let Some(ext) = errors else {
+        return false;
+    };
+    let options = method.options();
+    options.has_extension(ext)
+        && options.get_extension(ext).as_list().is_some_and(|list| {
+            list.iter()
+                .any(|variant| variant.as_str() == Some(ALREADY_EXISTS))
+        })
 }
 
 /// The declared `idempotency_level` number; 0 (unknown) when the RPC declares none.

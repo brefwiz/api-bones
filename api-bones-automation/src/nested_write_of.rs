@@ -29,9 +29,10 @@ pub enum NestedWriteOfReason {
     /// An RPC that takes the field's message as its input declares
     /// `idempotency_level = NO_SIDE_EFFECTS`: a read writes no children.
     ReadRequest,
-    /// The value names a method of a different service.
+    /// The value names a service of a different proto package than the
+    /// carrier's.
     OtherService,
-    /// The service declares no method of that name.
+    /// The named service, or its method, is not declared.
     UnknownMethod,
     /// The value names the RPC whose request carries the field.
     SelfReference,
@@ -55,7 +56,7 @@ impl fmt::Display for NestedWriteOfRefusal {
             NestedWriteOfReason::ReadRequest => {
                 "is on the request of a method that declares NO_SIDE_EFFECTS"
             }
-            NestedWriteOfReason::OtherService => "names a method of another service",
+            NestedWriteOfReason::OtherService => "names a method of a service in another package",
             NestedWriteOfReason::UnknownMethod => "names a method the service does not declare",
             NestedWriteOfReason::SelfReference => "names the RPC that carries the field",
             NestedWriteOfReason::NotUnaryWrite => {
@@ -79,8 +80,10 @@ impl fmt::Display for NestedWriteOfRefusal {
 /// Check every `bones.v1.nested_write_of` in `descriptor_set` (a serialized
 /// `FileDescriptorSet` that includes `bones/v1/annotations.proto`).
 ///
-/// The value is the bare name of a method of the same service, or that method
-/// written `<package>.<Service>/<Method>`, and that method is the single child
+/// The value is the bare name of a method of the carrier's own service, or
+/// `<package>.<Service>/<Method>` naming a method of any service of the
+/// carrier's proto package (a fully-qualified name in another package is
+/// `OtherService`; an unknown service or method is `UnknownMethod`), and that method is the single child
 /// write: unary, and not `NO_SIDE_EFFECTS`. The field is `repeated <Child>`
 /// (create) or `optional <Child>Set` (update) with
 /// `message <Child>Set { repeated <Child> items = 1; }`, and `<Child>` is the
@@ -154,7 +157,7 @@ fn resolve(
     let mut carriers = carriers;
     carriers.sort_by(|a, b| a.full_name().cmp(b.full_name()));
     for carrier in &carriers {
-        let single = names_sibling(carrier, named)?;
+        let single = names_sibling(pool, carrier, named)?;
         let child = children_of(field).ok_or(NestedWriteOfReason::NotChildren)?;
         if !writes(&single, &child) {
             return Err(NestedWriteOfReason::ChildMismatch);
@@ -164,22 +167,29 @@ fn resolve(
 }
 
 fn names_sibling(
+    pool: &DescriptorPool,
     carrier: &MethodDescriptor,
     named: &str,
 ) -> Result<MethodDescriptor, NestedWriteOfReason> {
     let service = carrier.parent_service();
-    let name = match named.split_once('/') {
-        Some((svc, name)) if svc == service.full_name() => name,
-        Some(_) => return Err(NestedWriteOfReason::OtherService),
-        None => named,
+    let method = match named.split_once('/') {
+        None => service
+            .methods()
+            .find(|m| m.name() == named)
+            .ok_or(NestedWriteOfReason::UnknownMethod)?,
+        Some((svc, name)) => {
+            let package = svc.rsplit_once('.').map_or("", |(package, _)| package);
+            if package != service.package_name() {
+                return Err(NestedWriteOfReason::OtherService);
+            }
+            pool.get_service_by_name(svc)
+                .and_then(|s| s.methods().find(|m| m.name() == name))
+                .ok_or(NestedWriteOfReason::UnknownMethod)?
+        }
     };
-    if name == carrier.name() {
+    if method.full_name() == carrier.full_name() {
         return Err(NestedWriteOfReason::SelfReference);
     }
-    let method = service
-        .methods()
-        .find(|m| m.name() == name)
-        .ok_or(NestedWriteOfReason::UnknownMethod)?;
     if method.is_client_streaming()
         || method.is_server_streaming()
         || idempotency_level(&method) == NO_SIDE_EFFECTS

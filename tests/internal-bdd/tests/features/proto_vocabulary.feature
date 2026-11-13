@@ -88,6 +88,8 @@ Feature: Proto vocabulary shipped to contract authors
       | optional ItemSet         | contract.v1.Svc/Put |
       | repeated Item            | PutWrapped         |
       | optional ItemSet         | PutWrapped         |
+      | repeated Item            | contract.v1.Other/Put |
+      | optional ItemSet         | contract.v1.Other/Put |
 
   Scenario Outline: A nested_write_of that is misplaced or names no sibling child write is refused
     Given a service whose request carries the field "<field>" naming "<named>"
@@ -98,7 +100,16 @@ Feature: Proto vocabulary shipped to contract authors
     Examples:
       | field             | named                 | reason                                                                            |
       | repeated Item     | Missing               | names a method the service does not declare                                       |
-      | repeated Item     | contract.v1.Other/Put | names a method of another service                                                 |
+      | repeated Item     | other.v1.Other/Put    | names a method of a service in another package                                    |
+      | repeated Item     | contract.v1.Nope/Put  | names a method the service does not declare                                       |
+      | repeated Item     | contract.v1.Other/Nope | names a method the service does not declare                                       |
+      | repeated Item     | contract.v1x.Other/Put | names a method of a service in another package                                     |
+      | repeated Item     | contract.Other/Put    | names a method of a service in another package                                     |
+      | repeated Item     | contract.v1.sub.Other/Put | names a method of a service in another package                                     |
+      | repeated Item     | Other/Put             | names a method of a service in another package                                     |
+      | repeated Item     | /Put                  | names a method of a service in another package                                     |
+      | repeated Item     | contract.v1.Other/    | names a method the service does not declare                                        |
+      | repeated Item     | contract.v1.Other/Put/Extra | names a method the service does not declare                                        |
       | repeated Item     | Create                | names the RPC that carries the field                                              |
       | repeated Item     | Get                   | names a method that is not a unary write (it streams or declares NO_SIDE_EFFECTS) |
       | repeated Item     | Watch                 | names a method that is not a unary write (it streams or declares NO_SIDE_EFFECTS) |
@@ -108,8 +119,16 @@ Feature: Proto vocabulary shipped to contract authors
       | repeated string   | Put                   | is on a field that is not `repeated <Child>` or `optional <Child>Set`             |
       | optional Item     | Put                   | is on a field that is not `repeated <Child>` or `optional <Child>Set`             |
       | repeated Res      | Put                   | is on children of a message the named method does not write                       |
+      | repeated Res      | contract.v1.Other/Put | is on children of a message the named method does not write                       |
       | repeated Res      | PutWrapped            | is on children of a message the named method does not write                       |
       | repeated Item     | MoveItem              | is on children of a message the named method does not write                       |
+
+  Scenario: A nested_write_of in a package-less contract names a package-less service
+    Given a service whose request carries the field "repeated Item" naming "Other/Put"
+    And the contract declares no package
+    When the contract is compiled against the shipped files
+    And the nested_write_of declarations are checked
+    Then every nested_write_of conforms
 
   Scenario: A nested_write_of whose name another carrier of the request cannot resolve is refused
     Given a service whose request carries the field "repeated Item" naming "PutWrapped"
@@ -183,6 +202,24 @@ Feature: Proto vocabulary shipped to contract authors
       | NO_SIDE_EFFECTS  | IDEMPOTENT       | NO_SIDE_EFFECTS     | IDEMPOTENT          |
       | IDEMPOTENT       | NO_SIDE_EFFECTS  | IDEMPOTENT          | NO_SIDE_EFFECTS     |
       | none             | IDEMPOTENT       | IDEMPOTENCY_UNKNOWN | IDEMPOTENT          |
+
+  Scenario Outline: A batch method declares ALREADY_EXISTS only when its single does
+    Given a service whose single declares errors "<single>" and whose batch declares "<batch>"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then every batch_of conforms
+
+    Examples:
+      | single         | batch          |
+      | ALREADY_EXISTS | ALREADY_EXISTS |
+      | none           | none           |
+      | ALREADY_EXISTS | none           |
+
+  Scenario: A batch method that declares ALREADY_EXISTS while its single does not is refused
+    Given a service whose single declares errors "NOT_FOUND" and whose batch declares "ALREADY_EXISTS"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then the batch_of is refused as "declares ALREADY_EXISTS but the method it names does not"
 
   Scenario Outline: Batch policy discovery refuses ambiguous or noncanonical shapes
     Given a contract with the batch policy shape "<shape>"
