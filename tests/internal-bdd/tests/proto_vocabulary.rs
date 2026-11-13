@@ -426,6 +426,23 @@ fn given_single_and_batch_idempotency(world: &mut VocabularyWorld, single: Strin
     world.source = batch_contract("Do", &option(&single), &option(&batch), "");
 }
 
+#[given(expr = "a service whose single declares errors {string} and whose batch declares {string}")]
+fn given_single_and_batch_errors(world: &mut VocabularyWorld, single: String, batch: String) {
+    let option = |variant: &str| {
+        if variant == "none" {
+            String::new()
+        } else {
+            format!("option (bones.v1.errors) = \"{variant}\";")
+        }
+    };
+    world.source = batch_contract("Do", &option(&single), &option(&batch), "");
+}
+
+#[given("the contract declares no package")]
+fn given_no_package(world: &mut VocabularyWorld) {
+    world.source = world.source.replace("package contract.v1;\n", "");
+}
+
 #[given(expr = "a service whose single is {string} and whose batch is {string}")]
 fn given_authz_pair(world: &mut VocabularyWorld, single: String, batch: String) {
     world.source = format!(

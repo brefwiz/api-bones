@@ -10,7 +10,7 @@
 
 name: api-bones-ci
 
-vars: [brefwiz-vars]
+vars: [brefwiz-vars, brefwiz-pr-readonly]
 
 on:
   push:
@@ -28,7 +28,7 @@ jobs:
     # nothing a PR run has not already proven, so every other job below skips.
     # Runs (and can only prove anything) on a push to rc; a PR run leaves it
     # unproven, so nothing else here is ever gated on a PR run.
-    if: ${{ git.ref_name == 'rc' || startsWith(git.ref, 'refs/heads/release-plz-') }}
+    if: ${{ cds.event.ref == 'refs/heads/rc' }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -39,6 +39,8 @@ jobs:
     outputs:
       proven:
         value: ${{ steps.check.outputs.proven }}
+      proven_jobs:
+        value: ${{ steps.check.outputs.proven_jobs }}
     steps:
       - id: checkout
         uses: actions/checkout
@@ -49,10 +51,11 @@ jobs:
         with:
           checkout: "false"
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
+          cds-token: ${{ vars.brefwiz-pr-readonly.CDS_RUN_READER_TOKEN }}
           event-ref: ${{ git.ref }}
 
   checks:
-    if: ${{ git.ref_name != 'rc' || jobs.rc-tree-proof.outputs.proven != 'true' }}
+    if: ${{ git.ref_name != 'rc' || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',checks,') }}
     needs: [rc-tree-proof]
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
@@ -80,8 +83,8 @@ jobs:
           gitea-token: ${{ vars.brefwiz-secrets.FORGEJO_BOT_TOKEN }}
 
   cargo-package:
-    needs: [rc-tree-proof, checks]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    needs: [checks]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',cargo-package,')) }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
@@ -132,8 +135,8 @@ jobs:
   # Reservation: 24576, the ram-build profile default (no usage record exists
   # yet).
   coverage-build:
-    needs: [rc-tree-proof, checks]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    needs: [checks]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',coverage-build,')) }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
@@ -179,8 +182,8 @@ jobs:
   # natively on either architecture, so it opts into the arm64 node.
   # Reservation: 16384, the default profile's request.
   gate-e2e-rust:
-    needs: [rc-tree-proof, checks]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    needs: [checks]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',gate-e2e-rust,')) }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -234,8 +237,8 @@ jobs:
           job-class: gate-e2e-rust
 
   ts:
-    needs: [rc-tree-proof, checks]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    needs: [checks]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',ts,')) }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
@@ -313,7 +316,7 @@ jobs:
   # yet).
   coverage:
     needs: [coverage-build]
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',coverage,')) }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: ram-build
@@ -352,7 +355,7 @@ jobs:
   # workspace gets no abstraction-linked duplication signal at all, and silence
   # reads exactly like a clean workspace.
   duplication-typed:
-    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',duplication-typed,')) }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -383,8 +386,8 @@ jobs:
   # failed predecessor does not stop it. Nothing needs it: it gates no job
   # and no promotion.
   verdict:
-    needs: [coverage-build, coverage, gate-e2e-rust, ts, duplication-typed, cargo-package, checks, rc-tree-proof]
-    if: ${{ (always()) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') || jobs.rc-tree-proof.outputs.proven != 'true') }}
+    needs: [rc-tree-proof, checks, cargo-package, coverage-build, gate-e2e-rust, ts, coverage, duplication-typed]
+    if: ${{ (always()) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',verdict,')) }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: checks
@@ -394,15 +397,15 @@ jobs:
       - id: verdict
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/verdict@main
         with:
-          registry-user: ${{ vars.brefwiz-secrets.REGISTRY_USER }}
-          registry-token: ${{ vars.brefwiz-secrets.REGISTRY_TOKEN }}
-          cds-token: ${{ vars.brefwiz-secrets.CDS_RUN_READER_TOKEN }}
+          registry-user: ${{ vars.brefwiz-pr-readonly.REGISTRY_USER }}
+          registry-token: ${{ vars.brefwiz-pr-readonly.REGISTRY_TOKEN }}
+          cds-token: ${{ vars.brefwiz-pr-readonly.CDS_RUN_READER_TOKEN }}
           jobs: |
             rc-tree-proof||${{ needs.rc-tree-proof.result }}
-            coverage-build|rc-tree-proof,checks|${{ needs.coverage-build.result }}
-            coverage|coverage-build|${{ needs.coverage.result }}
-            gate-e2e-rust|rc-tree-proof,checks|${{ needs.gate-e2e-rust.result }}
-            ts|rc-tree-proof,checks|${{ needs.ts.result }}
-            duplication-typed|coverage-build,ts|${{ needs.duplication-typed.result }}
-            cargo-package|rc-tree-proof,checks|${{ needs.cargo-package.result }}
             checks|rc-tree-proof|${{ needs.checks.result }}
+            cargo-package|checks|${{ needs.cargo-package.result }}
+            coverage-build|checks|${{ needs.coverage-build.result }}
+            gate-e2e-rust|checks|${{ needs.gate-e2e-rust.result }}
+            ts|checks|${{ needs.ts.result }}
+            coverage|coverage-build|${{ needs.coverage.result }}
+            duplication-typed|coverage-build,ts|${{ needs.duplication-typed.result }}

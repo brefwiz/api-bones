@@ -220,7 +220,7 @@ fn authz_contract(single: &str, batch: &str) -> String {
     )
 }
 
-/// A contract whose `Many` batches `One`, each declaring the given idempotency option text.
+/// A contract whose `Many` batches `One`, each carrying the given method option text.
 fn level_contract(single: &str, batch: &str) -> String {
     format!(
         "syntax = \"proto3\";\npackage orders.v1;\nimport \"bones/v1/annotations.proto\";\n\
@@ -313,5 +313,86 @@ fn an_authorization_refusal_renders_through_display() {
     assert_eq!(
         err.to_string(),
         "orders.v1.Orders/Many: batch_of \"One\" does not keep the authorization of the method it names"
+    );
+}
+
+const EXISTS: &str = "option (bones.v1.errors) = \"ALREADY_EXISTS\";";
+const OTHER_ERROR: &str = "option (bones.v1.errors) = \"NOT_FOUND\";";
+
+/// One `bones.v1.errors` option line per code, in order.
+fn errors(codes: &[&str]) -> String {
+    let lines: Vec<String> = codes
+        .iter()
+        .map(|code| format!("option (bones.v1.errors) = \"{code}\";"))
+        .collect();
+    lines.join(" ")
+}
+
+#[test]
+fn already_exists_declared_by_the_batch_and_its_single_passes() {
+    let source = level_contract(EXISTS, EXISTS);
+    assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+}
+
+#[test]
+fn already_exists_declared_by_neither_passes() {
+    for (single, batch) in [("", ""), (OTHER_ERROR, OTHER_ERROR), (OTHER_ERROR, "")] {
+        let source = level_contract(single, batch);
+        assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+    }
+}
+
+#[test]
+fn already_exists_declared_by_the_single_only_passes() {
+    let source = level_contract(EXISTS, "");
+    assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+}
+
+#[test]
+fn already_exists_declared_by_the_batch_only_is_refused() {
+    for single in ["", OTHER_ERROR] {
+        let source = level_contract(single, EXISTS);
+        let found = refused(&descriptor_set(&source));
+        assert_eq!(found.len(), 1, "{source}");
+        assert_eq!(
+            found[0].reason,
+            BatchOfReason::AlreadyExistsUndeclared,
+            "{source}"
+        );
+        assert_eq!(found[0].method, "orders.v1.Orders/Many");
+    }
+}
+
+#[test]
+fn already_exists_found_anywhere_in_a_multi_code_errors_list() {
+    let source = level_contract(
+        &errors(&["NOT_FOUND", "ALREADY_EXISTS", "INVALID_ARGUMENT"]),
+        &errors(&["ALREADY_EXISTS"]),
+    );
+    assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+}
+
+#[test]
+fn already_exists_absent_from_a_multi_code_list_is_not_declared() {
+    let source = level_contract(
+        &errors(&["NOT_FOUND", "INVALID_ARGUMENT"]),
+        &errors(&["INVALID_ARGUMENT", "ALREADY_EXISTS"]),
+    );
+    let found = refused(&descriptor_set(&source));
+    assert_eq!(found.len(), 1, "{source}");
+    assert_eq!(
+        found[0].reason,
+        BatchOfReason::AlreadyExistsUndeclared,
+        "{source}"
+    );
+}
+
+#[test]
+fn an_already_exists_refusal_renders_through_display() {
+    let source = level_contract(OTHER_ERROR, EXISTS);
+    let err = check_batch_of(&descriptor_set(&source)).unwrap_err();
+    assert_eq!(
+        err.to_string(),
+        "orders.v1.Orders/Many: batch_of \"One\" declares ALREADY_EXISTS but the method it names does not"
     );
 }

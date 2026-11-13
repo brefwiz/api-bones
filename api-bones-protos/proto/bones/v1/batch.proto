@@ -35,8 +35,10 @@ import "bones/v1/errors.proto";
 // single call raises for the same cause.
 message ItemError {
   // The Connect code token: `not_found`, `permission_denied`,
-  // `invalid_argument`, `failed_precondition` or `aborted` (the item was not
-  // applied; safe to resend).
+  // `invalid_argument`, `failed_precondition`, `already_exists` or `aborted`.
+  // `already_exists` is the item's own refusal, answered only when the single
+  // declares ALREADY_EXISTS; later items still run and a resend fails again.
+  // `aborted` means the item was not applied and is safe to resend.
   string code = 1;
 
   // The message the single call raises for the same cause.
