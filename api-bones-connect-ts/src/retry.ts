@@ -82,6 +82,39 @@ export function makeConnectionFailureNormalizer(): Interceptor {
 /** Attempts after the initial call. */
 export const MAX_RETRY_ATTEMPTS = 3;
 
+/** Longest server pushback a call is held for; a longer one fails fast. */
+export const MAX_THROTTLE_WAIT_MS = 5_000;
+
+/** Upper bound of the random extra wait, as a fraction of the pushback. */
+const THROTTLE_JITTER_FRACTION = 0.25;
+
+/**
+ * A call the server refused for rate limiting and that was not served.
+ *
+ * It is a `ResourceExhausted` error, never `Unauthenticated`: the caller's
+ * session is intact and only needs to try again after `retryAfterMs`.
+ */
+export class RateLimitedError extends ConnectError {
+  /**
+   * `ConnectError` recognises its instances structurally, by `name`, and a
+   * subclass inherits that check: `instanceof RateLimitedError` would hold for
+   * every `ConnectError`. This restores the ordinary prototype-chain test. The
+   * `name` stays `ConnectError`, so the instance is still one to `ConnectError`
+   * checks and `ConnectError.from` passes it through unchanged.
+   */
+  static override [Symbol.hasInstance](value: unknown): boolean {
+    return Function.prototype[Symbol.hasInstance].call(RateLimitedError, value);
+  }
+
+  constructor(
+    /** Milliseconds the server (or the origin's admission gate) asked callers to wait. */
+    readonly retryAfterMs: number,
+    cause: ConnectError,
+  ) {
+    super(cause.rawMessage, Code.ResourceExhausted, cause.metadata, undefined, cause);
+  }
+}
+
 export interface RetryThrottleOptions {
   /** Bucket capacity. Default 10. */
   readonly maxTokens?: number;
@@ -187,8 +220,13 @@ export interface RetryInterceptorOptions {
   readonly policyByRpc: ReadonlyMap<string, GeneratedMethodPolicy>;
   readonly backoff?: BackoffOptions;
   readonly throttle?: RetryThrottleOptions;
-  /** Injected so tests need no real delay. */
-  readonly sleep?: (ms: number) => Promise<void>;
+  /**
+   * Injected so tests need no real delay. A sleep that honours `signal` should
+   * release its timer when the signal aborts.
+   */
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** Random source in [0, 1) for throttle jitter; injected so tests are deterministic. */
+  readonly random?: () => number;
   /**
    * Observes each retried attempt, called synchronously right before the
    * interceptor sleeps. Never called on the call's first attempt, on a
@@ -200,8 +238,63 @@ export interface RetryInterceptorOptions {
   readonly onRetry?: (event: RetryEvent) => void;
 }
 
-const defaultSleep = (ms: number): Promise<void> =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
+const defaultSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(ConnectError.from(signal.reason));
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(ConnectError.from(signal?.reason));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+
+/**
+ * Pause shared by every call to one origin after the origin refused one for
+ * rate limiting, so queued calls wait for the same deadline instead of each
+ * spending a refusal. Holds a deadline only; no timer outlives a wait.
+ */
+class OriginGate {
+  #until = 0;
+  #pushbackMs = 0;
+
+  refuse(pushbackMs: number, now: number): void {
+    const until = now + pushbackMs;
+    if (until > this.#until) {
+      this.#until = until;
+      this.#pushbackMs = pushbackMs;
+    }
+  }
+
+  /**
+   * Resolves once the deadline has passed, then waits `jitterMs` (default: a
+   * random share of the last pushback) so woken calls do not land together.
+   * The deadline never exceeds {@link MAX_THROTTLE_WAIT_MS}, because a longer
+   * pushback is never recorded.
+   */
+  async admit(
+    sleep: (ms: number, signal?: AbortSignal) => Promise<void>,
+    random: () => number,
+    signal: AbortSignal | undefined,
+    jitterMs?: number,
+  ): Promise<void> {
+    let waited = false;
+    for (let remaining = this.#until - Date.now(); remaining > 0; remaining = this.#until - Date.now()) {
+      waited = true;
+      await sleep(remaining, signal);
+    }
+    if (waited || jitterMs !== undefined) {
+      const jitter = jitterMs ?? Math.floor(random() * THROTTLE_JITTER_FRACTION * this.#pushbackMs);
+      if (jitter > 0) await sleep(jitter, signal);
+    }
+  }
+}
 
 function logStaleConnectionReplay(method: string, procedure: string, cause: string): void {
   console.debug(
@@ -209,11 +302,49 @@ function logStaleConnectionReplay(method: string, procedure: string, cause: stri
   );
 }
 
+function reportRetry(
+  onRetry: RetryInterceptorOptions["onRetry"],
+  req: { readonly method: Parameters<typeof rpcIdentity>[0] },
+  attempt: number,
+  err: ConnectError,
+  delayMs: number,
+): void {
+  if (!onRetry) return;
+  try {
+    onRetry({
+      method: rpcIdentity(req.method),
+      attempt: attempt + 1,
+      code: err.code,
+      message: err.rawMessage,
+      delayMs,
+    });
+  } catch {
+    // Instrumentation is not allowed to affect the call it observes.
+  }
+}
+
 /** Retry interceptor shared by the browser and Node adapters. */
 export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor {
   const backoff = resolveBackoff(opts.backoff);
   const throttle = new RetryThrottle(opts.throttle);
   const sleep = opts.sleep ?? defaultSleep;
+  const random = opts.random ?? Math.random;
+  const gates = new Map<string, OriginGate>();
+  const gateFor = (url: string | undefined): OriginGate => {
+    // A relative base URL has no origin of its own: its calls share one gate.
+    let origin = "";
+    try {
+      origin = new URL(url ?? "").origin;
+    } catch {
+      origin = "";
+    }
+    let gate = gates.get(origin);
+    if (gate === undefined) {
+      gate = new OriginGate();
+      gates.set(origin, gate);
+    }
+    return gate;
+  };
 
   return (next) => async (req) => {
     // Streams reconnect on their own terms; replaying one here would restart a
@@ -227,16 +358,37 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
     const replaysStaleReset = policy?.procedure === "unary" && policy.idempotency === "NO_SIDE_EFFECTS";
     let staleResetReplayed = false;
 
+    const gate = gateFor(req.url);
     let attempt = 0;
+    let jitterMs: number | undefined;
     for (;;) {
+      await gate.admit(sleep, random, req.signal, jitterMs);
+      jitterMs = undefined;
       try {
         const response = await next(req);
         throttle.recordSuccess();
         return response;
       } catch (err) {
-        if (!(err instanceof ConnectError) || attempt >= maxRetries) throw err;
+        if (!(err instanceof ConnectError)) throw err;
 
         const pushbackMs = serverPushbackMs(err);
+        // A throttle is refused before the handler runs, so any method is
+        // replayed after the server's own deadline without drawing on the retry
+        // budget that guards blind retries. A refusal that names no deadline is
+        // not a throttle and is never replayed. Spent attempts surface as a rate
+        // limit the caller can act on, not as a signed-out session.
+        if (err.code === Code.ResourceExhausted && pushbackMs !== null) {
+          if (err instanceof RateLimitedError) throw err;
+          if (attempt >= maxRetries || pushbackMs > MAX_THROTTLE_WAIT_MS) {
+            throw new RateLimitedError(pushbackMs, err);
+          }
+          gate.refuse(pushbackMs, Date.now());
+          jitterMs = Math.floor(random() * THROTTLE_JITTER_FRACTION * pushbackMs);
+          reportRetry(opts.onRetry, req, attempt, err, pushbackMs + jitterMs);
+          attempt++;
+          continue;
+        }
+        if (attempt >= maxRetries) throw err;
         // A request that provably never left the client is replay-safe whatever
         // the method declares; every other failure may have run on the server,
         // so it needs the method to have been declared safe.
@@ -245,9 +397,7 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
         const retryable =
           staleReset ||
           isNotDelivered(err) ||
-          (methodRetryable &&
-            (isReplayableTransportFailure(err) ||
-              (err.code === Code.ResourceExhausted && pushbackMs !== null)));
+          (methodRetryable && isReplayableTransportFailure(err));
         if (!retryable) throw err;
 
         throttle.recordFailure();
@@ -260,20 +410,8 @@ export function makeRetryInterceptor(opts: RetryInterceptorOptions): Interceptor
         // Server pushback outranks our own schedule: it is the only party that
         // knows when it will be ready.
         const delayMs = pushbackMs ?? computeBackoffDelay(attempt, backoff);
-        if (opts.onRetry) {
-          try {
-            opts.onRetry({
-              method: rpcIdentity(req.method),
-              attempt: attempt + 1,
-              code: err.code,
-              message: err.rawMessage,
-              delayMs,
-            });
-          } catch {
-            // Instrumentation is not allowed to affect the call it observes.
-          }
-        }
-        await sleep(delayMs);
+        reportRetry(opts.onRetry, req, attempt, err, delayMs);
+        await sleep(delayMs, req.signal);
         attempt++;
       }
     }

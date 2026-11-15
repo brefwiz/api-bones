@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- A call refused for rate limiting (`resource_exhausted` with `Retry-After`) no longer gives up on a burst or holds for a whole window. Any call, whatever its idempotency, waits the server's pushback plus up to 25% jitter and is replayed without drawing on the retry budget, since a throttle is refused before the handler runs; a refusal without `Retry-After` is never replayed. Calls to the same origin queue behind one refusal instead of each being refused, and calls through a relative or absent base URL share one gate per transport. A pushback longer than `MAX_THROTTLE_WAIT_MS` (5 s) fails fast. Once attempts are spent the call rejects with the exported `RateLimitedError` (a `resource_exhausted` error carrying `retryAfterMs`), never `unauthenticated`. No configuration is required.
 - The web transport keeps the last CSRF synchronizer the server named in `sessionStorage` per origin, so a cold page load's first unsafe call carries it instead of being refused and replayed. `forgetCsrfSynchronizer(baseUrl)` (from `/web`) drops it on logout; an Unauthenticated answer drops it too.
 - Share CSRF synchronizers and not-delivered evidence across bundled package copies on one page, preserving BFF origin isolation.
 

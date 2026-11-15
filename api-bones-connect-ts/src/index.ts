@@ -55,6 +55,8 @@ export {
 
 export {
   MAX_RETRY_ATTEMPTS,
+  MAX_THROTTLE_WAIT_MS,
+  RateLimitedError,
   RetryThrottle,
   connectionFailureAsUnavailable,
   isConnectionWriteFailure,
