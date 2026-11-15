@@ -229,7 +229,7 @@ pub fn emit_rust_paging(
 
 #[cfg(test)]
 #[path = "../tests/support/resolver.rs"]
-mod resolver;
+pub(crate) mod resolver;
 
 #[cfg(test)]
 mod tests {

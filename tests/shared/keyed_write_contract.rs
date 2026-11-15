@@ -24,10 +24,20 @@ fn field(source: &str) -> &str {
     if source == "none" { "" } else { source }
 }
 
+/// The fields of `Req`: `id` and the given source, or, for `bodyless`, the
+/// key alone.
+fn single_fields(source: &str) -> String {
+    if source == "bodyless" {
+        "string idempotency_key = 1;".to_owned()
+    } else {
+        format!("string id = 1; {}", field(source))
+    }
+}
+
 /// A contract whose `Do` takes `Req` and whose `DoMany` takes `ManyReq` and
 /// names `Do` through `batch_of`. `single` and `batch` are the [`options`]
 /// specs of each method, `single_field` and `batch_field` the request field
-/// source or `none`.
+/// source, `none`, or for the single `bodyless` (the key and nothing else).
 pub fn keyed_write_contract(
     single: &str,
     single_field: &str,
@@ -37,14 +47,14 @@ pub fn keyed_write_contract(
     format!(
         "syntax = \"proto3\";\npackage contract.v1;\n\
          import \"bones/v1/annotations.proto\";\n\
-         message Req {{ string id = 1; {} }}\n\
+         message Req {{ {} }}\n\
          message Res {{ string id = 1; }}\n\
          message ManyReq {{ repeated Req items = 1; {} }}\n\
          service Svc {{\n\
            rpc Do(Req) returns (Res) {{ {} }}\n\
            rpc DoMany(ManyReq) returns (Res) {{ option (bones.v1.batch_of) = \"Do\"; {} }}\n\
          }}\n",
-        field(single_field),
+        single_fields(single_field),
         field(batch_field),
         options(single),
         options(batch)

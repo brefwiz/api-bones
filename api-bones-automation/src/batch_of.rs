@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use prost_reflect::{DescriptorPool, ExtensionDescriptor, MethodDescriptor, ServiceDescriptor};
 
-use crate::idempotency_key::is_keyed;
+use crate::idempotency_key::{has_field_besides_key, is_keyed};
 
 /// The extension the check reads.
 const BATCH_OF: &str = "bones.v1.batch_of";
@@ -18,7 +18,7 @@ const AUTHZ: &str = "bones.v1.authz";
 const ERRORS: &str = "bones.v1.errors";
 
 /// The error variant a create declares when a duplicate is its own refusal.
-const ALREADY_EXISTS: &str = "ALREADY_EXISTS";
+pub(crate) const ALREADY_EXISTS: &str = "ALREADY_EXISTS";
 
 /// The extension declaring that a call carries the caller's idempotency key.
 const IDEMPOTENCY_KEY: &str = "bones.v1.idempotency_key";
@@ -77,6 +77,10 @@ pub enum BatchOfReason {
     /// the named single does not. An item refuses with `already_exists` only
     /// when its single declares it.
     AlreadyExistsUndeclared,
+    /// The batch method and the named single are keyed, but the single's
+    /// request holds no field besides the key: its items would be empty
+    /// messages and the batch would carry nothing but a count.
+    KeyedSingleHasNoBody,
 }
 
 impl fmt::Display for BatchOfRefusal {
@@ -94,6 +98,9 @@ impl fmt::Display for BatchOfRefusal {
             }
             BatchOfReason::AlreadyExistsUndeclared => {
                 "declares ALREADY_EXISTS but the method it names does not"
+            }
+            BatchOfReason::KeyedSingleHasNoBody => {
+                "is keyed but the request of the method it names holds nothing but the key"
             }
             BatchOfReason::IdempotencyDiffers { single, batch } => {
                 return write!(
@@ -117,7 +124,8 @@ impl fmt::Display for BatchOfRefusal {
 /// method written `<package>.<Service>/<Method>`. Anything else is refused.
 /// The batch method also keeps its single's authorization and idempotency
 /// level, and declares `ALREADY_EXISTS` only when its single does. Both
-/// declare `bones.v1.idempotency_key` true, or neither does.
+/// declare `bones.v1.idempotency_key` true, or neither does, and a keyed
+/// single's request holds a field besides the key.
 /// A set that does not import the vocabulary declares no `batch_of` and passes.
 ///
 /// # Errors
@@ -252,6 +260,9 @@ fn resolve(
             single: single_keyed,
         });
     }
+    if single_keyed && !has_field_besides_key(&single.input()) {
+        return Err(BatchOfReason::KeyedSingleHasNoBody);
+    }
     let (single_level, batch_level) = (idempotency_level(&single), idempotency_level(batch));
     if single_level != batch_level {
         return Err(BatchOfReason::IdempotencyDiffers {
@@ -259,16 +270,19 @@ fn resolve(
             batch: batch_level,
         });
     }
-    if declares_already_exists(batch, errors) && !declares_already_exists(&single, errors) {
+    if declares_error(batch, errors, ALREADY_EXISTS)
+        && !declares_error(&single, errors, ALREADY_EXISTS)
+    {
         return Err(BatchOfReason::AlreadyExistsUndeclared);
     }
     Ok(())
 }
 
-/// Whether the RPC lists `ALREADY_EXISTS` in its `bones.v1.errors`.
-pub(crate) fn declares_already_exists(
+/// Whether the RPC lists `variant` in its `bones.v1.errors`.
+pub(crate) fn declares_error(
     method: &MethodDescriptor,
     errors: Option<&ExtensionDescriptor>,
+    variant: &str,
 ) -> bool {
     let Some(ext) = errors else {
         return false;
@@ -277,7 +291,7 @@ pub(crate) fn declares_already_exists(
     options.has_extension(ext)
         && options.get_extension(ext).as_list().is_some_and(|list| {
             list.iter()
-                .any(|variant| variant.as_str() == Some(ALREADY_EXISTS))
+                .any(|declared| declared.as_str() == Some(variant))
         })
 }
 
