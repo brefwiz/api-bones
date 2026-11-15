@@ -28,6 +28,8 @@ import {
   RetryThrottle,
   isConnectionWriteFailure,
   makeConnectionFailureNormalizer,
+  MAX_THROTTLE_WAIT_MS,
+  RateLimitedError,
   makeRetryInterceptor,
   isRetryableMethod,
   serverPushbackMs,
@@ -585,6 +587,425 @@ describe("retry interceptor observability", () => {
     });
 
     await expect(interceptor(next as never)(req as never)).resolves.toBe("ok");
+  });
+});
+
+describe("throttle-aware retry", () => {
+  const policyFor = (idempotency: string) =>
+    indexGeneratedPolicy({
+      schemaVersion: 1,
+      methods: [
+        {
+          rpc: "/pkg.v1.Svc/Method",
+          procedure: "unary",
+          idempotency,
+          browserCache: { scope: "NO_STORE", maxAgeSeconds: 0 },
+          sensitivity: "UNSPECIFIED",
+          maxEncodedUrlBytes: 4096,
+        },
+      ],
+    });
+  const request = (signal?: AbortSignal) =>
+    ({
+      stream: false,
+      url: "https://svc.internal/pkg.v1.Svc/Method",
+      signal,
+      method: { name: "Method", parent: { typeName: "pkg.v1.Svc" } },
+    }) as never;
+  const refusal = (retryAfter: string): ConnectError => {
+    const err = new ConnectError("slow down", Code.ResourceExhausted);
+    err.metadata.set("retry-after", retryAfter);
+    return err;
+  };
+
+  it("serves an idempotent read after waiting out the server's pushback plus jitter", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const next = async () => {
+        if (calls++ === 0) throw refusal("2");
+        return "ok" as never;
+      };
+      const events: RetryEvent[] = [];
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+        random: () => 0.5,
+        onRetry: (e) => events.push(e),
+      });
+
+      const served = interceptor(next as never)(request());
+      await vi.advanceTimersByTimeAsync(1999);
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(250);
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(served).resolves.toBe("ok");
+      expect(calls).toBe(2);
+      expect(events.map((e) => e.delayMs)).toEqual([2250]);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tells a RateLimitedError apart from a plain ConnectError", () => {
+    expect(new ConnectError("quota", Code.ResourceExhausted)).not.toBeInstanceOf(RateLimitedError);
+    const limited = new RateLimitedError(1000, refusal("1"));
+    expect(limited).toBeInstanceOf(RateLimitedError);
+    expect(limited).toBeInstanceOf(ConnectError);
+    expect(ConnectError.from(limited)).toBe(limited);
+  });
+
+  const requestAt = (url: string | undefined) =>
+    ({
+      stream: false,
+      ...(url === undefined ? {} : { url }),
+      method: { name: "Method", parent: { typeName: "pkg.v1.Svc" } },
+    }) as never;
+
+  for (const [label, url] of [
+    ["no url", undefined],
+    ["a relative url", "/pkg.v1.Svc/Method"],
+  ] as const) {
+    it(`waits out a refusal and serves a read sent with ${label}`, async () => {
+      vi.useFakeTimers();
+      try {
+        let calls = 0;
+        const next = async () => {
+          if (calls++ === 0) throw refusal("2");
+          return "ok" as never;
+        };
+        const interceptor = makeRetryInterceptor({
+          policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+          random: () => 0,
+        });
+        const served = interceptor(next as never)(requestAt(url));
+        await vi.advanceTimersByTimeAsync(1999);
+        expect(calls).toBe(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(served).resolves.toBe("ok");
+        expect(calls).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  }
+
+  it("shares one gate across relative and absent urls but not with an absolute origin", async () => {
+    vi.useFakeTimers();
+    try {
+      const servedAt = new Map<string, number>();
+      let refused = false;
+      const next = async (r: { url?: string }) => {
+        const key = r.url ?? "none";
+        if (key === "/pkg.v1.Svc/Method" && !refused) {
+          refused = true;
+          throw refusal("3");
+        }
+        servedAt.set(key, Date.now());
+        return "ok" as never;
+      };
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+        random: () => 0,
+      });
+      const start = Date.now();
+      const first = interceptor(next as never)(requestAt("/pkg.v1.Svc/Method"));
+      await vi.advanceTimersByTimeAsync(0);
+      const queued = interceptor(next as never)(requestAt(undefined));
+      const absolute = interceptor(next as never)(requestAt("https://other.internal/pkg.v1.Svc/Method"));
+      await vi.runAllTimersAsync();
+      await Promise.all([first, queued, absolute]);
+      expect(servedAt.get("https://other.internal/pkg.v1.Svc/Method")).toBe(start);
+      expect(servedAt.get("none")).toBe(start + 3000);
+      expect(servedAt.get("/pkg.v1.Svc/Method")).toBe(start + 3000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Runs a call to completion on the fake clock and returns what it settled on.
+  const settle = async (call: Promise<unknown>): Promise<unknown> => {
+    const settled = call.catch((e: unknown) => e);
+    await vi.runAllTimersAsync();
+    return settled;
+  };
+
+  it("keeps the jitter between none and a quarter of the pushback", async () => {
+    vi.useFakeTimers();
+    try {
+      const delays: number[] = [];
+      for (const random of [0, 0.999999]) {
+        let calls = 0;
+        const next = async () => {
+          if (calls++ === 0) throw refusal("4");
+          return "ok" as never;
+        };
+        const interceptor = makeRetryInterceptor({
+          policyByRpc: policyFor("IDEMPOTENT"),
+          random: () => random,
+          onRetry: (e) => delays.push(e.delayMs),
+        });
+        await settle(interceptor(next as never)(request()));
+      }
+      expect(delays).toEqual([4000, 4999]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reads an HTTP-date Retry-After relative to the clock", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.parse("2026-01-01T00:00:00Z"));
+      let calls = 0;
+      const next = async () => {
+        if (calls++ === 0) throw refusal("Thu, 01 Jan 2026 00:00:03 GMT");
+        return "ok" as never;
+      };
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+        random: () => 0,
+      });
+      const served = interceptor(next as never)(request());
+      await vi.advanceTimersByTimeAsync(3000);
+      await expect(served).resolves.toBe("ok");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("replays a refused write once the wait is over and applies it once", async () => {
+    vi.useFakeTimers();
+    try {
+      let applied = 0;
+      let calls = 0;
+      const next = async () => {
+        if (calls++ === 0) throw refusal("1");
+        applied++;
+        return "ok" as never;
+      };
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("UNSPECIFIED"),
+        random: () => 0,
+      });
+
+      const served = interceptor(next as never)(request());
+      await vi.advanceTimersByTimeAsync(999);
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(served).resolves.toBe("ok");
+      expect(applied).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not replay a write refused without Retry-After", async () => {
+    let calls = 0;
+    const next = async () => {
+      calls++;
+      throw new ConnectError("quota", Code.ResourceExhausted);
+    };
+    const interceptor = makeRetryInterceptor({
+      policyByRpc: policyFor("UNSPECIFIED"),
+      sleep: async () => {},
+    });
+
+    const err = await interceptor(next as never)(request()).catch((e: unknown) => e);
+
+    expect(calls).toBe(1);
+    expect(err).not.toBeInstanceOf(RateLimitedError);
+    expect(ConnectError.from(err).code).toBe(Code.ResourceExhausted);
+  });
+
+  it("throws RateLimitedError with the last pushback once the attempts are spent", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const next = async () => {
+        calls++;
+        throw refusal("1");
+      };
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+        random: () => 0,
+      });
+
+      const err = await settle(interceptor(next as never)(request()));
+
+      expect(calls).toBe(1 + MAX_RETRY_ATTEMPTS);
+      expect(err).toBeInstanceOf(RateLimitedError);
+      expect((err as RateLimitedError).retryAfterMs).toBe(1000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails fast instead of holding a call past the longest wait", async () => {
+    let calls = 0;
+    const next = async () => {
+      calls++;
+      throw refusal(String(MAX_THROTTLE_WAIT_MS / 1000 + 1));
+    };
+    const sleep = vi.fn(async () => {});
+    const interceptor = makeRetryInterceptor({ policyByRpc: policyFor("NO_SIDE_EFFECTS"), sleep });
+
+    const err = await interceptor(next as never)(request()).catch((e: unknown) => e);
+
+    expect(calls).toBe(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect((err as RateLimitedError).retryAfterMs).toBe(MAX_THROTTLE_WAIT_MS + 1000);
+  });
+
+  it("fails only the refused call when the pushback is over the longest wait", async () => {
+    const overCap = String(MAX_THROTTLE_WAIT_MS / 1000 + 1);
+    let calls = 0;
+    const next = async () => {
+      if (calls++ === 0) throw refusal(overCap);
+      return "ok" as never;
+    };
+    const sleep = vi.fn(async () => {});
+    const interceptor = makeRetryInterceptor({ policyByRpc: policyFor("NO_SIDE_EFFECTS"), sleep });
+    const send = interceptor(next as never);
+
+    await expect(send(request())).rejects.toBeInstanceOf(RateLimitedError);
+    await expect(send(request())).resolves.toBe("ok");
+
+    expect(calls).toBe(2);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("replays a throttled call even when the retry budget is drained", async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const next = async () => {
+        if (calls++ === 0) throw refusal("1");
+        return "ok" as never;
+      };
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+        throttle: { maxTokens: 2, tokenRatio: 0 },
+        random: () => 0,
+      });
+      const drain = interceptor((async () => {
+        throw new ConnectError("down", Code.Unavailable);
+      }) as never);
+      await settle(drain(request()));
+
+      await expect(settle(interceptor(next as never)(request()))).resolves.toBe("ok");
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not delay a call to another origin while one origin is paused", async () => {
+    vi.useFakeTimers();
+    try {
+      const seen: string[] = [];
+      const next = async (req: { url: string }) => {
+        seen.push(req.url);
+        if (req.url.startsWith("https://a.internal") && seen.length === 1) throw refusal("3");
+        return "ok" as never;
+      };
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+        random: () => 0,
+      });
+      const send = interceptor(next as never);
+      const other = { ...(request() as object), url: "https://b.internal/pkg.v1.Svc/Method" } as never;
+
+      const paused = send({ ...(request() as object), url: "https://a.internal/pkg.v1.Svc/Method" } as never);
+      await vi.advanceTimersByTimeAsync(0);
+      const timersWhilePaused = vi.getTimerCount();
+      await expect(send(other)).resolves.toBe("ok");
+
+      expect(seen).toEqual([
+        "https://a.internal/pkg.v1.Svc/Method",
+        "https://b.internal/pkg.v1.Svc/Method",
+      ]);
+      expect(vi.getTimerCount()).toBe(timersWhilePaused);
+      await settle(paused);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("passes a RateLimitedError from further down through unchanged and unreplayed", async () => {
+    let calls = 0;
+    const lower = new RateLimitedError(1000, refusal("1"));
+    const next = async () => {
+      calls++;
+      throw lower;
+    };
+    const interceptor = makeRetryInterceptor({
+      policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+      sleep: async () => {},
+    });
+
+    await expect(interceptor(next as never)(request())).rejects.toBe(lower);
+    expect(calls).toBe(1);
+  });
+
+  it("makes calls queued behind one refusal wait for its deadline instead of being refused", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      let refusals = 0;
+      let servedCalls = 0;
+      const next = async () => {
+        if (Date.now() < 2000) {
+          refusals++;
+          throw refusal("2");
+        }
+        servedCalls++;
+        return "ok" as never;
+      };
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+        random: () => 0,
+      });
+      const send = interceptor(next as never);
+
+      const first = send(request());
+      await vi.advanceTimersByTimeAsync(0);
+      const second = send(request());
+      const third = send(request());
+      await vi.advanceTimersByTimeAsync(2000);
+
+      await expect(Promise.all([first, second, third])).resolves.toEqual(["ok", "ok", "ok"]);
+      expect(refusals).toBe(1);
+      expect(servedCalls).toBe(3);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects promptly when the caller aborts during the wait and leaves no timer behind", async () => {
+    vi.useFakeTimers();
+    try {
+      const next = async () => {
+        throw refusal("3");
+      };
+      const interceptor = makeRetryInterceptor({
+        policyByRpc: policyFor("NO_SIDE_EFFECTS"),
+        random: () => 0,
+      });
+      const controller = new AbortController();
+      const settled = interceptor(next as never)(request(controller.signal)).catch((e: unknown) => e);
+
+      await vi.advanceTimersByTimeAsync(500);
+      controller.abort();
+
+      const err = await settled;
+      expect(ConnectError.from(err).code).toBe(Code.Canceled);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

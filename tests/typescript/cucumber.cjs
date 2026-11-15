@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // The contracts live beside this lane, at ../features. The Rust lane answers
 // the retry-eligibility file too; workload identity, the public lane, the CSRF synchronizer echo, the
-// default precondition, retry observability and undelivered-request replay are TypeScript-only entries.
+// default precondition, retry observability, undelivered-request replay and rate-limit retry are TypeScript-only entries.
 // The package-shaking contract is TypeScript-only: Rust has no bundler.
 // The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation and stream-keepalive contracts are answered by both lanes.
 module.exports = {
@@ -14,6 +14,7 @@ module.exports = {
       "../features/connect_precondition.feature",
       "../features/connect_retry_observability.feature",
       "../features/connect_undelivered_retry.feature",
+      "../features/connect_rate_limit_retry.feature",
       "../features/connect_error_info.feature",
       "../features/connect_csrf_replay_rule.feature",
       "../features/connect_pinned_peer.feature",
@@ -38,6 +39,7 @@ module.exports = {
       "steps/precondition.ts",
       "steps/retry_observability.ts",
       "steps/undelivered_retry.ts",
+      "steps/rate_limit_retry.ts",
       "steps/error_info.ts",
       "steps/csrf_replay_rule.ts",
       "steps/pinned_peer.ts",

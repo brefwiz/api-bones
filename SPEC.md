@@ -150,6 +150,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # A refused call's wait and typed rejection live in the retry interceptor, and
+  # Rust has no client interceptor pipeline -- so this surface is TS alone, the
+  # same way connect-undelivered-retry is.
+  connect-rate-limit-retry:
+    contract: tests/features/connect_rate_limit_retry.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
   # The emitted error code a refusal carries: read back from the Connect error
   # detail, exposed on the SDK error type, and rendered as a text token. The
   # Rust half lives in the root crate, outside the package this surface names
