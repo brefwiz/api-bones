@@ -369,6 +369,43 @@
 //     // The other labels, and the RPC declarations, follow.
 //   }
 
+// `bones.v1.approval_capabilities` flags a capability this contract provides
+// as an approval capability: its holders are the people who may approve a
+// class of action, and the capability's name IS that action class, one name
+// with no second registry beside it. A product declares it in its own
+// contract, beside the capability it serves, and states a human label for the
+// class so a screen that lists the classes shows words, never the identifier.
+//
+// Declaring one is the provider's statement that holding the capability
+// confers approval of that class of action. It grants nothing: which roles
+// hold the capability stays the authority's to decide, through the ordinary
+// guarded grant path, exactly like any other capability. An approval
+// capability is declared through `provided_capabilities` and labelled through
+// `capability_labels`. It carries no authenticated scope and declares no
+// audience: the authority admits a provided capability without a scope only
+// when this option flags it, and grants it to no role by default.
+//
+// Repeated, one entry per approval capability, so one service may flag
+// several. This option carries no validation of its own. The rules below
+// belong to the contract compiler and to the static check that runs on the
+// contract, and both apply them identically. Across one contract's descriptor
+// set, an entry is refused when any item holds:
+//   - its `capability` is not one the contract provides, exactly as
+//     `capability` or `provided_capabilities` names it;
+//   - its `label` is absent, or its `label.text` is empty or only whitespace;
+//   - two entries name the same capability.
+//
+// Usage:
+//
+//   service RefundService {
+//     option (bones.v1.provided_capabilities) = "billing.refund-approval";
+//     option (bones.v1.approval_capabilities) = {
+//       capability: "billing.refund-approval",
+//       label: { text: "Approve refunds" }
+//     };
+//     // The capability's own label and the RPC declarations follow.
+//   }
+
 // `bones.v1.capability_audience` declares which organization roles a
 // product's capability is granted to when an organization enables the
 // product. The provider states it in the contract, beside the capability it
@@ -781,7 +818,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file bones/v1/annotations.proto.
  */
 export const file_bones_v1_annotations: GenFile = /*@__PURE__*/
-  fileDesc("Chpib25lcy92MS9hbm5vdGF0aW9ucy5wcm90bxIIYm9uZXMudjEiMgoSUmVxdWlyZWRDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDgoGc2NvcGVzGAIgAygJIoMBCgVMYWJlbBIMCgR0ZXh0GAEgASgJEjcKDHRyYW5zbGF0aW9ucxgCIAMoCzIhLmJvbmVzLnYxLkxhYmVsLlRyYW5zbGF0aW9uc0VudHJ5GjMKEVRyYW5zbGF0aW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoPQ2FwYWJpbGl0eUxhYmVsEgwKBG5hbWUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJACg9QZXJtaXNzaW9uTGFiZWwSDQoFc2NvcGUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJECgtCcm9rZXJTY29wZRISCgpjYXBhYmlsaXR5GAEgASgJEg0KBXNjb3BlGAIgASgJEhIKCmltcGxpZWRfYnkYAyABKAkiNgoQQ2FwYWJpbGl0eVNjb3BlcxISCgpjYXBhYmlsaXR5GAEgASgJEg4KBnNjb3BlcxgCIAMoCSJQCglBdXRoelJ1bGUSIQoEa2luZBgBIAEoDjITLmJvbmVzLnYxLkF1dGh6S2luZBIOCgZyZWFzb24YAiABKAkSEAoIcmVxdWlyZXMYAyADKAkiugEKEkF0dHJpYnV0ZURpbWVuc2lvbhIMCgRuYW1lGAEgASgJEiUKBHR5cGUYAiABKA4yFy5ib25lcy52MS5BdHRyaWJ1dGVUeXBlEi0KCHBvbGFyaXR5GAMgASgOMhsuYm9uZXMudjEuQXR0cmlidXRlUG9sYXJpdHkSLQoIbWF0Y2hpbmcYBCABKA4yGy5ib25lcy52MS5BdHRyaWJ1dGVNYXRjaGluZxIRCglzZXBhcmF0b3IYBSABKAkiKwoNTWNwUHJvamVjdGlvbhINCgV0aXRsZRgCIAEoCUoECAEQAlIFc2hhcGUiYgoOUmVzb3VyY2VPcHRpb24SDAoEdHlwZRgBIAEoCRIWCg5pZGVudGl0eV9maWVsZBgCIAEoCRIqCgdtZXRob2RzGAMgASgLMhkuYm9uZXMudjEuUmVzb3VyY2VNZXRob2RzIlwKD1Jlc291cmNlTWV0aG9kcxIOCgZjcmVhdGUYASABKAkSCwoDZ2V0GAIgASgJEg4KBnVwZGF0ZRgDIAEoCRIOCgZkZWxldGUYBCABKAkSDAoEbGlzdBgFIAEoCSIzChFBdXRvbWF0aW9uVHJpZ2dlchIeCgVsYWJlbBgBIAEoCzIPLmJvbmVzLnYxLkxhYmVsIocCChBBdXRvbWF0aW9uQWN0aW9uEh4KBWxhYmVsGAEgASgLMg8uYm9uZXMudjEuTGFiZWwSJgoGZWZmZWN0GAIgASgOMhYuYm9uZXMudjEuQWN0aW9uRWZmZWN0Ei4KC2lkZW1wb3RlbmN5GAMgASgOMhkuYm9uZXMudjEuSWRlbXBvdGVuY3lNb2RlEh4KFmlkZW1wb3RlbmN5X2tleV9maWVsZHMYBCADKAkSFwoPcGVyc29uX3Jlc2VydmVkGAUgASgIEhYKDnBsYW5uZXJfcGlubmVkGAYgASgIEioKCHJlc29sdmVzGAcgASgLMhguYm9uZXMudjEuRW50aXR5UmVzb2x2ZXIiZgoORW50aXR5UmVzb2x2ZXISEwoLcXVlcnlfZmllbGQYASABKAkSFQoNcmVzdWx0c19maWVsZBgCIAEoCRITCgt2YWx1ZV9maWVsZBgDIAEoCRITCgtsYWJlbF9maWVsZBgEIAEoCSqkAQoSQ2FwYWJpbGl0eUF1ZGllbmNlEiMKH0NBUEFCSUxJVFlfQVVESUVOQ0VfVU5TUEVDSUZJRUQQABImCiJDQVBBQklMSVRZX0FVRElFTkNFX0FETUlOSVNUUkFUT1JTEAESHwobQ0FQQUJJTElUWV9BVURJRU5DRV9NRU1CRVJTEAISIAocQ0FQQUJJTElUWV9BVURJRU5DRV9FVkVSWU9ORRADKo0BCglBdXRoektpbmQSGgoWQVVUSFpfS0lORF9VTlNQRUNJRklFRBAAEhUKEUFVVEhaX0tJTkRfUFVCTElDEAMSHAoYQVVUSFpfS0lORF9BVVRIRU5USUNBVEVEEAQiBAgBEAEiBAgCEAIqEkFVVEhaX0tJTkRfU0VSVklDRSoPQVVUSFpfS0lORF9VU0VSKmMKDUF0dHJpYnV0ZVR5cGUSHgoaQVRUUklCVVRFX1RZUEVfVU5TUEVDSUZJRUQQABIZChVBVFRSSUJVVEVfVFlQRV9TVFJJTkcQARIXChNBVFRSSUJVVEVfVFlQRV9VVUlEEAIqegoRQXR0cmlidXRlUG9sYXJpdHkSIgoeQVRUUklCVVRFX1BPTEFSSVRZX1VOU1BFQ0lGSUVEEAASHgoaQVRUUklCVVRFX1BPTEFSSVRZX0dSQU5URUQQARIhCh1BVFRSSUJVVEVfUE9MQVJJVFlfTkFSUk9XQUJMRRACKnwKEUF0dHJpYnV0ZU1hdGNoaW5nEiIKHkFUVFJJQlVURV9NQVRDSElOR19VTlNQRUNJRklFRBAAEhwKGEFUVFJJQlVURV9NQVRDSElOR19FWEFDVBABEiUKIUFUVFJJQlVURV9NQVRDSElOR19TRUdNRU5UX1BSRUZJWBACKrcBCglDYWxsU2hhcGUSGgoWQ0FMTF9TSEFQRV9VTlNQRUNJRklFRBAAEhQKEENBTExfU0hBUEVfVU5BUlkQARIcChhDQUxMX1NIQVBFX0NMSUVOVF9TVFJFQU0QAhIcChhDQUxMX1NIQVBFX0ZJTklURV9TVFJFQU0QAxIfChtDQUxMX1NIQVBFX1VOQk9VTkRFRF9TVFJFQU0QBBIbChdDQUxMX1NIQVBFX0xPTkdfUlVOTklORxAFKqcBCgxBY3Rpb25FZmZlY3QSHQoZQUNUSU9OX0VGRkVDVF9VTlNQRUNJRklFRBAAEhYKEkFDVElPTl9FRkZFQ1RfUFVSRRABEhsKF0FDVElPTl9FRkZFQ1RfRVBIRU1FUkFMEAISHQoZQUNUSU9OX0VGRkVDVF9DT01QRU5TQUJMRRADEiQKIEFDVElPTl9FRkZFQ1RfUE9JTlRfT0ZfTk9fUkVUVVJOEAQqbQoPSWRlbXBvdGVuY3lNb2RlEiAKHElERU1QT1RFTkNZX01PREVfVU5TUEVDSUZJRUQQABIcChhJREVNUE9URU5DWV9NT0RFX05BVFVSQUwQARIaChZJREVNUE9URU5DWV9NT0RFX0tFWUVEEAIqxQEKEkRhdGFDbGFzc2lmaWNhdGlvbhIjCh9EQVRBX0NMQVNTSUZJQ0FUSU9OX1VOU1BFQ0lGSUVEEAASHgoaREFUQV9DTEFTU0lGSUNBVElPTl9QVUJMSUMQARIgChxEQVRBX0NMQVNTSUZJQ0FUSU9OX0lOVEVSTkFMEAISJAogREFUQV9DTEFTU0lGSUNBVElPTl9DT05GSURFTlRJQUwQAxIiCh5EQVRBX0NMQVNTSUZJQ0FUSU9OX1JFU1RSSUNURUQQBDpCCgpjYXBhYmlsaXR5Eh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI22twIgASgJUgpjYXBhYmlsaXR5OnUKFXJlcXVpcmVkX2NhcGFiaWxpdGllcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiOtrcCIAMoCzIcLmJvbmVzLnYxLlJlcXVpcmVkQ2FwYWJpbGl0eVIUcmVxdWlyZWRDYXBhYmlsaXRpZXM6VwoVcHJvdmlkZWRfY2FwYWJpbGl0aWVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI+2twIgAygJUhRwcm92aWRlZENhcGFiaWxpdGllczpqChFjYXBhYmlsaXR5X2xhYmVscxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiQtrcCIAMoCzIZLmJvbmVzLnYxLkNhcGFiaWxpdHlMYWJlbFIQY2FwYWJpbGl0eUxhYmVsczpqChFwZXJtaXNzaW9uX2xhYmVscxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiRtrcCIAMoCzIZLmJvbmVzLnYxLlBlcm1pc3Npb25MYWJlbFIQcGVybWlzc2lvbkxhYmVsczpvChZwcm92aWRlZF9icm9rZXJfc2NvcGVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJK2twIgAygLMhUuYm9uZXMudjEuQnJva2VyU2NvcGVSFHByb3ZpZGVkQnJva2VyU2NvcGVzOnEKE2NhcGFiaWxpdHlfYXVkaWVuY2USHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYk7a3AiABKA4yHC5ib25lcy52MS5DYXBhYmlsaXR5QXVkaWVuY2VSEmNhcGFiaWxpdHlBdWRpZW5jZTprChFjYXBhYmlsaXR5X3Njb3BlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiUtrcCIAMoCzIaLmJvbmVzLnYxLkNhcGFiaWxpdHlTY29wZXNSEGNhcGFiaWxpdHlTY29wZXM6YAoKYXR0cmlidXRlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiWtrcCIAMoCzIcLmJvbmVzLnYxLkF0dHJpYnV0ZURpbWVuc2lvblIKYXR0cmlidXRlczo5CgZlcnJvcnMSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiLtrcCIAMoCVIGZXJyb3JzOkwKBWF1dGh6Eh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYjLa3AiABKAsyEy5ib25lcy52MS5BdXRoelJ1bGVSBWF1dGh6OkwKA21jcBIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGJe2twIgASgLMhcuYm9uZXMudjEuTWNwUHJvamVjdGlvblIDbWNwOlUKCmNhbGxfc2hhcGUSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiatrcCIAEoDjITLmJvbmVzLnYxLkNhbGxTaGFwZVIJY2FsbFNoYXBlOjwKCGJhdGNoX29mEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYn7a3AiABKAlSB2JhdGNoT2Y6agoRYXV0b21hdGlvbl9hY3Rpb24SHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxictrcCIAEoCzIaLmJvbmVzLnYxLkF1dG9tYXRpb25BY3Rpb25SEGF1dG9tYXRpb25BY3Rpb246RwoObGlzdF9zdHJlYW1fb2YSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxijtrcCIAEoCVIMbGlzdFN0cmVhbU9mOkoKD2lkZW1wb3RlbmN5X2tleRIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGKe2twIgASgIUg5pZGVtcG90ZW5jeUtleTpYCghyZXNvdXJjZRIfLmdvb2dsZS5wcm90b2J1Zi5NZXNzYWdlT3B0aW9ucxiZtrcCIAEoCzIYLmJvbmVzLnYxLlJlc291cmNlT3B0aW9uUghyZXNvdXJjZTpuChJhdXRvbWF0aW9uX3RyaWdnZXISHy5nb29nbGUucHJvdG9idWYuTWVzc2FnZU9wdGlvbnMYm7a3AiABKAsyGy5ib25lcy52MS5BdXRvbWF0aW9uVHJpZ2dlclIRYXV0b21hdGlvblRyaWdnZXI6QwoLaW5zdGFuY2Vfb2YSHy5nb29nbGUucHJvdG9idWYuTWVzc2FnZU9wdGlvbnMYoba3AiABKAlSCmluc3RhbmNlT2Y6NAoEYXR0chIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYmLa3AiABKAlSBGF0dHI6ZgoOY2xhc3NpZmljYXRpb24SHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGJ22twIgASgOMhwuYm9uZXMudjEuRGF0YUNsYXNzaWZpY2F0aW9uUg5jbGFzc2lmaWNhdGlvbjo6CgdtZWFuaW5nEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxigtrcCIAEoCVIHbWVhbmluZzpHCg5kZWZhdWx0ZWRfZnJvbRIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYora3AiABKAlSDWRlZmF1bHRlZEZyb206OwoIdHlwZWRfYnkSHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGKS2twIgASgJUgd0eXBlZEJ5OkgKD25lc3RlZF93cml0ZV9vZhIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYpba3AiABKAlSDW5lc3RlZFdyaXRlT2ZiBnByb3RvMw", [file_google_protobuf_descriptor]);
+  fileDesc("Chpib25lcy92MS9hbm5vdGF0aW9ucy5wcm90bxIIYm9uZXMudjEiMgoSUmVxdWlyZWRDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDgoGc2NvcGVzGAIgAygJIoMBCgVMYWJlbBIMCgR0ZXh0GAEgASgJEjcKDHRyYW5zbGF0aW9ucxgCIAMoCzIhLmJvbmVzLnYxLkxhYmVsLlRyYW5zbGF0aW9uc0VudHJ5GjMKEVRyYW5zbGF0aW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoPQ2FwYWJpbGl0eUxhYmVsEgwKBG5hbWUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJACg9QZXJtaXNzaW9uTGFiZWwSDQoFc2NvcGUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJECgtCcm9rZXJTY29wZRISCgpjYXBhYmlsaXR5GAEgASgJEg0KBXNjb3BlGAIgASgJEhIKCmltcGxpZWRfYnkYAyABKAkiNgoQQ2FwYWJpbGl0eVNjb3BlcxISCgpjYXBhYmlsaXR5GAEgASgJEg4KBnNjb3BlcxgCIAMoCSJIChJBcHByb3ZhbENhcGFiaWxpdHkSEgoKY2FwYWJpbGl0eRgBIAEoCRIeCgVsYWJlbBgCIAEoCzIPLmJvbmVzLnYxLkxhYmVsIlAKCUF1dGh6UnVsZRIhCgRraW5kGAEgASgOMhMuYm9uZXMudjEuQXV0aHpLaW5kEg4KBnJlYXNvbhgCIAEoCRIQCghyZXF1aXJlcxgDIAMoCSK6AQoSQXR0cmlidXRlRGltZW5zaW9uEgwKBG5hbWUYASABKAkSJQoEdHlwZRgCIAEoDjIXLmJvbmVzLnYxLkF0dHJpYnV0ZVR5cGUSLQoIcG9sYXJpdHkYAyABKA4yGy5ib25lcy52MS5BdHRyaWJ1dGVQb2xhcml0eRItCghtYXRjaGluZxgEIAEoDjIbLmJvbmVzLnYxLkF0dHJpYnV0ZU1hdGNoaW5nEhEKCXNlcGFyYXRvchgFIAEoCSIrCg1NY3BQcm9qZWN0aW9uEg0KBXRpdGxlGAIgASgJSgQIARACUgVzaGFwZSJiCg5SZXNvdXJjZU9wdGlvbhIMCgR0eXBlGAEgASgJEhYKDmlkZW50aXR5X2ZpZWxkGAIgASgJEioKB21ldGhvZHMYAyABKAsyGS5ib25lcy52MS5SZXNvdXJjZU1ldGhvZHMiXAoPUmVzb3VyY2VNZXRob2RzEg4KBmNyZWF0ZRgBIAEoCRILCgNnZXQYAiABKAkSDgoGdXBkYXRlGAMgASgJEg4KBmRlbGV0ZRgEIAEoCRIMCgRsaXN0GAUgASgJIjMKEUF1dG9tYXRpb25UcmlnZ2VyEh4KBWxhYmVsGAEgASgLMg8uYm9uZXMudjEuTGFiZWwihwIKEEF1dG9tYXRpb25BY3Rpb24SHgoFbGFiZWwYASABKAsyDy5ib25lcy52MS5MYWJlbBImCgZlZmZlY3QYAiABKA4yFi5ib25lcy52MS5BY3Rpb25FZmZlY3QSLgoLaWRlbXBvdGVuY3kYAyABKA4yGS5ib25lcy52MS5JZGVtcG90ZW5jeU1vZGUSHgoWaWRlbXBvdGVuY3lfa2V5X2ZpZWxkcxgEIAMoCRIXCg9wZXJzb25fcmVzZXJ2ZWQYBSABKAgSFgoOcGxhbm5lcl9waW5uZWQYBiABKAgSKgoIcmVzb2x2ZXMYByABKAsyGC5ib25lcy52MS5FbnRpdHlSZXNvbHZlciJmCg5FbnRpdHlSZXNvbHZlchITCgtxdWVyeV9maWVsZBgBIAEoCRIVCg1yZXN1bHRzX2ZpZWxkGAIgASgJEhMKC3ZhbHVlX2ZpZWxkGAMgASgJEhMKC2xhYmVsX2ZpZWxkGAQgASgJKqQBChJDYXBhYmlsaXR5QXVkaWVuY2USIwofQ0FQQUJJTElUWV9BVURJRU5DRV9VTlNQRUNJRklFRBAAEiYKIkNBUEFCSUxJVFlfQVVESUVOQ0VfQURNSU5JU1RSQVRPUlMQARIfChtDQVBBQklMSVRZX0FVRElFTkNFX01FTUJFUlMQAhIgChxDQVBBQklMSVRZX0FVRElFTkNFX0VWRVJZT05FEAMqjQEKCUF1dGh6S2luZBIaChZBVVRIWl9LSU5EX1VOU1BFQ0lGSUVEEAASFQoRQVVUSFpfS0lORF9QVUJMSUMQAxIcChhBVVRIWl9LSU5EX0FVVEhFTlRJQ0FURUQQBCIECAEQASIECAIQAioSQVVUSFpfS0lORF9TRVJWSUNFKg9BVVRIWl9LSU5EX1VTRVIqYwoNQXR0cmlidXRlVHlwZRIeChpBVFRSSUJVVEVfVFlQRV9VTlNQRUNJRklFRBAAEhkKFUFUVFJJQlVURV9UWVBFX1NUUklORxABEhcKE0FUVFJJQlVURV9UWVBFX1VVSUQQAip6ChFBdHRyaWJ1dGVQb2xhcml0eRIiCh5BVFRSSUJVVEVfUE9MQVJJVFlfVU5TUEVDSUZJRUQQABIeChpBVFRSSUJVVEVfUE9MQVJJVFlfR1JBTlRFRBABEiEKHUFUVFJJQlVURV9QT0xBUklUWV9OQVJST1dBQkxFEAIqfAoRQXR0cmlidXRlTWF0Y2hpbmcSIgoeQVRUUklCVVRFX01BVENISU5HX1VOU1BFQ0lGSUVEEAASHAoYQVRUUklCVVRFX01BVENISU5HX0VYQUNUEAESJQohQVRUUklCVVRFX01BVENISU5HX1NFR01FTlRfUFJFRklYEAIqtwEKCUNhbGxTaGFwZRIaChZDQUxMX1NIQVBFX1VOU1BFQ0lGSUVEEAASFAoQQ0FMTF9TSEFQRV9VTkFSWRABEhwKGENBTExfU0hBUEVfQ0xJRU5UX1NUUkVBTRACEhwKGENBTExfU0hBUEVfRklOSVRFX1NUUkVBTRADEh8KG0NBTExfU0hBUEVfVU5CT1VOREVEX1NUUkVBTRAEEhsKF0NBTExfU0hBUEVfTE9OR19SVU5OSU5HEAUqpwEKDEFjdGlvbkVmZmVjdBIdChlBQ1RJT05fRUZGRUNUX1VOU1BFQ0lGSUVEEAASFgoSQUNUSU9OX0VGRkVDVF9QVVJFEAESGwoXQUNUSU9OX0VGRkVDVF9FUEhFTUVSQUwQAhIdChlBQ1RJT05fRUZGRUNUX0NPTVBFTlNBQkxFEAMSJAogQUNUSU9OX0VGRkVDVF9QT0lOVF9PRl9OT19SRVRVUk4QBCptCg9JZGVtcG90ZW5jeU1vZGUSIAocSURFTVBPVEVOQ1lfTU9ERV9VTlNQRUNJRklFRBAAEhwKGElERU1QT1RFTkNZX01PREVfTkFUVVJBTBABEhoKFklERU1QT1RFTkNZX01PREVfS0VZRUQQAirFAQoSRGF0YUNsYXNzaWZpY2F0aW9uEiMKH0RBVEFfQ0xBU1NJRklDQVRJT05fVU5TUEVDSUZJRUQQABIeChpEQVRBX0NMQVNTSUZJQ0FUSU9OX1BVQkxJQxABEiAKHERBVEFfQ0xBU1NJRklDQVRJT05fSU5URVJOQUwQAhIkCiBEQVRBX0NMQVNTSUZJQ0FUSU9OX0NPTkZJREVOVElBTBADEiIKHkRBVEFfQ0xBU1NJRklDQVRJT05fUkVTVFJJQ1RFRBAEOkIKCmNhcGFiaWxpdHkSHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYjba3AiABKAlSCmNhcGFiaWxpdHk6dQoVcmVxdWlyZWRfY2FwYWJpbGl0aWVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI62twIgAygLMhwuYm9uZXMudjEuUmVxdWlyZWRDYXBhYmlsaXR5UhRyZXF1aXJlZENhcGFiaWxpdGllczpXChVwcm92aWRlZF9jYXBhYmlsaXRpZXMSHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYj7a3AiADKAlSFHByb3ZpZGVkQ2FwYWJpbGl0aWVzOmoKEWNhcGFiaWxpdHlfbGFiZWxzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJC2twIgAygLMhkuYm9uZXMudjEuQ2FwYWJpbGl0eUxhYmVsUhBjYXBhYmlsaXR5TGFiZWxzOmoKEXBlcm1pc3Npb25fbGFiZWxzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJG2twIgAygLMhkuYm9uZXMudjEuUGVybWlzc2lvbkxhYmVsUhBwZXJtaXNzaW9uTGFiZWxzOm8KFnByb3ZpZGVkX2Jyb2tlcl9zY29wZXMSHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYkra3AiADKAsyFS5ib25lcy52MS5Ccm9rZXJTY29wZVIUcHJvdmlkZWRCcm9rZXJTY29wZXM6cQoTY2FwYWJpbGl0eV9hdWRpZW5jZRIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiTtrcCIAEoDjIcLmJvbmVzLnYxLkNhcGFiaWxpdHlBdWRpZW5jZVISY2FwYWJpbGl0eUF1ZGllbmNlOmsKEWNhcGFiaWxpdHlfc2NvcGVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJS2twIgAygLMhouYm9uZXMudjEuQ2FwYWJpbGl0eVNjb3Blc1IQY2FwYWJpbGl0eVNjb3BlczpgCgphdHRyaWJ1dGVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJa2twIgAygLMhwuYm9uZXMudjEuQXR0cmlidXRlRGltZW5zaW9uUgphdHRyaWJ1dGVzOnUKFWFwcHJvdmFsX2NhcGFiaWxpdGllcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiotrcCIAMoCzIcLmJvbmVzLnYxLkFwcHJvdmFsQ2FwYWJpbGl0eVIUYXBwcm92YWxDYXBhYmlsaXRpZXM6OQoGZXJyb3JzEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYi7a3AiADKAlSBmVycm9yczpMCgVhdXRoehIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGIy2twIgASgLMhMuYm9uZXMudjEuQXV0aHpSdWxlUgVhdXRoejpMCgNtY3ASHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiXtrcCIAEoCzIXLmJvbmVzLnYxLk1jcFByb2plY3Rpb25SA21jcDpVCgpjYWxsX3NoYXBlEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYmra3AiABKA4yEy5ib25lcy52MS5DYWxsU2hhcGVSCWNhbGxTaGFwZTo8CghiYXRjaF9vZhIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGJ+2twIgASgJUgdiYXRjaE9mOmoKEWF1dG9tYXRpb25fYWN0aW9uEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYnLa3AiABKAsyGi5ib25lcy52MS5BdXRvbWF0aW9uQWN0aW9uUhBhdXRvbWF0aW9uQWN0aW9uOkcKDmxpc3Rfc3RyZWFtX29mEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYo7a3AiABKAlSDGxpc3RTdHJlYW1PZjpKCg9pZGVtcG90ZW5jeV9rZXkSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxintrcCIAEoCFIOaWRlbXBvdGVuY3lLZXk6WAoIcmVzb3VyY2USHy5nb29nbGUucHJvdG9idWYuTWVzc2FnZU9wdGlvbnMYmba3AiABKAsyGC5ib25lcy52MS5SZXNvdXJjZU9wdGlvblIIcmVzb3VyY2U6bgoSYXV0b21hdGlvbl90cmlnZ2VyEh8uZ29vZ2xlLnByb3RvYnVmLk1lc3NhZ2VPcHRpb25zGJu2twIgASgLMhsuYm9uZXMudjEuQXV0b21hdGlvblRyaWdnZXJSEWF1dG9tYXRpb25UcmlnZ2VyOkMKC2luc3RhbmNlX29mEh8uZ29vZ2xlLnByb3RvYnVmLk1lc3NhZ2VPcHRpb25zGKG2twIgASgJUgppbnN0YW5jZU9mOjQKBGF0dHISHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGJi2twIgASgJUgRhdHRyOmYKDmNsYXNzaWZpY2F0aW9uEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxidtrcCIAEoDjIcLmJvbmVzLnYxLkRhdGFDbGFzc2lmaWNhdGlvblIOY2xhc3NpZmljYXRpb246OgoHbWVhbmluZxIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYoLa3AiABKAlSB21lYW5pbmc6RwoOZGVmYXVsdGVkX2Zyb20SHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGKK2twIgASgJUg1kZWZhdWx0ZWRGcm9tOjsKCHR5cGVkX2J5Eh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxiktrcCIAEoCVIHdHlwZWRCeTpICg9uZXN0ZWRfd3JpdGVfb2YSHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGKW2twIgASgJUg1uZXN0ZWRXcml0ZU9mYgZwcm90bzM", [file_google_protobuf_descriptor]);
 
 /**
  * One capability a service depends on, and the authority it intends to
@@ -986,6 +1023,38 @@ export const CapabilityScopesSchema: GenMessage<CapabilityScopes> = /*@__PURE__*
   messageDesc(file_bones_v1_annotations, 5);
 
 /**
+ * One provided capability flagged as conferring approval of a class of
+ * action.
+ *
+ * @generated from message bones.v1.ApprovalCapability
+ */
+export type ApprovalCapability = Message<"bones.v1.ApprovalCapability"> & {
+  /**
+   * A capability this contract provides, exactly as `capability` or
+   * `provided_capabilities` names it. It is also the name of the action class
+   * its holders approve.
+   *
+   * @generated from field: string capability = 1;
+   */
+  capability: string;
+
+  /**
+   * What the class is called to a person who picks approvers: "Approve
+   * refunds", never the identifier. `label.text` is mandatory and non-empty.
+   *
+   * @generated from field: bones.v1.Label label = 2;
+   */
+  label?: Label | undefined;
+};
+
+/**
+ * Describes the message bones.v1.ApprovalCapability.
+ * Use `create(ApprovalCapabilitySchema)` to create a new message.
+ */
+export const ApprovalCapabilitySchema: GenMessage<ApprovalCapability> = /*@__PURE__*/
+  messageDesc(file_bones_v1_annotations, 6);
+
+/**
  * Authorization declaration attached to an RPC.
  *
  * @generated from message bones.v1.AuthzRule
@@ -1027,7 +1096,7 @@ export type AuthzRule = Message<"bones.v1.AuthzRule"> & {
  * Use `create(AuthzRuleSchema)` to create a new message.
  */
 export const AuthzRuleSchema: GenMessage<AuthzRule> = /*@__PURE__*/
-  messageDesc(file_bones_v1_annotations, 6);
+  messageDesc(file_bones_v1_annotations, 7);
 
 /**
  * One resource attribute a credential can be narrowed on at a service.
@@ -1075,7 +1144,7 @@ export type AttributeDimension = Message<"bones.v1.AttributeDimension"> & {
  * Use `create(AttributeDimensionSchema)` to create a new message.
  */
 export const AttributeDimensionSchema: GenMessage<AttributeDimension> = /*@__PURE__*/
-  messageDesc(file_bones_v1_annotations, 7);
+  messageDesc(file_bones_v1_annotations, 8);
 
 /**
  * The MCP projection of one RPC. The shape of the call is
@@ -1098,7 +1167,7 @@ export type McpProjection = Message<"bones.v1.McpProjection"> & {
  * Use `create(McpProjectionSchema)` to create a new message.
  */
 export const McpProjectionSchema: GenMessage<McpProjection> = /*@__PURE__*/
-  messageDesc(file_bones_v1_annotations, 8);
+  messageDesc(file_bones_v1_annotations, 9);
 
 /**
  * A message declared as a managed resource.
@@ -1133,7 +1202,7 @@ export type ResourceOption = Message<"bones.v1.ResourceOption"> & {
  * Use `create(ResourceOptionSchema)` to create a new message.
  */
 export const ResourceOptionSchema: GenMessage<ResourceOption> = /*@__PURE__*/
-  messageDesc(file_bones_v1_annotations, 9);
+  messageDesc(file_bones_v1_annotations, 10);
 
 /**
  * The RPCs implementing each verb of a resource. Each is the name of a method
@@ -1174,7 +1243,7 @@ export type ResourceMethods = Message<"bones.v1.ResourceMethods"> & {
  * Use `create(ResourceMethodsSchema)` to create a new message.
  */
 export const ResourceMethodsSchema: GenMessage<ResourceMethods> = /*@__PURE__*/
-  messageDesc(file_bones_v1_annotations, 10);
+  messageDesc(file_bones_v1_annotations, 11);
 
 /**
  * A domain event declared as a trigger.
@@ -1195,7 +1264,7 @@ export type AutomationTrigger = Message<"bones.v1.AutomationTrigger"> & {
  * Use `create(AutomationTriggerSchema)` to create a new message.
  */
 export const AutomationTriggerSchema: GenMessage<AutomationTrigger> = /*@__PURE__*/
-  messageDesc(file_bones_v1_annotations, 11);
+  messageDesc(file_bones_v1_annotations, 12);
 
 /**
  * A public RPC declared as an action.
@@ -1263,7 +1332,7 @@ export type AutomationAction = Message<"bones.v1.AutomationAction"> & {
  * Use `create(AutomationActionSchema)` to create a new message.
  */
 export const AutomationActionSchema: GenMessage<AutomationAction> = /*@__PURE__*/
-  messageDesc(file_bones_v1_annotations, 12);
+  messageDesc(file_bones_v1_annotations, 13);
 
 /**
  * How a read action turns a person's search text into candidates. Every path
@@ -1306,7 +1375,7 @@ export type EntityResolver = Message<"bones.v1.EntityResolver"> & {
  * Use `create(EntityResolverSchema)` to create a new message.
  */
 export const EntityResolverSchema: GenMessage<EntityResolver> = /*@__PURE__*/
-  messageDesc(file_bones_v1_annotations, 13);
+  messageDesc(file_bones_v1_annotations, 14);
 
 /**
  * Who a product's capability is granted to when an organization enables the
@@ -1774,6 +1843,15 @@ export const attributes: GenExtension<ServiceOptions, AttributeDimension[]> = /*
   extDesc(file_bones_v1_annotations, 8);
 
 /**
+ * Provided capabilities whose holders approve a class of action, each with
+ * a human label. See file header.
+ *
+ * @generated from extension: repeated bones.v1.ApprovalCapability approval_capabilities = 5102376;
+ */
+export const approval_capabilities: GenExtension<ServiceOptions, ApprovalCapability[]> = /*@__PURE__*/
+  extDesc(file_bones_v1_annotations, 9);
+
+/**
  * Declared error variants for this RPC. Variant names are
  * ALL_CAPS_SNAKE and must match a value in the service's
  * companion error enum. See file header for full semantics.
@@ -1781,7 +1859,7 @@ export const attributes: GenExtension<ServiceOptions, AttributeDimension[]> = /*
  * @generated from extension: repeated string errors = 5102347;
  */
 export const errors: GenExtension<MethodOptions, string[]> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 9);
+  extDesc(file_bones_v1_annotations, 10);
 
 /**
  * Declared authorization requirement for this RPC. Absent option
@@ -1790,7 +1868,7 @@ export const errors: GenExtension<MethodOptions, string[]> = /*@__PURE__*/
  * @generated from extension: bones.v1.AuthzRule authz = 5102348;
  */
 export const authz: GenExtension<MethodOptions, AuthzRule> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 10);
+  extDesc(file_bones_v1_annotations, 11);
 
 /**
  * Opts this RPC into the MCP projection. Absent means not projected. See
@@ -1799,7 +1877,7 @@ export const authz: GenExtension<MethodOptions, AuthzRule> = /*@__PURE__*/
  * @generated from extension: bones.v1.McpProjection mcp = 5102359;
  */
 export const mcp: GenExtension<MethodOptions, McpProjection> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 11);
+  extDesc(file_bones_v1_annotations, 12);
 
 /**
  * What kind of call this RPC is. Absent or UNSPECIFIED means derived from
@@ -1808,7 +1886,7 @@ export const mcp: GenExtension<MethodOptions, McpProjection> = /*@__PURE__*/
  * @generated from extension: bones.v1.CallShape call_shape = 5102362;
  */
 export const call_shape: GenExtension<MethodOptions, CallShape> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 12);
+  extDesc(file_bones_v1_annotations, 13);
 
 /**
  * The single-item method of the same service this RPC batches. Absent means
@@ -1817,7 +1895,7 @@ export const call_shape: GenExtension<MethodOptions, CallShape> = /*@__PURE__*/
  * @generated from extension: string batch_of = 5102367;
  */
 export const batch_of: GenExtension<MethodOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 13);
+  extDesc(file_bones_v1_annotations, 14);
 
 /**
  * Declares this RPC an action of the product's automation surface. Absent
@@ -1826,7 +1904,7 @@ export const batch_of: GenExtension<MethodOptions, string> = /*@__PURE__*/
  * @generated from extension: bones.v1.AutomationAction automation_action = 5102364;
  */
 export const automation_action: GenExtension<MethodOptions, AutomationAction> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 14);
+  extDesc(file_bones_v1_annotations, 15);
 
 /**
  * The unary List RPC of the same service whose request this server stream
@@ -1836,7 +1914,7 @@ export const automation_action: GenExtension<MethodOptions, AutomationAction> = 
  * @generated from extension: string list_stream_of = 5102371;
  */
 export const list_stream_of: GenExtension<MethodOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 15);
+  extDesc(file_bones_v1_annotations, 16);
 
 /**
  * The request carries the caller's top-level `string idempotency_key` and
@@ -1848,7 +1926,7 @@ export const list_stream_of: GenExtension<MethodOptions, string> = /*@__PURE__*/
  * @generated from extension: bool idempotency_key = 5102375;
  */
 export const idempotency_key: GenExtension<MethodOptions, boolean> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 16);
+  extDesc(file_bones_v1_annotations, 17);
 
 /**
  * Declares this message a managed resource. See file header.
@@ -1856,7 +1934,7 @@ export const idempotency_key: GenExtension<MethodOptions, boolean> = /*@__PURE__
  * @generated from extension: bones.v1.ResourceOption resource = 5102361;
  */
 export const resource: GenExtension<MessageOptions, ResourceOption> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 17);
+  extDesc(file_bones_v1_annotations, 18);
 
 /**
  * Declares this domain-event message a trigger of the product's automation
@@ -1865,7 +1943,7 @@ export const resource: GenExtension<MessageOptions, ResourceOption> = /*@__PURE_
  * @generated from extension: bones.v1.AutomationTrigger automation_trigger = 5102363;
  */
 export const automation_trigger: GenExtension<MessageOptions, AutomationTrigger> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 18);
+  extDesc(file_bones_v1_annotations, 19);
 
 /**
  * The fully-qualified name of the message this message is instantiated
@@ -1875,7 +1953,7 @@ export const automation_trigger: GenExtension<MessageOptions, AutomationTrigger>
  * @generated from extension: string instance_of = 5102369;
  */
 export const instance_of: GenExtension<MessageOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 19);
+  extDesc(file_bones_v1_annotations, 20);
 
 /**
  * The attribute dimension this field carries, naming one declared in the
@@ -1884,7 +1962,7 @@ export const instance_of: GenExtension<MessageOptions, string> = /*@__PURE__*/
  * @generated from extension: string attr = 5102360;
  */
 export const attr: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 20);
+  extDesc(file_bones_v1_annotations, 21);
 
 /**
  * How sensitive this field's data is. Absent reads as
@@ -1893,7 +1971,7 @@ export const attr: GenExtension<FieldOptions, string> = /*@__PURE__*/
  * @generated from extension: bones.v1.DataClassification classification = 5102365;
  */
 export const classification: GenExtension<FieldOptions, DataClassification> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 21);
+  extDesc(file_bones_v1_annotations, 22);
 
 /**
  * What this field denotes, as one term of the curated vocabulary (schema.org
@@ -1903,7 +1981,7 @@ export const classification: GenExtension<FieldOptions, DataClassification> = /*
  * @generated from extension: string meaning = 5102368;
  */
 export const meaning: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 22);
+  extDesc(file_bones_v1_annotations, 23);
 
 /**
  * The fully-qualified field (`<package>.<Message>.<field>`) on the
@@ -1914,7 +1992,7 @@ export const meaning: GenExtension<FieldOptions, string> = /*@__PURE__*/
  * @generated from extension: string defaulted_from = 5102370;
  */
 export const defaulted_from: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 23);
+  extDesc(file_bones_v1_annotations, 24);
 
 /**
  * F1: The sibling string field holding the definition id that types this
@@ -1923,7 +2001,7 @@ export const defaulted_from: GenExtension<FieldOptions, string> = /*@__PURE__*/
  * @generated from extension: string typed_by = 5102372;
  */
 export const typed_by: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 24);
+  extDesc(file_bones_v1_annotations, 25);
 
 /**
  * The single child write of the same service that each child in this
@@ -1933,5 +2011,5 @@ export const typed_by: GenExtension<FieldOptions, string> = /*@__PURE__*/
  * @generated from extension: string nested_write_of = 5102373;
  */
 export const nested_write_of: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 25);
+  extDesc(file_bones_v1_annotations, 26);
 

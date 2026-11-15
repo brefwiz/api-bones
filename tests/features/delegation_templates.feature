@@ -11,6 +11,10 @@ Feature: Delegation templates a provider ships
   and a budget. A selector's match kind is its dimension's, so a value is a
   literal, never a wildcard, glob or free text. Validating the provider's
   descriptor refuses a template naming anything the provider does not declare.
+  A provider also flags a capability it provides as an approval capability
+  with `bones.v1.approval_capabilities`: the capability's name is the class of
+  action its holders approve, and the entry carries the human label of that
+  class. Declaring it grants nothing.
   The surface is Rust alone: the check ships in api-bones-protos.
 
   Background:
@@ -424,3 +428,34 @@ Feature: Delegation templates a provider ships
     And the grant grammar message "bones.v1.Budget" declares exactly the fields "count, window_seconds"
     And the service option "bones.v1.delegation_templates" is declared with the number 5102374
     And the delegation templates are accepted
+
+  @state:happy
+  Scenario: A capability the provider flags as an approval capability reads back with its label
+    Given the provider flags the capability "planning" as an approval capability labelled "Approve planning"
+    When the provider contract is validated
+    Then the service declares 1 approval capability
+    And the approval capability "planning" reads back labelled "Approve planning"
+    And the delegation templates are accepted
+
+  @state:happy
+  Scenario: Several approval capabilities are flagged on one service
+    Given the provider provides the capability "refunds"
+    And the provider flags the capability "planning" as an approval capability labelled "Approve planning"
+    And the provider flags the capability "refunds" as an approval capability labelled "Approve refunds"
+    When the provider contract is validated
+    Then the service declares 2 approval capabilities
+    And the approval capability "refunds" reads back labelled "Approve refunds"
+    And the approval capability "planning" reads back labelled "Approve planning"
+
+  @state:happy
+  Scenario: Flagging a capability grants no scope and adds no delegation template
+    Given the provider flags the capability "planning" as an approval capability labelled "Approve planning"
+    When the provider contract is validated
+    Then the service declares 0 delegation templates
+    And the provided capabilities read back exactly "planning"
+
+  @state:happy
+  Scenario: The approval capability entry is exactly a capability and a label
+    When the provider contract is validated
+    Then the grant grammar message "bones.v1.ApprovalCapability" declares exactly the fields "capability, label"
+    And the service option "bones.v1.approval_capabilities" is declared with the number 5102376
