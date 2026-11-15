@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [17.7.0] - 2026-11-15
+
+### Added
+
+- *(protos)* a contract flags a provided capability as one whose holders approve a class of action
+
 ## [17.6.0] - 2026-11-15
 
 ### Added
