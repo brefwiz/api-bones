@@ -243,7 +243,7 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
       memory: "16384"
-    vars: [brefwiz-secrets, brefwiz-vars]
+    vars: [brefwiz-pr-readonly, brefwiz-vars]
     services:
       postgres:
         image: registry.brefwiz.com/brefwiz/ci-postgres:v0.3.85@sha256:b4fece4be264e5709d7d118d2cf6246cda06d0af4feca91c21c7d4dcb02e8ad2
@@ -258,7 +258,10 @@ jobs:
     env:
       DATABASE_URL: "postgres://postgres@postgres:5432/postgres"
       SKIP_TESTCONTAINERS: "1"
-      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
+      # api-bones-types generates its sources with cargo, whose config
+      # requires the brefwiz registry.
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-pr-readonly.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
     steps:
       - id: checkout
         uses: actions/checkout
@@ -266,7 +269,7 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-auth@main
         with:
           checkout: "false"
-          npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          npm-token: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
           registry-url: ${{ vars.brefwiz-vars.NPM_CONFIG_REGISTRY }}
       # api-bones-connect-ts takes its client identity from
       # @brefwiz/spiffe-client, which lives on the Gitea registry. npm-auth
@@ -278,7 +281,7 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-auth@main
         with:
           checkout: "false"
-          npm-token: ${{ vars.brefwiz-secrets.PACKAGE_READER_TOKEN }}
+          npm-token: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
           registry-url: "https://git.brefwiz.com/api/packages/brefwiz/npm/"
       - id: require-database
         run: |

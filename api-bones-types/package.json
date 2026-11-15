@@ -1,0 +1,37 @@
+{
+  "name": "@brefwiz/api-bones-types",
+  "version": "0.1.0",
+  "description": "TypeScript types and JSON Schema for the api-bones REST contract types",
+  "author": "Brefwiz Team",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./schema.json": "./schema/api-bones.json"
+  },
+  "files": [
+    "dist",
+    "schema/api-bones.json",
+    "LICENSE"
+  ],
+  "scripts": {
+    "generate": "node ../scripts/generate-api-bones-types.mjs",
+    "build": "tsc",
+    "test": "tsc && tsc -p tsconfig.test.json && node --test test/entry-points.test.mjs"
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.4",
+    "typescript": "^5.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://git.brefwiz.com/api/packages/brefwiz/npm/",
+    "access": "public"
+  }
+}

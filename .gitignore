@@ -41,6 +41,10 @@ api-bones-axios/*.tgz
 # TypeScript packages
 api-bones-axios/node_modules
 api-bones-axios/dist
+
+# api-bones-types sources, generated from the Rust crate before every build
+api-bones-types/src/generated/
+api-bones-types/schema/
 api-bones-otel/node_modules
 api-bones-otel/dist
 **/node_modules

@@ -14,6 +14,8 @@ members = [
     "api-bones-batch",
     "api-bones-fields",
     "api-bones-automation",
+    # Dumps the JSON Schema that @brefwiz/api-bones-types is generated from.
+    "api-bones-types",
     # The Rust step lane for the shared Gherkin contract. A member rather than
     # an integration test of the crate it exercises, because the contract is
     # answered by two languages and each lane sits beside the corpus.

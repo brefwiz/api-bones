@@ -5,3 +5,5 @@
 # no result artifact to publish.
 [profile.ci]
 junit = { path = "junit.xml" }
+# A failing assertion prints where it fails, not only in the final summary.
+failure-output = "immediate-final"

@@ -113,8 +113,9 @@ ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nexte
 ci-sdk-publish-rust-dry-run: ## Rehearse the crate publish without uploading
 	cargo package --locked -p api-bones-connect --allow-dirty --no-verify
 
-ci-sdk-publish-typescript-dry-run: ## Rehearse the npm publish without uploading
+ci-sdk-publish-typescript-dry-run: ts-types-generate ## Rehearse the npm publish without uploading
 	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm publish --dry-run
+	cd api-bones-types && npm install --no-audit --no-fund && npm run build && npm publish --dry-run
 
 build: ## Build the crate
 	cargo build --locked --release
@@ -214,13 +215,13 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 
 # ─── TypeScript packages ────────────────────────────────────────────────────
 
-.PHONY: ts-build ts-test ts-lint
+.PHONY: ts-types-generate ts-build ts-test ts-lint
 # Every TypeScript package in the repo. Enumerated once and looped over rather
 # than named per target: these were hardcoded to api-bones-otel alone, so
 # api-bones-axios shipped without its build or tests ever running in CI despite
 # having both scripts. A list makes adding a package a one-line change and makes
 # an omission visible.
-TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts
+TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts api-bones-types
 # The contract lane is its own TypeScript package; ts-test runs it where npm
 # credentials already exist. It is excluded from publish/pack, which iterate
 # PUBLISHABLE sets, because it ships nothing.
@@ -253,20 +254,30 @@ cds-lint: ## Validate .cds/workflows/ YAML via cdsctl — catches schema breakag
 .PHONY: ci-ts
 ci-ts: ts-lint ts-build ts-test ## CI: the whole TypeScript lane in one target
 
-ts-build: ## Build TypeScript packages
+ts-types-generate: ## Generate the api-bones-types schema and TypeScript sources from the Rust crate
+	cd api-bones-types && npm install --no-audit --no-fund && npm run generate
+
+ts-build: ts-types-generate ## Build TypeScript packages
 	@set -e; for pkg in $(TS_PACKAGES); do \
 		echo "==> build $$pkg"; \
 		( cd $$pkg && npm install --no-audit --no-fund && npm run build ); \
 	done
 
-ts-test: ## Test TypeScript packages
+ts-test: ts-types-generate ## Test TypeScript packages
 	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
 	: '@brefwiz/api-bones-connect through its published entry points, so the'
 	: 'package it depends on is built first.'
 	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build
 	@set -e; for pkg in $(TS_TEST_PACKAGES); do \
 		echo "==> test $$pkg"; \
-		( cd $$pkg && npm install --no-audit --no-fund && npm run test ); \
+		log=$$(mktemp); \
+		if ( cd $$pkg && npm install --no-audit --no-fund && npm run test ) >"$$log" 2>&1; then \
+			cat "$$log"; rm -f "$$log"; \
+		else \
+			rc=$$?; cat "$$log"; rm -f "$$log"; \
+			if [ -d "$$pkg/src/generated" ]; then for f in $$pkg/src/generated/*.ts; do echo "==> $$f" >&2; cat "$$f" >&2; done; fi; \
+			echo "TEST-FAIL $$pkg exit=$$rc" >&2; exit 1; \
+		fi; \
 	done
 
 ts-lint: ## Lint TypeScript packages (format check + biome)
@@ -287,6 +298,6 @@ ci-changelog: ## CI: verify CHANGELOG.md has entry for current package version (
 	@bash /opt/ci-workflows/ci-scripts/check-release-changelog.sh
 
 .PHONY: ci-sdk-autogenerate
-ci-sdk-autogenerate: ## Generate canonical TypeScript typed-field protobuf messages
+ci-sdk-autogenerate: ts-types-generate ## Generate canonical TypeScript typed-field protobuf messages and the api-bones-types sources
 	cd api-bones-connect-ts && npm install --no-audit --no-fund && buf generate
 	cd tests/typescript && npm install --no-audit --no-fund && buf generate
