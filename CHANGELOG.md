@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [17.8.0] - 2026-11-15
+
+### Added
+
+- *(types)* publish the core types and their JSON Schema as @brefwiz/api-bones-types
+
 ## [17.7.0] - 2026-11-15
 
 ### Added
