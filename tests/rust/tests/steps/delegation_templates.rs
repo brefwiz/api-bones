@@ -12,6 +12,7 @@ use super::shipped_resolver::{CONTRACT, compiler};
 use crate::world::DelegationTemplatesWorld;
 
 const TEMPLATES: &str = "bones.v1.delegation_templates";
+const APPROVALS: &str = "bones.v1.approval_capabilities";
 const SERVICE: &str = "contract.v1.ProviderService";
 const EVENTS_SERVICE: &str = "contract.v1.EventsService";
 
@@ -49,6 +50,13 @@ impl DelegationTemplatesWorld {
                 "  option (bones.v1.capability_scopes) = {{ capability: \"{group}\"{scopes} }};"
             )
         });
+        let approvals = self.approvals.iter().map(|(capability, label)| {
+            format!(
+                "  option (bones.v1.approval_capabilities) = {{ capability: {} label: {{ text: {} }} }};",
+                quoted(capability),
+                quoted(label)
+            )
+        });
         let dimensions = self
             .dimensions
             .iter()
@@ -57,6 +65,7 @@ impl DelegationTemplatesWorld {
             .chain(capabilities)
             .chain(broker_scopes)
             .chain(groups)
+            .chain(approvals)
             .chain(dimensions)
             .chain(template_options(&self.templates))
             .collect();
@@ -156,6 +165,26 @@ fn declared_grant(pool: Option<&DescriptorPool>, index: usize) -> DynamicMessage
         .as_message()
         .expect("a message")
         .clone()
+}
+
+/// The approval capabilities the provider service declares, as read back from
+/// its options.
+fn declared_approvals(pool: Option<&DescriptorPool>) -> Vec<DynamicMessage> {
+    let pool = pool.expect("the provider contract was not compiled");
+    let extension = pool
+        .get_extension_by_name(APPROVALS)
+        .unwrap_or_else(|| panic!("{APPROVALS} is not declared"));
+    let options = pool
+        .get_service_by_name(SERVICE)
+        .expect("the service is declared")
+        .options();
+    let value = options.get_extension(&extension);
+    value
+        .as_list()
+        .expect("a repeated option")
+        .iter()
+        .map(|entry| entry.as_message().expect("a message").clone())
+        .collect()
 }
 
 /// The label text of the template `name`.
@@ -479,6 +508,17 @@ fn given_events_service_template(
         .push(template_source(&name, &label, &[grant.as_str()]));
 }
 
+#[given(
+    expr = "the provider flags the capability {string} as an approval capability labelled {string}"
+)]
+fn given_approval_capability(
+    world: &mut DelegationTemplatesWorld,
+    capability: String,
+    label: String,
+) {
+    world.approvals.push((capability, label));
+}
+
 #[when("the provider contract is validated")]
 fn when_validated(world: &mut DelegationTemplatesWorld) {
     let mut compiler = compiler(world.source(), api_bones_protos::files());
@@ -498,6 +538,45 @@ fn then_count(world: &mut DelegationTemplatesWorld, expected: usize) {
 #[then(expr = "the template {string} reads back labelled {string}")]
 fn then_template_label(world: &mut DelegationTemplatesWorld, name: String, label: String) {
     assert_eq!(template_label(world.pool.as_ref(), &name), label);
+}
+
+#[then(expr = "the service declares {int} approval capability/capabilities")]
+fn then_approval_count(world: &mut DelegationTemplatesWorld, expected: usize) {
+    assert_eq!(declared_approvals(world.pool.as_ref()).len(), expected);
+}
+
+#[then(expr = "the approval capability {string} reads back labelled {string}")]
+fn then_approval_label(world: &mut DelegationTemplatesWorld, capability: String, label: String) {
+    let approvals = declared_approvals(world.pool.as_ref());
+    let entry = approvals
+        .iter()
+        .find(|entry| text(entry, "capability") == capability)
+        .unwrap_or_else(|| panic!("{capability} is not flagged as an approval capability"));
+    let read = field(entry, "label");
+    assert_eq!(text(read.as_message().expect("a label"), "text"), label);
+}
+
+#[then(expr = "the provided capabilities read back exactly {string}")]
+fn then_provided_capabilities(world: &mut DelegationTemplatesWorld, expected: String) {
+    let pool = world
+        .pool
+        .as_ref()
+        .expect("the provider contract was not compiled");
+    let extension = pool
+        .get_extension_by_name("bones.v1.provided_capabilities")
+        .expect("the extension is declared");
+    let options = pool
+        .get_service_by_name(SERVICE)
+        .expect("the service is declared")
+        .options();
+    let value = options.get_extension(&extension);
+    let provided: Vec<String> = value
+        .as_list()
+        .expect("a repeated option")
+        .iter()
+        .map(|capability| capability.as_str().expect("a string").to_owned())
+        .collect();
+    assert_eq!(provided.join(", "), expected);
 }
 
 #[then(expr = "its grant {int} reads back the scope {string}")]

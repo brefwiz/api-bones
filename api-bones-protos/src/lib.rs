@@ -293,6 +293,7 @@ mod tests {
             "CapabilityAudience capability_audience = 5102355;",
             "repeated CapabilityScopes capability_scopes = 5102356;",
             "repeated AttributeDimension attributes = 5102358;",
+            "repeated ApprovalCapability approval_capabilities = 5102376;",
             "McpProjection mcp = 5102359;",
             "string attr = 5102360;",
         ] {
@@ -344,6 +345,53 @@ mod tests {
             ],
             "BrokerScope is exactly {{capability, scope, implied_by}}"
         );
+    }
+
+    /// An approval capability is a provided capability plus its human label;
+    /// the capability name is the action class, so the entry carries no second
+    /// name. One service flags several, so the option is repeated.
+    #[test]
+    fn annotations_proto_declares_approval_capabilities() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        assert!(
+            body.contains("repeated ApprovalCapability approval_capabilities = 5102376;"),
+            "annotations.proto missing the approval_capabilities service option"
+        );
+        let msg = body
+            .split("message ApprovalCapability {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("ApprovalCapability message");
+        let fields: Vec<&str> = msg
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        assert_eq!(
+            fields,
+            ["string capability = 1;", "Label label = 2;"],
+            "ApprovalCapability is exactly {{capability, label}}"
+        );
+    }
+
+    /// The refusal rules are stated in the file header for the compiler and
+    /// the static check to apply identically; dropping one would let a
+    /// validator drift from the vocabulary.
+    #[test]
+    fn annotations_proto_states_the_approval_capability_refusals() {
+        let body = std::str::from_utf8(ANNOTATIONS_PROTO).expect("utf8");
+        let header = body
+            .split("// `bones.v1.approval_capabilities` flags")
+            .nth(1)
+            .and_then(|rest| rest.split("// `bones.v1.capability_audience`").next())
+            .expect("approval_capabilities header");
+        for rule in [
+            "its `capability` is not one the contract provides",
+            "its `label` is absent, or its `label.text` is empty or only whitespace",
+            "two entries name the same capability",
+        ] {
+            assert!(header.contains(rule), "header missing refusal `{rule}`");
+        }
     }
 
     /// A permission group is a capability and the scopes it confers; one

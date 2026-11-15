@@ -326,6 +326,8 @@ pub struct DelegationTemplatesWorld {
     pub groups: Vec<(String, Vec<String>)>,
     pub dimensions: Vec<String>,
     pub templates: Vec<String>,
+    /// Each capability flagged as an approval capability, with its label text.
+    pub approvals: Vec<(String, String)>,
     pub second_rpc_scopes: Vec<String>,
     pub second_templates: Vec<String>,
     /// The contract leaves out the import that declares the templates option.

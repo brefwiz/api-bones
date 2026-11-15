@@ -369,6 +369,43 @@
 //     // The other labels, and the RPC declarations, follow.
 //   }
 
+// `bones.v1.approval_capabilities` flags a capability this contract provides
+// as an approval capability: its holders are the people who may approve a
+// class of action, and the capability's name IS that action class, one name
+// with no second registry beside it. A product declares it in its own
+// contract, beside the capability it serves, and states a human label for the
+// class so a screen that lists the classes shows words, never the identifier.
+//
+// Declaring one is the provider's statement that holding the capability
+// confers approval of that class of action. It grants nothing: which roles
+// hold the capability stays the authority's to decide, through the ordinary
+// guarded grant path, exactly like any other capability. An approval
+// capability is declared through `provided_capabilities` and labelled through
+// `capability_labels`. It carries no authenticated scope and declares no
+// audience: the authority admits a provided capability without a scope only
+// when this option flags it, and grants it to no role by default.
+//
+// Repeated, one entry per approval capability, so one service may flag
+// several. This option carries no validation of its own. The rules below
+// belong to the contract compiler and to the static check that runs on the
+// contract, and both apply them identically. Across one contract's descriptor
+// set, an entry is refused when any item holds:
+//   - its `capability` is not one the contract provides, exactly as
+//     `capability` or `provided_capabilities` names it;
+//   - its `label` is absent, or its `label.text` is empty or only whitespace;
+//   - two entries name the same capability.
+//
+// Usage:
+//
+//   service RefundService {
+//     option (bones.v1.provided_capabilities) = "billing.refund-approval";
+//     option (bones.v1.approval_capabilities) = {
+//       capability: "billing.refund-approval",
+//       label: { text: "Approve refunds" }
+//     };
+//     // The capability's own label and the RPC declarations follow.
+//   }
+
 // `bones.v1.capability_audience` declares which organization roles a
 // product's capability is granted to when an organization enables the
 // product. The provider states it in the contract, beside the capability it
@@ -811,6 +848,10 @@ extend google.protobuf.ServiceOptions {
   // Resource attribute dimensions a credential can be narrowed on at this
   // service. Absent means none. See file header.
   repeated AttributeDimension attributes = 5102358;
+
+  // Provided capabilities whose holders approve a class of action, each with
+  // a human label. See file header.
+  repeated ApprovalCapability approval_capabilities = 5102376;
 }
 
 extend google.protobuf.MethodOptions {
@@ -980,6 +1021,19 @@ message CapabilityScopes {
   // The scopes holding the capability confers, byte-identical to how
   // `authz.requires` or `provided_broker_scopes` names them.
   repeated string scopes = 2;
+}
+
+// One provided capability flagged as conferring approval of a class of
+// action.
+message ApprovalCapability {
+  // A capability this contract provides, exactly as `capability` or
+  // `provided_capabilities` names it. It is also the name of the action class
+  // its holders approve.
+  string capability = 1;
+
+  // What the class is called to a person who picks approvers: "Approve
+  // refunds", never the identifier. `label.text` is mandatory and non-empty.
+  Label label = 2;
 }
 
 // Who a product's capability is granted to when an organization enables the
