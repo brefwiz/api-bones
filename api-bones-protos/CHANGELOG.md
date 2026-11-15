@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-11-15
+
+### Added
+
+- *(protos)* a keyed write declares its idempotency key, single and batch alike
+
 ## [0.8.6] - 2026-11-13
 
 ### Added
