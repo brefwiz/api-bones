@@ -22,6 +22,10 @@ jobs:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
       flavor: default
       memory: "16384"
+    env:
+      # api-bones-types generates its sources with cargo, whose config
+      # requires the brefwiz registry.
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-secrets.CARGO_REGISTRIES_BREFWIZ_READER_TOKEN }}
     steps:
       - id: publish
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/package-lane-publish@main

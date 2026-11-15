@@ -418,7 +418,8 @@ transport composition that consumer services use to define theirs, which is what
 It publishes on two ecosystems, and they release on separate lineages:
 
 - Rust crates to crates.io on `v*` tags.
-- npm packages (`api-bones-connect`, `api-bones-axios`, `api-bones-otel`) on
+- npm packages (`api-bones-connect`, `api-bones-axios`, `api-bones-otel`,
+  `api-bones-types`) on
   their own prefixed tags. `api-bones-connect` publishes to the brefwiz
   registry, because packages published there depend on it and npm resolves a
   registry per scope rather than per package.

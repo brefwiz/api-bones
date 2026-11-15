@@ -293,6 +293,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "api-bones-schema-gen"
+version = "0.0.0"
+dependencies = [
+ "api-bones",
+ "schemars 1.2.2",
+ "serde_json",
+]
+
+[[package]]
 name = "api-bones-sdk-gen"
 version = "4.4.6"
 dependencies = [
