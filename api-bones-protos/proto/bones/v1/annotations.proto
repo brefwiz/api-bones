@@ -506,6 +506,65 @@
 //     }
 //   }
 //
+// `bones.v1.idempotency_key` set to true, on any write (a single or a batch),
+// declares one platform retry rule the service that marks the method must
+// keep: the call requires the caller's key, a resend with the same key and
+// the same request is answered the first answer again, recorded in the call's
+// own transaction and only when it commits, and the same key with a different
+// request is refused ALREADY_EXISTS and runs nothing. The request message
+// carries the key as its top-level `string idempotency_key` field: singular,
+// with no `optional` and outside any oneof, so empty and absent are one
+// value. The value is an `api_bones::IdempotencyKey`, 1 to 255 printable
+// ASCII characters; a missing or malformed key refuses the call
+// INVALID_ARGUMENT before anything runs. A key and its stored answer belong
+// to the calling organization: a key means nothing outside it, and no answer
+// or key existence is disclosed across organizations. A keyed RPC declares
+// `idempotency_level = IDEMPOTENT` and lists ALREADY_EXISTS in
+// `bones.v1.errors`; a read (NO_SIDE_EFFECTS) is never keyed. Absent or false
+// means the RPC takes no key.
+//
+// This vocabulary and its checks verify the declaration's shape only, never
+// that the service keeps the promise. Because a marked method is IDEMPOTENT,
+// clients resend it automatically (api-bones-connect-ts `retry.ts`, and
+// `retry_eligibility` in the api-bones crate), so a service must not mark
+// a method until it records and replays answers; the platform replay record
+// of service-kit is the intended implementation. A method that carries an
+// `idempotency_key` field without the marker is not checked.
+//
+// A batch and the single it names are keyed together: both declare the marker
+// or neither does, and each keeps the level and errors of the other. A keyed
+// batch runs all its items in one transaction, each under its own savepoint,
+// so an item's own refusal never stops the later items. A failure that is not
+// an item's own outcome rolls back the whole call: every item is answered
+// `aborted` and nothing is recorded, so a resend under the same key runs
+// afresh.
+//
+// Usage:
+//
+//   message BatchCreateSlotsRequest {
+//     repeated CreateSlotRequest items = 1;
+//     string idempotency_key = 2;
+//   }
+//   message CreateSlotRequest {
+//     string name = 1;
+//     string idempotency_key = 2;
+//   }
+//   service SlotService {
+//     rpc CreateSlot(CreateSlotRequest) returns (CreateSlotResponse) {
+//       option (bones.v1.idempotency_key) = true;
+//       option idempotency_level = IDEMPOTENT;
+//       option (bones.v1.errors) = "ALREADY_EXISTS";
+//     }
+//     rpc BatchCreateSlots(BatchCreateSlotsRequest)
+//         returns (BatchCreateSlotsResponse) {
+//       option (bones.v1.batch_of) = "CreateSlot";
+//       option (bones.v1.idempotency_key) = true;
+//       option idempotency_level = IDEMPOTENT;
+//       option (bones.v1.errors) = "INVALID_ARGUMENT";
+//       option (bones.v1.errors) = "ALREADY_EXISTS";
+//     }
+//   }
+//
 // `bones.v1.nested_write_of` is set on the children field of a parent write
 // request and names the single child write that each child passes through: a
 // bare method name of the same service, like `batch_of`, or
@@ -764,6 +823,12 @@ extend google.protobuf.MethodOptions {
   // accepts and whose items it streams. Absent means the RPC is not a list
   // stream. See file header.
   string list_stream_of = 5102371;
+
+  // The request carries the caller's top-level `string idempotency_key` and
+  // the call is IDEMPOTENT under it, single or batch; the marking service
+  // must record and replay the first answer per organization. Absent or false
+  // means the RPC takes no key. See file header.
+  bool idempotency_key = 5102375;
 }
 
 extend google.protobuf.MessageOptions {

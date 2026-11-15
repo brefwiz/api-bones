@@ -506,6 +506,65 @@
 //     }
 //   }
 //
+// `bones.v1.idempotency_key` set to true, on any write (a single or a batch),
+// declares one platform retry rule the service that marks the method must
+// keep: the call requires the caller's key, a resend with the same key and
+// the same request is answered the first answer again, recorded in the call's
+// own transaction and only when it commits, and the same key with a different
+// request is refused ALREADY_EXISTS and runs nothing. The request message
+// carries the key as its top-level `string idempotency_key` field: singular,
+// with no `optional` and outside any oneof, so empty and absent are one
+// value. The value is an `api_bones::IdempotencyKey`, 1 to 255 printable
+// ASCII characters; a missing or malformed key refuses the call
+// INVALID_ARGUMENT before anything runs. A key and its stored answer belong
+// to the calling organization: a key means nothing outside it, and no answer
+// or key existence is disclosed across organizations. A keyed RPC declares
+// `idempotency_level = IDEMPOTENT` and lists ALREADY_EXISTS in
+// `bones.v1.errors`; a read (NO_SIDE_EFFECTS) is never keyed. Absent or false
+// means the RPC takes no key.
+//
+// This vocabulary and its checks verify the declaration's shape only, never
+// that the service keeps the promise. Because a marked method is IDEMPOTENT,
+// clients resend it automatically (api-bones-connect-ts `retry.ts`, and
+// `retry_eligibility` in the api-bones crate), so a service must not mark
+// a method until it records and replays answers; the platform replay record
+// of service-kit is the intended implementation. A method that carries an
+// `idempotency_key` field without the marker is not checked.
+//
+// A batch and the single it names are keyed together: both declare the marker
+// or neither does, and each keeps the level and errors of the other. A keyed
+// batch runs all its items in one transaction, each under its own savepoint,
+// so an item's own refusal never stops the later items. A failure that is not
+// an item's own outcome rolls back the whole call: every item is answered
+// `aborted` and nothing is recorded, so a resend under the same key runs
+// afresh.
+//
+// Usage:
+//
+//   message BatchCreateSlotsRequest {
+//     repeated CreateSlotRequest items = 1;
+//     string idempotency_key = 2;
+//   }
+//   message CreateSlotRequest {
+//     string name = 1;
+//     string idempotency_key = 2;
+//   }
+//   service SlotService {
+//     rpc CreateSlot(CreateSlotRequest) returns (CreateSlotResponse) {
+//       option (bones.v1.idempotency_key) = true;
+//       option idempotency_level = IDEMPOTENT;
+//       option (bones.v1.errors) = "ALREADY_EXISTS";
+//     }
+//     rpc BatchCreateSlots(BatchCreateSlotsRequest)
+//         returns (BatchCreateSlotsResponse) {
+//       option (bones.v1.batch_of) = "CreateSlot";
+//       option (bones.v1.idempotency_key) = true;
+//       option idempotency_level = IDEMPOTENT;
+//       option (bones.v1.errors) = "INVALID_ARGUMENT";
+//       option (bones.v1.errors) = "ALREADY_EXISTS";
+//     }
+//   }
+//
 // `bones.v1.nested_write_of` is set on the children field of a parent write
 // request and names the single child write that each child passes through: a
 // bare method name of the same service, like `batch_of`, or
@@ -702,7 +761,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file bones/v1/annotations.proto.
  */
 export const file_bones_v1_annotations: GenFile = /*@__PURE__*/
-  fileDesc("Chpib25lcy92MS9hbm5vdGF0aW9ucy5wcm90bxIIYm9uZXMudjEiMgoSUmVxdWlyZWRDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDgoGc2NvcGVzGAIgAygJIoMBCgVMYWJlbBIMCgR0ZXh0GAEgASgJEjcKDHRyYW5zbGF0aW9ucxgCIAMoCzIhLmJvbmVzLnYxLkxhYmVsLlRyYW5zbGF0aW9uc0VudHJ5GjMKEVRyYW5zbGF0aW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoPQ2FwYWJpbGl0eUxhYmVsEgwKBG5hbWUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJACg9QZXJtaXNzaW9uTGFiZWwSDQoFc2NvcGUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJECgtCcm9rZXJTY29wZRISCgpjYXBhYmlsaXR5GAEgASgJEg0KBXNjb3BlGAIgASgJEhIKCmltcGxpZWRfYnkYAyABKAkiNgoQQ2FwYWJpbGl0eVNjb3BlcxISCgpjYXBhYmlsaXR5GAEgASgJEg4KBnNjb3BlcxgCIAMoCSJQCglBdXRoelJ1bGUSIQoEa2luZBgBIAEoDjITLmJvbmVzLnYxLkF1dGh6S2luZBIOCgZyZWFzb24YAiABKAkSEAoIcmVxdWlyZXMYAyADKAkiugEKEkF0dHJpYnV0ZURpbWVuc2lvbhIMCgRuYW1lGAEgASgJEiUKBHR5cGUYAiABKA4yFy5ib25lcy52MS5BdHRyaWJ1dGVUeXBlEi0KCHBvbGFyaXR5GAMgASgOMhsuYm9uZXMudjEuQXR0cmlidXRlUG9sYXJpdHkSLQoIbWF0Y2hpbmcYBCABKA4yGy5ib25lcy52MS5BdHRyaWJ1dGVNYXRjaGluZxIRCglzZXBhcmF0b3IYBSABKAkiKwoNTWNwUHJvamVjdGlvbhINCgV0aXRsZRgCIAEoCUoECAEQAlIFc2hhcGUiYgoOUmVzb3VyY2VPcHRpb24SDAoEdHlwZRgBIAEoCRIWCg5pZGVudGl0eV9maWVsZBgCIAEoCRIqCgdtZXRob2RzGAMgASgLMhkuYm9uZXMudjEuUmVzb3VyY2VNZXRob2RzIlwKD1Jlc291cmNlTWV0aG9kcxIOCgZjcmVhdGUYASABKAkSCwoDZ2V0GAIgASgJEg4KBnVwZGF0ZRgDIAEoCRIOCgZkZWxldGUYBCABKAkSDAoEbGlzdBgFIAEoCSIzChFBdXRvbWF0aW9uVHJpZ2dlchIeCgVsYWJlbBgBIAEoCzIPLmJvbmVzLnYxLkxhYmVsIocCChBBdXRvbWF0aW9uQWN0aW9uEh4KBWxhYmVsGAEgASgLMg8uYm9uZXMudjEuTGFiZWwSJgoGZWZmZWN0GAIgASgOMhYuYm9uZXMudjEuQWN0aW9uRWZmZWN0Ei4KC2lkZW1wb3RlbmN5GAMgASgOMhkuYm9uZXMudjEuSWRlbXBvdGVuY3lNb2RlEh4KFmlkZW1wb3RlbmN5X2tleV9maWVsZHMYBCADKAkSFwoPcGVyc29uX3Jlc2VydmVkGAUgASgIEhYKDnBsYW5uZXJfcGlubmVkGAYgASgIEioKCHJlc29sdmVzGAcgASgLMhguYm9uZXMudjEuRW50aXR5UmVzb2x2ZXIiZgoORW50aXR5UmVzb2x2ZXISEwoLcXVlcnlfZmllbGQYASABKAkSFQoNcmVzdWx0c19maWVsZBgCIAEoCRITCgt2YWx1ZV9maWVsZBgDIAEoCRITCgtsYWJlbF9maWVsZBgEIAEoCSqkAQoSQ2FwYWJpbGl0eUF1ZGllbmNlEiMKH0NBUEFCSUxJVFlfQVVESUVOQ0VfVU5TUEVDSUZJRUQQABImCiJDQVBBQklMSVRZX0FVRElFTkNFX0FETUlOSVNUUkFUT1JTEAESHwobQ0FQQUJJTElUWV9BVURJRU5DRV9NRU1CRVJTEAISIAocQ0FQQUJJTElUWV9BVURJRU5DRV9FVkVSWU9ORRADKo0BCglBdXRoektpbmQSGgoWQVVUSFpfS0lORF9VTlNQRUNJRklFRBAAEhUKEUFVVEhaX0tJTkRfUFVCTElDEAMSHAoYQVVUSFpfS0lORF9BVVRIRU5USUNBVEVEEAQiBAgBEAEiBAgCEAIqEkFVVEhaX0tJTkRfU0VSVklDRSoPQVVUSFpfS0lORF9VU0VSKmMKDUF0dHJpYnV0ZVR5cGUSHgoaQVRUUklCVVRFX1RZUEVfVU5TUEVDSUZJRUQQABIZChVBVFRSSUJVVEVfVFlQRV9TVFJJTkcQARIXChNBVFRSSUJVVEVfVFlQRV9VVUlEEAIqegoRQXR0cmlidXRlUG9sYXJpdHkSIgoeQVRUUklCVVRFX1BPTEFSSVRZX1VOU1BFQ0lGSUVEEAASHgoaQVRUUklCVVRFX1BPTEFSSVRZX0dSQU5URUQQARIhCh1BVFRSSUJVVEVfUE9MQVJJVFlfTkFSUk9XQUJMRRACKnwKEUF0dHJpYnV0ZU1hdGNoaW5nEiIKHkFUVFJJQlVURV9NQVRDSElOR19VTlNQRUNJRklFRBAAEhwKGEFUVFJJQlVURV9NQVRDSElOR19FWEFDVBABEiUKIUFUVFJJQlVURV9NQVRDSElOR19TRUdNRU5UX1BSRUZJWBACKrcBCglDYWxsU2hhcGUSGgoWQ0FMTF9TSEFQRV9VTlNQRUNJRklFRBAAEhQKEENBTExfU0hBUEVfVU5BUlkQARIcChhDQUxMX1NIQVBFX0NMSUVOVF9TVFJFQU0QAhIcChhDQUxMX1NIQVBFX0ZJTklURV9TVFJFQU0QAxIfChtDQUxMX1NIQVBFX1VOQk9VTkRFRF9TVFJFQU0QBBIbChdDQUxMX1NIQVBFX0xPTkdfUlVOTklORxAFKqcBCgxBY3Rpb25FZmZlY3QSHQoZQUNUSU9OX0VGRkVDVF9VTlNQRUNJRklFRBAAEhYKEkFDVElPTl9FRkZFQ1RfUFVSRRABEhsKF0FDVElPTl9FRkZFQ1RfRVBIRU1FUkFMEAISHQoZQUNUSU9OX0VGRkVDVF9DT01QRU5TQUJMRRADEiQKIEFDVElPTl9FRkZFQ1RfUE9JTlRfT0ZfTk9fUkVUVVJOEAQqbQoPSWRlbXBvdGVuY3lNb2RlEiAKHElERU1QT1RFTkNZX01PREVfVU5TUEVDSUZJRUQQABIcChhJREVNUE9URU5DWV9NT0RFX05BVFVSQUwQARIaChZJREVNUE9URU5DWV9NT0RFX0tFWUVEEAIqxQEKEkRhdGFDbGFzc2lmaWNhdGlvbhIjCh9EQVRBX0NMQVNTSUZJQ0FUSU9OX1VOU1BFQ0lGSUVEEAASHgoaREFUQV9DTEFTU0lGSUNBVElPTl9QVUJMSUMQARIgChxEQVRBX0NMQVNTSUZJQ0FUSU9OX0lOVEVSTkFMEAISJAogREFUQV9DTEFTU0lGSUNBVElPTl9DT05GSURFTlRJQUwQAxIiCh5EQVRBX0NMQVNTSUZJQ0FUSU9OX1JFU1RSSUNURUQQBDpCCgpjYXBhYmlsaXR5Eh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI22twIgASgJUgpjYXBhYmlsaXR5OnUKFXJlcXVpcmVkX2NhcGFiaWxpdGllcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiOtrcCIAMoCzIcLmJvbmVzLnYxLlJlcXVpcmVkQ2FwYWJpbGl0eVIUcmVxdWlyZWRDYXBhYmlsaXRpZXM6VwoVcHJvdmlkZWRfY2FwYWJpbGl0aWVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI+2twIgAygJUhRwcm92aWRlZENhcGFiaWxpdGllczpqChFjYXBhYmlsaXR5X2xhYmVscxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiQtrcCIAMoCzIZLmJvbmVzLnYxLkNhcGFiaWxpdHlMYWJlbFIQY2FwYWJpbGl0eUxhYmVsczpqChFwZXJtaXNzaW9uX2xhYmVscxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiRtrcCIAMoCzIZLmJvbmVzLnYxLlBlcm1pc3Npb25MYWJlbFIQcGVybWlzc2lvbkxhYmVsczpvChZwcm92aWRlZF9icm9rZXJfc2NvcGVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJK2twIgAygLMhUuYm9uZXMudjEuQnJva2VyU2NvcGVSFHByb3ZpZGVkQnJva2VyU2NvcGVzOnEKE2NhcGFiaWxpdHlfYXVkaWVuY2USHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYk7a3AiABKA4yHC5ib25lcy52MS5DYXBhYmlsaXR5QXVkaWVuY2VSEmNhcGFiaWxpdHlBdWRpZW5jZTprChFjYXBhYmlsaXR5X3Njb3BlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiUtrcCIAMoCzIaLmJvbmVzLnYxLkNhcGFiaWxpdHlTY29wZXNSEGNhcGFiaWxpdHlTY29wZXM6YAoKYXR0cmlidXRlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiWtrcCIAMoCzIcLmJvbmVzLnYxLkF0dHJpYnV0ZURpbWVuc2lvblIKYXR0cmlidXRlczo5CgZlcnJvcnMSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiLtrcCIAMoCVIGZXJyb3JzOkwKBWF1dGh6Eh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYjLa3AiABKAsyEy5ib25lcy52MS5BdXRoelJ1bGVSBWF1dGh6OkwKA21jcBIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGJe2twIgASgLMhcuYm9uZXMudjEuTWNwUHJvamVjdGlvblIDbWNwOlUKCmNhbGxfc2hhcGUSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiatrcCIAEoDjITLmJvbmVzLnYxLkNhbGxTaGFwZVIJY2FsbFNoYXBlOjwKCGJhdGNoX29mEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYn7a3AiABKAlSB2JhdGNoT2Y6agoRYXV0b21hdGlvbl9hY3Rpb24SHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxictrcCIAEoCzIaLmJvbmVzLnYxLkF1dG9tYXRpb25BY3Rpb25SEGF1dG9tYXRpb25BY3Rpb246RwoObGlzdF9zdHJlYW1fb2YSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxijtrcCIAEoCVIMbGlzdFN0cmVhbU9mOlgKCHJlc291cmNlEh8uZ29vZ2xlLnByb3RvYnVmLk1lc3NhZ2VPcHRpb25zGJm2twIgASgLMhguYm9uZXMudjEuUmVzb3VyY2VPcHRpb25SCHJlc291cmNlOm4KEmF1dG9tYXRpb25fdHJpZ2dlchIfLmdvb2dsZS5wcm90b2J1Zi5NZXNzYWdlT3B0aW9ucxibtrcCIAEoCzIbLmJvbmVzLnYxLkF1dG9tYXRpb25UcmlnZ2VyUhFhdXRvbWF0aW9uVHJpZ2dlcjpDCgtpbnN0YW5jZV9vZhIfLmdvb2dsZS5wcm90b2J1Zi5NZXNzYWdlT3B0aW9ucxihtrcCIAEoCVIKaW5zdGFuY2VPZjo0CgRhdHRyEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxiYtrcCIAEoCVIEYXR0cjpmCg5jbGFzc2lmaWNhdGlvbhIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYnba3AiABKA4yHC5ib25lcy52MS5EYXRhQ2xhc3NpZmljYXRpb25SDmNsYXNzaWZpY2F0aW9uOjoKB21lYW5pbmcSHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGKC2twIgASgJUgdtZWFuaW5nOkcKDmRlZmF1bHRlZF9mcm9tEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxiitrcCIAEoCVINZGVmYXVsdGVkRnJvbTo7Cgh0eXBlZF9ieRIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYpLa3AiABKAlSB3R5cGVkQnk6SAoPbmVzdGVkX3dyaXRlX29mEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxiltrcCIAEoCVINbmVzdGVkV3JpdGVPZmIGcHJvdG8z", [file_google_protobuf_descriptor]);
+  fileDesc("Chpib25lcy92MS9hbm5vdGF0aW9ucy5wcm90bxIIYm9uZXMudjEiMgoSUmVxdWlyZWRDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDgoGc2NvcGVzGAIgAygJIoMBCgVMYWJlbBIMCgR0ZXh0GAEgASgJEjcKDHRyYW5zbGF0aW9ucxgCIAMoCzIhLmJvbmVzLnYxLkxhYmVsLlRyYW5zbGF0aW9uc0VudHJ5GjMKEVRyYW5zbGF0aW9uc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiPwoPQ2FwYWJpbGl0eUxhYmVsEgwKBG5hbWUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJACg9QZXJtaXNzaW9uTGFiZWwSDQoFc2NvcGUYASABKAkSHgoFbGFiZWwYAiABKAsyDy5ib25lcy52MS5MYWJlbCJECgtCcm9rZXJTY29wZRISCgpjYXBhYmlsaXR5GAEgASgJEg0KBXNjb3BlGAIgASgJEhIKCmltcGxpZWRfYnkYAyABKAkiNgoQQ2FwYWJpbGl0eVNjb3BlcxISCgpjYXBhYmlsaXR5GAEgASgJEg4KBnNjb3BlcxgCIAMoCSJQCglBdXRoelJ1bGUSIQoEa2luZBgBIAEoDjITLmJvbmVzLnYxLkF1dGh6S2luZBIOCgZyZWFzb24YAiABKAkSEAoIcmVxdWlyZXMYAyADKAkiugEKEkF0dHJpYnV0ZURpbWVuc2lvbhIMCgRuYW1lGAEgASgJEiUKBHR5cGUYAiABKA4yFy5ib25lcy52MS5BdHRyaWJ1dGVUeXBlEi0KCHBvbGFyaXR5GAMgASgOMhsuYm9uZXMudjEuQXR0cmlidXRlUG9sYXJpdHkSLQoIbWF0Y2hpbmcYBCABKA4yGy5ib25lcy52MS5BdHRyaWJ1dGVNYXRjaGluZxIRCglzZXBhcmF0b3IYBSABKAkiKwoNTWNwUHJvamVjdGlvbhINCgV0aXRsZRgCIAEoCUoECAEQAlIFc2hhcGUiYgoOUmVzb3VyY2VPcHRpb24SDAoEdHlwZRgBIAEoCRIWCg5pZGVudGl0eV9maWVsZBgCIAEoCRIqCgdtZXRob2RzGAMgASgLMhkuYm9uZXMudjEuUmVzb3VyY2VNZXRob2RzIlwKD1Jlc291cmNlTWV0aG9kcxIOCgZjcmVhdGUYASABKAkSCwoDZ2V0GAIgASgJEg4KBnVwZGF0ZRgDIAEoCRIOCgZkZWxldGUYBCABKAkSDAoEbGlzdBgFIAEoCSIzChFBdXRvbWF0aW9uVHJpZ2dlchIeCgVsYWJlbBgBIAEoCzIPLmJvbmVzLnYxLkxhYmVsIocCChBBdXRvbWF0aW9uQWN0aW9uEh4KBWxhYmVsGAEgASgLMg8uYm9uZXMudjEuTGFiZWwSJgoGZWZmZWN0GAIgASgOMhYuYm9uZXMudjEuQWN0aW9uRWZmZWN0Ei4KC2lkZW1wb3RlbmN5GAMgASgOMhkuYm9uZXMudjEuSWRlbXBvdGVuY3lNb2RlEh4KFmlkZW1wb3RlbmN5X2tleV9maWVsZHMYBCADKAkSFwoPcGVyc29uX3Jlc2VydmVkGAUgASgIEhYKDnBsYW5uZXJfcGlubmVkGAYgASgIEioKCHJlc29sdmVzGAcgASgLMhguYm9uZXMudjEuRW50aXR5UmVzb2x2ZXIiZgoORW50aXR5UmVzb2x2ZXISEwoLcXVlcnlfZmllbGQYASABKAkSFQoNcmVzdWx0c19maWVsZBgCIAEoCRITCgt2YWx1ZV9maWVsZBgDIAEoCRITCgtsYWJlbF9maWVsZBgEIAEoCSqkAQoSQ2FwYWJpbGl0eUF1ZGllbmNlEiMKH0NBUEFCSUxJVFlfQVVESUVOQ0VfVU5TUEVDSUZJRUQQABImCiJDQVBBQklMSVRZX0FVRElFTkNFX0FETUlOSVNUUkFUT1JTEAESHwobQ0FQQUJJTElUWV9BVURJRU5DRV9NRU1CRVJTEAISIAocQ0FQQUJJTElUWV9BVURJRU5DRV9FVkVSWU9ORRADKo0BCglBdXRoektpbmQSGgoWQVVUSFpfS0lORF9VTlNQRUNJRklFRBAAEhUKEUFVVEhaX0tJTkRfUFVCTElDEAMSHAoYQVVUSFpfS0lORF9BVVRIRU5USUNBVEVEEAQiBAgBEAEiBAgCEAIqEkFVVEhaX0tJTkRfU0VSVklDRSoPQVVUSFpfS0lORF9VU0VSKmMKDUF0dHJpYnV0ZVR5cGUSHgoaQVRUUklCVVRFX1RZUEVfVU5TUEVDSUZJRUQQABIZChVBVFRSSUJVVEVfVFlQRV9TVFJJTkcQARIXChNBVFRSSUJVVEVfVFlQRV9VVUlEEAIqegoRQXR0cmlidXRlUG9sYXJpdHkSIgoeQVRUUklCVVRFX1BPTEFSSVRZX1VOU1BFQ0lGSUVEEAASHgoaQVRUUklCVVRFX1BPTEFSSVRZX0dSQU5URUQQARIhCh1BVFRSSUJVVEVfUE9MQVJJVFlfTkFSUk9XQUJMRRACKnwKEUF0dHJpYnV0ZU1hdGNoaW5nEiIKHkFUVFJJQlVURV9NQVRDSElOR19VTlNQRUNJRklFRBAAEhwKGEFUVFJJQlVURV9NQVRDSElOR19FWEFDVBABEiUKIUFUVFJJQlVURV9NQVRDSElOR19TRUdNRU5UX1BSRUZJWBACKrcBCglDYWxsU2hhcGUSGgoWQ0FMTF9TSEFQRV9VTlNQRUNJRklFRBAAEhQKEENBTExfU0hBUEVfVU5BUlkQARIcChhDQUxMX1NIQVBFX0NMSUVOVF9TVFJFQU0QAhIcChhDQUxMX1NIQVBFX0ZJTklURV9TVFJFQU0QAxIfChtDQUxMX1NIQVBFX1VOQk9VTkRFRF9TVFJFQU0QBBIbChdDQUxMX1NIQVBFX0xPTkdfUlVOTklORxAFKqcBCgxBY3Rpb25FZmZlY3QSHQoZQUNUSU9OX0VGRkVDVF9VTlNQRUNJRklFRBAAEhYKEkFDVElPTl9FRkZFQ1RfUFVSRRABEhsKF0FDVElPTl9FRkZFQ1RfRVBIRU1FUkFMEAISHQoZQUNUSU9OX0VGRkVDVF9DT01QRU5TQUJMRRADEiQKIEFDVElPTl9FRkZFQ1RfUE9JTlRfT0ZfTk9fUkVUVVJOEAQqbQoPSWRlbXBvdGVuY3lNb2RlEiAKHElERU1QT1RFTkNZX01PREVfVU5TUEVDSUZJRUQQABIcChhJREVNUE9URU5DWV9NT0RFX05BVFVSQUwQARIaChZJREVNUE9URU5DWV9NT0RFX0tFWUVEEAIqxQEKEkRhdGFDbGFzc2lmaWNhdGlvbhIjCh9EQVRBX0NMQVNTSUZJQ0FUSU9OX1VOU1BFQ0lGSUVEEAASHgoaREFUQV9DTEFTU0lGSUNBVElPTl9QVUJMSUMQARIgChxEQVRBX0NMQVNTSUZJQ0FUSU9OX0lOVEVSTkFMEAISJAogREFUQV9DTEFTU0lGSUNBVElPTl9DT05GSURFTlRJQUwQAxIiCh5EQVRBX0NMQVNTSUZJQ0FUSU9OX1JFU1RSSUNURUQQBDpCCgpjYXBhYmlsaXR5Eh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI22twIgASgJUgpjYXBhYmlsaXR5OnUKFXJlcXVpcmVkX2NhcGFiaWxpdGllcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiOtrcCIAMoCzIcLmJvbmVzLnYxLlJlcXVpcmVkQ2FwYWJpbGl0eVIUcmVxdWlyZWRDYXBhYmlsaXRpZXM6VwoVcHJvdmlkZWRfY2FwYWJpbGl0aWVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGI+2twIgAygJUhRwcm92aWRlZENhcGFiaWxpdGllczpqChFjYXBhYmlsaXR5X2xhYmVscxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiQtrcCIAMoCzIZLmJvbmVzLnYxLkNhcGFiaWxpdHlMYWJlbFIQY2FwYWJpbGl0eUxhYmVsczpqChFwZXJtaXNzaW9uX2xhYmVscxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiRtrcCIAMoCzIZLmJvbmVzLnYxLlBlcm1pc3Npb25MYWJlbFIQcGVybWlzc2lvbkxhYmVsczpvChZwcm92aWRlZF9icm9rZXJfc2NvcGVzEh8uZ29vZ2xlLnByb3RvYnVmLlNlcnZpY2VPcHRpb25zGJK2twIgAygLMhUuYm9uZXMudjEuQnJva2VyU2NvcGVSFHByb3ZpZGVkQnJva2VyU2NvcGVzOnEKE2NhcGFiaWxpdHlfYXVkaWVuY2USHy5nb29nbGUucHJvdG9idWYuU2VydmljZU9wdGlvbnMYk7a3AiABKA4yHC5ib25lcy52MS5DYXBhYmlsaXR5QXVkaWVuY2VSEmNhcGFiaWxpdHlBdWRpZW5jZTprChFjYXBhYmlsaXR5X3Njb3BlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiUtrcCIAMoCzIaLmJvbmVzLnYxLkNhcGFiaWxpdHlTY29wZXNSEGNhcGFiaWxpdHlTY29wZXM6YAoKYXR0cmlidXRlcxIfLmdvb2dsZS5wcm90b2J1Zi5TZXJ2aWNlT3B0aW9ucxiWtrcCIAMoCzIcLmJvbmVzLnYxLkF0dHJpYnV0ZURpbWVuc2lvblIKYXR0cmlidXRlczo5CgZlcnJvcnMSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiLtrcCIAMoCVIGZXJyb3JzOkwKBWF1dGh6Eh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYjLa3AiABKAsyEy5ib25lcy52MS5BdXRoelJ1bGVSBWF1dGh6OkwKA21jcBIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGJe2twIgASgLMhcuYm9uZXMudjEuTWNwUHJvamVjdGlvblIDbWNwOlUKCmNhbGxfc2hhcGUSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxiatrcCIAEoDjITLmJvbmVzLnYxLkNhbGxTaGFwZVIJY2FsbFNoYXBlOjwKCGJhdGNoX29mEh4uZ29vZ2xlLnByb3RvYnVmLk1ldGhvZE9wdGlvbnMYn7a3AiABKAlSB2JhdGNoT2Y6agoRYXV0b21hdGlvbl9hY3Rpb24SHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxictrcCIAEoCzIaLmJvbmVzLnYxLkF1dG9tYXRpb25BY3Rpb25SEGF1dG9tYXRpb25BY3Rpb246RwoObGlzdF9zdHJlYW1fb2YSHi5nb29nbGUucHJvdG9idWYuTWV0aG9kT3B0aW9ucxijtrcCIAEoCVIMbGlzdFN0cmVhbU9mOkoKD2lkZW1wb3RlbmN5X2tleRIeLmdvb2dsZS5wcm90b2J1Zi5NZXRob2RPcHRpb25zGKe2twIgASgIUg5pZGVtcG90ZW5jeUtleTpYCghyZXNvdXJjZRIfLmdvb2dsZS5wcm90b2J1Zi5NZXNzYWdlT3B0aW9ucxiZtrcCIAEoCzIYLmJvbmVzLnYxLlJlc291cmNlT3B0aW9uUghyZXNvdXJjZTpuChJhdXRvbWF0aW9uX3RyaWdnZXISHy5nb29nbGUucHJvdG9idWYuTWVzc2FnZU9wdGlvbnMYm7a3AiABKAsyGy5ib25lcy52MS5BdXRvbWF0aW9uVHJpZ2dlclIRYXV0b21hdGlvblRyaWdnZXI6QwoLaW5zdGFuY2Vfb2YSHy5nb29nbGUucHJvdG9idWYuTWVzc2FnZU9wdGlvbnMYoba3AiABKAlSCmluc3RhbmNlT2Y6NAoEYXR0chIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYmLa3AiABKAlSBGF0dHI6ZgoOY2xhc3NpZmljYXRpb24SHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGJ22twIgASgOMhwuYm9uZXMudjEuRGF0YUNsYXNzaWZpY2F0aW9uUg5jbGFzc2lmaWNhdGlvbjo6CgdtZWFuaW5nEh0uZ29vZ2xlLnByb3RvYnVmLkZpZWxkT3B0aW9ucxigtrcCIAEoCVIHbWVhbmluZzpHCg5kZWZhdWx0ZWRfZnJvbRIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYora3AiABKAlSDWRlZmF1bHRlZEZyb206OwoIdHlwZWRfYnkSHS5nb29nbGUucHJvdG9idWYuRmllbGRPcHRpb25zGKS2twIgASgJUgd0eXBlZEJ5OkgKD25lc3RlZF93cml0ZV9vZhIdLmdvb2dsZS5wcm90b2J1Zi5GaWVsZE9wdGlvbnMYpba3AiABKAlSDW5lc3RlZFdyaXRlT2ZiBnByb3RvMw", [file_google_protobuf_descriptor]);
 
 /**
  * One capability a service depends on, and the authority it intends to
@@ -1760,12 +1819,23 @@ export const list_stream_of: GenExtension<MethodOptions, string> = /*@__PURE__*/
   extDesc(file_bones_v1_annotations, 15);
 
 /**
+ * The request carries the caller's top-level `string idempotency_key` and
+ * the call is IDEMPOTENT under it, single or batch; the marking service
+ * must record and replay the first answer per organization. Absent or false
+ * means the RPC takes no key. See file header.
+ *
+ * @generated from extension: bool idempotency_key = 5102375;
+ */
+export const idempotency_key: GenExtension<MethodOptions, boolean> = /*@__PURE__*/
+  extDesc(file_bones_v1_annotations, 16);
+
+/**
  * Declares this message a managed resource. See file header.
  *
  * @generated from extension: bones.v1.ResourceOption resource = 5102361;
  */
 export const resource: GenExtension<MessageOptions, ResourceOption> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 16);
+  extDesc(file_bones_v1_annotations, 17);
 
 /**
  * Declares this domain-event message a trigger of the product's automation
@@ -1774,7 +1844,7 @@ export const resource: GenExtension<MessageOptions, ResourceOption> = /*@__PURE_
  * @generated from extension: bones.v1.AutomationTrigger automation_trigger = 5102363;
  */
 export const automation_trigger: GenExtension<MessageOptions, AutomationTrigger> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 17);
+  extDesc(file_bones_v1_annotations, 18);
 
 /**
  * The fully-qualified name of the message this message is instantiated
@@ -1784,7 +1854,7 @@ export const automation_trigger: GenExtension<MessageOptions, AutomationTrigger>
  * @generated from extension: string instance_of = 5102369;
  */
 export const instance_of: GenExtension<MessageOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 18);
+  extDesc(file_bones_v1_annotations, 19);
 
 /**
  * The attribute dimension this field carries, naming one declared in the
@@ -1793,7 +1863,7 @@ export const instance_of: GenExtension<MessageOptions, string> = /*@__PURE__*/
  * @generated from extension: string attr = 5102360;
  */
 export const attr: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 19);
+  extDesc(file_bones_v1_annotations, 20);
 
 /**
  * How sensitive this field's data is. Absent reads as
@@ -1802,7 +1872,7 @@ export const attr: GenExtension<FieldOptions, string> = /*@__PURE__*/
  * @generated from extension: bones.v1.DataClassification classification = 5102365;
  */
 export const classification: GenExtension<FieldOptions, DataClassification> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 20);
+  extDesc(file_bones_v1_annotations, 21);
 
 /**
  * What this field denotes, as one term of the curated vocabulary (schema.org
@@ -1812,7 +1882,7 @@ export const classification: GenExtension<FieldOptions, DataClassification> = /*
  * @generated from extension: string meaning = 5102368;
  */
 export const meaning: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 21);
+  extDesc(file_bones_v1_annotations, 22);
 
 /**
  * The fully-qualified field (`<package>.<Message>.<field>`) on the
@@ -1823,7 +1893,7 @@ export const meaning: GenExtension<FieldOptions, string> = /*@__PURE__*/
  * @generated from extension: string defaulted_from = 5102370;
  */
 export const defaulted_from: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 22);
+  extDesc(file_bones_v1_annotations, 23);
 
 /**
  * F1: The sibling string field holding the definition id that types this
@@ -1832,7 +1902,7 @@ export const defaulted_from: GenExtension<FieldOptions, string> = /*@__PURE__*/
  * @generated from extension: string typed_by = 5102372;
  */
 export const typed_by: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 23);
+  extDesc(file_bones_v1_annotations, 24);
 
 /**
  * The single child write of the same service that each child in this
@@ -1842,5 +1912,5 @@ export const typed_by: GenExtension<FieldOptions, string> = /*@__PURE__*/
  * @generated from extension: string nested_write_of = 5102373;
  */
 export const nested_write_of: GenExtension<FieldOptions, string> = /*@__PURE__*/
-  extDesc(file_bones_v1_annotations, 24);
+  extDesc(file_bones_v1_annotations, 25);
 

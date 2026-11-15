@@ -10,6 +10,9 @@ mod delegation_templates;
 mod error_info;
 mod field_labels;
 mod fleet_connect_bound;
+#[path = "../../../shared/keyed_write_contract.rs"]
+mod keyed_write_contract;
+mod keyed_writes;
 mod overridable_defaults;
 mod paged_without_batch;
 mod pagination;

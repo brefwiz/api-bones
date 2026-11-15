@@ -17,7 +17,13 @@
 //!   serves in its `AutomationSurfaceRef`.
 //! - [`check_batch_of`] refuses a `bones.v1.batch_of` that does not name a
 //!   method of its own service, or whose method does not keep that method's
-//!   authorization.
+//!   authorization, idempotency level, `ALREADY_EXISTS` and
+//!   `bones.v1.idempotency_key` declaration.
+//! - [`check_idempotency_key`] refuses a method declaring
+//!   `bones.v1.idempotency_key` that lacks the top-level `string
+//!   idempotency_key` request field, `IDEMPOTENT` or `ALREADY_EXISTS`, or is
+//!   `NO_SIDE_EFFECTS`. The check covers the declaration's shape only, not
+//!   that the service replays answers.
 //! - [`check_nested_write_of`] refuses a `bones.v1.nested_write_of` that does
 //!   not name a sibling unary write, sits on a message no RPC or a read takes,
 //!   is not a children field, or holds children the named write does not
@@ -30,6 +36,7 @@ mod batch_of;
 mod compile;
 mod digest;
 mod document;
+mod idempotency_key;
 mod manifest;
 mod nested_write_of;
 mod pool;
@@ -44,6 +51,9 @@ pub use compile::{
 };
 pub use digest::declaration_digest;
 pub use document::{DocumentError, DocumentInput, DocumentPhase, check_document};
+pub use idempotency_key::{
+    IdempotencyKeyError, IdempotencyKeyReason, IdempotencyKeyRefusal, check_idempotency_key,
+};
 pub use manifest::{MANIFEST_FORMAT, ManifestError, ManifestHeader, read_header};
 pub use nested_write_of::{
     NestedWriteOfError, NestedWriteOfReason, NestedWriteOfRefusal, check_nested_write_of,
