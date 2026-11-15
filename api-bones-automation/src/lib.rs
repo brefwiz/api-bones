@@ -18,10 +18,15 @@
 //! - [`check_batch_of`] refuses a `bones.v1.batch_of` that does not name a
 //!   method of its own service, or whose method does not keep that method's
 //!   authorization, idempotency level, `ALREADY_EXISTS` and
-//!   `bones.v1.idempotency_key` declaration.
+//!   `bones.v1.idempotency_key` declaration, or that batches a keyed single
+//!   whose request holds nothing but the key.
 //! - [`check_idempotency_key`] refuses a method declaring
 //!   `bones.v1.idempotency_key` that lacks the top-level `string
-//!   idempotency_key` request field, `IDEMPOTENT` or `ALREADY_EXISTS`, or is
+//!   idempotency_key` request field, `IDEMPOTENT`, `ALREADY_EXISTS` (when the
+//!   request holds a field besides the key) or `INVALID_ARGUMENT` (when the
+//!   request embeds a keyed method's request), declares `ALREADY_EXISTS` on a
+//!   request holding nothing but the key (the key's scope includes the method
+//!   and the caller, so a different request never arrives under it), or is
 //!   `NO_SIDE_EFFECTS`. The check covers the declaration's shape only, not
 //!   that the service replays answers.
 //! - [`check_nested_write_of`] refuses a `bones.v1.nested_write_of` that does

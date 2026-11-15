@@ -517,11 +517,28 @@
 // value. The value is an `api_bones::IdempotencyKey`, 1 to 255 printable
 // ASCII characters; a missing or malformed key refuses the call
 // INVALID_ARGUMENT before anything runs. A key and its stored answer belong
-// to the calling organization: a key means nothing outside it, and no answer
-// or key existence is disclosed across organizations. A keyed RPC declares
-// `idempotency_level = IDEMPOTENT` and lists ALREADY_EXISTS in
-// `bones.v1.errors`; a read (NO_SIDE_EFFECTS) is never keyed. Absent or false
-// means the RPC takes no key.
+// to the calling organization, the calling workload, the person it relays when
+// it relays one, and the method (`<package>.<Service>/<Method>`): the same key
+// under any other organization, workload, person or method is a different
+// key, which gets neither the stored answer nor ALREADY_EXISTS and learns
+// nothing about the first. The service authenticates and authorizes the call
+// before it looks a key up: a caller not allowed to run the method learns
+// neither a stored answer nor whether a key exists, and the relayed person is
+// taken only from the verified relay, never from the request. A keyed single's
+// request reused inside another request (a batch's `items`, a field of another
+// keyed request, or itself directly or through a cycle) carries a key field of
+// its own; that embedded key must be empty, and a non-empty embedded key
+// refuses the whole call INVALID_ARGUMENT, so a call has one key, the
+// top-level one, which is the only key the service reads. A keyed RPC
+// declares `idempotency_level = IDEMPOTENT`; a read (NO_SIDE_EFFECTS) is
+// never keyed. A keyed RPC whose request holds a field besides the key lists
+// ALREADY_EXISTS in `bones.v1.errors`; one whose request holds nothing but the
+// key never lists it, because the key's scope includes the method and the
+// caller, so the same key never arrives with a different request; a request
+// with an extension range holds a body. A keyed RPC whose request
+// embeds, directly or through message fields at any depth (repeated included),
+// the request of a keyed RPC lists INVALID_ARGUMENT. Absent or false means the
+// RPC takes no key.
 //
 // This vocabulary and its checks verify the declaration's shape only, never
 // that the service keeps the promise. Because a marked method is IDEMPOTENT,
@@ -532,7 +549,10 @@
 // `idempotency_key` field without the marker is not checked.
 //
 // A batch and the single it names are keyed together: both declare the marker
-// or neither does, and each keeps the level and errors of the other. A keyed
+// or neither does, and each keeps the level and errors of the other. The
+// single's request holds a field besides the key, since each item embeds it
+// and its key stays empty; a keyed single whose request holds nothing but the
+// key has no keyed batch. A keyed
 // batch runs all its items in one transaction, each under its own savepoint,
 // so an item's own refusal never stops the later items. A failure that is not
 // an item's own outcome rolls back the whole call: every item is answered
@@ -1821,8 +1841,9 @@ export const list_stream_of: GenExtension<MethodOptions, string> = /*@__PURE__*/
 /**
  * The request carries the caller's top-level `string idempotency_key` and
  * the call is IDEMPOTENT under it, single or batch; the marking service
- * must record and replay the first answer per organization. Absent or false
- * means the RPC takes no key. See file header.
+ * must record and replay the first answer per organization, workload, relayed
+ * person and method.
+ * Absent or false means the RPC takes no key. See file header.
  *
  * @generated from extension: bool idempotency_key = 5102375;
  */

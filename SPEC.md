@@ -81,7 +81,13 @@ sdk_surfaces:
         packages: [api-bones-protos]
   # The keyed write -- single or batch -- a contract author marks with
   # `bones.v1.idempotency_key`, read back from a descriptor and checked
-  # against the rules api-bones-automation ships. The artefacts are the
+  # against the rules api-bones-automation ships: a key is scoped to the
+  # organization, the workload, the relayed person when there is one and the
+  # method, and is looked up only after the call is authenticated and
+  # authorized; a keyed request embedded in another (itself included) carries
+  # an empty key and the embedding method declares INVALID_ARGUMENT; a request
+  # holding nothing but the key (and no extension range) never declares
+  # ALREADY_EXISTS and has no keyed batch. The artefacts are the
   # shipped `bones/v1` proto and those checks, which no TypeScript package
   # wraps -- so this surface is Rust alone, the same way delegation-templates
   # is.

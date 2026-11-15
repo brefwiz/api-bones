@@ -222,9 +222,14 @@ fn authz_contract(single: &str, batch: &str) -> String {
 
 /// A contract whose `Many` batches `One`, each carrying the given method option text.
 fn level_contract(single: &str, batch: &str) -> String {
+    request_contract("string id = 1;", single, batch)
+}
+
+/// [`level_contract`] whose `Req` holds `fields`.
+fn request_contract(fields: &str, single: &str, batch: &str) -> String {
     format!(
         "syntax = \"proto3\";\npackage orders.v1;\nimport \"bones/v1/annotations.proto\";\n\
-         message Req {{}}\nmessage Res {{}}\nservice Orders {{\n\
+         message Req {{ {fields} }}\nmessage Res {{}}\nservice Orders {{\n\
            rpc One(Req) returns (Res) {{ {single} }}\n\
            rpc Many(Req) returns (Res) {{ option (bones.v1.batch_of) = \"One\"; {batch} }}\n\
          }}\n"
@@ -481,4 +486,55 @@ fn a_keyed_pair_still_keeps_the_singles_level_errors_and_authorization() {
         refused(&descriptor_set(&source))[0].reason,
         BatchOfReason::AlreadyExistsUndeclared
     );
+}
+
+#[test]
+fn a_keyed_batch_over_a_single_holding_only_the_key_is_refused() {
+    let options = keyed_options();
+    for fields in ["string idempotency_key = 1;", ""] {
+        let source = request_contract(fields, &options, &options);
+        let found = refused(&descriptor_set(&source));
+        assert_eq!(found.len(), 1, "{source}");
+        assert_eq!(found[0].reason, BatchOfReason::KeyedSingleHasNoBody);
+        assert_eq!(
+            found[0].to_string(),
+            "orders.v1.Orders/Many: batch_of \"One\" is keyed but the request of the method it names holds nothing but the key"
+        );
+    }
+    for fields in [
+        "string idempotency_key = 1; string id = 2;",
+        "string idempotency_key = 1; bytes body = 2;",
+        "string idempotency_key = 1; repeated string ids = 2;",
+    ] {
+        let source = request_contract(fields, &options, &options);
+        assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+    }
+    let source = request_contract("string idempotency_key = 1;", "", "");
+    assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+    let proto2 = |extensions: &str| {
+        let fields = format!("optional string idempotency_key = 1; {extensions}");
+        request_contract(&fields, &options, &options)
+            .replace("syntax = \"proto3\";", "syntax = \"proto2\";")
+    };
+    let source = proto2("extensions 100 to 199;");
+    assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+    let found = refused(&descriptor_set(&proto2("")));
+    assert_eq!(found[0].reason, BatchOfReason::KeyedSingleHasNoBody);
+}
+
+#[test]
+fn a_keyed_single_without_a_body_is_reported_before_the_conflict_and_the_level() {
+    let only_key = "string idempotency_key = 1;";
+    for (single, batch) in [
+        (format!("{KEYED} {IDEMPOTENT}"), keyed_options()),
+        (format!("{KEYED} {NO_EFFECTS} {EXISTS}"), keyed_options()),
+    ] {
+        let source = request_contract(only_key, &single, &batch);
+        let found = refused(&descriptor_set(&source));
+        assert_eq!(
+            found[0].reason,
+            BatchOfReason::KeyedSingleHasNoBody,
+            "{source}"
+        );
+    }
 }

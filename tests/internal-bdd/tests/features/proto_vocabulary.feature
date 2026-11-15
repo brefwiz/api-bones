@@ -222,7 +222,7 @@ Feature: Proto vocabulary shipped to contract authors
     Then the batch_of is refused as "declares ALREADY_EXISTS but the method it names does not"
 
   Scenario: A keyed single and its keyed batch conform
-    Given a single declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS" whose request holds "string idempotency_key = 2;" and a batch of it declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS" whose request holds "string idempotency_key = 2;"
+    Given a single declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS" whose request holds "string idempotency_key = 2;" and a batch of it declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS,INVALID_ARGUMENT" whose request holds "string idempotency_key = 2;"
     When the contract is compiled against the shipped files
     And the batch_of declarations are checked
     And the idempotency_key declarations are checked

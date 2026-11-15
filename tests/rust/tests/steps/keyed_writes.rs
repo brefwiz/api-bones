@@ -80,6 +80,14 @@ fn then_conforms(world: &mut KeyedWriteWorld) {
     assert_eq!(key, &Ok(()));
 }
 
+#[then("the key rule accepts it")]
+fn then_key_accepts(world: &mut KeyedWriteWorld) {
+    assert_eq!(
+        world.key_outcome.as_ref().expect("key rule not checked"),
+        &Ok(())
+    );
+}
+
 #[then(expr = "the batch rule refuses it as {string}")]
 fn then_batch_refused(world: &mut KeyedWriteWorld, reason: String) {
     let outcome = world

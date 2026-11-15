@@ -23,18 +23,38 @@ const KEY_FIELD: &str = "string idempotency_key = 2;";
 /// A contract whose `Do` has a request holding `key_field` and carries
 /// `options`.
 fn contract(key_field: &str, options: &str) -> String {
+    source(&format!("string id = 1; {key_field}"), "", "", options)
+}
+
+/// A contract whose `Do` takes `Req` holding exactly `fields` and carries
+/// `options`, and, when `wrap_fields` is not empty, whose keyed `Wrapped` takes
+/// `Wrap` holding `wrap_fields` and carries `wrap_options`. `Mid` reaches `Req`
+/// through a cycle and `Loop` reaches `Wrap` through one.
+fn source(fields: &str, wrap_fields: &str, wrap_options: &str, options: &str) -> String {
+    let wrapped = if wrap_fields.is_empty() {
+        String::new()
+    } else {
+        format!("rpc Wrapped(Wrap) returns (Res) {{ {wrap_options} }}")
+    };
     format!(
         "syntax = \"proto3\";\npackage orders.v1;\nimport \"bones/v1/annotations.proto\";\n\
-         message Res {{}}\nmessage Req {{ string id = 1; {key_field} }}\n\
-         service Orders {{ rpc Do(Req) returns (Res) {{ {options} }} }}\n"
+         message Res {{}}\nmessage Req {{ {fields} }}\n\
+         message Mid {{ Req inner = 1; Mid next = 2; }}\n\
+         message Loop {{ Wrap back = 1; }}\n\
+         message Wrap {{ {wrap_fields} string idempotency_key = 9; }}\n\
+         service Orders {{ rpc Do(Req) returns (Res) {{ {options} }} {wrapped} }}\n"
     )
 }
 
 fn only_refusal(source: &str) -> IdempotencyKeyRefusal {
+    refusal_of(source, "orders.v1.Orders/Do")
+}
+
+fn refusal_of(source: &str, method: &str) -> IdempotencyKeyRefusal {
     match check_idempotency_key(&descriptor_set(source)) {
         Err(IdempotencyKeyError::Refused(list)) => {
             assert_eq!(list.len(), 1, "{source}");
-            assert_eq!(list[0].method, "orders.v1.Orders/Do");
+            assert_eq!(list[0].method, method);
             list[0].clone()
         }
         other => panic!("expected a refusal, got {other:?}\n{source}"),
@@ -156,4 +176,113 @@ fn a_set_without_the_vocabulary_passes_and_garbage_is_a_descriptors_error() {
         "{err:?}"
     );
     assert!(err.to_string().starts_with("descriptor set is unusable: "));
+}
+
+const INVALID: &str = "option (bones.v1.errors) = \"INVALID_ARGUMENT\";";
+const KEYED_REQ: &str = "string id = 1; string idempotency_key = 2;";
+const GOOD: &str = "option (bones.v1.idempotency_key) = true; option idempotency_level = IDEMPOTENT; \
+                    option (bones.v1.errors) = \"ALREADY_EXISTS\";";
+
+#[test]
+fn a_keyed_request_embedded_in_a_keyed_request_needs_invalid_argument() {
+    for wrap_fields in [
+        "Req item = 1;",
+        "repeated Req items = 1;",
+        "map<string, Req> by_name = 1;",
+        "Mid mid = 1;",
+        "repeated Mid mids = 1;",
+        "oneof pick { Req item = 1; }",
+        "Wrap next = 3;",
+        "Loop loop = 3;",
+    ] {
+        let refused = source(KEYED_REQ, wrap_fields, GOOD, GOOD);
+        let refusal = refusal_of(&refused, "orders.v1.Orders/Wrapped");
+        assert_eq!(refusal.reason, IdempotencyKeyReason::EmbeddedKeyUndeclared);
+        assert_eq!(
+            refusal.to_string(),
+            "orders.v1.Orders/Wrapped: is keyed and embeds the request of a keyed method but does not declare INVALID_ARGUMENT for a non-empty embedded key"
+        );
+        let declared = source(KEYED_REQ, wrap_fields, &format!("{GOOD} {INVALID}"), GOOD);
+        assert_eq!(
+            check_idempotency_key(&descriptor_set(&declared)),
+            Ok(()),
+            "{declared}"
+        );
+    }
+}
+
+#[test]
+fn a_keyed_request_embedding_no_keyed_request_needs_no_invalid_argument() {
+    let plain = source(KEYED_REQ, "string name = 1;", "", GOOD);
+    assert_eq!(check_idempotency_key(&descriptor_set(&plain)), Ok(()));
+    let unmarked_inner = source(KEYED_REQ, "Mid mid = 1;", "", "");
+    assert_eq!(
+        check_idempotency_key(&descriptor_set(&unmarked_inner)),
+        Ok(())
+    );
+}
+
+#[test]
+fn only_the_top_level_key_field_makes_a_request_keyed() {
+    let wrapped = source(
+        KEYED_REQ,
+        "Req item = 1;",
+        &format!("{GOOD} {INVALID}"),
+        GOOD,
+    );
+    assert_eq!(check_idempotency_key(&descriptor_set(&wrapped)), Ok(()));
+    let missing = wrapped.replace("string idempotency_key = 9;", "");
+    assert_eq!(
+        refusal_of(&missing, "orders.v1.Orders/Wrapped").reason,
+        IdempotencyKeyReason::KeyFieldMissing
+    );
+}
+
+#[test]
+fn a_request_holding_only_the_key_declares_no_already_exists() {
+    let only_key = "string idempotency_key = 1;";
+    let without =
+        "option (bones.v1.idempotency_key) = true; option idempotency_level = IDEMPOTENT;";
+    assert_eq!(
+        check_idempotency_key(&descriptor_set(&source(only_key, "", "", without))),
+        Ok(())
+    );
+    let refusal = only_refusal(&source(only_key, "", "", GOOD));
+    assert_eq!(refusal.reason, IdempotencyKeyReason::ConflictImpossible);
+    assert_eq!(
+        refusal.to_string(),
+        "orders.v1.Orders/Do: is keyed with a request holding nothing but the key but declares ALREADY_EXISTS, which cannot occur"
+    );
+}
+
+#[test]
+fn a_request_holding_any_other_field_declares_already_exists() {
+    for other in [
+        "string id = 2;",
+        "bytes body = 2;",
+        "repeated string ids = 2;",
+        "Res res = 2;",
+        "int64 count = 2;",
+    ] {
+        let fields = format!("string idempotency_key = 1; {other}");
+        let without =
+            "option (bones.v1.idempotency_key) = true; option idempotency_level = IDEMPOTENT;";
+        let refusal = only_refusal(&source(&fields, "", "", without));
+        assert_eq!(refusal.reason, IdempotencyKeyReason::ConflictUndeclared);
+        assert_eq!(
+            check_idempotency_key(&descriptor_set(&source(&fields, "", "", GOOD))),
+            Ok(())
+        );
+    }
+}
+
+#[test]
+fn the_conflict_rule_is_reported_before_the_embedded_key_rule() {
+    let without_conflict =
+        "option (bones.v1.idempotency_key) = true; option idempotency_level = IDEMPOTENT;";
+    let source = source(KEYED_REQ, "Req item = 1;", without_conflict, GOOD);
+    assert_eq!(
+        refusal_of(&source, "orders.v1.Orders/Wrapped").reason,
+        IdempotencyKeyReason::ConflictUndeclared
+    );
 }
