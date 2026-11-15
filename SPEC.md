@@ -79,6 +79,18 @@ sdk_surfaces:
       rust:
         delivery: package
         packages: [api-bones-protos]
+  # The keyed write -- single or batch -- a contract author marks with
+  # `bones.v1.idempotency_key`, read back from a descriptor and checked
+  # against the rules api-bones-automation ships. The artefacts are the
+  # shipped `bones/v1` proto and those checks, which no TypeScript package
+  # wraps -- so this surface is Rust alone, the same way delegation-templates
+  # is.
+  keyed-writes:
+    contract: tests/features/keyed_writes.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-protos, api-bones-automation]
   # Which entry of the TypeScript package carries workload identity. Rust has
   # no entry split: the crate is server-only, so this surface is TS alone.
   connect-workload-identity:

@@ -396,3 +396,89 @@ fn an_already_exists_refusal_renders_through_display() {
         "orders.v1.Orders/Many: batch_of \"One\" declares ALREADY_EXISTS but the method it names does not"
     );
 }
+
+const KEYED: &str = "option (bones.v1.idempotency_key) = true;";
+const UNKEYED: &str = "option (bones.v1.idempotency_key) = false;";
+
+fn keyed_options() -> String {
+    format!("{KEYED} {IDEMPOTENT} {EXISTS}")
+}
+
+#[test]
+fn a_keyed_single_and_a_keyed_batch_conform() {
+    let options = keyed_options();
+    let source = level_contract(&options, &options);
+    assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+}
+
+#[test]
+fn an_unkeyed_pair_conforms_whether_the_marker_is_false_or_absent() {
+    for (single, batch) in [(UNKEYED, UNKEYED), ("", UNKEYED), (UNKEYED, ""), ("", "")] {
+        let source = level_contract(single, batch);
+        assert_eq!(check_batch_of(&descriptor_set(&source)), Ok(()), "{source}");
+    }
+}
+
+#[test]
+fn a_keyed_batch_over_an_unkeyed_single_is_refused() {
+    let options = keyed_options();
+    for single in ["", UNKEYED, IDEMPOTENT] {
+        let source = level_contract(single, &options);
+        let found = refused(&descriptor_set(&source));
+        assert_eq!(found.len(), 1, "{source}");
+        assert_eq!(
+            found[0].reason,
+            BatchOfReason::KeyingDiffers { single: false },
+            "{source}"
+        );
+        assert_eq!(
+            found[0].to_string(),
+            "orders.v1.Orders/Many: batch_of \"One\" is keyed but the method it names is not"
+        );
+    }
+}
+
+#[test]
+fn a_keyed_single_with_an_unkeyed_batch_is_refused() {
+    let options = keyed_options();
+    for batch in ["", UNKEYED, IDEMPOTENT] {
+        let source = level_contract(&options, batch);
+        let found = refused(&descriptor_set(&source));
+        assert_eq!(found.len(), 1, "{source}");
+        assert_eq!(
+            found[0].reason,
+            BatchOfReason::KeyingDiffers { single: true },
+            "{source}"
+        );
+        assert_eq!(
+            found[0].to_string(),
+            "orders.v1.Orders/Many: batch_of \"One\" is not keyed but the method it names is"
+        );
+    }
+}
+
+#[test]
+fn a_keyed_pair_still_keeps_the_singles_level_errors_and_authorization() {
+    let options = keyed_options();
+    let source = level_contract(&format!("{options} {READ}"), &format!("{options} {WRITE}"));
+    assert_eq!(
+        refused(&descriptor_set(&source))[0].reason,
+        BatchOfReason::AuthzDiffers
+    );
+    let source = level_contract(
+        &format!("{KEYED} {IDEMPOTENT} {EXISTS}"),
+        &format!("{KEYED} {NO_EFFECTS} {EXISTS}"),
+    );
+    assert!(matches!(
+        refused(&descriptor_set(&source))[0].reason,
+        BatchOfReason::IdempotencyDiffers { .. }
+    ));
+    let source = level_contract(
+        &format!("{KEYED} {IDEMPOTENT}"),
+        &format!("{KEYED} {IDEMPOTENT} {EXISTS}"),
+    );
+    assert_eq!(
+        refused(&descriptor_set(&source))[0].reason,
+        BatchOfReason::AlreadyExistsUndeclared
+    );
+}

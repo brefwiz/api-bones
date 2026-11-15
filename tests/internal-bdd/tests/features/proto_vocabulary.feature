@@ -221,6 +221,69 @@ Feature: Proto vocabulary shipped to contract authors
     And the batch_of declarations are checked
     Then the batch_of is refused as "declares ALREADY_EXISTS but the method it names does not"
 
+  Scenario: A keyed single and its keyed batch conform
+    Given a single declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS" whose request holds "string idempotency_key = 2;" and a batch of it declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS" whose request holds "string idempotency_key = 2;"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    And the idempotency_key declarations are checked
+    Then every batch_of conforms
+    And every idempotency_key conforms
+
+  Scenario: A keyed batch over an unkeyed single is refused
+    Given a single declaring "IDEMPOTENT,ALREADY_EXISTS" whose request holds "none" and a batch of it declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS" whose request holds "string idempotency_key = 2;"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then the batch_of is refused as "is keyed but the method it names is not"
+
+  Scenario: A keyed single with an unkeyed batch is refused
+    Given a single declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS" whose request holds "string idempotency_key = 2;" and a batch of it declaring "IDEMPOTENT,ALREADY_EXISTS" whose request holds "none"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then the batch_of is refused as "is not keyed but the method it names is"
+
+  Scenario Outline: An unkeyed pair keeps the single's level and errors whatever the marker says
+    Given a single declaring "<single>" whose request holds "none" and a batch of it declaring "<batch>" whose request holds "none"
+    When the contract is compiled against the shipped files
+    And the batch_of declarations are checked
+    Then the batch_of is refused as "<reason>"
+
+    Examples:
+      | single     | batch                       | reason                                                                                       |
+      | UNKEYED    | UNKEYED,IDEMPOTENT          | does not keep the idempotency level of the method it names (single IDEMPOTENCY_UNKNOWN, batch IDEMPOTENT) |
+      | IDEMPOTENT | IDEMPOTENT,ALREADY_EXISTS   | declares ALREADY_EXISTS but the method it names does not                                      |
+
+  Scenario Outline: A keyed single without a top-level singular string idempotency_key is refused
+    Given a single declaring "KEYED,IDEMPOTENT,ALREADY_EXISTS" whose request holds "<field>" and a batch of it declaring "none" whose request holds "none"
+    When the contract is compiled against the shipped files
+    And the idempotency_key declarations are checked
+    Then the idempotency_key is refused as "is keyed but its request has no top-level string idempotency_key"
+
+    Examples:
+      | field                                |
+      | none                                 |
+      | optional string idempotency_key = 2; |
+      | repeated string idempotency_key = 2; |
+      | int64 idempotency_key = 2;           |
+
+  Scenario Outline: A keyed single that is not IDEMPOTENT or is a read is refused
+    Given a single declaring "<single>" whose request holds "string idempotency_key = 2;" and a batch of it declaring "none" whose request holds "none"
+    When the contract is compiled against the shipped files
+    And the idempotency_key declarations are checked
+    Then the idempotency_key is refused as "<reason>"
+
+    Examples:
+      | single                                | reason                                                  |
+      | KEYED,ALREADY_EXISTS                  | is keyed but declares IDEMPOTENCY_UNKNOWN, not IDEMPOTENT |
+      | KEYED,NO_SIDE_EFFECTS,ALREADY_EXISTS  | is keyed but declares NO_SIDE_EFFECTS                   |
+      | KEYED,IDEMPOTENT                      | is keyed but does not declare ALREADY_EXISTS for a reused key |
+      | KEYED,IDEMPOTENT,INVALID_ARGUMENT     | is keyed but does not declare ALREADY_EXISTS for a reused key |
+
+  Scenario: A method that is not keyed passes whatever its request holds
+    Given a single declaring "IDEMPOTENT" whose request holds "optional string idempotency_key = 2;" and a batch of it declaring "none" whose request holds "none"
+    When the contract is compiled against the shipped files
+    And the idempotency_key declarations are checked
+    Then every idempotency_key conforms
+
   Scenario Outline: Batch policy discovery refuses ambiguous or noncanonical shapes
     Given a contract with the batch policy shape "<shape>"
     When the contract is compiled against the shipped files

@@ -6,6 +6,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use prost_reflect::{DescriptorPool, ExtensionDescriptor, MethodDescriptor, ServiceDescriptor};
 
+use crate::idempotency_key::is_keyed;
+
 /// The extension the check reads.
 const BATCH_OF: &str = "bones.v1.batch_of";
 
@@ -18,10 +20,16 @@ const ERRORS: &str = "bones.v1.errors";
 /// The error variant a create declares when a duplicate is its own refusal.
 const ALREADY_EXISTS: &str = "ALREADY_EXISTS";
 
+/// The extension declaring that a call carries the caller's idempotency key.
+const IDEMPOTENCY_KEY: &str = "bones.v1.idempotency_key";
+
+/// `google.protobuf.MethodOptions.IdempotencyLevel.IDEMPOTENT`.
+pub(crate) const IDEMPOTENT: i32 = 2;
+
 /// `google.protobuf.MethodOptions.IdempotencyLevel.NO_SIDE_EFFECTS`.
 pub(crate) const NO_SIDE_EFFECTS: i32 = 1;
 
-fn level_name(level: i32) -> &'static str {
+pub(crate) fn level_name(level: i32) -> &'static str {
     match level {
         1 => "NO_SIDE_EFFECTS",
         2 => "IDEMPOTENT",
@@ -51,6 +59,12 @@ pub enum BatchOfReason {
     SelfReference,
     /// The batch method's authorization is not the named single's.
     AuthzDiffers,
+    /// Exactly one of the batch method and the named single declares
+    /// `bones.v1.idempotency_key` true: both carry the key or neither does.
+    KeyingDiffers {
+        /// Whether the single is keyed.
+        single: bool,
+    },
     /// The batch method's `idempotency_level` is not the named single's.
     /// Levels are `google.protobuf.MethodOptions.IdempotencyLevel` numbers.
     IdempotencyDiffers {
@@ -72,6 +86,12 @@ impl fmt::Display for BatchOfRefusal {
             BatchOfReason::UnknownMethod => "names a method the service does not declare",
             BatchOfReason::SelfReference => "names the RPC itself",
             BatchOfReason::AuthzDiffers => "does not keep the authorization of the method it names",
+            BatchOfReason::KeyingDiffers { single: true } => {
+                "is not keyed but the method it names is"
+            }
+            BatchOfReason::KeyingDiffers { single: false } => {
+                "is keyed but the method it names is not"
+            }
             BatchOfReason::AlreadyExistsUndeclared => {
                 "declares ALREADY_EXISTS but the method it names does not"
             }
@@ -96,7 +116,8 @@ impl fmt::Display for BatchOfRefusal {
 /// The value is the bare name of a method of the same service, or that
 /// method written `<package>.<Service>/<Method>`. Anything else is refused.
 /// The batch method also keeps its single's authorization and idempotency
-/// level, and declares `ALREADY_EXISTS` only when its single does.
+/// level, and declares `ALREADY_EXISTS` only when its single does. Both
+/// declare `bones.v1.idempotency_key` true, or neither does.
 /// A set that does not import the vocabulary declares no `batch_of` and passes.
 ///
 /// # Errors
@@ -162,8 +183,11 @@ fn check_pool(pool: &DescriptorPool) -> Result<(), BatchOfError> {
     let Some(ext) = pool.get_extension_by_name(BATCH_OF) else {
         return Ok(());
     };
-    let authz = pool.get_extension_by_name(AUTHZ);
-    let errors = pool.get_extension_by_name(ERRORS);
+    let extensions = Extensions {
+        authz: pool.get_extension_by_name(AUTHZ),
+        errors: pool.get_extension_by_name(ERRORS),
+        keyed: pool.get_extension_by_name(IDEMPOTENCY_KEY),
+    };
     let mut refusals = Vec::new();
     for service in pool.services() {
         for method in service.methods() {
@@ -176,8 +200,7 @@ fn check_pool(pool: &DescriptorPool) -> Result<(), BatchOfError> {
                 continue;
             };
             let site = format!("{}/{}", service.full_name(), method.name());
-            if let Err(reason) = resolve(&service, named, &method, authz.as_ref(), errors.as_ref())
-            {
+            if let Err(reason) = resolve(&service, named, &method, &extensions) {
                 refusals.push(BatchOfRefusal {
                     method: site,
                     batch_of: named.to_owned(),
@@ -193,13 +216,21 @@ fn check_pool(pool: &DescriptorPool) -> Result<(), BatchOfError> {
     }
 }
 
+/// The vocabulary extensions the check reads; each is `None` when the pool
+/// does not declare it.
+struct Extensions {
+    authz: Option<ExtensionDescriptor>,
+    errors: Option<ExtensionDescriptor>,
+    keyed: Option<ExtensionDescriptor>,
+}
+
 fn resolve(
     service: &ServiceDescriptor,
     named: &str,
     batch: &MethodDescriptor,
-    authz: Option<&ExtensionDescriptor>,
-    errors: Option<&ExtensionDescriptor>,
+    ext: &Extensions,
 ) -> Result<(), BatchOfReason> {
+    let (authz, errors) = (ext.authz.as_ref(), ext.errors.as_ref());
     let name = match named.split_once('/') {
         Some((svc, name)) if svc == service.full_name() => name,
         Some(_) => return Err(BatchOfReason::OtherService),
@@ -215,6 +246,12 @@ fn resolve(
     if authorization(batch, authz) != authorization(&single, authz) {
         return Err(BatchOfReason::AuthzDiffers);
     }
+    let single_keyed = is_keyed(&single, ext.keyed.as_ref());
+    if single_keyed != is_keyed(batch, ext.keyed.as_ref()) {
+        return Err(BatchOfReason::KeyingDiffers {
+            single: single_keyed,
+        });
+    }
     let (single_level, batch_level) = (idempotency_level(&single), idempotency_level(batch));
     if single_level != batch_level {
         return Err(BatchOfReason::IdempotencyDiffers {
@@ -229,7 +266,7 @@ fn resolve(
 }
 
 /// Whether the RPC lists `ALREADY_EXISTS` in its `bones.v1.errors`.
-fn declares_already_exists(
+pub(crate) fn declares_already_exists(
     method: &MethodDescriptor,
     errors: Option<&ExtensionDescriptor>,
 ) -> bool {

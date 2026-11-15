@@ -5,8 +5,8 @@
 //! generated contract reaches it (SPEC.md `internal_behavior_owners`).
 
 use api_bones_automation::{
-    BatchOfError, BatchPolicy, NestedWriteOfError, PagingPolicy, batch_policy, check_batch_of,
-    check_nested_write_of, paging_policy,
+    BatchOfError, BatchPolicy, IdempotencyKeyError, NestedWriteOfError, PagingPolicy, batch_policy,
+    check_batch_of, check_idempotency_key, check_nested_write_of, paging_policy,
 };
 use cucumber::{World, given, then, when};
 use prost_reflect::prost::Message;
@@ -15,6 +15,9 @@ use prost_reflect::{DescriptorPool, DynamicMessage, ReflectMessage, Value};
 #[path = "../../shared/shipped_resolver.rs"]
 mod shipped_resolver;
 use shipped_resolver::{CONTRACT, compiler};
+#[path = "../../shared/keyed_write_contract.rs"]
+mod keyed_write_contract;
+use keyed_write_contract::keyed_write_contract;
 
 #[derive(Default, World)]
 struct VocabularyWorld {
@@ -23,6 +26,7 @@ struct VocabularyWorld {
     signed: Vec<u8>,
     served: Option<DynamicMessage>,
     batch_check: Option<Result<(), BatchOfError>>,
+    key_check: Option<Result<(), IdempotencyKeyError>>,
     nested_check: Option<Result<(), NestedWriteOfError>>,
     batch_policy: Option<Result<Option<BatchPolicy>, String>>,
     paging_policy: Option<PagingPolicy>,
@@ -438,6 +442,19 @@ fn given_single_and_batch_errors(world: &mut VocabularyWorld, single: String, ba
     world.source = batch_contract("Do", &option(&single), &option(&batch), "");
 }
 
+#[given(
+    expr = "a single declaring {string} whose request holds {string} and a batch of it declaring {string} whose request holds {string}"
+)]
+fn given_keyed_write(
+    world: &mut VocabularyWorld,
+    single: String,
+    single_field: String,
+    batch: String,
+    batch_field: String,
+) {
+    world.source = keyed_write_contract(&single, &single_field, &batch, &batch_field);
+}
+
 #[given("the contract declares no package")]
 fn given_no_package(world: &mut VocabularyWorld) {
     world.source = world.source.replace("package contract.v1;\n", "");
@@ -568,6 +585,11 @@ fn when_compiled(world: &mut VocabularyWorld) {
 #[when("the batch_of declarations are checked")]
 fn when_batch_checked(world: &mut VocabularyWorld) {
     world.batch_check = Some(check_batch_of(&pool(world).encode_to_vec()));
+}
+
+#[when("the idempotency_key declarations are checked")]
+fn when_key_checked(world: &mut VocabularyWorld) {
+    world.key_check = Some(check_idempotency_key(&pool(world).encode_to_vec()));
 }
 
 #[when("the nested_write_of declarations are checked")]
@@ -1101,6 +1123,33 @@ fn then_served_classification(
 fn then_batch_conforms(world: &mut VocabularyWorld) {
     let outcome = world.batch_check.as_ref().expect("batch_of not checked");
     assert_eq!(outcome, &Ok(()));
+}
+
+#[then("every idempotency_key conforms")]
+fn then_key_conforms(world: &mut VocabularyWorld) {
+    let outcome = world
+        .key_check
+        .as_ref()
+        .expect("idempotency_key not checked");
+    assert_eq!(outcome, &Ok(()));
+}
+
+#[then(expr = "the idempotency_key is refused as {string}")]
+fn then_key_refused(world: &mut VocabularyWorld, reason: String) {
+    let outcome = world
+        .key_check
+        .as_ref()
+        .expect("idempotency_key not checked");
+    let Err(IdempotencyKeyError::Refused(refusals)) = outcome else {
+        panic!("the idempotency_key conformed but must be refused: {outcome:?}");
+    };
+    assert_eq!(refusals.len(), 1, "{refusals:?}");
+    assert!(
+        refusals[0].to_string().ends_with(&reason),
+        "refusal `{}` does not end with `{reason}`",
+        refusals[0]
+    );
+    assert_eq!(refusals[0].method, "contract.v1.Svc/Do");
 }
 
 #[then("every nested_write_of conforms")]

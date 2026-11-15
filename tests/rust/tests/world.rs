@@ -294,6 +294,21 @@ impl std::fmt::Debug for FieldLabelsWorld {
     }
 }
 
+/// The keyed write contract under test and the outcome of each rule over it.
+#[derive(Default, cucumber::World)]
+pub struct KeyedWriteWorld {
+    pub source: String,
+    pub pool: Option<prost_reflect::DescriptorPool>,
+    pub batch_outcome: Option<Result<(), api_bones_automation::BatchOfError>>,
+    pub key_outcome: Option<Result<(), api_bones_automation::IdempotencyKeyError>>,
+}
+
+impl std::fmt::Debug for KeyedWriteWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyedWriteWorld").finish_non_exhaustive()
+    }
+}
+
 /// The provider a scenario declares, and the contract it compiles to.
 #[derive(Debug, Default, cucumber::World)]
 pub struct DelegationTemplatesWorld {
