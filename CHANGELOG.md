@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [17.6.0] - 2026-11-15
+
+### Added
+
+- *(protos)* a keyed write is scoped to its principal, embeds no second key, and a body-less one has no conflict
+
 ## [17.5.0] - 2026-11-15
 
 ### Added
