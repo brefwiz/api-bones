@@ -490,6 +490,7 @@ mod tests {
                 "CAPABILITY_AUDIENCE_ADMINISTRATORS = 1;",
                 "CAPABILITY_AUDIENCE_MEMBERS = 2;",
                 "CAPABILITY_AUDIENCE_EVERYONE = 3;",
+                "CAPABILITY_AUDIENCE_MEMBERS_RELAYED = 4;",
             ],
             "CapabilityAudience values and numbers are fixed"
         );
