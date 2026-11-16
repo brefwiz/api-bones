@@ -33,6 +33,10 @@ impl DelegationTemplatesWorld {
             .singular_capability
             .iter()
             .map(|capability| format!("  option (bones.v1.capability) = \"{capability}\";"));
+        let audience = self
+            .audience
+            .iter()
+            .map(|audience| format!("  option (bones.v1.capability_audience) = {audience};"));
         let capabilities = self.capabilities.iter().map(|capability| {
             format!("  option (bones.v1.provided_capabilities) = \"{capability}\";")
         });
@@ -62,6 +66,7 @@ impl DelegationTemplatesWorld {
             .iter()
             .map(|dimension| format!("  option (bones.v1.attributes) = {{ {dimension} }};"));
         let options: Vec<String> = singular
+            .chain(audience)
             .chain(capabilities)
             .chain(broker_scopes)
             .chain(groups)
@@ -451,6 +456,11 @@ fn given_singular_capability(world: &mut DelegationTemplatesWorld, capability: S
     world.singular_capability = Some(capability);
 }
 
+#[given(expr = "the provider declares the capability audience {word}")]
+fn given_audience(world: &mut DelegationTemplatesWorld, audience: String) {
+    world.audience = Some(audience);
+}
+
 #[given(expr = "the provider provides the broker scope {string} of the capability {string}")]
 fn given_broker_scope(world: &mut DelegationTemplatesWorld, scope: String, capability: String) {
     world.broker_scopes.push((capability, scope));
@@ -577,6 +587,34 @@ fn then_provided_capabilities(world: &mut DelegationTemplatesWorld, expected: St
         .map(|capability| capability.as_str().expect("a string").to_owned())
         .collect();
     assert_eq!(provided.join(", "), expected);
+}
+
+#[then(expr = "the capability audience reads back {word} with the number {int}")]
+fn then_audience(world: &mut DelegationTemplatesWorld, name: String, number: i32) {
+    let pool = world
+        .pool
+        .as_ref()
+        .expect("the provider contract was not compiled");
+    let extension = pool
+        .get_extension_by_name("bones.v1.capability_audience")
+        .expect("the extension is declared");
+    let options = pool
+        .get_service_by_name(SERVICE)
+        .expect("the service is declared")
+        .options();
+    let value = options.get_extension(&extension);
+    let read = value.as_enum_number().expect("an enum option");
+    assert_eq!(read, number);
+    let Kind::Enum(descriptor) = extension.kind() else {
+        panic!("capability_audience is not an enum option");
+    };
+    assert_eq!(
+        descriptor
+            .get_value(read)
+            .expect("a declared audience value")
+            .name(),
+        name
+    );
 }
 
 #[then(expr = "its grant {int} reads back the scope {string}")]

@@ -459,3 +459,10 @@ Feature: Delegation templates a provider ships
     When the provider contract is validated
     Then the grant grammar message "bones.v1.ApprovalCapability" declares exactly the fields "capability, label"
     And the service option "bones.v1.approval_capabilities" is declared with the number 5102376
+
+  @state:happy
+  Scenario: A relay-only capability audience reads back from the compiled contract
+    Given the provider declares the capability audience CAPABILITY_AUDIENCE_MEMBERS_RELAYED
+    When the provider contract is validated
+    Then the capability audience reads back CAPABILITY_AUDIENCE_MEMBERS_RELAYED with the number 4
+    And the provided capabilities read back exactly "planning"

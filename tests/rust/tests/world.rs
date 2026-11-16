@@ -316,6 +316,8 @@ pub struct DelegationTemplatesWorld {
     pub public_scopes: Vec<String>,
     pub capabilities: Vec<String>,
     pub singular_capability: Option<String>,
+    /// The `CapabilityAudience` value name the service declares, if any.
+    pub audience: Option<String>,
     pub broker_scopes: Vec<(String, String)>,
     /// Broker scopes of a separate, RPC-free events service: capability, scope
     /// and the capability implying it.

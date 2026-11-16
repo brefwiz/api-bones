@@ -415,6 +415,13 @@
 //   ADMINISTRATORS -> admin
 //   MEMBERS        -> admin, member
 //   EVERYONE       -> admin, member, viewer
+//   MEMBERS_RELAYED -> admin, member, only through a consuming product
+//
+// MEMBERS_RELAYED is a relay-only audience: the roles are granted solely
+// through a product that consumes the capability, bound to that product's
+// workload-facing server. The provider's own enablement never grants it and
+// an explicit role-capability grant of it is refused. It is not ordinal;
+// readers never compare audience values numerically.
 //
 // `admin` is always granted explicitly. Unset, or
 // CAPABILITY_AUDIENCE_UNSPECIFIED, means the capability is never part of a
@@ -1037,7 +1044,9 @@ message ApprovalCapability {
 }
 
 // Who a product's capability is granted to when an organization enables the
-// product. Each value includes every role of the values before it.
+// product. For values 1 to 3 each value includes every role of the values
+// before it. Value 4 is not ordinal: it sits outside that ordering, and readers
+// never compare audience values numerically.
 enum CapabilityAudience {
   // No declaration. The capability is never part of a default grant.
   CAPABILITY_AUDIENCE_UNSPECIFIED = 0;
@@ -1050,6 +1059,11 @@ enum CapabilityAudience {
 
   // Granted to the `admin`, `member` and `viewer` roles.
   CAPABILITY_AUDIENCE_EVERYONE = 3;
+
+  // Granted to admin and member, but only through a product that consumes it,
+  // bound to that product's workload-facing server; never by the provider's own
+  // enablement nor by hand.
+  CAPABILITY_AUDIENCE_MEMBERS_RELAYED = 4;
 }
 
 // Whether an RPC requires a credential at all.
