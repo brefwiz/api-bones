@@ -23,6 +23,8 @@ syntax = "proto3";
 
 package bones.v1;
 
+import "bones/v1/annotations.proto";
+
 // =============================================================================
 // Cursor-based pagination (AIP-158, default)
 // =============================================================================
@@ -62,16 +64,16 @@ message PageRequest {
 //   }
 message PageResponse {
   // Opaque cursor for the next page. Empty when no more pages.
-  string next_cursor = 1;
+  string next_cursor = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 
   // Collection-level revision/ETag — changes whenever anything visible under
   // the request's filter and caller authorization may have changed. Used for
   // list-level cache validation via if-none-match metadata.
-  string revision = 2;
+  string revision = 2 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 
   // Size of the collection visible under the request's filter and caller
   // authorization, with the same scope as revision. Unset unless opted in.
-  Total total = 3;
+  Total total = 3 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 }
 
 // A collection size and how it was obtained. Both KIND_ESTIMATE and KIND_EXACT count
@@ -88,8 +90,8 @@ message Total {
     KIND_EXACT = 2;
   }
 
-  uint64 value = 1;
-  Kind kind = 2;
+  uint64 value = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
+  Kind kind = 2 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 }
 
 // =============================================================================
@@ -125,18 +127,18 @@ message OffsetPageResponse {
   option deprecated = true;
 
   // Total number of items across all pages.
-  uint64 total_count = 1;
+  uint64 total_count = 1 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 
   // Whether more items exist beyond this page.
-  bool has_more = 2;
+  bool has_more = 2 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 
   // Max items per page (echoes the requested or default limit).
-  uint64 limit = 3;
+  uint64 limit = 3 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 
   // Number of items skipped before this page.
-  uint64 offset = 4;
+  uint64 offset = 4 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 
   // Opaque revision of the listed collection as of this page, usable as an
   // ETag for conditional reads.
-  string revision = 5;
+  string revision = 5 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];
 }

@@ -42,6 +42,17 @@ Feature: Field labels
     Then the field options it declares are "attr, classification, defaulted_from, meaning, nested_write_of, typed_by"
     And the classification enums it declares are "bones.v1.DataClassification"
 
+  Scenario Outline: Every field of a shipped page response is classified internal
+    Given the shipped pagination
+    When the vocabulary is read back through descriptor reflection
+    Then every field of the message "<message>" is classified "DATA_CLASSIFICATION_INTERNAL"
+
+    Examples:
+      | message                   |
+      | bones.v1.PageResponse     |
+      | bones.v1.Total            |
+      | bones.v1.OffsetPageResponse |
+
   Scenario: The shipped stream control is exactly a drain or a checkpoint
     Given the shipped stream control
     When the vocabulary is read back through descriptor reflection
