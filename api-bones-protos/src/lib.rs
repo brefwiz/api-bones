@@ -126,7 +126,9 @@ mod tests {
     fn offset_page_response_declares_revision() {
         let body = std::str::from_utf8(PAGINATION_PROTO).expect("utf8");
         assert!(
-            body.contains("string revision = 5;"),
+            body.contains(
+                "string revision = 5 [(bones.v1.classification) = DATA_CLASSIFICATION_INTERNAL];"
+            ),
             "pagination.proto missing the page revision field"
         );
     }

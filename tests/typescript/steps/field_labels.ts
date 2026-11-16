@@ -103,6 +103,13 @@ Given("the shipped stream control", function (this: FieldLabelsWorld) {
     `message Record { string id = 1; }\n`;
 });
 
+Given("the shipped pagination", function (this: FieldLabelsWorld) {
+  this.source =
+    `syntax = "proto3";\npackage contract.v1;\n` +
+    `import "bones/v1/pagination.proto";\n` +
+    `message Record { string id = 1; }\n`;
+});
+
 When("the record is read back through descriptor reflection", function (this: FieldLabelsWorld) {
   this.registry = compile(this);
 });
@@ -130,6 +137,23 @@ Then("the field classification reads back as {string}", function (this: FieldLab
   assert.ok(enumType, "the classification enum is not declared");
   assert.equal(enumType.value[value as number]?.name, expected);
 });
+
+Then(
+  "every field of the message {string} is classified {string}",
+  function (this: FieldLabelsWorld, name: string, expected: string) {
+    const message = registryOf(this).getMessage(name);
+    assert.ok(message, `${name} is not declared`);
+    assert.ok(message.fields.length > 0, "the message has no fields");
+    const enumType = registryOf(this).getEnum("bones.v1.DataClassification");
+    assert.ok(enumType, "the classification enum is not declared");
+    const extension = extensionOf(this, "bones.v1.classification");
+    for (const field of message.fields) {
+      const options = field.proto.options;
+      assert.ok(options && hasExtension(options, extension), `${field.name} carries no classification`);
+      assert.equal(enumType.value[getExtension(options, extension) as number]?.name, expected, field.name);
+    }
+  },
+);
 
 Then("the field carries no classification", function (this: FieldLabelsWorld) {
   const options = theField(this).proto.options;

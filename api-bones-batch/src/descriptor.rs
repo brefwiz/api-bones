@@ -195,10 +195,13 @@ mod tests {
 
     #[test]
     fn a_descriptor_without_the_batch_extension_stays_refused() {
-        let bytes = descriptor(
-            "import \"bones/v1/pagination.proto\";",
-            "service S { rpc List(Req) returns (Res); }",
-        );
+        let source = "syntax = \"proto3\"; package fixture.v1; \
+             message Plain { string id = 1; } \
+             service S { rpc Get(Plain) returns (Plain); }";
+        let mut compiler = protox::Compiler::with_file_resolver(Resolver(source.to_owned()));
+        compiler.include_imports(true);
+        compiler.open_file(PATH).expect("fixture compiles");
+        let bytes = compiler.encode_file_descriptor_set();
         let message = refusal(batch_methods(&bytes, "fixture.v1.S"));
         assert!(message.contains("no batch policy discovery"), "{message}");
     }

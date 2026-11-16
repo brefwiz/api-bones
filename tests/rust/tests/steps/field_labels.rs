@@ -79,6 +79,14 @@ fn given_stream_control(world: &mut FieldLabelsWorld) {
         .to_owned();
 }
 
+#[given("the shipped pagination")]
+fn given_pagination(world: &mut FieldLabelsWorld) {
+    world.source = "syntax = \"proto3\";\npackage contract.v1;\n\
+         import \"bones/v1/pagination.proto\";\n\
+         message Record { string id = 1; }\n"
+        .to_owned();
+}
+
 #[when("the record is read back through descriptor reflection")]
 #[when("the vocabulary is read back through descriptor reflection")]
 fn when_read_back(world: &mut FieldLabelsWorld) {
@@ -129,6 +137,28 @@ fn then_classification(world: &mut FieldLabelsWorld, expected: String) {
         .name()
         .to_owned();
     assert_eq!(name, expected);
+}
+
+#[then(expr = "every field of the message {string} is classified {string}")]
+fn then_every_field_classified(world: &mut FieldLabelsWorld, message: String, expected: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let ext = pool
+        .get_extension_by_name("bones.v1.classification")
+        .expect("classification extension");
+    let enum_type = pool
+        .get_enum_by_name("bones.v1.DataClassification")
+        .expect("classification enum");
+    let message = pool
+        .get_message_by_name(&message)
+        .unwrap_or_else(|| panic!("{message} is not declared"));
+    assert!(message.fields().count() > 0, "the message has no fields");
+    for field in message.fields() {
+        let Value::EnumNumber(number) = field.options().get_extension(&ext).into_owned() else {
+            panic!("{} carries no classification", field.full_name());
+        };
+        let name = enum_type.get_value(number).expect("a declared value");
+        assert_eq!(name.name(), expected, "{}", field.full_name());
+    }
 }
 
 #[then("the field carries no classification")]
