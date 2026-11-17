@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [14.1.0] - 2026-11-17
+
+### Added
+
+- *(connect)* framework-free TLS roots and chrono without clock
+
 ## [14.0.12] - 2026-11-17
 
 ### Other

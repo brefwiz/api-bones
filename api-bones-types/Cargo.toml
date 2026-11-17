@@ -9,7 +9,7 @@ publish = false
 description = "Internal: dumps the api-bones JSON Schema that @brefwiz/api-bones-types is generated from."
 
 [dependencies]
-api-bones = { version = "^17.9.2", path = "..", features = ["schemars", "uuid", "chrono", "serde", "std"] }
+api-bones = { version = "^17.10.0", path = "..", features = ["schemars", "uuid", "chrono", "serde", "std"] }
 schemars = { version = "1", features = ["uuid1", "chrono04"] }
 serde_json = "1"
 
