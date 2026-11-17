@@ -274,6 +274,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The root certificates a Connect client trusts, which an operator injects
+  # with `SSL_CERT_FILE`. TypeScript leaves root trust to its runtime, so this
+  # surface is Rust alone.
+  connect-root-store:
+    contract: tests/features/connect_root_store.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones]
   # A batch read through a generated client on the fleet transport. TypeScript
   # has no fleet client, so this surface is Rust alone.
   connect-batch-fleet-transport:

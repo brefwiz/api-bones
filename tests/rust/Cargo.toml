@@ -136,3 +136,7 @@ harness = false
 [[test]]
 name = "connect_fleet_connect_bound"
 harness = false
+
+[[test]]
+name = "connect_root_store"
+harness = false

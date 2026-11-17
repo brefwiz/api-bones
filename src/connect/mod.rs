@@ -78,6 +78,11 @@ pub mod stream_control;
 mod timestamp;
 pub mod transport;
 mod uuid;
+#[cfg(all(
+    feature = "tls-webpki-roots",
+    any(test, not(feature = "tls-native-roots"))
+))]
+mod webpki_store;
 
 pub use code::{ConnectCode, ParseConnectCodeError};
 pub use domain_error::{DomainErrorKind, IntoDomainErrorKind, domain_to_connect};
@@ -110,7 +115,9 @@ pub use stream_control::{
     StreamControl, is_keepalive_payload,
 };
 pub use timestamp::{chrono_opt_to_timestamp, chrono_to_timestamp};
-pub use transport::{ConnectConfigExt, client_tls_config, is_caller_rejection};
+pub use transport::{
+    ConnectConfigExt, RootStoreError, client_tls_config, is_caller_rejection, root_store,
+};
 pub use uuid::parse_uuid;
 
 /// Build an `InvalidArgument` `ConnectError` attributing the error to a named request field.

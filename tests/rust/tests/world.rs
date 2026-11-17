@@ -897,3 +897,17 @@ impl std::fmt::Debug for FleetConnectBoundWorld {
             .finish_non_exhaustive()
     }
 }
+
+/// The root certificate file an operator names and what the root store read
+/// from it.
+#[derive(Default, cucumber::World)]
+pub struct RootStoreWorld {
+    pub file: Option<std::path::PathBuf>,
+    pub trusted: Option<usize>,
+}
+
+impl std::fmt::Debug for RootStoreWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RootStoreWorld").finish_non_exhaustive()
+    }
+}
