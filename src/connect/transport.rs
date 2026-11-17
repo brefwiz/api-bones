@@ -1,34 +1,96 @@
 // SPDX-License-Identifier: MIT
 //! Client TLS configuration and header conventions for Connect RPC services.
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use connectrpc::ErrorCode;
 use connectrpc::client::ClientConfig;
 use connectrpc::rustls::{ClientConfig as RustlsClientConfig, RootCertStore};
 
-/// Build a shared rustls [`RustlsClientConfig`] trusting the OS root store.
+/// Root certificates named by `SSL_CERT_FILE` or `SSL_CERT_DIR` could not be
+/// loaded.
+#[derive(Debug, thiserror::Error)]
+#[error("cannot load root certificates from {}: {reason}", .path.display())]
+pub struct RootStoreError {
+    /// File or directory the certificates were read from.
+    pub path: PathBuf,
+    /// What went wrong, as reported by the reader.
+    pub reason: String,
+}
+
+/// The root certificates TLS server verification trusts.
 ///
-/// Built once via [`OnceLock`]. Honors `SSL_CERT_FILE`/`SSL_CERT_DIR`
-/// (openssl-probe in `rustls-native-certs`) so dev/e2e can inject a private CA
-/// via env. ALPN offers h2 then http/1.1; `api_bones_transport::HttpTransport`
+/// With `tls-native-roots` this is the operating system store, honoring
+/// `SSL_CERT_FILE`/`SSL_CERT_DIR` (`rustls-native-certs`) so dev/e2e can inject
+/// a private CA via env. It wins when `tls-webpki-roots` is enabled as well.
+///
+/// With `tls-webpki-roots` alone it is the bundled Mozilla set, unless
+/// `SSL_CERT_FILE` or `SSL_CERT_DIR` is set: then only the certificates they
+/// name are trusted. `SSL_CERT_DIR` may list several directories, separated as
+/// in `PATH`.
+///
+/// # Errors
+///
+/// Never fails with `tls-native-roots`. With `tls-webpki-roots` alone it fails
+/// when a variable points at a missing path, at malformed PEM, or (for
+/// `SSL_CERT_FILE`) at a file with no certificate.
+pub fn root_store() -> Result<RootCertStore, RootStoreError> {
+    // The public item is the same in every build; only the source behind it
+    // depends on the enabled root feature.
+    source_roots()
+}
+
+/// The operating system store, honoring `SSL_CERT_FILE`/`SSL_CERT_DIR`.
+#[cfg(feature = "tls-native-roots")]
+fn source_roots() -> Result<RootCertStore, RootStoreError> {
+    let mut roots = RootCertStore::empty();
+    roots.add_parsable_certificates(rustls_native_certs::load_native_certs().certs);
+    Ok(roots)
+}
+
+/// The bundled Mozilla set, or only the certificates `SSL_CERT_FILE` or
+/// `SSL_CERT_DIR` name when either is set.
+#[cfg(not(feature = "tls-native-roots"))]
+fn source_roots() -> Result<RootCertStore, RootStoreError> {
+    super::webpki_store::root_store(&process_env)
+}
+
+#[cfg(not(feature = "tls-native-roots"))]
+fn process_env(key: &str) -> Option<std::ffi::OsString> {
+    std::env::var_os(key)
+}
+
+/// Build a shared rustls [`RustlsClientConfig`] trusting [`root_store`].
+///
+/// Built once via [`OnceLock`]. If the root certificates cannot be loaded the
+/// config trusts nothing, so every handshake fails closed, and the cause is
+/// logged. ALPN offers h2 then http/1.1; `api_bones_transport::HttpTransport`
 /// narrows to h2 itself.
 #[must_use]
 pub fn client_tls_config() -> Arc<RustlsClientConfig> {
     static TLS_CONFIG: OnceLock<Arc<RustlsClientConfig>> = OnceLock::new();
-    TLS_CONFIG
-        .get_or_init(|| {
-            let mut roots = RootCertStore::empty();
-            let loaded = rustls_native_certs::load_native_certs();
-            for cert in loaded.certs {
-                let _ = roots.add(cert);
-            }
-            let mut config = RustlsClientConfig::builder()
-                .with_root_certificates(roots)
-                .with_no_client_auth();
-            config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-            Arc::new(config)
-        })
-        .clone()
+    TLS_CONFIG.get_or_init(|| config_from(root_store())).clone()
+}
+
+/// The roots rustls trusts: the loaded ones, or an empty store when loading
+/// failed so that every handshake is refused.
+fn trusted_roots(roots: Result<RootCertStore, RootStoreError>) -> RootCertStore {
+    match roots {
+        Ok(roots) => roots,
+        Err(err) => {
+            tracing::error!(error = %err, "no root certificates loaded; every TLS handshake will fail");
+            RootCertStore::empty()
+        }
+    }
+}
+
+fn config_from(roots: Result<RootCertStore, RootStoreError>) -> Arc<RustlsClientConfig> {
+    let roots = trusted_roots(roots);
+    let mut config = RustlsClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    Arc::new(config)
 }
 
 /// brefwiz Connect header conventions on connectrpc's `ClientConfig`.
@@ -99,6 +161,93 @@ mod tests {
         let a = client_tls_config();
         let b = client_tls_config();
         assert!(Arc::ptr_eq(&a, &b), "expected same Arc from OnceLock");
+    }
+
+    #[cfg(feature = "tls-native-roots")]
+    #[test]
+    fn root_store_loads_without_error() {
+        assert!(root_store().is_ok());
+    }
+
+    #[test]
+    fn unloadable_roots_yield_a_config_that_trusts_nothing() {
+        install_crypto_provider();
+        let err = RootStoreError {
+            path: PathBuf::from("/nonexistent/ca.pem"),
+            reason: "gone".to_owned(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "cannot load root certificates from /nonexistent/ca.pem: gone"
+        );
+        let roots = trusted_roots(Err(err));
+        assert_eq!(roots.roots.len(), 0);
+        let cfg = config_from(Err(RootStoreError {
+            path: PathBuf::from("/nonexistent/ca.pem"),
+            reason: "gone".to_owned(),
+        }));
+        assert_eq!(cfg.alpn_protocols.len(), 2);
+    }
+
+    /// `root_store()` in a webpki-only build reads the process environment.
+    /// Writing the environment in-process needs `unsafe`, which this crate
+    /// denies, so each case re-runs this test binary with the variables set on
+    /// the child command and the child asserts through `webpki_root_store_probe`.
+    #[cfg(all(feature = "tls-webpki-roots", not(feature = "tls-native-roots")))]
+    mod webpki_only {
+        use super::root_store;
+
+        const PROBE: &str = "webpki_root_store_probe";
+        const EXPECT: &str = "API_BONES_ROOT_STORE_EXPECT";
+        const ONE_CERT: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/connect/testdata/certs/one.pem"
+        );
+
+        /// Runs the probe in a child process whose `SSL_CERT_FILE` is `file`
+        /// (unset when `None`) and whose `SSL_CERT_DIR` is unset.
+        fn probe_in_child(expect: &str, file: Option<&str>) {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([PROBE, "--nocapture", "--test-threads=1"])
+                .env(EXPECT, expect)
+                .env_remove("SSL_CERT_FILE")
+                .env_remove("SSL_CERT_DIR");
+            if let Some(file) = file {
+                command.env("SSL_CERT_FILE", file);
+            }
+            let output = command.output().unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.contains("1 passed"),
+                "probe did not run: {stdout}{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(output.status.success(), "probe failed: {stdout}");
+        }
+
+        #[test]
+        fn cert_file_is_the_only_trust_source() {
+            probe_in_child("one", Some(ONE_CERT));
+        }
+
+        #[test]
+        fn neither_variable_trusts_the_bundled_roots() {
+            probe_in_child("bundled", None);
+        }
+
+        /// Child half of the cases above; a no-op when run on its own.
+        #[test]
+        fn webpki_root_store_probe() {
+            let Ok(expect) = std::env::var(EXPECT) else {
+                return;
+            };
+            let store = root_store().unwrap();
+            match expect.as_str() {
+                "one" => assert_eq!(store.roots.len(), 1),
+                _ => assert_ne!(store.roots.len(), 0),
+            }
+        }
     }
 
     #[test]

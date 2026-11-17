@@ -173,10 +173,18 @@ pub mod calendar;
 // OpenAPI helpers: Example<T> and DeprecatedField (issues #119, #120).
 pub mod openapi;
 
-#[cfg(feature = "connect")]
+#[cfg(all(
+    feature = "connect-core",
+    not(any(feature = "tls-native-roots", feature = "tls-webpki-roots"))
+))]
+compile_error!(
+    "the `connect-core` feature needs a TLS root source: enable `tls-native-roots` or `tls-webpki-roots`"
+);
+
+#[cfg(feature = "connect-core")]
 pub mod connect;
 
-#[cfg(feature = "connect")]
+#[cfg(feature = "connect-core")]
 pub mod sdk;
 
 #[cfg(feature = "opentelemetry")]

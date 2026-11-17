@@ -70,6 +70,10 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	# neither needs a live stack and both run synchronously.
 	# The step lane's own unit tests, over its generated stream response type.
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --lib
+	# The webpki-only root source never builds under --all-features, where
+	# tls-native-roots wins, so the suite and coverage runs cannot reach it.
+	# Its unit tests run here, in the one feature combination that compiles it.
+	cargo test --locked --no-fail-fast -p api-bones --lib --no-default-features --features tls-webpki-roots
 	# nextest runs no doctests. The rotating client refuses a response type
 	# without stream control at compile time, and a compile_fail example on
 	# rotating_stream is the proof, so that crate's doctests run here, where
@@ -88,6 +92,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_rotation
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_keepalive
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_fleet_connect_bound
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_root_store
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pagination --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_identity_guard --locked
@@ -191,6 +196,7 @@ sc-001-check: ## SC-001: ban tracing_subscriber::fmt in main/bin entry points
 ci-build-check: ## Compile-check all feature combinations
 	cargo check --locked --workspace --all-targets --all-features
 	cargo check --locked --no-default-features
+	cargo check --locked --no-default-features --features tls-webpki-roots
 
 .PHONY: sdk-e2e-check
 sdk-e2e-check: ## No SDK E2E targets for this library crate

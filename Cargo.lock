@@ -110,6 +110,7 @@ dependencies = [
  "proptest-derive",
  "rand 0.10.2",
  "rustls-native-certs",
+ "rustls-pki-types",
  "schemars 1.2.2",
  "serde",
  "serde_json",
@@ -120,6 +121,7 @@ dependencies = [
  "utoipa",
  "uuid",
  "validator",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
