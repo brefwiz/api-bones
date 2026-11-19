@@ -53,6 +53,7 @@ quorum-workload-identity-issuer = { version = "0.7.0", registry = "brefwiz" }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 cucumber = "0.23"
+miette = "7"
 # The platform BDD runner.
 brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs"] }

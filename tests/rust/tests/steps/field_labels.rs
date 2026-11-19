@@ -26,6 +26,16 @@ fn the_field(pool: &DescriptorPool) -> FieldDescriptor {
         .expect("field")
 }
 
+fn references_of(pool: &DescriptorPool) -> prost_reflect::DynamicMessage {
+    let ext = pool
+        .get_extension_by_name("bones.v1.references")
+        .expect("references extension");
+    let Value::Message(message) = the_field(pool).options().get_extension(&ext).into_owned() else {
+        panic!("references is not a message");
+    };
+    message
+}
+
 fn quoted(value: &str) -> String {
     format!("\"{value}\"")
 }
@@ -66,6 +76,41 @@ fn given_meaning_only(world: &mut FieldLabelsWorld, field: String, kind: String,
     world.source = record_source(&field, &kind, &options);
 }
 
+#[given(expr = "a record field {string} of type {string} labelled with value format {string}")]
+fn given_format(world: &mut FieldLabelsWorld, field: String, kind: String, format: String) {
+    let options = format!("[(bones.v1.format) = {format}]");
+    world.source = record_source(&field, &kind, &options);
+}
+
+#[given(
+    expr = "a record field {string} of type {string} labelled with a reference to the field {string}"
+)]
+fn given_field_reference(
+    world: &mut FieldLabelsWorld,
+    field: String,
+    kind: String,
+    target: String,
+) {
+    let options = format!("[(bones.v1.references).field = {}]", quoted(&target));
+    world.source = record_source(&field, &kind, &options);
+}
+
+#[given(
+    expr = "a record field {string} of type {string} labelled as a principal of the caller's organization"
+)]
+fn given_principal_reference(world: &mut FieldLabelsWorld, field: String, kind: String) {
+    let options = "[(bones.v1.references).principal = true]";
+    world.source = record_source(&field, &kind, options);
+}
+
+#[given(
+    expr = "a record field {string} of type {string} labelled with a reference to both a field and a principal"
+)]
+fn given_both_references(world: &mut FieldLabelsWorld, field: String, kind: String) {
+    let options = "[(bones.v1.references) = { field: \"acme.v1.Event.id\" principal: true }]";
+    world.source = record_source(&field, &kind, options);
+}
+
 #[given("the shipped field vocabulary")]
 fn given_vocabulary(world: &mut FieldLabelsWorld) {
     world.source = record_source("id", "string", "");
@@ -95,6 +140,76 @@ fn when_read_back(world: &mut FieldLabelsWorld) {
         .open_file(CONTRACT)
         .unwrap_or_else(|e| panic!("contract failed to compile: {e}"));
     world.pool = Some(compiler.descriptor_pool());
+}
+
+#[when("the contract is compiled")]
+fn when_compiled(world: &mut FieldLabelsWorld) {
+    let mut compiler = compiler(world.source.clone(), api_bones_protos::files());
+    world.refusal = compiler.open_file(CONTRACT).err().map(|e| {
+        let mut chain = e.to_string();
+        let mut cause = miette::Diagnostic::diagnostic_source(&e);
+        while let Some(diagnostic) = cause {
+            chain.push_str(": ");
+            chain.push_str(&diagnostic.to_string());
+            cause = diagnostic.diagnostic_source();
+        }
+        chain
+    });
+}
+
+#[then(
+    expr = "the contract is refused at compile because {string} and {string} are mutually exclusive in {string}"
+)]
+fn then_refused(world: &mut FieldLabelsWorld, first: String, second: String, option: String) {
+    let message = world.refusal.as_ref().expect("the contract compiled");
+    assert!(
+        message.contains("a value is already set for oneof 'target'")
+            && message.contains(&format!("(bones.v1.{option})")),
+        "refusal does not name the {first:?}/{second:?} conflict in {option:?}: {message}"
+    );
+}
+
+#[then(expr = "the field value format reads back as {string}")]
+fn then_format(world: &mut FieldLabelsWorld, expected: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let ext = pool
+        .get_extension_by_name("bones.v1.format")
+        .expect("format extension");
+    let Value::EnumNumber(number) = the_field(pool).options().get_extension(&ext).into_owned()
+    else {
+        panic!("format is not an enum value");
+    };
+    let name = pool
+        .get_enum_by_name("bones.v1.ValueFormat")
+        .expect("format enum")
+        .get_value(number)
+        .expect("a declared value")
+        .name()
+        .to_owned();
+    assert_eq!(name, expected);
+}
+
+#[then(expr = "the field reference reads back as the field {string}")]
+fn then_field_reference(world: &mut FieldLabelsWorld, expected: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let message = references_of(pool);
+    assert!(
+        !message.has_field_by_name("principal"),
+        "a principal is set"
+    );
+    let value = message.get_field_by_name("field").expect("field target");
+    assert_eq!(value.as_str(), Some(expected.as_str()));
+}
+
+#[then("the field reference reads back as a principal of the caller's organization")]
+fn then_principal_reference(world: &mut FieldLabelsWorld) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let message = references_of(pool);
+    assert!(!message.has_field_by_name("field"), "a field is set");
+    let value = message
+        .get_field_by_name("principal")
+        .expect("principal target");
+    assert_eq!(value.as_bool(), Some(true));
 }
 
 #[then(expr = "the field meaning reads back as {string}")]
@@ -244,6 +359,19 @@ fn then_oneof(world: &mut FieldLabelsWorld, message: String, oneof: String, expe
         members,
         "every field belongs to the oneof"
     );
+}
+
+#[then(expr = "the enum {string} declares exactly the values {string}")]
+fn then_enum_values(world: &mut FieldLabelsWorld, name: String, expected: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let found = pool
+        .get_enum_by_name(&name)
+        .unwrap_or_else(|| panic!("{name} is not declared"))
+        .values()
+        .map(|v| format!("{}={}", v.name(), v.number()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert_eq!(found, expected);
 }
 
 #[then(expr = "the message {string} declares exactly the fields {string}")]

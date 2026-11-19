@@ -200,6 +200,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "miette",
  "prost-reflect",
  "protox",
  "quorum-chain-issuer",
