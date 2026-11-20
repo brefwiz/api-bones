@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [17.13.0] - 2026-11-20
+
+### Added
+
+- *(proto)* AttributeDimension carries a label
+
 ## [17.12.0] - 2026-11-20
 
 ### Added
