@@ -436,6 +436,7 @@ mod tests {
                     "AttributePolarity polarity = 3;",
                     "AttributeMatching matching = 4;",
                     "string separator = 5;",
+                    "Label label = 6;",
                 ][..],
             ),
             (

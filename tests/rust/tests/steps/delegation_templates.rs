@@ -12,6 +12,7 @@ use super::shipped_resolver::{CONTRACT, compiler};
 use crate::world::DelegationTemplatesWorld;
 
 const TEMPLATES: &str = "bones.v1.delegation_templates";
+const ATTRIBUTES: &str = "bones.v1.attributes";
 const APPROVALS: &str = "bones.v1.approval_capabilities";
 const SERVICE: &str = "contract.v1.ProviderService";
 const EVENTS_SERVICE: &str = "contract.v1.EventsService";
@@ -201,6 +202,28 @@ fn template_label(pool: Option<&DescriptorPool>, name: &str) -> String {
         .unwrap_or_else(|| panic!("the service ships no template {name}"));
     let label = field(template, "label");
     text(label.as_message().expect("a label"), "text")
+}
+
+/// The dimension `name` the provider service declares, as read back from its
+/// options.
+fn declared_dimension(pool: Option<&DescriptorPool>, name: &str) -> DynamicMessage {
+    let pool = pool.expect("the provider contract was not compiled");
+    let extension = pool
+        .get_extension_by_name(ATTRIBUTES)
+        .unwrap_or_else(|| panic!("{ATTRIBUTES} is not declared"));
+    let options = pool
+        .get_service_by_name(SERVICE)
+        .expect("the service is declared")
+        .options();
+    let value = options.get_extension(&extension);
+    value
+        .as_list()
+        .expect("a repeated option")
+        .iter()
+        .filter_map(Value::as_message)
+        .find(|dimension| text(dimension, "name") == name)
+        .unwrap_or_else(|| panic!("the service declares no dimension {name}"))
+        .clone()
 }
 
 /// The values of the selector on `dimension` in grant `index`, comma-joined.
@@ -411,6 +434,18 @@ fn given_uuid_dimension(world: &mut DelegationTemplatesWorld, name: String) {
 }
 
 #[given(
+    expr = "the provider declares the dimension {string} matched exactly and labelled {string}"
+)]
+fn given_labelled_dimension(world: &mut DelegationTemplatesWorld, name: String, label: String) {
+    world.dimensions.push(format!(
+        "name: {} type: ATTRIBUTE_TYPE_STRING polarity: ATTRIBUTE_POLARITY_NARROWABLE \
+         matching: ATTRIBUTE_MATCHING_EXACT label: {{ text: {} }}",
+        quoted(&name),
+        quoted(&label)
+    ));
+}
+
+#[given(
     expr = "the provider ships the template {string} labelled {string} with the grant {string}"
 )]
 fn given_template(
@@ -548,6 +583,19 @@ fn then_count(world: &mut DelegationTemplatesWorld, expected: usize) {
 #[then(expr = "the template {string} reads back labelled {string}")]
 fn then_template_label(world: &mut DelegationTemplatesWorld, name: String, label: String) {
     assert_eq!(template_label(world.pool.as_ref(), &name), label);
+}
+
+#[then(expr = "the dimension {string} reads back labelled {string}")]
+fn then_dimension_label(world: &mut DelegationTemplatesWorld, name: String, label: String) {
+    let dimension = declared_dimension(world.pool.as_ref(), &name);
+    let read = field(&dimension, "label");
+    assert_eq!(text(read.as_message().expect("a label"), "text"), label);
+}
+
+#[then(expr = "the dimension {string} reads back with no label")]
+fn then_dimension_unlabelled(world: &mut DelegationTemplatesWorld, name: String) {
+    let dimension = declared_dimension(world.pool.as_ref(), &name);
+    assert!(!dimension.has_field_by_name("label"));
 }
 
 #[then(expr = "the service declares {int} approval capability/capabilities")]

@@ -1149,6 +1149,10 @@ message AttributeDimension {
   // Required if and only if `matching` is SEGMENT_PREFIX, forbidden
   // otherwise. Exactly one character, not whitespace, `*`, `?` or `>`.
   string separator = 5;
+
+  // Human label of the dimension, per locale. Consumers render it and
+  // never fall back to `name`.
+  Label label = 6;
 }
 
 // The MCP projection of one RPC. The shape of the call is
