@@ -2,6 +2,7 @@
 // The contracts live beside this lane, at ../features. The Rust lane answers
 // the retry-eligibility file too; workload identity, the public lane, the CSRF synchronizer echo, the
 // default precondition, retry observability, undelivered-request replay and rate-limit retry are TypeScript-only entries.
+// The list-call mapping contract is TypeScript-only: it is a Layer 2 adapter of the TS package.
 // The package-shaking contract is TypeScript-only: Rust has no bundler.
 // The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation and stream-keepalive contracts are answered by both lanes.
 module.exports = {
@@ -30,6 +31,7 @@ module.exports = {
       "../features/typed_fields.feature",
       "../features/connect_stream_keepalive.feature",
       "../features/connect_tree_shaking.feature",
+      "../features/connect_map_list_call.feature",
     ],
     import: [
       "steps/retry_eligibility.ts",
@@ -55,6 +57,7 @@ module.exports = {
       "steps/typed_fields.ts",
       "steps/stream_keepalive.ts",
       "steps/tree_shaking.ts",
+      "steps/map_list_call.ts",
     ],
     strict: true,
     // The summary formatter on stderr prints each failing scenario and its

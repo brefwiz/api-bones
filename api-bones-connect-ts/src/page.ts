@@ -63,6 +63,17 @@ export interface ListCall<T> {
   readonly span?: Span;
 }
 
+/** Lazily map each item of a list call; page metadata, cache flags and the iteration span pass through unchanged. */
+export function mapListCall<T, U>(call: ListCall<T>, f: (item: T) => U): ListCall<U> {
+  const mapPage = (page: Page<T>): Page<U> => ({ ...page, items: page.items.map((item) => f(item)) });
+  return {
+    get span() { return call.span; },
+    async *pages() { for await (const page of call.pages()) yield mapPage(page); },
+    async *items() { for await (const item of call.items()) yield f(item); },
+    async firstPage() { return mapPage(await call.firstPage()); },
+  };
+}
+
 export type PageFetch = (request: Record<string, unknown>, options: CallOptions) => Promise<unknown>;
 export interface ListConfig<T> {
   method: string;

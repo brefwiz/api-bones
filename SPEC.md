@@ -244,6 +244,14 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The adapter that turns a list call of wire messages into a list call of
+  # domain values: TypeScript Layer 2 only.
+  connect-map-list-call:
+    contract: tests/features/connect_map_list_call.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
   connect-batch:
     contract: tests/features/connect_batch.feature
     targets:

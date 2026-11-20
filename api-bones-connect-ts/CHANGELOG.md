@@ -15,6 +15,7 @@
 
 ### Added
 
+- Add `mapListCall(call, f)`: a lazy `ListCall<T>` to `ListCall<U>` adapter so SDK wrappers return domain types from `pagedClient` lists. Page metadata, cache flags and `span` pass through; nothing is buffered.
 - Add `createPlatformClient(service, transport, policy)` and `PlatformClient` for generated SDK composition: batching, paging and one identity-bound revision cache per client. Preserve the two-argument raw constructor.
 - Export the generated `bones.v1.Total` schema as `TotalSchema`, `Total_Kind` and `TotalMessage` from the package root.
 

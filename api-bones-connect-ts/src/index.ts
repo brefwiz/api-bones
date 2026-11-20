@@ -112,7 +112,7 @@ export {
 } from "./stream-keepalive.js";
 
 export { RevisionCache } from "./revision-cache.js";
-export { PageError, PagingPolicyError, isCursorRejected, listCall, pages, items, pagedClient,
+export { PageError, PagingPolicyError, isCursorRejected, listCall, mapListCall, pages, items, pagedClient,
   type Page, type PageOptions, type Total, type PageErrorKind, type ListCall,
   type ListConfig, type PageFetch, type PagedClient } from "./page.js";
 export { type GeneratedPagingPolicy, type GeneratedBatchPolicy } from "./policy.js";
