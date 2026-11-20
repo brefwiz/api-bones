@@ -61,16 +61,8 @@ fn main() {
     // 4. Validation errors
     // -------------------------------------------------------------------------
     let validation_err = ApiError::validation_failed("invalid input").with_errors(vec![
-        ValidationError {
-            field: "/email".into(),
-            message: "must be a valid email address".into(),
-            rule: Some("email".into()),
-        },
-        ValidationError {
-            field: "/age".into(),
-            message: "must be at least 18".into(),
-            rule: Some("min".into()),
-        },
+        ValidationError::new("/email", "must be a valid email address").with_rule("email"),
+        ValidationError::new("/age", "must be at least 18").with_rule("min"),
     ]);
     println!(
         "\nvalidation_failed  errors={}",

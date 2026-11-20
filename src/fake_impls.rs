@@ -106,6 +106,7 @@ impl Dummy<Faker> for crate::error::ValidationError {
             } else {
                 None
             },
+            args: BTreeMap::default(),
         }
     }
 }
@@ -135,6 +136,7 @@ impl Dummy<Faker> for crate::error::ApiError {
             #[cfg(feature = "uuid")]
             request_id,
             errors,
+            error_info: None,
             rate_limit: None,
             source: None,
             causes: vec![],

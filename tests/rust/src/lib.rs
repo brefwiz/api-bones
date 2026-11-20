@@ -8,6 +8,8 @@
 
 pub mod batch_descriptor;
 #[cfg(test)]
+mod error_arg_interop;
+#[cfg(test)]
 mod nested_descriptor;
 pub mod widget_fixture;
 

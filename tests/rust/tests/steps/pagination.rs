@@ -968,6 +968,7 @@ fn given_cursor_refusal(world: &mut PagingWorld, code: String) {
         &ErrorInfo {
             code,
             emitter: "widgets".into(),
+            ..Default::default()
         },
     ));
 }

@@ -178,11 +178,11 @@ impl PaginationParams {
     /// ```
     pub fn new(limit: u64, offset: u64) -> Result<Self, crate::error::ValidationError> {
         if !(1..=MAX_LIMIT).contains(&limit) {
-            return Err(crate::error::ValidationError {
-                field: "/limit".into(),
-                message: format!("must be between 1 and {MAX_LIMIT}"),
-                rule: Some("range".into()),
-            });
+            return Err(crate::error::ValidationError::new(
+                "/limit",
+                format!("must be between 1 and {MAX_LIMIT}"),
+            )
+            .with_rule("range"));
         }
         Ok(Self {
             limit: Some(limit),
@@ -406,11 +406,11 @@ impl CursorPaginationParams {
     /// ```
     pub fn new(limit: u64, after: Option<String>) -> Result<Self, crate::error::ValidationError> {
         if !(1..=MAX_LIMIT).contains(&limit) {
-            return Err(crate::error::ValidationError {
-                field: "/limit".into(),
-                message: format!("must be between 1 and {MAX_LIMIT}"),
-                rule: Some("range".into()),
-            });
+            return Err(crate::error::ValidationError::new(
+                "/limit",
+                format!("must be between 1 and {MAX_LIMIT}"),
+            )
+            .with_rule("range"));
         }
         Ok(Self {
             limit: Some(limit),
@@ -519,11 +519,11 @@ impl<K> KeysetPaginationParams<K> {
         before: Option<K>,
     ) -> Result<Self, crate::error::ValidationError> {
         if !(1..=MAX_LIMIT).contains(&limit) {
-            return Err(crate::error::ValidationError {
-                field: "/limit".into(),
-                message: format!("must be between 1 and {MAX_LIMIT}"),
-                rule: Some("range".into()),
-            });
+            return Err(crate::error::ValidationError::new(
+                "/limit",
+                format!("must be between 1 and {MAX_LIMIT}"),
+            )
+            .with_rule("range"));
         }
         Ok(Self {
             after,

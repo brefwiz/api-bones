@@ -161,12 +161,14 @@ sdk_surfaces:
         packages: ["@brefwiz/api-bones-connect"]
   # The emitted error code a refusal carries: read back from the Connect error
   # detail, exposed on the SDK error type, and rendered as a text token. The
-  # Rust half lives in the root crate, outside the package this surface names
-  # (see internal_behavior_owners, below) -- so this surface is TS alone, the
-  # same way connect-precondition is.
+  # wire message is the `bones/v1` errors proto, which the Rust crate embeds;
+  # the Rust half lives in the root crate and its `api-bones-connect` re-export.
   connect-error-info:
     contract: tests/features/connect_error_info.feature
     targets:
+      rust:
+        delivery: package
+        packages: [api-bones, api-bones-connect, api-bones-protos]
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
@@ -352,12 +354,6 @@ internal_behavior_owners:
   # half is library code no declared sdk_surface exposes.
   - paths: [src/connect/mod.rs, src/connect/precondition_client.rs]
     feature: tests/features/connect_precondition.feature
-  # The Rust half of connect-error-info (above): the ErrorInfo codec, the
-  # detail reader and the carries-error-info trait live in the root crate,
-  # outside the api-bones-connect package root the TypeScript half answers to
-  # as its SDK contract.
-  - paths: [src/connect/error_info.rs, src/sdk.rs]
-    feature: tests/features/connect_error_info.feature
   # ConnectCode is the wire-level Connect error code; callers reach it
   # directly as library code, not through a generated contract.
   - paths: [src/connect/code.rs, src/connect/mod.rs]
@@ -420,7 +416,7 @@ duplication_baseline:
   test_double_in_production: 0
   duplicate_dispatch: 0
   duplicate_literals: 0
-  clone_tokens: 2389
+  clone_tokens: 2152
   test_clone_tokens: 309
 ci_checks:
   license_headers:

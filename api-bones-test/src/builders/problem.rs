@@ -86,11 +86,7 @@ impl FakeProblem {
             let errors: Vec<ValidationError> = self
                 .fields
                 .into_iter()
-                .map(|(field, message)| ValidationError {
-                    field,
-                    message,
-                    rule: None,
-                })
+                .map(|(field, message)| ValidationError::new(field, message))
                 .collect();
             err = err.with_errors(errors);
         }

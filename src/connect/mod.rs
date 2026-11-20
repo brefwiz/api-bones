@@ -84,10 +84,12 @@ mod uuid;
 ))]
 mod webpki_store;
 
+pub use crate::error::{ErrorArg, ErrorArgError};
 pub use code::{ConnectCode, ParseConnectCodeError};
 pub use domain_error::{DomainErrorKind, IntoDomainErrorKind, domain_to_connect};
 pub use error_info::{
-    CarriesErrorInfo, ERROR_INFO_TYPE, ErrorInfo, MAX_ERROR_INFOS, error_info, error_infos,
+    CarriesErrorInfo, ERROR_INFO_TYPE, ErrorInfo, MAX_ERROR_INFOS, VALIDATION_FAILURE_TYPE,
+    ValidationFailureDetail, error_info, error_infos, try_with_error_info, violations_of,
     with_error_info,
 };
 pub use etag::{check_if_match, etag_from_updated_at};

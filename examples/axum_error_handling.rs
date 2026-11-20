@@ -19,16 +19,8 @@ async fn get_booking() -> Result<String, ApiError> {
 async fn create_booking() -> Result<String, ApiError> {
     Err(
         ApiError::new(ErrorCode::ValidationFailed, "Invalid booking request").with_errors(vec![
-            ValidationError {
-                field: "/start_date".into(),
-                message: "must be in the future".into(),
-                rule: None,
-            },
-            ValidationError {
-                field: "/guest_count".into(),
-                message: "must be at least 1".into(),
-                rule: Some("min".into()),
-            },
+            ValidationError::new("/start_date", "must be in the future"),
+            ValidationError::new("/guest_count", "must be at least 1").with_rule("min"),
         ]),
     )
 }

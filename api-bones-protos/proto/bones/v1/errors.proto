@@ -28,6 +28,27 @@ syntax = "proto3";
 
 package bones.v1;
 
+import "google/protobuf/timestamp.proto";
+
+// One typed argument of an error message. The viewer's client formats it in
+// the viewer's locale (ICU plural, select, number and date), so a service
+// carries the value and never an interpolated string.
+//
+// An argument is declared with its code in the emitter's proto. A field marked
+// `debug_redact` holds a secret and is never an argument.
+//
+// The member names are `string`, `int64`, `double` and `timestamp` so no
+// generated variant repeats the enum name; the JSON names stay `stringValue`,
+// `int64Value`, `doubleValue` and `timestampValue`.
+message ErrorArg {
+  oneof value {
+    string string = 1 [json_name = "stringValue"];
+    int64 int64 = 2 [json_name = "int64Value"];
+    double double = 3 [json_name = "doubleValue"];
+    google.protobuf.Timestamp timestamp = 4 [json_name = "timestampValue"];
+  }
+}
+
 // A single field-level validation failure. Composed by services into a
 // Connect error envelope under `details` (one `ValidationFailure` per
 // failing field). Server-side request-validators typically emit one of
@@ -44,6 +65,11 @@ message ValidationFailure {
   // `format`, `range`). Empty when the failure doesn't map to a
   // discrete rule.
   string rule = 3;
+
+  // Typed arguments of the message for `rule`, keyed by the placeholder name
+  // in the `bones.validation.<rule>` catalog string. Never a `debug_redact`
+  // field.
+  map<string, ErrorArg> args = 4;
 }
 
 // Why a call was refused, in the emitter's own vocabulary. Attached to the
@@ -68,4 +94,9 @@ message ErrorInfo {
   // it would let any caller fingerprint service versions.
   reserved 3;
   reserved "emitter_version";
+
+  // Typed arguments of the message for `code`, keyed by the placeholder name
+  // in the `<emitter>.errors.<CODE>` catalog string. Each is declared with
+  // the code in the emitter's proto. Never a `debug_redact` field.
+  map<string, ErrorArg> args = 4;
 }

@@ -16,12 +16,13 @@ use std::{
 use api_bones::{
     ApiError, ApiResponse, ApiVersion, AuditInfo, BackoffStrategy, BulkItemResult, BulkRequest,
     BulkResponse, CacheControl, CorrelationId, CursorPaginatedResponse, CursorPagination,
-    CursorPaginationParams, Deprecated, ETag, ErrorCode, FilterEntry, FilterOp, FilterParams,
-    HealthCheck, HealthStatus, IdempotencyKey, IfMatch, IfNoneMatch, KeysetPaginatedResponse,
-    KeysetPaginationParams, Link, Links, LivenessResponse, OrgId, PaginatedResponse,
-    PaginationParams, Principal, PrincipalId, PrincipalKind, RateLimitInfo, ReadinessResponse,
-    RequestId, ResponseMeta, RetryPolicy, SamplingFlags, SearchParams, SemverTriple, Slug,
-    SortDirection, SortParams, SpanId, StatusCode, TraceContext, TraceId, ValidationError,
+    CursorPaginationParams, Deprecated, ETag, ErrorArg, ErrorCode, ErrorInfoMember, FilterEntry,
+    FilterOp, FilterParams, HealthCheck, HealthStatus, IdempotencyKey, IfMatch, IfNoneMatch,
+    KeysetPaginatedResponse, KeysetPaginationParams, Link, Links, LivenessResponse, OrgId,
+    PaginatedResponse, PaginationParams, Principal, PrincipalId, PrincipalKind, RateLimitInfo,
+    ReadinessResponse, RequestId, ResponseMeta, RetryPolicy, SamplingFlags, SearchParams,
+    SemverTriple, Slug, SortDirection, SortParams, SpanId, StatusCode, TraceContext, TraceId,
+    ValidationError,
 };
 use schemars::generate::{SchemaGenerator, SchemaSettings};
 use serde_json::{Map, Value, json};
@@ -46,6 +47,8 @@ registered_types!(
     ApiError => "ApiError",
     ValidationError => "ValidationError",
     ErrorCode => "ErrorCode",
+    ErrorArg => "ErrorArg",
+    ErrorInfoMember => "ErrorInfoMember",
     PaginationParams => "PaginationParams",
     PaginatedResponse<Value> => "PaginatedResponse",
     CursorPagination => "CursorPagination",

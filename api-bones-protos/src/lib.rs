@@ -713,9 +713,48 @@ mod tests {
                 "string code = 1;",
                 "string emitter = 2;",
                 "reserved 3;",
-                "reserved \"emitter_version\";"
+                "reserved \"emitter_version\";",
+                "map<string, ErrorArg> args = 4;"
             ],
-            "ErrorInfo is exactly {{code, emitter}}, with field 3 reserved"
+            "ErrorInfo is exactly {{code, emitter, args}}, with field 3 reserved"
+        );
+    }
+
+    /// The oneof member numbers and the `args` field numbers are the wire
+    /// contract the hand-written codecs encode against.
+    #[test]
+    fn errors_proto_declares_error_arg() {
+        let body = std::str::from_utf8(ERRORS_PROTO).expect("utf8");
+        let msg = body
+            .split("message ErrorArg {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("ErrorArg message");
+        let fields: Vec<&str> = msg
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        assert_eq!(
+            fields,
+            [
+                "oneof value {",
+                "string string = 1 [json_name = \"stringValue\"];",
+                "int64 int64 = 2 [json_name = \"int64Value\"];",
+                "double double = 3 [json_name = \"doubleValue\"];",
+                "google.protobuf.Timestamp timestamp = 4 [json_name = \"timestampValue\"];",
+                "}"
+            ],
+            "ErrorArg is exactly the four-member value oneof"
+        );
+        let failure = body
+            .split("message ValidationFailure {")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}").next())
+            .expect("ValidationFailure message");
+        assert!(
+            failure.contains("map<string, ErrorArg> args = 4;"),
+            "ValidationFailure carries args as field 4"
         );
     }
 

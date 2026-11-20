@@ -15,6 +15,7 @@ import { Code } from "@connectrpc/connect";
 
 export const CONNECT_CODES: Readonly<Record<string, Code>> = {
   internal: Code.Internal,
+  invalid_argument: Code.InvalidArgument,
   unavailable: Code.Unavailable,
   unauthenticated: Code.Unauthenticated,
   aborted: Code.Aborted,

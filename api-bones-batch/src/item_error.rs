@@ -2,10 +2,8 @@
 //! `bones.v1.ItemError` as the `ConnectError` the single call raises, and the
 //! errors the runtime raises itself.
 
-use api_bones::connect::{ErrorInfo, with_error_info};
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD_NO_PAD;
-use connectrpc::{ConnectError, ErrorCode, ErrorDetail};
+use api_bones::connect::{ErrorInfo, ValidationFailureDetail, with_error_info};
+use connectrpc::{ConnectError, ErrorCode};
 
 /// `ErrorInfo.code` of a whole-call refusal for too many items.
 pub const BATCH_TOO_LARGE: &str = "BATCH_TOO_LARGE";
@@ -16,8 +14,6 @@ pub const BATCH_RESPONSE_MISMATCH: &str = "BATCH_RESPONSE_MISMATCH";
 /// `ErrorInfo.code` of a call whose identity changed before it was sent or answered.
 pub const BATCH_IDENTITY_CHANGED: &str = "BATCH_IDENTITY_CHANGED";
 
-const VALIDATION_FAILURE_TYPE: &str = "bones.v1.ValidationFailure";
-
 /// The fields of a generated `bones.v1.ItemError`, read without naming its type.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ItemErrorParts {
@@ -25,17 +21,21 @@ pub struct ItemErrorParts {
     pub code: String,
     /// The message the single call raises for the same cause.
     pub message: String,
-    /// `ErrorInfo.code` and `ErrorInfo.emitter`, when the item carries one.
-    pub info: Option<(String, String)>,
-    /// `ValidationFailure` field, message and rule.
-    pub violations: Vec<(String, String, String)>,
+    /// The item's `ErrorInfo` with its typed arguments, when it carries one.
+    /// An `ErrorInfo` whose arguments break the bounds is treated as absent.
+    pub info: Option<ErrorInfo>,
+    /// Each `ValidationFailure` with its typed arguments. One whose arguments
+    /// break the bounds is dropped.
+    pub violations: Vec<ValidationFailureDetail>,
 }
 
 /// The error the single call raises for the same cause.
 ///
 /// The code is the Connect token, the message is kept, `info` becomes the
 /// `bones.v1.ErrorInfo` detail and each violation a `bones.v1.ValidationFailure`
-/// detail. An unknown token maps to `unknown`, failing closed.
+/// detail, typed arguments included. An unknown token maps to `unknown`,
+/// failing closed. Arguments that break the bounds make the result an
+/// `internal` error that names the bound.
 #[must_use]
 pub fn item_error_to_connect(parts: &ItemErrorParts) -> ConnectError {
     let code = parts
@@ -43,41 +43,18 @@ pub fn item_error_to_connect(parts: &ItemErrorParts) -> ConnectError {
         .parse::<ErrorCode>()
         .unwrap_or(ErrorCode::Unknown);
     let mut error = ConnectError::new(code, parts.message.clone());
-    if let Some((code, emitter)) = &parts.info {
-        error = with_error_info(
-            error,
-            &ErrorInfo {
-                code: code.clone(),
-                emitter: emitter.clone(),
-            },
-        );
+    if let Some(info) = &parts.info {
+        error = with_error_info(error, info);
     }
-    for (field, message, rule) in &parts.violations {
-        let mut bytes = Vec::new();
-        put_string(&mut bytes, 1, field);
-        put_string(&mut bytes, 2, message);
-        put_string(&mut bytes, 3, rule);
-        error = error.with_detail(ErrorDetail {
-            type_url: VALIDATION_FAILURE_TYPE.to_owned(),
-            value: Some(STANDARD_NO_PAD.encode(bytes)),
-            debug: None,
-        });
+    for violation in &parts.violations {
+        match violation.to_detail() {
+            Ok(detail) => error = error.with_detail(detail),
+            Err(bound) => {
+                return ConnectError::internal(format!("invalid ValidationFailure args: {bound}"));
+            }
+        }
     }
     error
-}
-
-fn put_string(out: &mut Vec<u8>, field: u8, value: &str) {
-    if value.is_empty() {
-        return;
-    }
-    out.push((field << 3) | 2);
-    let mut len = value.len();
-    while len >= 0x80 {
-        out.push(u8::try_from(len & 0x7f).unwrap_or(0) | 0x80);
-        len >>= 7;
-    }
-    out.push(u8::try_from(len).unwrap_or(0));
-    out.extend_from_slice(value.as_bytes());
 }
 
 fn coded(error: ConnectError, code: &str) -> ConnectError {
@@ -131,16 +108,33 @@ mod tests {
     use super::*;
     use api_bones::connect::error_info;
 
+    use api_bones::connect::{ErrorArg, VALIDATION_FAILURE_TYPE};
+
     fn parts(code: &str) -> ItemErrorParts {
         ItemErrorParts {
             code: code.to_owned(),
             message: "no such widget".to_owned(),
-            info: Some(("WIDGET_MISSING".to_owned(), "widgets".to_owned())),
-            violations: vec![(
-                "/id".to_owned(),
-                "must be a uuid".to_owned(),
-                "format".to_owned(),
-            )],
+            info: Some(
+                ErrorInfo {
+                    code: "WIDGET_MISSING".to_owned(),
+                    emitter: "widgets".to_owned(),
+                    ..Default::default()
+                }
+                .with_arg("widget_id", "w-1")
+                .expect("valid arg")
+                .with_arg("attempts", 3_i64)
+                .expect("valid arg"),
+            ),
+            violations: vec![
+                ValidationFailureDetail {
+                    field: "/id".to_owned(),
+                    message: "must be a uuid".to_owned(),
+                    rule: "format".to_owned(),
+                    ..Default::default()
+                }
+                .with_arg("expected", "uuid")
+                .expect("valid arg"),
+            ],
         }
     }
 
@@ -157,14 +151,52 @@ mod tests {
     }
 
     #[test]
-    fn violations_become_details() {
+    fn info_args_survive() {
+        let info = error_info(&item_error_to_connect(&parts("not_found"))).expect("info");
+        assert_eq!(info.args.len(), 2);
+        assert_eq!(info.args["widget_id"], ErrorArg::from("w-1"));
+        assert_eq!(info.args["attempts"], ErrorArg::Int64(3));
+    }
+
+    #[test]
+    fn violations_become_details_with_their_args() {
         let error = item_error_to_connect(&parts("invalid_argument"));
-        let failures = error
+        let failures: Vec<_> = error
             .details
             .iter()
             .filter(|d| d.type_url == VALIDATION_FAILURE_TYPE)
-            .count();
-        assert_eq!(failures, 1);
+            .collect();
+        assert_eq!(failures.len(), 1);
+        let bytes = base64::Engine::decode(
+            &base64::engine::general_purpose::STANDARD_NO_PAD,
+            failures[0].value.as_deref().expect("value"),
+        )
+        .expect("base64");
+        let failure = ValidationFailureDetail::decode(&bytes).expect("decodes");
+        assert_eq!(failure.rule, "format");
+        assert_eq!(failure.args["expected"], ErrorArg::from("uuid"));
+    }
+
+    #[test]
+    fn out_of_bounds_args_fail_loudly() {
+        let mut broken = parts("invalid_argument");
+        broken.violations[0]
+            .args
+            .insert("Bad Key".to_owned(), ErrorArg::Int64(1));
+        let error = item_error_to_connect(&broken);
+        assert_eq!(error.code, ErrorCode::Internal);
+        assert!(
+            error
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("Bad Key"))
+        );
+
+        let mut broken = parts("not_found");
+        if let Some(info) = &mut broken.info {
+            info.args.insert("Bad Key".to_owned(), ErrorArg::Int64(1));
+        }
+        assert_eq!(item_error_to_connect(&broken).code, ErrorCode::Internal);
     }
 
     #[test]

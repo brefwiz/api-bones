@@ -40,18 +40,17 @@ macro_rules! __batch_item_error {
         $crate::ItemErrorParts {
             code: error.code.clone(),
             message: error.message.clone(),
-            info: error
-                .info
-                .as_option()
-                .map(|info| (info.code.clone(), info.emitter.clone())),
+            info: error.info.as_option().and_then(|info| {
+                $crate::__private::ErrorInfo::decode(
+                    &$crate::__private::buffa::Message::encode_to_vec(info),
+                )
+            }),
             violations: error
                 .violations
                 .iter()
-                .map(|violation| {
-                    (
-                        violation.field.clone(),
-                        violation.message.clone(),
-                        violation.rule.clone(),
+                .filter_map(|violation| {
+                    $crate::__private::ValidationFailureDetail::decode(
+                        &$crate::__private::buffa::Message::encode_to_vec(violation),
                     )
                 })
                 .collect(),

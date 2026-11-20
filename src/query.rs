@@ -359,11 +359,11 @@ impl SearchParams {
     pub fn try_new(query: impl Into<String>) -> Result<Self, crate::error::ValidationError> {
         let query = query.into();
         if query.is_empty() || query.len() > 500 {
-            return Err(crate::error::ValidationError {
-                field: "/query".into(),
-                message: "must be between 1 and 500 characters".into(),
-                rule: Some("length".into()),
-            });
+            return Err(crate::error::ValidationError::new(
+                "/query",
+                "must be between 1 and 500 characters",
+            )
+            .with_rule("length"));
         }
         Ok(Self {
             query,

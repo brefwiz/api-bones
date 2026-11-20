@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 import { Code, ConnectError } from "@connectrpc/connect";
 import { describe, expect, it } from "vitest";
-import { authorizeBatchResults, serveBatchRequest } from "./batch-primitives.js";
+import { create } from "@bufbuild/protobuf";
+import { authorizeBatchResults, itemErrorToConnect, serveBatchRequest } from "./batch-primitives.js";
 import { errorInfoOf } from "./error-info.js";
+import { ErrorInfoSchema } from "./generated/bones/v1/errors_pb.js";
 
 describe("provider batch boundaries", () => {
   it("rejects 201 ids before any provider work and accepts 200", async () => {
@@ -30,5 +32,31 @@ describe("provider batch boundaries", () => {
   it("fails whole call for an existing internal item error", async () => {
     const error = new ConnectError("private lookup fault", Code.Internal);
     await expect(authorizeBatchResults([{ ok: false, error }], () => {})).rejects.toBe(error);
+  });
+
+  it("carries the typed arguments of a decoded ErrorInfo message into the item error", () => {
+    const info = create(ErrorInfoSchema, {
+      code: "SEAT_TAKEN",
+      emitter: "bookings",
+      args: {
+        seat: { value: { case: "string", value: "12A" } },
+        row: { value: { case: "int64", value: 4n } },
+        price: { value: { case: "double", value: 12.5 } },
+        at: { value: { case: "timestamp", value: { seconds: 86_400n, nanos: 5 } } },
+        unset: {},
+      },
+    });
+    const error = itemErrorToConnect({ code: "failed_precondition", message: "taken", info });
+    expect(error.code).toBe(Code.FailedPrecondition);
+    expect(errorInfoOf(error)).toEqual({
+      code: "SEAT_TAKEN",
+      emitter: "bookings",
+      args: new Map([
+        ["at", { kind: "timestamp", seconds: 86_400n, nanos: 5 }],
+        ["price", { kind: "double", value: 12.5 }],
+        ["row", { kind: "int64", value: 4n }],
+        ["seat", { kind: "string", value: "12A" }],
+      ]),
+    });
   });
 });

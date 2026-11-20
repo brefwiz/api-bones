@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 import { Code, ConnectError } from "@connectrpc/connect";
 import { create, toBinary } from "@bufbuild/protobuf";
-import { encodeErrorInfo, type ErrorInfo } from "./error-info.js";
-import { ValidationFailureSchema } from "./generated/bones/v1/errors_pb.js";
+import { encodeErrorCode, encodeErrorInfo, type ErrorArg, type ErrorInfo } from "./error-info.js";
+import { ValidationFailureSchema, type ErrorInfo as ErrorInfoMessage } from "./generated/bones/v1/errors_pb.js";
 
 export const BATCH_MAX_ITEMS = 200;
 export const BATCH_MAX_REQUEST_BYTES = 1_048_576;
 export interface ItemError {
   readonly code: string;
   readonly message: string;
-  readonly info?: ErrorInfo;
+  readonly info?: ErrorInfo | ErrorInfoMessage;
   readonly violations?: readonly { readonly field: string; readonly message: string; readonly rule: string }[];
 }
 export type ItemResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: ConnectError };
@@ -42,16 +42,27 @@ const codes: Readonly<Record<string, Code>> = {
   unimplemented: Code.Unimplemented, internal: Code.Internal, unavailable: Code.Unavailable,
   data_loss: Code.DataLoss, unauthenticated: Code.Unauthenticated,
 };
+/** The domain info of a decoded `bones.v1.ErrorInfo` message, whose `args` is a plain record. */
+function domainInfo(info: ErrorInfo | ErrorInfoMessage): ErrorInfo {
+  const { args } = info;
+  if (args === undefined || args instanceof Map) return info as ErrorInfo;
+  const converted = new Map<string, ErrorArg>();
+  for (const [key, { value }] of Object.entries(args)) {
+    if (value.case === "timestamp") converted.set(key, { kind: "timestamp", seconds: value.value.seconds, nanos: value.value.nanos });
+    else if (value.case) converted.set(key, { kind: value.case, value: value.value } as ErrorArg);
+  }
+  return { code: info.code, emitter: info.emitter, args: converted };
+}
 export function itemErrorToConnect(error: ItemError): ConnectError {
   const code = Object.prototype.hasOwnProperty.call(codes, error.code) ? codes[error.code] : Code.Unknown;
   const result = new ConnectError(error.message, code);
-  if (error.info) result.details.push({ type: "bones.v1.ErrorInfo", value: encodeErrorInfo(error.info) });
+  if (error.info) result.details.push({ type: "bones.v1.ErrorInfo", value: encodeErrorInfo(domainInfo(error.info)) });
   for (const violation of error.violations ?? []) result.details.push({ type: "bones.v1.ValidationFailure", value: toBinary(ValidationFailureSchema, create(ValidationFailureSchema, violation)) });
   return result;
 }
 export function batchError(code: Code, token: string, message: string): ConnectError {
   const error = new ConnectError(message, code);
-  error.details.push({ type: "bones.v1.ErrorInfo", value: encodeErrorInfo({ code: token, emitter: "api-bones-connect" }) });
+  error.details.push({ type: "bones.v1.ErrorInfo", value: encodeErrorCode(token, "api-bones-connect") });
   return error;
 }
 export function identityChanged(): ConnectError {
