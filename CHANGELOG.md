@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [17.11.0] - 2026-11-20
+
+### Added
+
+- *(protos)* bones.v1 value format and field reference options
+
 ## [17.10.0] - 2026-11-17
 
 ### Added
