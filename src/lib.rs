@@ -164,6 +164,9 @@ pub mod header;
 #[cfg(all(feature = "serde", any(feature = "std", feature = "alloc")))]
 pub mod serde;
 
+#[cfg(feature = "serde")]
+mod rfc3339;
+
 #[cfg(feature = "fake")]
 mod fake_impls;
 
@@ -230,7 +233,7 @@ pub use error::HttpError;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "serde"))]
 pub use error::ProblemJson;
 #[cfg(any(feature = "std", feature = "alloc"))]
-pub use error::{ApiError, ValidationError};
+pub use error::{ApiError, ErrorArg, ErrorArgError, ErrorInfoMember, ValidationError};
 #[cfg(feature = "std")]
 pub use error::{error_type_mode, set_error_type_mode, urn_namespace};
 #[cfg(any(feature = "std", feature = "alloc"))]

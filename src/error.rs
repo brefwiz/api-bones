@@ -28,14 +28,12 @@
 //! [`ErrorTypeMode`] value and call [`ErrorTypeMode::render`] directly, but
 //! the automatic environment-variable resolution is unavailable.
 
-#[cfg(all(not(feature = "std"), feature = "alloc", feature = "serde"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::collections::BTreeMap;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{borrow::ToOwned, format, string::String, string::ToString, sync::Arc, vec::Vec};
 use core::fmt;
-#[cfg(all(feature = "std", not(feature = "serde")))]
-use std::sync::Arc;
-#[cfg(all(feature = "std", feature = "serde"))]
+#[cfg(feature = "std")]
 use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(feature = "serde")]
@@ -733,6 +731,557 @@ impl TryFrom<http::StatusCode> for ErrorCode {
 }
 
 // ---------------------------------------------------------------------------
+// Typed error arguments
+// ---------------------------------------------------------------------------
+
+/// The most arguments one error message carries.
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub const MAX_ERROR_ARGS: usize = 32;
+/// The longest argument name, in bytes.
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub const MAX_ERROR_ARG_KEY_BYTES: usize = 64;
+/// The longest string argument value, in bytes.
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub const MAX_ERROR_ARG_STRING_BYTES: usize = 1024;
+
+/// Seconds of `0001-01-01T00:00:00Z`, the earliest `google.protobuf.Timestamp`.
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub(crate) const TIMESTAMP_MIN_SECONDS: i64 = -62_135_596_800;
+/// Seconds of `9999-12-31T23:59:59Z`, the latest `google.protobuf.Timestamp`.
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub(crate) const TIMESTAMP_MAX_SECONDS: i64 = 253_402_300_799;
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub(crate) fn timestamp_in_range(seconds: i64, nanos: i32) -> bool {
+    (TIMESTAMP_MIN_SECONDS..=TIMESTAMP_MAX_SECONDS).contains(&seconds)
+        && (0..1_000_000_000).contains(&nanos)
+}
+
+/// Why a set of error arguments is refused.
+///
+/// An argument set is bounded on construction and on decode, on the Connect
+/// and on the `problem+json` surface alike, and is never truncated to fit: an
+/// out-of-bounds set is an error.
+#[cfg(any(feature = "std", feature = "alloc"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ErrorArgError {
+    /// More than [`MAX_ERROR_ARGS`] arguments.
+    TooMany {
+        /// The bound, [`MAX_ERROR_ARGS`].
+        max: usize,
+    },
+    /// An argument name that does not match `^[a-z][a-z0-9_]{0,63}$`.
+    InvalidKey {
+        /// The refused name.
+        key: String,
+    },
+    /// A string value longer than [`MAX_ERROR_ARG_STRING_BYTES`] bytes.
+    StringTooLong {
+        /// The argument name.
+        key: String,
+        /// The value length in bytes.
+        len: usize,
+    },
+    /// A `NaN` or infinite double value. A catalog message cannot format one.
+    NonFiniteDouble {
+        /// The argument name.
+        key: String,
+    },
+    /// A timestamp outside `0001-01-01T00:00:00Z` ..= `9999-12-31T23:59:59.999999999Z`,
+    /// or with `nanos` outside `0..1_000_000_000`.
+    InvalidTimestamp {
+        /// The argument name.
+        key: String,
+    },
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl fmt::Display for ErrorArgError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooMany { max } => write!(f, "more than {max} error arguments"),
+            Self::InvalidKey { key } => {
+                write!(
+                    f,
+                    "error argument name {key:?} does not match ^[a-z][a-z0-9_]{{0,63}}$"
+                )
+            }
+            Self::StringTooLong { key, len } => write!(
+                f,
+                "error argument {key:?} is {len} bytes, over the {MAX_ERROR_ARG_STRING_BYTES} byte limit"
+            ),
+            Self::NonFiniteDouble { key } => {
+                write!(f, "error argument {key:?} is not a finite number")
+            }
+            Self::InvalidTimestamp { key } => {
+                write!(f, "error argument {key:?} is not a valid timestamp")
+            }
+        }
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl core::error::Error for ErrorArgError {}
+
+/// One typed argument of an error message, the Rust shape of
+/// `bones.v1.ErrorArg`.
+///
+/// The viewer's client formats it in the viewer's locale (ICU plural, select,
+/// number and date), so a service carries the value and never an interpolated
+/// string. An argument is declared with its code in the emitter's proto. A
+/// field marked `debug_redact` holds a secret and is never an argument.
+///
+/// On the `problem+json` surface it is the single-member object of the
+/// proto3 JSON mapping: `{"stringValue": "x"}`, `{"int64Value": "5"}`,
+/// `{"doubleValue": 1.5}` or `{"timestampValue": "1970-01-02T03:04:05Z"}`. An
+/// `int64` is a decimal string, so no JSON number loses precision above
+/// 2^53; a number is accepted when read. A timestamp is RFC 3339 in UTC. A
+/// double is always finite: `NaN` and infinity are refused on every surface.
+///
+/// Equality is bitwise on a `Double`, so the type is `Eq`.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::ErrorArg;
+///
+/// assert_eq!(ErrorArg::from("gold"), ErrorArg::String("gold".into()));
+/// assert_eq!(ErrorArg::from(3_i64), ErrorArg::Int64(3));
+/// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
+pub enum ErrorArg {
+    /// A text value, at most [`MAX_ERROR_ARG_STRING_BYTES`] bytes.
+    String(String),
+    /// A whole number.
+    Int64(i64),
+    /// A finite real number.
+    Double(f64),
+    /// An instant, as `google.protobuf.Timestamp` carries it.
+    Timestamp {
+        /// Seconds since the Unix epoch.
+        seconds: i64,
+        /// Nanoseconds within the second, `0..1_000_000_000`.
+        nanos: i32,
+    },
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl PartialEq for ErrorArg {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::String(a), Self::String(b)) => a == b,
+            (Self::Int64(a), Self::Int64(b)) => a == b,
+            (Self::Double(a), Self::Double(b)) => a.to_bits() == b.to_bits(),
+            (
+                Self::Timestamp {
+                    seconds: sa,
+                    nanos: na,
+                },
+                Self::Timestamp {
+                    seconds: sb,
+                    nanos: nb,
+                },
+            ) => sa == sb && na == nb,
+            _ => false,
+        }
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl Eq for ErrorArg {}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl From<&str> for ErrorArg {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_owned())
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl From<String> for ErrorArg {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl From<i64> for ErrorArg {
+    fn from(value: i64) -> Self {
+        Self::Int64(value)
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl From<f64> for ErrorArg {
+    fn from(value: f64) -> Self {
+        Self::Double(value)
+    }
+}
+
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "chrono"))]
+impl From<chrono::DateTime<chrono::Utc>> for ErrorArg {
+    fn from(value: chrono::DateTime<chrono::Utc>) -> Self {
+        Self::Timestamp {
+            seconds: value.timestamp(),
+            nanos: i32::try_from(value.timestamp_subsec_nanos()).unwrap_or(0),
+        }
+    }
+}
+
+/// Check one argument against the bounds.
+///
+/// # Errors
+///
+/// [`ErrorArgError`] for an invalid name, a string over
+/// [`MAX_ERROR_ARG_STRING_BYTES`], a non-finite double or an out-of-range
+/// timestamp.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::{ErrorArg, validate_arg};
+///
+/// assert!(validate_arg("seat", &ErrorArg::from("12A")).is_ok());
+/// assert!(validate_arg("Seat", &ErrorArg::from("12A")).is_err());
+/// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub fn validate_arg(key: &str, value: &ErrorArg) -> Result<(), ErrorArgError> {
+    let mut bytes = key.bytes();
+    let valid_key = key.len() <= MAX_ERROR_ARG_KEY_BYTES
+        && bytes.next().is_some_and(|b| b.is_ascii_lowercase())
+        && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_');
+    if !valid_key {
+        return Err(ErrorArgError::InvalidKey {
+            key: key.to_owned(),
+        });
+    }
+    match value {
+        ErrorArg::String(text) if text.len() > MAX_ERROR_ARG_STRING_BYTES => {
+            Err(ErrorArgError::StringTooLong {
+                key: key.to_owned(),
+                len: text.len(),
+            })
+        }
+        ErrorArg::Double(number) if !number.is_finite() => Err(ErrorArgError::NonFiniteDouble {
+            key: key.to_owned(),
+        }),
+        ErrorArg::Timestamp { seconds, nanos } if !timestamp_in_range(*seconds, *nanos) => {
+            Err(ErrorArgError::InvalidTimestamp {
+                key: key.to_owned(),
+            })
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Check a whole argument set: at most [`MAX_ERROR_ARGS`] arguments, each
+/// valid under [`validate_arg`].
+///
+/// # Errors
+///
+/// The first [`ErrorArgError`] found, in name order.
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub fn validate_args(args: &BTreeMap<String, ErrorArg>) -> Result<(), ErrorArgError> {
+    if args.len() > MAX_ERROR_ARGS {
+        return Err(ErrorArgError::TooMany {
+            max: MAX_ERROR_ARGS,
+        });
+    }
+    args.iter()
+        .try_for_each(|(key, value)| validate_arg(key, value))
+}
+
+/// Add one argument to a set, refusing it when it, or the set it joins,
+/// breaks the bounds. An argument of the same name is replaced.
+#[cfg(any(feature = "std", feature = "alloc"))]
+pub(crate) fn insert_arg(
+    args: &mut BTreeMap<String, ErrorArg>,
+    name: String,
+    value: ErrorArg,
+) -> Result<(), ErrorArgError> {
+    validate_arg(&name, &value)?;
+    if !args.contains_key(&name) && args.len() >= MAX_ERROR_ARGS {
+        return Err(ErrorArgError::TooMany {
+            max: MAX_ERROR_ARGS,
+        });
+    }
+    args.insert(name, value);
+    Ok(())
+}
+
+#[cfg(feature = "serde")]
+mod arg_json {
+    use super::{BTreeMap, ErrorArg, validate_args};
+    use serde::de::{self, Error as _, Visitor};
+    use serde::ser::{Error as _, SerializeMap as _};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::fmt;
+
+    /// The proto3 JSON mapping of `bones.v1.ErrorArg`, read side.
+    #[derive(Deserialize)]
+    enum Repr {
+        #[serde(rename = "stringValue")]
+        Text(String),
+        #[serde(rename = "int64Value", deserialize_with = "int64::deserialize")]
+        Int(i64),
+        #[serde(rename = "doubleValue", deserialize_with = "double::deserialize")]
+        Float(f64),
+        #[serde(rename = "timestampValue")]
+        Time(String),
+    }
+
+    mod int64 {
+        use super::{Deserializer, Visitor, de, fmt};
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+            struct V;
+            impl Visitor<'_> for V {
+                type Value = i64;
+                fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    f.write_str("a decimal int64 string")
+                }
+                fn visit_i64<E: de::Error>(self, v: i64) -> Result<i64, E> {
+                    Ok(v)
+                }
+                fn visit_u64<E: de::Error>(self, v: u64) -> Result<i64, E> {
+                    i64::try_from(v).map_err(E::custom)
+                }
+                fn visit_str<E: de::Error>(self, v: &str) -> Result<i64, E> {
+                    v.parse().map_err(E::custom)
+                }
+            }
+            d.deserialize_any(V)
+        }
+    }
+
+    mod double {
+        use super::{Deserialize, Deserializer, de::Error as _};
+
+        /// A JSON number, or the string form proto3 JSON also accepts.
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Wire {
+            Number(f64),
+            Text(String),
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+            let value = match Wire::deserialize(d)? {
+                Wire::Number(v) => v,
+                Wire::Text(text) => text.parse().map_err(D::Error::custom)?,
+            };
+            if value.is_finite() {
+                Ok(value)
+            } else {
+                Err(D::Error::custom(
+                    "a non-finite double is not an error argument",
+                ))
+            }
+        }
+    }
+
+    impl Serialize for ErrorArg {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mut map = s.serialize_map(Some(1))?;
+            match self {
+                Self::String(v) => map.serialize_entry("stringValue", v)?,
+                Self::Int64(v) => map.serialize_entry("int64Value", &v.to_string())?,
+                Self::Double(v) if v.is_finite() => map.serialize_entry("doubleValue", v)?,
+                Self::Double(_) => {
+                    return Err(S::Error::custom(
+                        "a non-finite double is not an error argument",
+                    ));
+                }
+                Self::Timestamp { seconds, nanos } => map.serialize_entry(
+                    "timestampValue",
+                    &crate::rfc3339::format(*seconds, *nanos)
+                        .ok_or_else(|| S::Error::custom("timestamp out of range"))?,
+                )?,
+            }
+            map.end()
+        }
+    }
+
+    impl<'de> Deserialize<'de> for ErrorArg {
+        fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+            Ok(match Repr::deserialize(d)? {
+                Repr::Text(v) => Self::String(v),
+                Repr::Int(v) => Self::Int64(v),
+                Repr::Float(v) => Self::Double(v),
+                Repr::Time(text) => {
+                    let (seconds, nanos) = crate::rfc3339::parse(&text)
+                        .ok_or_else(|| D::Error::custom("not an RFC 3339 timestamp in range"))?;
+                    Self::Timestamp { seconds, nanos }
+                }
+            })
+        }
+    }
+
+    /// Serialize an argument set, refusing one that breaks the bounds.
+    pub(super) fn serialize_args<S: Serializer>(
+        args: &BTreeMap<String, ErrorArg>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
+        validate_args(args).map_err(S::Error::custom)?;
+        args.serialize(s)
+    }
+
+    /// Deserialize an argument set, refusing one that breaks the bounds.
+    pub(super) fn deserialize_args<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<BTreeMap<String, ErrorArg>, D::Error> {
+        let args = BTreeMap::<String, ErrorArg>::deserialize(d)?;
+        validate_args(&args).map_err(D::Error::custom)?;
+        Ok(args)
+    }
+}
+
+#[cfg(feature = "serde")]
+use arg_json::{deserialize_args, serialize_args};
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for ErrorArg {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ErrorArg")
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "description": "One typed argument of an error message, as the proto3 JSON mapping of bones.v1.ErrorArg: an int64 is a decimal string, a timestamp is RFC 3339 in UTC, a double is finite.",
+            "oneOf": [
+                {"type": "object", "properties": {"stringValue": {"type": "string"}}, "required": ["stringValue"], "additionalProperties": false},
+                {"type": "object", "properties": {"int64Value": {"type": "string"}}, "required": ["int64Value"], "additionalProperties": false},
+                {"type": "object", "properties": {"doubleValue": {"type": "number"}}, "required": ["doubleValue"], "additionalProperties": false},
+                {"type": "object", "properties": {"timestampValue": {"type": "string", "format": "date-time"}}, "required": ["timestampValue"], "additionalProperties": false}
+            ]
+        })
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::PartialSchema for ErrorArg {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        use utoipa::openapi::schema::{
+            AdditionalProperties, ObjectBuilder, OneOfBuilder, Schema, SchemaType, Type,
+        };
+        let member = |name: &str, ty: Type| {
+            Schema::Object(
+                ObjectBuilder::new()
+                    .property(
+                        name,
+                        ObjectBuilder::new()
+                            .schema_type(SchemaType::new(ty))
+                            .build(),
+                    )
+                    .required(name)
+                    .additional_properties(Some(AdditionalProperties::FreeForm(false)))
+                    .build(),
+            )
+        };
+        utoipa::openapi::RefOr::T(Schema::OneOf(
+            OneOfBuilder::new()
+                .description(Some(
+                    "One typed argument of an error message, as the proto3 JSON mapping of bones.v1.ErrorArg: an int64 is a decimal string, a timestamp is RFC 3339 in UTC, a double is finite.",
+                ))
+                .item(member("stringValue", Type::String))
+                .item(member("int64Value", Type::String))
+                .item(member("doubleValue", Type::Number))
+                .item(member("timestampValue", Type::String))
+                .build(),
+        ))
+    }
+}
+
+#[cfg(feature = "utoipa")]
+impl utoipa::ToSchema for ErrorArg {
+    fn name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ErrorArg")
+    }
+}
+
+/// The `error_info` extension member of a `problem+json` body: the same
+/// identity and arguments the Connect surface carries as `bones.v1.ErrorInfo`.
+///
+/// `code` and `emitter` form the catalog key `<emitter>.errors.<CODE>`.
+/// `emitter` is omitted until a transport layer stamps it, and `args` when
+/// empty. There is no separate `i18n` member. `args` are bounded as
+/// [`validate_args`] says, on decode and on encode.
+///
+/// # Examples
+///
+/// ```rust
+/// use api_bones::error::ErrorInfoMember;
+///
+/// # fn main() -> Result<(), api_bones::error::ErrorArgError> {
+/// let info = ErrorInfoMember::new("SEAT_TAKEN", "bookings").with_arg("seat", "12A")?;
+/// assert_eq!(info.args.len(), 1);
+/// # Ok(())
+/// # }
+/// ```
+#[cfg(any(feature = "std", feature = "alloc"))]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "proptest", derive(proptest_derive::Arbitrary))]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct ErrorInfoMember {
+    /// The emitted error code, the name of the value in the emitter's error
+    /// enum, e.g. `GRANT_MISSING`.
+    pub code: String,
+    /// The deployable that emitted the error. Empty until stamped.
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "String::is_empty")
+    )]
+    pub emitter: String,
+    /// Typed arguments of the message for `code`, keyed by placeholder name.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "BTreeMap::is_empty",
+            serialize_with = "serialize_args",
+            deserialize_with = "deserialize_args"
+        )
+    )]
+    pub args: BTreeMap<String, ErrorArg>,
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl ErrorInfoMember {
+    /// An identity with no arguments.
+    #[must_use]
+    pub fn new(code: impl Into<String>, emitter: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            emitter: emitter.into(),
+            args: BTreeMap::new(),
+        }
+    }
+
+    /// Carry one typed argument of the message for the code, replacing any
+    /// argument of the same name.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorArgError`] when the argument, or the set it joins, breaks the
+    /// bounds. Nothing is truncated.
+    pub fn with_arg(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<ErrorArg>,
+    ) -> Result<Self, ErrorArgError> {
+        insert_arg(&mut self.args, name.into(), value.into())?;
+        Ok(self)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Validation error
 // ---------------------------------------------------------------------------
 
@@ -752,6 +1301,7 @@ impl TryFrom<http::StatusCode> for ErrorCode {
 ///     field: "/email".into(),
 ///     message: "must be a valid email".into(),
 ///     rule: Some("email".into()),
+///     args: Default::default(),
 /// };
 /// assert_eq!(err.to_string(), "/email: must be a valid email (rule: email)");
 ///
@@ -759,6 +1309,7 @@ impl TryFrom<http::StatusCode> for ErrorCode {
 ///     field: "/name".into(),
 ///     message: "is required".into(),
 ///     rule: None,
+///     args: Default::default(),
 /// };
 /// assert_eq!(err2.to_string(), "/name: is required");
 /// ```
@@ -780,6 +1331,58 @@ pub struct ValidationError {
         serde(default, skip_serializing_if = "Option::is_none")
     )]
     pub rule: Option<String>,
+    /// Typed arguments of the message for `rule`, keyed by the placeholder
+    /// name in the `bones.validation.<rule>` catalog string (extension
+    /// member `errors[].args`). Omitted when empty. Never a secret: a field
+    /// marked `debug_redact` is not an argument. Bounded as [`validate_args`]
+    /// says, on decode and on encode.
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "BTreeMap::is_empty",
+            serialize_with = "serialize_args",
+            deserialize_with = "deserialize_args"
+        )
+    )]
+    pub args: BTreeMap<String, ErrorArg>,
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl ValidationError {
+    /// A failure of `field` with no rule and no arguments.
+    #[must_use]
+    pub fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            field: field.into(),
+            message: message.into(),
+            rule: None,
+            args: BTreeMap::new(),
+        }
+    }
+
+    /// Name the rule that failed.
+    #[must_use]
+    pub fn with_rule(mut self, rule: impl Into<String>) -> Self {
+        self.rule = Some(rule.into());
+        self
+    }
+
+    /// Carry one typed argument of the message for the rule, replacing any
+    /// argument of the same name.
+    ///
+    /// # Errors
+    ///
+    /// [`ErrorArgError`] when the argument, or the set it joins, breaks the
+    /// bounds. Nothing is truncated.
+    pub fn with_arg(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<ErrorArg>,
+    ) -> Result<Self, ErrorArgError> {
+        insert_arg(&mut self.args, name.into(), value.into())?;
+        Ok(self)
+    }
 }
 
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -908,6 +1511,15 @@ pub struct ApiError {
         serde(default, skip_serializing_if = "Vec::is_empty")
     )]
     pub errors: Vec<ValidationError>,
+    /// The emitted error code, emitter and typed arguments (extension
+    /// member `error_info`), the same identity the Connect surface carries as
+    /// `bones.v1.ErrorInfo`. Omitted when absent. Set with
+    /// [`ApiError::with_error_info`].
+    #[cfg_attr(
+        all(feature = "std", feature = "serde"),
+        serde(default, skip_serializing_if = "Option::is_none")
+    )]
+    pub error_info: Option<ErrorInfoMember>,
     /// Structured rate-limit metadata (extension). Present on 429 responses
     /// when built via [`ApiError::rate_limited_with`] or
     /// [`ApiError::with_rate_limit`]. Serialized as the top-level
@@ -966,6 +1578,7 @@ impl PartialEq for ApiError {
             && self.status == other.status
             && self.detail == other.detail
             && self.errors == other.errors
+            && self.error_info == other.error_info
             && self.rate_limit == other.rate_limit
             && self.causes == other.causes
             // extensions only exist when serde is on
@@ -1046,6 +1659,7 @@ impl ApiError {
             #[cfg(feature = "uuid")]
             request_id: None,
             errors: Vec::new(),
+            error_info: None,
             rate_limit: None,
             source: None,
             causes: Vec::new(),
@@ -1083,13 +1697,34 @@ impl ApiError {
     ///
     /// let err = ApiError::new(ErrorCode::ValidationFailed, "invalid input")
     ///     .with_errors(vec![
-    ///         ValidationError { field: "/email".into(), message: "invalid".into(), rule: None },
+    ///         ValidationError::new("/email", "invalid"),
     ///     ]);
     /// assert_eq!(err.errors.len(), 1);
     /// ```
     #[must_use]
     pub fn with_errors(mut self, errors: Vec<ValidationError>) -> Self {
         self.errors = errors;
+        self
+    }
+
+    /// Attach the emitted error code, emitter and typed arguments. Serialized
+    /// as the top-level `error_info` member and propagated to [`ProblemJson`]
+    /// as an extension of the same name.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode, ErrorInfoMember};
+    /// # fn main() -> Result<(), api_bones::error::ErrorArgError> {
+    /// let err = ApiError::new(ErrorCode::Conflict, "seat taken")
+    ///     .with_error_info(ErrorInfoMember::new("SEAT_TAKEN", "bookings").with_arg("seat", "12A")?);
+    /// assert_eq!(err.error_info.as_ref().map(|i| i.code.as_str()), Some("SEAT_TAKEN"));
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_error_info(mut self, info: ErrorInfoMember) -> Self {
+        self.error_info = Some(info);
         self
     }
 
@@ -1514,6 +2149,7 @@ impl proptest::arbitrary::Arbitrary for ApiError {
                 #[cfg(feature = "uuid")]
                 request_id,
                 errors,
+                error_info: None,
                 rate_limit: None,
                 source: None,
                 causes: Vec::new(),
@@ -1757,6 +2393,7 @@ mod tests {
             field: "/email".to_owned(),
             message: "invalid format".to_owned(),
             rule: Some("format".to_owned()),
+            args: BTreeMap::default(),
         }]);
         assert_ne!(e.errors, [] as [crate::error::ValidationError; 0]);
         assert_eq!(e.errors[0].field, "/email");
@@ -1804,6 +2441,7 @@ mod tests {
             field: "/name".to_owned(),
             message: "required".to_owned(),
             rule: None,
+            args: BTreeMap::default(),
         }]);
         let json = serde_json::to_value(&e).unwrap();
         assert_eq!(json["type"], "urn:api-bones:error:validation-failed");
@@ -1836,11 +2474,13 @@ mod tests {
                 field: "/email".to_owned(),
                 message: "invalid format".to_owned(),
                 rule: Some("format".to_owned()),
+                args: BTreeMap::default(),
             },
             ValidationError {
                 field: "/name".to_owned(),
                 message: "required".to_owned(),
                 rule: None,
+                args: BTreeMap::default(),
             },
         ]);
         let json = serde_json::to_value(&e).unwrap();
@@ -2283,6 +2923,7 @@ mod tests {
             field: "/email".to_owned(),
             message: "invalid".to_owned(),
             rule: None,
+            args: BTreeMap::default(),
         }];
         let err = ApiError::builder()
             .code(ErrorCode::ValidationFailed)
@@ -2416,6 +3057,7 @@ mod tests {
             field: "/email".to_owned(),
             message: "invalid format".to_owned(),
             rule: Some("format".to_owned()),
+            args: BTreeMap::default(),
         };
         assert_eq!(ve.to_string(), "/email: invalid format (rule: format)");
     }
@@ -2426,6 +3068,7 @@ mod tests {
             field: "/name".to_owned(),
             message: "required".to_owned(),
             rule: None,
+            args: BTreeMap::default(),
         };
         assert_eq!(ve.to_string(), "/name: required");
     }
@@ -2437,6 +3080,7 @@ mod tests {
             field: "/age".to_owned(),
             message: "must be positive".to_owned(),
             rule: Some("min".to_owned()),
+            args: BTreeMap::default(),
         };
         // source() is None — ValidationError has no inner cause
         assert!(ve.source().is_none());
@@ -2793,6 +3437,24 @@ impl ProblemJson {
     pub fn extend(&mut self, key: impl Into<String>, value: impl Into<serde_json::Value>) {
         self.extensions.insert(key.into(), value.into());
     }
+
+    /// The `error_info` extension member, when present and well-shaped.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::error::{ApiError, ErrorCode, ErrorInfoMember, ProblemJson};
+    ///
+    /// let p = ProblemJson::from(
+    ///     ApiError::new(ErrorCode::Conflict, "taken")
+    ///         .with_error_info(ErrorInfoMember::new("SEAT_TAKEN", "bookings")),
+    /// );
+    /// assert_eq!(p.error_info().map(|i| i.code), Some("SEAT_TAKEN".to_owned()));
+    /// ```
+    #[must_use]
+    pub fn error_info(&self) -> Option<ErrorInfoMember> {
+        serde_json::from_value(self.extensions.get("error_info")?.clone()).ok()
+    }
 }
 
 #[cfg(all(feature = "std", feature = "serde"))]
@@ -2826,6 +3488,12 @@ impl From<ApiError> for ProblemJson {
             let errs =
                 serde_json::to_value(&err.errors).unwrap_or(serde_json::Value::Array(vec![]));
             p.extensions.insert("errors".into(), errs);
+        }
+
+        if let Some(info) = err.error_info
+            && let Ok(v) = serde_json::to_value(&info)
+        {
+            p.extensions.insert("error_info".into(), v);
         }
 
         if let Some(info) = err.rate_limit
@@ -2938,13 +3606,8 @@ mod problem_json_tests {
 
     #[test]
     fn from_api_error_maps_validation_errors_to_extension() {
-        let err = ApiError::new(ErrorCode::ValidationFailed, "bad input").with_errors(vec![
-            ValidationError {
-                field: "/email".into(),
-                message: "invalid".into(),
-                rule: None,
-            },
-        ]);
+        let err = ApiError::new(ErrorCode::ValidationFailed, "bad input")
+            .with_errors(vec![ValidationError::new("/email", "invalid")]);
         let p = ProblemJson::from(err);
         assert!(p.extensions.contains_key("errors"));
         let errs = p.extensions["errors"].as_array().unwrap();
@@ -3144,5 +3807,241 @@ mod axum_tests {
         assert_eq!(err.status, 429);
         assert_eq!(err.detail, "Rate limited");
         assert!(err.rate_limit.is_some());
+    }
+}
+
+#[cfg(all(test, feature = "std", feature = "serde"))]
+mod error_arg_json_tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn info() -> ErrorInfoMember {
+        ErrorInfoMember::new("SEAT_TAKEN", "bookings")
+            .with_arg("seat", "12A")
+            .unwrap()
+            .with_arg("row", -4_i64)
+            .unwrap()
+            .with_arg("price", 12.5_f64)
+            .unwrap()
+            .with_arg(
+                "held_until",
+                ErrorArg::Timestamp {
+                    seconds: 1,
+                    nanos: 500_000_000,
+                },
+            )
+            .unwrap()
+    }
+
+    #[test]
+    fn each_arg_serializes_as_the_proto3_json_mapping() {
+        let json = serde_json::to_value(info()).unwrap();
+        assert_eq!(
+            json,
+            json!({
+                "code": "SEAT_TAKEN",
+                "emitter": "bookings",
+                "args": {
+                    "held_until": {"timestampValue": "1970-01-01T00:00:01.500Z"},
+                    "price": {"doubleValue": 12.5},
+                    "row": {"int64Value": "-4"},
+                    "seat": {"stringValue": "12A"}
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn error_info_is_a_problem_json_extension_with_no_i18n_key() {
+        let problem =
+            ProblemJson::from(ApiError::new(ErrorCode::Conflict, "taken").with_error_info(info()));
+        let body = serde_json::to_value(&problem).unwrap();
+        assert_eq!(body["error_info"]["code"], "SEAT_TAKEN");
+        assert_eq!(body["error_info"]["emitter"], "bookings");
+        assert_eq!(
+            body["error_info"]["args"]["seat"],
+            json!({"stringValue": "12A"})
+        );
+        assert!(body.get("i18n").is_none());
+        assert!(body["error_info"].get("i18n").is_none());
+        assert_eq!(problem.error_info(), Some(info()));
+    }
+
+    #[test]
+    fn validation_errors_carry_args_in_errors_array() {
+        let err = ApiError::validation_failed("bad").with_errors(vec![
+            ValidationError::new("/guests", "must be at most 4")
+                .with_rule("max")
+                .with_arg("limit", 4_i64)
+                .unwrap(),
+        ]);
+        let body = serde_json::to_value(ProblemJson::from(err)).unwrap();
+        assert_eq!(body["errors"][0]["rule"], "max");
+        assert_eq!(
+            body["errors"][0]["args"],
+            json!({"limit": {"int64Value": "4"}})
+        );
+    }
+
+    #[test]
+    fn empty_args_and_absent_error_info_are_omitted() {
+        let bare = serde_json::to_value(ErrorInfoMember::new("X", "")).unwrap();
+        assert_eq!(bare, json!({"code": "X"}));
+        let validation = serde_json::to_value(ValidationError::new("/a", "m")).unwrap();
+        assert!(validation.get("args").is_none());
+        let body = serde_json::to_value(ProblemJson::from(ApiError::new(ErrorCode::Conflict, "x")))
+            .unwrap();
+        assert!(body.get("error_info").is_none());
+    }
+
+    #[test]
+    fn args_round_trip_through_json() {
+        let member: ErrorInfoMember =
+            serde_json::from_value(serde_json::to_value(info()).unwrap()).unwrap();
+        assert_eq!(member, info());
+        let failure = ValidationError::new("/a", "m")
+            .with_rule("r")
+            .with_arg(
+                "t",
+                ErrorArg::Timestamp {
+                    seconds: -1,
+                    nanos: 999_999_999,
+                },
+            )
+            .unwrap();
+        let back: ValidationError =
+            serde_json::from_value(serde_json::to_value(&failure).unwrap()).unwrap();
+        assert_eq!(back, failure);
+        let err = ApiError::new(ErrorCode::Conflict, "taken").with_error_info(info());
+        let back: ApiError = serde_json::from_value(serde_json::to_value(&err).unwrap()).unwrap();
+        assert_eq!(back.error_info, Some(info()));
+    }
+
+    #[test]
+    fn an_int64_above_2_pow_53_stays_exact() {
+        let exact = 9_007_199_254_740_993_i64; // 2^53 + 1, not representable as f64
+        let json = serde_json::to_value(ErrorArg::Int64(exact)).unwrap();
+        assert_eq!(json, json!({"int64Value": "9007199254740993"}));
+        assert_eq!(
+            serde_json::from_value::<ErrorArg>(json).unwrap(),
+            ErrorArg::Int64(exact)
+        );
+        let extreme = serde_json::to_value(ErrorArg::Int64(i64::MIN)).unwrap();
+        assert_eq!(extreme, json!({"int64Value": "-9223372036854775808"}));
+        assert_eq!(
+            serde_json::from_value::<ErrorArg>(extreme).unwrap(),
+            ErrorArg::Int64(i64::MIN)
+        );
+    }
+
+    #[test]
+    fn readers_accept_the_alternate_proto3_json_forms() {
+        let from = |v: Value| serde_json::from_value::<ErrorArg>(v).unwrap();
+        assert_eq!(from(json!({"int64Value": 5})), ErrorArg::Int64(5));
+        assert_eq!(from(json!({"doubleValue": "1.5"})), ErrorArg::Double(1.5));
+        assert_eq!(from(json!({"doubleValue": 2})), ErrorArg::Double(2.0));
+        assert_eq!(
+            from(json!({"timestampValue": "1970-01-01T01:00:00+01:00"})),
+            ErrorArg::Timestamp {
+                seconds: 0,
+                nanos: 0
+            }
+        );
+    }
+
+    #[test]
+    fn malformed_json_args_are_refused() {
+        let bad = |v: Value| {
+            assert!(
+                serde_json::from_value::<ErrorArg>(v.clone()).is_err(),
+                "{v}"
+            );
+        };
+        bad(json!({}));
+        bad(json!({"stringValue": "a", "int64Value": "1"}));
+        bad(json!({"string_value": "a"}));
+        bad(json!({"int64Value": "five"}));
+        bad(json!({"int64Value": "9223372036854775808"}));
+        bad(json!({"doubleValue": "NaN"}));
+        bad(json!({"doubleValue": "Infinity"}));
+        bad(json!({"doubleValue": "-Infinity"}));
+        bad(json!({"timestampValue": "yesterday"}));
+        bad(json!({"timestampValue": "0000-01-01T00:00:00Z"}));
+        bad(json!("12A"));
+    }
+
+    #[test]
+    fn a_non_finite_double_or_bad_timestamp_does_not_serialize() {
+        assert!(serde_json::to_value(ErrorArg::Double(f64::NAN)).is_err());
+        assert!(serde_json::to_value(ErrorArg::Double(f64::INFINITY)).is_err());
+        assert!(
+            serde_json::to_value(ErrorArg::Timestamp {
+                seconds: 0,
+                nanos: -1
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn bounds_are_enforced_when_reading_and_writing_json() {
+        let many: serde_json::Map<String, Value> = (0..=MAX_ERROR_ARGS)
+            .map(|i| (format!("k{i}"), json!({"int64Value": "1"})))
+            .collect();
+        let read = |args: Value| {
+            serde_json::from_value::<ErrorInfoMember>(json!({"code": "X", "args": args}))
+        };
+        assert!(read(Value::Object(many)).is_err());
+        assert!(read(json!({"Bad": {"int64Value": "1"}})).is_err());
+        assert!(
+            read(json!({"s": {"stringValue": "x".repeat(MAX_ERROR_ARG_STRING_BYTES + 1)}}))
+                .is_err()
+        );
+        assert!(
+            read(json!({"s": {"stringValue": "x".repeat(MAX_ERROR_ARG_STRING_BYTES)}})).is_ok()
+        );
+        let validation = serde_json::from_value::<ValidationError>(
+            json!({"field": "/a", "message": "m", "args": {"Bad": {"int64Value": "1"}}}),
+        );
+        assert!(validation.is_err());
+
+        let mut broken = ErrorInfoMember::new("X", "");
+        broken.args.insert("Bad".into(), ErrorArg::Int64(1));
+        assert!(serde_json::to_value(&broken).is_err());
+    }
+
+    #[test]
+    fn with_arg_bounds_match_the_wire_bounds() {
+        let mut member = ErrorInfoMember::new("X", "");
+        for i in 0..MAX_ERROR_ARGS {
+            member = member.with_arg(format!("k{i}"), 1_i64).unwrap();
+        }
+        assert_eq!(
+            member.clone().with_arg("more", 1_i64),
+            Err(ErrorArgError::TooMany {
+                max: MAX_ERROR_ARGS
+            })
+        );
+        assert!(member.with_arg("k0", 2_i64).is_ok());
+        assert_eq!(
+            ValidationError::new("/a", "m").with_arg("Bad", 1_i64),
+            Err(ErrorArgError::InvalidKey { key: "Bad".into() })
+        );
+        assert_eq!(
+            ValidationError::new("/a", "m").with_arg("d", f64::NAN),
+            Err(ErrorArgError::NonFiniteDouble { key: "d".into() })
+        );
+        assert!(
+            ErrorArgError::TooMany { max: 32 }
+                .to_string()
+                .contains("32")
+        );
+    }
+
+    #[test]
+    fn string_args_convert_from_owned_and_borrowed_text() {
+        assert_eq!(ErrorArg::from(String::from("a")), ErrorArg::from("a"));
+        assert_ne!(ErrorArg::Double(f64::NAN), ErrorArg::Int64(0));
+        assert_eq!(ErrorArg::Double(f64::NAN), ErrorArg::Double(f64::NAN));
     }
 }

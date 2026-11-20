@@ -32,6 +32,7 @@ use cucumber::{given, then};
 fn code_of(name: &str) -> ErrorCode {
     match name {
         "internal" => ErrorCode::Internal,
+        "invalid_argument" => ErrorCode::InvalidArgument,
         "unavailable" => ErrorCode::Unavailable,
         "unauthenticated" => ErrorCode::Unauthenticated,
         "aborted" => ErrorCode::Aborted,
@@ -44,6 +45,7 @@ fn code_of(name: &str) -> ErrorCode {
 fn name_of(code: ErrorCode) -> &'static str {
     match code {
         ErrorCode::Internal => "internal",
+        ErrorCode::InvalidArgument => "invalid_argument",
         ErrorCode::Unavailable => "unavailable",
         ErrorCode::Unauthenticated => "unauthenticated",
         ErrorCode::Aborted => "aborted",

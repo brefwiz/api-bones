@@ -90,7 +90,7 @@ macro_rules! batch_client {
 pub mod __private {
     pub use crate::macros::{tag_len, template_bytes};
     pub use crate::paged::CanonicalPagedRequest;
-    pub use api_bones::connect::Idempotency;
+    pub use api_bones::connect::{ErrorInfo, Idempotency, ValidationFailureDetail};
     pub use api_bones_page::{
         ListCall, ListResponse, PageInfo, PagedRequest, PagedResponse, Total, TotalKind,
     };

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 use super::error_info::{ErrorInfo, with_error_info};
+use crate::error::ErrorArg;
 use connectrpc::ConnectError;
+use std::collections::BTreeMap;
 
 /// Canonical error-kind shape for domain errors that need to cross the Connect RPC boundary.
 ///
@@ -58,6 +60,14 @@ pub trait IntoDomainErrorKind {
     fn code(&self) -> Option<&'static str> {
         None
     }
+
+    /// The typed arguments of the message for [`code`](Self::code), keyed by
+    /// the placeholder name in its catalog string. Each is declared with the
+    /// code in the emitter's proto; a field marked `debug_redact` is never one.
+    /// Carried only when `code` is. Defaults to none.
+    fn args(&self) -> BTreeMap<String, ErrorArg> {
+        BTreeMap::new()
+    }
 }
 
 /// Map any domain error implementing [`IntoDomainErrorKind`] to a [`ConnectError`].
@@ -99,7 +109,13 @@ pub fn domain_to_connect<E: IntoDomainErrorKind>(err: &E) -> ConnectError {
         }
     };
     match err.code() {
-        Some(code) => with_error_info(mapped, &ErrorInfo::from_code(code)),
+        Some(code) => with_error_info(
+            mapped,
+            &ErrorInfo {
+                args: err.args(),
+                ..ErrorInfo::from_code(code)
+            },
+        ),
         None => mapped,
     }
 }
@@ -189,5 +205,73 @@ mod tests {
             !s.contains("secret detail"),
             "internal detail must not be surfaced to caller"
         );
+    }
+}
+
+#[cfg(test)]
+mod arg_tests {
+    use super::*;
+    use crate::connect::error_info::error_info;
+
+    struct SeatTaken;
+
+    impl IntoDomainErrorKind for SeatTaken {
+        fn kind(&self) -> DomainErrorKind {
+            DomainErrorKind::Conflict("seat taken".into())
+        }
+        fn code(&self) -> Option<&'static str> {
+            Some("SEAT_TAKEN")
+        }
+        fn args(&self) -> BTreeMap<String, ErrorArg> {
+            BTreeMap::from([
+                ("seat".to_owned(), ErrorArg::from("12A")),
+                ("row".to_owned(), ErrorArg::Int64(12)),
+            ])
+        }
+    }
+
+    struct NoCode;
+
+    impl IntoDomainErrorKind for NoCode {
+        fn kind(&self) -> DomainErrorKind {
+            DomainErrorKind::NotFound
+        }
+        fn args(&self) -> BTreeMap<String, ErrorArg> {
+            BTreeMap::from([("seat".to_owned(), ErrorArg::from("12A"))])
+        }
+    }
+
+    struct BadArgs;
+
+    impl IntoDomainErrorKind for BadArgs {
+        fn kind(&self) -> DomainErrorKind {
+            DomainErrorKind::NotFound
+        }
+        fn code(&self) -> Option<&'static str> {
+            Some("X")
+        }
+        fn args(&self) -> BTreeMap<String, ErrorArg> {
+            BTreeMap::from([("Bad Key".to_owned(), ErrorArg::Int64(1))])
+        }
+    }
+
+    #[test]
+    fn the_code_carries_its_args_across_the_boundary() {
+        let info = error_info(&domain_to_connect(&SeatTaken)).expect("info");
+        assert_eq!(info.code, "SEAT_TAKEN");
+        assert_eq!(info.args["seat"], ErrorArg::from("12A"));
+        assert_eq!(info.args["row"], ErrorArg::Int64(12));
+    }
+
+    #[test]
+    fn args_without_a_code_are_not_carried() {
+        assert_eq!(error_info(&domain_to_connect(&NoCode)), None);
+    }
+
+    #[test]
+    fn out_of_bounds_args_fail_as_internal_not_truncated() {
+        let err = domain_to_connect(&BadArgs);
+        assert_eq!(err.code, connectrpc::ErrorCode::Internal);
+        assert_eq!(error_info(&err), None);
     }
 }

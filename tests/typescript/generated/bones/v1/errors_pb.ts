@@ -30,13 +30,67 @@
 
 import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file bones/v1/errors.proto.
  */
 export const file_bones_v1_errors: GenFile = /*@__PURE__*/
-  fileDesc("ChVib25lcy92MS9lcnJvcnMucHJvdG8SCGJvbmVzLnYxIkEKEVZhbGlkYXRpb25GYWlsdXJlEg0KBWZpZWxkGAEgASgJEg8KB21lc3NhZ2UYAiABKAkSDAoEcnVsZRgDIAEoCSJBCglFcnJvckluZm8SDAoEY29kZRgBIAEoCRIPCgdlbWl0dGVyGAIgASgJSgQIAxAEUg9lbWl0dGVyX3ZlcnNpb25iBnByb3RvMw");
+  fileDesc("ChVib25lcy92MS9lcnJvcnMucHJvdG8SCGJvbmVzLnYxIq8BCghFcnJvckFyZxIdCgZzdHJpbmcYASABKAlIAFILc3RyaW5nVmFsdWUSGwoFaW50NjQYAiABKANIAFIKaW50NjRWYWx1ZRIdCgZkb3VibGUYAyABKAFIAFILZG91YmxlVmFsdWUSPwoJdGltZXN0YW1wGAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEgAUg50aW1lc3RhbXBWYWx1ZUIHCgV2YWx1ZSK3AQoRVmFsaWRhdGlvbkZhaWx1cmUSDQoFZmllbGQYASABKAkSDwoHbWVzc2FnZRgCIAEoCRIMCgRydWxlGAMgASgJEjMKBGFyZ3MYBCADKAsyJS5ib25lcy52MS5WYWxpZGF0aW9uRmFpbHVyZS5BcmdzRW50cnkaPwoJQXJnc0VudHJ5EgsKA2tleRgBIAEoCRIhCgV2YWx1ZRgCIAEoCzISLmJvbmVzLnYxLkVycm9yQXJnOgI4ASKvAQoJRXJyb3JJbmZvEgwKBGNvZGUYASABKAkSDwoHZW1pdHRlchgCIAEoCRIrCgRhcmdzGAQgAygLMh0uYm9uZXMudjEuRXJyb3JJbmZvLkFyZ3NFbnRyeRo/CglBcmdzRW50cnkSCwoDa2V5GAEgASgJEiEKBXZhbHVlGAIgASgLMhIuYm9uZXMudjEuRXJyb3JBcmc6AjgBSgQIAxAEUg9lbWl0dGVyX3ZlcnNpb25iBnByb3RvMw", [file_google_protobuf_timestamp]);
+
+/**
+ * One typed argument of an error message. The viewer's client formats it in
+ * the viewer's locale (ICU plural, select, number and date), so a service
+ * carries the value and never an interpolated string.
+ *
+ * An argument is declared with its code in the emitter's proto. A field marked
+ * `debug_redact` holds a secret and is never an argument.
+ *
+ * The member names are `string`, `int64`, `double` and `timestamp` so no
+ * generated variant repeats the enum name; the JSON names stay `stringValue`,
+ * `int64Value`, `doubleValue` and `timestampValue`.
+ *
+ * @generated from message bones.v1.ErrorArg
+ */
+export type ErrorArg = Message<"bones.v1.ErrorArg"> & {
+  /**
+   * @generated from oneof bones.v1.ErrorArg.value
+   */
+  value: {
+    /**
+     * @generated from field: string string = 1 [json_name = "stringValue"];
+     */
+    value: string;
+    case: "string";
+  } | {
+    /**
+     * @generated from field: int64 int64 = 2 [json_name = "int64Value"];
+     */
+    value: bigint;
+    case: "int64";
+  } | {
+    /**
+     * @generated from field: double double = 3 [json_name = "doubleValue"];
+     */
+    value: number;
+    case: "double";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Timestamp timestamp = 4 [json_name = "timestampValue"];
+     */
+    value: Timestamp;
+    case: "timestamp";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message bones.v1.ErrorArg.
+ * Use `create(ErrorArgSchema)` to create a new message.
+ */
+export const ErrorArgSchema: GenMessage<ErrorArg> = /*@__PURE__*/
+  messageDesc(file_bones_v1_errors, 0);
 
 /**
  * A single field-level validation failure. Composed by services into a
@@ -70,6 +124,15 @@ export type ValidationFailure = Message<"bones.v1.ValidationFailure"> & {
    * @generated from field: string rule = 3;
    */
   rule: string;
+
+  /**
+   * Typed arguments of the message for `rule`, keyed by the placeholder name
+   * in the `bones.validation.<rule>` catalog string. Never a `debug_redact`
+   * field.
+   *
+   * @generated from field: map<string, bones.v1.ErrorArg> args = 4;
+   */
+  args: { [key: string]: ErrorArg };
 };
 
 /**
@@ -77,7 +140,7 @@ export type ValidationFailure = Message<"bones.v1.ValidationFailure"> & {
  * Use `create(ValidationFailureSchema)` to create a new message.
  */
 export const ValidationFailureSchema: GenMessage<ValidationFailure> = /*@__PURE__*/
-  messageDesc(file_bones_v1_errors, 0);
+  messageDesc(file_bones_v1_errors, 1);
 
 /**
  * Why a call was refused, in the emitter's own vocabulary. Attached to the
@@ -108,6 +171,15 @@ export type ErrorInfo = Message<"bones.v1.ErrorInfo"> & {
    * @generated from field: string emitter = 2;
    */
   emitter: string;
+
+  /**
+   * Typed arguments of the message for `code`, keyed by the placeholder name
+   * in the `<emitter>.errors.<CODE>` catalog string. Each is declared with
+   * the code in the emitter's proto. Never a `debug_redact` field.
+   *
+   * @generated from field: map<string, bones.v1.ErrorArg> args = 4;
+   */
+  args: { [key: string]: ErrorArg };
 };
 
 /**
@@ -115,5 +187,5 @@ export type ErrorInfo = Message<"bones.v1.ErrorInfo"> & {
  * Use `create(ErrorInfoSchema)` to create a new message.
  */
 export const ErrorInfoSchema: GenMessage<ErrorInfo> = /*@__PURE__*/
-  messageDesc(file_bones_v1_errors, 1);
+  messageDesc(file_bones_v1_errors, 2);
 

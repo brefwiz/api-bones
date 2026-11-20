@@ -182,6 +182,7 @@ impl Refusal {
             &ErrorInfo {
                 code: self.info().to_owned(),
                 emitter: EMITTER.to_owned(),
+                ..Default::default()
             },
         )
     }
@@ -604,6 +605,7 @@ impl Widgets for WidgetService {
                 &ErrorInfo {
                     code: "WIDGET_WRITE_REQUIRED".into(),
                     emitter: EMITTER.into(),
+                    ..Default::default()
                 },
             ));
         }

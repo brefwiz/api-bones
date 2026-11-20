@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 //! The Cucumber World for the shared contract lane.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
-use api_bones_connect::{Idempotency, PreconditionedTransport, index_generated_policy};
+use api_bones::connect::ValidationFailureDetail;
+use api_bones_connect::{ErrorArg, Idempotency, PreconditionedTransport, index_generated_policy};
 use connectrpc::ConnectError;
 use connectrpc::client::{BoxFuture, ClientBody, ClientTransport};
 use cucumber::World;
@@ -138,6 +139,8 @@ impl PreconditionWorld {
 pub struct ErrorInfoWorld {
     pub failure: Option<ConnectError>,
     pub read: Option<ReadError>,
+    /// How building an `ErrorInfo` ended: `accepted`, or the bound that refused it.
+    pub built: Option<String>,
 }
 
 /// What an SDK error type built from the failure exposes.
@@ -146,6 +149,9 @@ pub struct ReadError {
     pub code: Option<String>,
     pub emitter: Option<String>,
     pub text: String,
+    pub args: BTreeMap<String, ErrorArg>,
+    /// The violations the SDK read from the failure, in detail order.
+    pub violations: Vec<ValidationFailureDetail>,
 }
 
 /// A refusal as the replay rule is given it.

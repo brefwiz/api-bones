@@ -23,7 +23,6 @@ path = "src/lib.rs"
 prost-reflect = { workspace = true }
 api-bones-transport = { version = "0.1.1", path = "../api-bones-transport", registry = "brefwiz" }
 api-bones-page = { version = "0.3.16", path = "../api-bones-page", registry = "brefwiz" }
-base64 = { version = "0.23", default-features = false, features = ["alloc"] }
 buffa = "0.9"
 api-bones = { version = "^17.13.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
 connectrpc = { version = "0.9.1", features = ["client"] }
@@ -37,3 +36,4 @@ tracing = "0.1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "test-util"] }
 api-bones-protos = { path = "../api-bones-protos", version = "^0.8.13", registry = "brefwiz" }
 protox = "0.9"
+base64 = { version = "0.23", default-features = false, features = ["alloc"] }
