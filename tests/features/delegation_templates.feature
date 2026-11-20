@@ -39,6 +39,14 @@ Feature: Delegation templates a provider ships
     And the delegation templates are accepted
 
   @state:happy
+  Scenario: A dimension reads back the label the provider declared, and none when it declared none
+    Given the provider declares the dimension "season" matched exactly and labelled "Season"
+    When the provider contract is validated
+    Then the delegation templates are accepted
+    And the dimension "season" reads back labelled "Season"
+    And the dimension "channel" reads back with no label
+
+  @state:happy
   Scenario: A grant on a capability group the provider declares is accepted
     Given the provider ships the template "planner" labelled "Planner" with the grant 'group: "planning" approval_mode: APPROVAL_MODE_PRE_APPROVED'
     When the provider contract is validated
