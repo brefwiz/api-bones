@@ -942,6 +942,15 @@ extend google.protobuf.FieldOptions {
   // field passes through when it is written with its parent. Absent means
   // the field is not a nested write. See file header.
   string nested_write_of = 5102373;
+
+  // The format this string field's value takes. Absent reads as
+  // VALUE_FORMAT_UNSPECIFIED, no declared format. On a repeated field it
+  // applies to each element.
+  ValueFormat format = 5102377;
+
+  // What this string field's value refers to. Absent means the field refers
+  // to nothing declared. On a repeated field it applies to each element.
+  FieldReference references = 5102378;
 }
 
 // One capability a service depends on, and the authority it intends to
@@ -1335,4 +1344,33 @@ enum DataClassification {
   // Credentials, payment and special-category data; never leaves the
   // product except to destinations cleared for it.
   DATA_CLASSIFICATION_RESTRICTED = 4;
+}
+
+// The format a string field's value takes.
+enum ValueFormat {
+  // No declared format.
+  VALUE_FORMAT_UNSPECIFIED = 0;
+
+  // A UUID.
+  VALUE_FORMAT_UUID = 1;
+
+  // An absolute URI per RFC 3986: it has a scheme. A syntax declaration
+  // only; implies no scheme allowlist and no fetch. A consumer that
+  // dereferences it applies its own scheme/host allowlist (SSRF).
+  VALUE_FORMAT_URI = 2;
+}
+
+// What a string field's value refers to.
+message FieldReference {
+  oneof target {
+    // The referenced field, `<package>.<Message>.<field>`, on a
+    // `bones.v1.resource` message; the same format as `defaulted_from`.
+    string field = 1;
+
+    // Declares the value names a principal id that must belong to the
+    // caller's organization; a hint only, grants nothing. The server
+    // verifies membership and authorizes the write; no consumer auto-fills
+    // or trusts it.
+    bool principal = 2;
+  }
 }

@@ -57,7 +57,9 @@ module.exports = {
       "steps/tree_shaking.ts",
     ],
     strict: true,
-    format: ["progress"],
+    // The summary formatter on stderr prints each failing scenario and its
+    // assertion after the progress dots, which the streamed log otherwise cuts.
+    format: ["progress", "summary:/dev/stderr"],
     publishQuiet: true,
   },
 };

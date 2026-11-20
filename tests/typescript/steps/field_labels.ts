@@ -28,6 +28,7 @@ interface FieldLabelsWorld extends World {
   source?: string;
   workdir?: string;
   registry?: FileRegistry;
+  refusal?: string;
 }
 
 function recordSource(field: string, kind: string, options: string): string {
@@ -92,6 +93,38 @@ Given(
   },
 );
 
+Given(
+  "a record field {string} of type {string} labelled with value format {string}",
+  function (this: FieldLabelsWorld, field: string, kind: string, format: string) {
+    this.source = recordSource(field, kind, `[(bones.v1.format) = ${format}]`);
+  },
+);
+
+Given(
+  "a record field {string} of type {string} labelled with a reference to the field {string}",
+  function (this: FieldLabelsWorld, field: string, kind: string, target: string) {
+    this.source = recordSource(field, kind, `[(bones.v1.references).field = "${target}"]`);
+  },
+);
+
+Given(
+  "a record field {string} of type {string} labelled as a principal of the caller's organization",
+  function (this: FieldLabelsWorld, field: string, kind: string) {
+    this.source = recordSource(field, kind, "[(bones.v1.references).principal = true]");
+  },
+);
+
+Given(
+  "a record field {string} of type {string} labelled with a reference to both a field and a principal",
+  function (this: FieldLabelsWorld, field: string, kind: string) {
+    this.source = recordSource(
+      field,
+      kind,
+      `[(bones.v1.references) = { field: "acme.v1.Event.id" principal: true }]`,
+    );
+  },
+);
+
 Given("the shipped field vocabulary", function (this: FieldLabelsWorld) {
   this.source = recordSource("id", "string", "");
 });
@@ -116,6 +149,54 @@ When("the record is read back through descriptor reflection", function (this: Fi
 
 When("the vocabulary is read back through descriptor reflection", function (this: FieldLabelsWorld) {
   this.registry = compile(this);
+});
+
+When("the contract is compiled", function (this: FieldLabelsWorld) {
+  try {
+    this.registry = compile(this);
+  } catch (error) {
+    this.refusal = String(error);
+  }
+});
+
+Then(
+  "the contract is refused at compile because {string} and {string} are mutually exclusive in {string}",
+  function (this: FieldLabelsWorld, first: string, second: string, option: string) {
+    assert.ok(this.refusal !== undefined, "the contract compiled");
+    const lowered = this.refusal.toLowerCase();
+    assert.ok(
+      lowered.includes("oneof") &&
+        lowered.includes("bones.v1.fieldreference.target") &&
+        lowered.includes("set multiple times"),
+      `refusal does not name the "${first}"/"${second}" conflict in "${option}": ${this.refusal}`,
+    );
+  },
+);
+
+Then("the field value format reads back as {string}", function (this: FieldLabelsWorld, expected: string) {
+  const options = theField(this).proto.options;
+  assert.ok(options, "the field carries no options");
+  const value = getExtension(options, extensionOf(this, "bones.v1.format"));
+  const enumType = registryOf(this).getEnum("bones.v1.ValueFormat");
+  assert.ok(enumType, "the format enum is not declared");
+  assert.equal(enumType.values.find((v) => v.number === (value as number))?.name, expected);
+});
+
+function referenceTarget(world: FieldLabelsWorld) {
+  const options = theField(world).proto.options;
+  assert.ok(options, "the field carries no options");
+  const value = getExtension(options, extensionOf(world, "bones.v1.references")) as {
+    target: { case?: string; value?: unknown };
+  };
+  return value.target;
+}
+
+Then("the field reference reads back as the field {string}", function (this: FieldLabelsWorld, expected: string) {
+  assert.deepEqual(referenceTarget(this), { case: "field", value: expected });
+});
+
+Then("the field reference reads back as a principal of the caller's organization", function (this: FieldLabelsWorld) {
+  assert.deepEqual(referenceTarget(this), { case: "principal", value: true });
 });
 
 Then("the field meaning reads back as {string}", function (this: FieldLabelsWorld, expected: string) {
@@ -211,6 +292,15 @@ Then(
     const members = signal.fields.map((f) => f.name).join(", ");
     assert.equal(members, expected);
     assert.equal(message.fields.map((f) => f.name).join(", "), members, "every field belongs to the oneof");
+  },
+);
+
+Then(
+  "the enum {string} declares exactly the values {string}",
+  function (this: FieldLabelsWorld, name: string, expected: string) {
+    const found = registryOf(this).getEnum(name);
+    if (!found) throw new Error(`${name} is not declared`);
+    assert.equal(found.values.map((v) => `${v.name}=${v.number}`).join(", "), expected);
   },
 );
 

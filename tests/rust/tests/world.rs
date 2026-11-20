@@ -286,6 +286,8 @@ pub struct PinnedPeerWorld {
 pub struct FieldLabelsWorld {
     pub source: String,
     pub pool: Option<prost_reflect::DescriptorPool>,
+    /// Why the contract was refused at compile, when it was.
+    pub refusal: Option<String>,
 }
 
 impl std::fmt::Debug for FieldLabelsWorld {

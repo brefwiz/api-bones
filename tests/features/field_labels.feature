@@ -39,8 +39,44 @@ Feature: Field labels
   Scenario: The shipped field vocabulary labels meaning and classification and restates no value type
     Given the shipped field vocabulary
     When the vocabulary is read back through descriptor reflection
-    Then the field options it declares are "attr, classification, defaulted_from, meaning, nested_write_of, typed_by"
+    Then the field options it declares are "attr, classification, defaulted_from, format, meaning, nested_write_of, references, typed_by"
     And the classification enums it declares are "bones.v1.DataClassification"
+
+  Scenario: The shipped value formats are exactly a UUID and an absolute URI
+    Given the shipped field vocabulary
+    When the vocabulary is read back through descriptor reflection
+    Then the enum "bones.v1.ValueFormat" declares exactly the values "VALUE_FORMAT_UNSPECIFIED=0, VALUE_FORMAT_UUID=1, VALUE_FORMAT_URI=2"
+
+  Scenario: The shipped field reference names exactly a field or a principal of the caller's organization
+    Given the shipped field vocabulary
+    When the vocabulary is read back through descriptor reflection
+    Then the message "bones.v1.FieldReference" declares the oneof "target" holding exactly "field, principal"
+
+  Scenario Outline: A field labelled with a value format reads the format back
+    Given a record field "<field>" of type "string" labelled with value format "<format>"
+    When the record is read back through descriptor reflection
+    Then the field value format reads back as "<format>"
+
+    Examples:
+      | field   | format           |
+      | user_id | VALUE_FORMAT_UUID |
+      | website | VALUE_FORMAT_URI |
+
+  Scenario: A field labelled with a reference to a field reads the reference back
+    Given a record field "event_id" of type "string" labelled with a reference to the field "acme.v1.Event.id"
+    When the record is read back through descriptor reflection
+    Then the field reference reads back as the field "acme.v1.Event.id"
+
+  Scenario: A field labelled with a principal of the caller's organization reads the reference back
+    Given a record field "owner_id" of type "string" labelled as a principal of the caller's organization
+    When the record is read back through descriptor reflection
+    Then the field reference reads back as a principal of the caller's organization
+
+  @state:error
+  Scenario: A field reference naming both a field and a principal is refused at compile
+    Given a record field "owner_id" of type "string" labelled with a reference to both a field and a principal
+    When the contract is compiled
+    Then the contract is refused at compile because "field" and "principal" are mutually exclusive in "references"
 
   Scenario Outline: Every field of a shipped page response is classified internal
     Given the shipped pagination
