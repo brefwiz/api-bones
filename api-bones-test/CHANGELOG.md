@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [15.0.0] - 2026-11-20
+
+### Added
+
+- feat!(protos,error): typed ErrorArg args on ErrorInfo/ValidationFailure; problem+json error_info
+
 ## [14.1.3] - 2026-11-20
 
 ### Other
