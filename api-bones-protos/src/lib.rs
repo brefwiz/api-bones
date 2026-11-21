@@ -41,6 +41,7 @@
 //! repo. See the README for the canonical schema inventory.
 
 pub mod delegation_templates;
+pub mod error_args;
 
 const PAGINATION_PROTO: &[u8] = include_bytes!("../proto/bones/v1/pagination.proto");
 const QUERIES_PROTO: &[u8] = include_bytes!("../proto/bones/v1/queries.proto");
@@ -548,6 +549,7 @@ mod tests {
             "ValueFormat format = 5102377;",
             "FieldReference references = 5102378;",
             "bool output_only = 5102379;",
+            "repeated ErrorArgDeclaration error_args = 5102380;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }

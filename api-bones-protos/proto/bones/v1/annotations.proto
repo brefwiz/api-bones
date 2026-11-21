@@ -960,6 +960,46 @@ extend google.protobuf.EnumValueOptions {
   // the values a caller may choose; one that decodes a response still accepts
   // it. Absent reads as false: the value is settable.
   bool output_only = 5102379;
+
+  // The typed arguments of this error code's message, in the order the code's
+  // owner declares them. Goes on the value of the companion error enum that
+  // `bones.v1.errors` names, so the code and its arguments are one
+  // declaration. The code's catalog strings may use exactly these
+  // placeholders, each with a compatible kind, and the `error-catalog` check
+  // refuses a string that does not. Absent reads as no arguments. A name is
+  // unique within the value and follows the `ErrorArg` key grammar
+  // `^[a-z][a-z0-9_]{0,63}$`.
+  repeated ErrorArgDeclaration error_args = 5102380;
+}
+
+// One declared argument of an error code: the name a catalog placeholder
+// refers to and the kind of value the emitter always supplies for it.
+message ErrorArgDeclaration {
+  // The placeholder name, e.g. `seat` for `{seat}` in the catalog string.
+  string name = 1;
+
+  // The kind of value carried in `bones.v1.ErrorArg`.
+  ErrorArgKind kind = 2;
+}
+
+// The kind of an error argument, matching the member of `bones.v1.ErrorArg`
+// that carries it. The members are prefixed because proto enum values share
+// their enum's scope.
+enum ErrorArgKind {
+  // No declared kind. A declaration with it is refused.
+  ERROR_ARG_KIND_UNSPECIFIED = 0;
+
+  // `ErrorArg.string`: text, for `{x}` and `{x, select, ...}`.
+  ERROR_ARG_KIND_STRING = 1;
+
+  // `ErrorArg.int64`: a whole number, for `{x, number}` and `{x, plural, ...}`.
+  ERROR_ARG_KIND_INT64 = 2;
+
+  // `ErrorArg.double`: a real number, for `{x, number}` and `{x, plural, ...}`.
+  ERROR_ARG_KIND_DOUBLE = 3;
+
+  // `ErrorArg.timestamp`: an instant, for `{x, date, ...}` and `{x, time, ...}`.
+  ERROR_ARG_KIND_TIMESTAMP = 4;
 }
 
 // One capability a service depends on, and the authority it intends to

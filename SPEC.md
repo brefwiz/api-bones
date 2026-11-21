@@ -80,6 +80,17 @@ sdk_surfaces:
       rust:
         delivery: package
         packages: [api-bones-protos]
+  # The typed arguments an error code declares with `bones.v1.error_args`,
+  # read back from a descriptor and checked against the catalog strings of the
+  # code by the `error-catalog` check api-bones-i18n ships. The artefacts are
+  # the shipped `bones/v1` proto and that check, which no TypeScript package
+  # wraps -- so this surface is Rust alone, the same way field-labels is.
+  error-catalog-declarations:
+    contract: tests/features/error_catalog_declarations.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-protos, api-bones-i18n]
   # The keyed write -- single or batch -- a contract author marks with
   # `bones.v1.idempotency_key`, read back from a descriptor and checked
   # against the rules api-bones-automation ships: a key is scoped to the

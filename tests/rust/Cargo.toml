@@ -97,6 +97,10 @@ name = "delegation_templates"
 harness = false
 
 [[test]]
+name = "error_catalog_declarations"
+harness = false
+
+[[test]]
 name = "keyed_writes"
 harness = false
 

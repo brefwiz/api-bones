@@ -45,7 +45,7 @@ pub fn emit_error_catalogs(dir: &str) {
     .expect("OUT_DIR is writable");
 }
 
-fn scan(root: &Path) -> std::io::Result<Vec<String>> {
+pub(crate) fn scan(root: &Path) -> std::io::Result<Vec<String>> {
     let mut locales = Vec::new();
     for entry in fs::read_dir(root)? {
         let Ok(name) = entry?.file_name().into_string() else {
