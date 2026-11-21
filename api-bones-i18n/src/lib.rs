@@ -5,6 +5,7 @@
 mod args;
 pub mod build;
 mod catalog;
+mod check;
 mod format;
 mod locale;
 mod localize;
@@ -13,7 +14,8 @@ pub use args::{
     ArgError, ArgRule, ArgValue, Args, MAX_ARGS, MAX_KEY_LEN, MAX_STRING_BYTES, error_args,
 };
 pub use catalog::register_catalog;
-pub use format::{FormatError, Message, ParseError, ParseErrorKind};
+pub use check::{ArgDeclaration, ArgKind, Issue, Problem, check_catalog, check_error_catalogs};
+pub use format::{Expected, FormatError, Message, ParseError, ParseErrorKind};
 pub use locale::{ALIASES, DEFAULT_LOCALE, PLATFORM_LOCALES, match_locale, negotiate_locale};
 pub use localize::{
     ErrorIdentity, Localizable, LocalizeError, LocalizeOptions, Localized, PLATFORM_CODES,

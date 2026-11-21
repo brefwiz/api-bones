@@ -7,6 +7,7 @@
 mod batch;
 mod csrf_replay_rule;
 mod delegation_templates;
+mod error_catalog_declarations;
 mod error_info;
 mod error_localization;
 mod field_labels;

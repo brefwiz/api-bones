@@ -138,6 +138,23 @@ Given(
   },
 );
 
+Given(
+  "a contract enum {string} whose value {string} declares the error arguments {string} beside {string}",
+  function (this: FieldLabelsWorld, name: string, declaring: string, argumentList: string, siblings: string) {
+    const values = siblings.split(", ").map((value, number) => `${value} = ${number};`);
+    const declarations = argumentList.split(", ").map((argument) => {
+      const [arg, kind] = argument.split(":");
+      return `(bones.v1.error_args) = { name: "${arg}" kind: ERROR_ARG_KIND_${kind!.toUpperCase()} }`;
+    });
+    values.push(`${declaring} = ${values.length} [${declarations.join(", ")}];`);
+    this.source =
+      `syntax = "proto3";\npackage contract.v1;\n` +
+      `import "bones/v1/annotations.proto";\n` +
+      `enum ${name} { ${values.join(" ")} }\n` +
+      `message Record { string id = 1; }\n`;
+  },
+);
+
 Given("the shipped field vocabulary", function (this: FieldLabelsWorld) {
   this.source = recordSource("id", "string", "");
 });
@@ -234,6 +251,29 @@ Then(
   "the enum value {string} of {string} is not output-only",
   function (this: FieldLabelsWorld, value: string, enumName: string) {
     assert.equal(outputOnlyOf(this, enumName, value), undefined);
+  },
+);
+
+Then(
+  "the enum value {string} of {string} reads back the error arguments {string}",
+  function (this: FieldLabelsWorld, valueName: string, enumName: string, expected: string) {
+    const found = registryOf(this).getEnum(enumName);
+    if (!found) throw new Error(`${enumName} is not declared`);
+    const value = found.values.find((v) => v.name === valueName);
+    if (!value) throw new Error(`${valueName} is not declared`);
+    const options = value.proto.options;
+    const extension = extensionOf(this, "bones.v1.error_args");
+    const declared = (
+      options && hasExtension(options, extension) ? getExtension(options, extension) : []
+    ) as { name: string; kind: number }[];
+    const kinds = registryOf(this).getEnum("bones.v1.ErrorArgKind");
+    assert.ok(kinds, "the error argument kind enum is not declared");
+    const rendered = declared.map((decl) => {
+      const kind = kinds.values.find((v) => v.number === decl.kind);
+      assert.ok(kind, `${decl.name} has no valid kind`);
+      return `${decl.name}:${kind.name.replace("ERROR_ARG_KIND_", "").toLowerCase()}`;
+    });
+    assert.equal(rendered.join(", "), expected);
   },
 );
 

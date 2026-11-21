@@ -194,7 +194,26 @@ English strings for the platform codes are core-ui's `core.errors.<x>.title`/
 `.description` moved to `bones.errors.<PLATFORM>.*`; `core.errors.fallback`
 is retired (step 3 is total). New: `bones.validation.max.title` = "Must be at
 most {max, number}." Further `bones.validation.<rule>` strings follow the
-`bones.v1.ValidationFailure.rule` vocabulary and ride the `error-catalog` check.
+`bones.v1.ValidationFailure.rule` vocabulary.
+
+An emitter's error code is a value of its error enum, and the value's
+`bones.v1.error_args` option (extension 5102380) is the declaration of the
+arguments its strings may use: repeated `ErrorArgDeclaration { name, kind }`,
+`kind` one of string, int64, double, timestamp, `name` matching
+`^[a-z][a-z0-9_]{0,63}$` and unique within the value. A placeholder takes the
+kind the C6 table lists: string for `{x}` and `select`; int64 or double for
+`number` and `plural`; timestamp for `date` and `time`. A string may leave
+declared arguments unused, since extra arguments are ignored and the title and
+the description of a code may use different parts of them. A string of a code
+the emitter's enum does not declare is flagged.
+
+The library check is `api_bones_i18n::check_catalog(emitter, catalog, codes)`,
+and `api_bones_i18n::check_error_catalogs(<dir>, emitter, codes)` is its
+`build.rs` helper; `codes` maps each declared code to its declarations, read
+from the emitter's descriptor with `api_bones_protos::error_args::declared_error_args`. A
+canonical `error-catalog` check in ci-workflows does not exist yet; the ADR
+leaves the rule unenforced until it ships, and api-bones-i18n provides the
+check as a library and a build-script helper in the meantime.
 
 ### C5. Locale negotiation
 
@@ -230,7 +249,7 @@ argument kinds each accepts:
 Anything else (selectordinal, `::` skeletons, other styles, `spellout`,
 `duration`, unbalanced braces, a plural/select without `other`) does not
 parse; the entry is unresolved. Rust uses its own parser, shared with the
-`error-catalog` check; TypeScript parses with `intl-messageformat`'s parser and
+`error-catalog` check (`api_bones_i18n::check_catalog`); TypeScript parses with `intl-messageformat`'s parser and
 rejects any AST node outside this table before formatting. Argument values are
 substituted as values and never parsed as patterns.
 
@@ -293,6 +312,12 @@ makes the whole `args` malformed (C2 last rule).
   `en` and every other locale is a lazily imported chunk loaded by
   `loadErrorCatalog`, so a page that renders English carries no other
   language. Rust embeds all 29 at compile time.
+- Error argument declarations: `bones.v1.error_args` ships in
+  `api-bones-protos/proto/bones/v1/annotations.proto` and
+  `api_bones_protos::error_args::declared_error_args` reads it from a descriptor.
+  `api_bones_i18n::check_error_catalogs(<dir>, <emitter>, <codes>)`, called from the emitter's
+  `build.rs`, runs the C4 check over the emitter's catalogs; the check is a
+  build-time Rust check and has no TypeScript counterpart.
 - `bones.*` keys resolve only from the rendering package's own embedded
   catalogs, never from the registry; a registration for emitter `bones` is
   ignored.
@@ -417,6 +442,8 @@ typescript `make ts-test` (feature listed in `tests/typescript/cucumber.cjs`).
 | error-localization-loading | typescript | scenario | S30 Loading one locale loads every registered service's catalog | true | false | false | C1, C10: one loadErrorCatalog call loads bones and every registered loader | none | n/a — no call | sync | n/a | n/a | n/a | camelCase, throws on refusal only | generated/bones/v1/errors_pb.ts | @brefwiz/api-bones-connect registerErrorCatalogs, localize, loadErrorCatalog | `make ts-test` |
 | connect-tree-shaking | rust | scenario | S29 Importing the error renderer carries English and no other platform catalog | true | false | false | n/a — Rust embeds every locale at compile time | none | n/a — no call | sync | n/a | n/a | n/a | n/a | n/a | n/a | n/a — Rust embeds every locale at compile time |
 | connect-tree-shaking | typescript | scenario | S29 Importing the error renderer carries English and no other platform catalog | true | false | false | C10: other locales are lazily imported chunks | none | n/a — no call | sync | n/a | n/a | n/a | camelCase, throws on refusal only | generated/bones/v1/errors_pb.ts | @brefwiz/api-bones-connect localize | `make ts-test` |
+| error-catalog-declarations | rust | scenario | E01 An error code's catalog strings match the arguments it declares | true | false | false | C4, C6, C10: placeholder-vs-kind rule, undeclared names and codes flagged, unused declared args allowed | none | n/a — no call | sync | n/a | n/a | n/a | snake_case, Result | annotations.proto via descriptor | api_bones_protos::error_args::declared_error_args, api_bones_i18n::check_catalog, check_error_catalogs | `cargo test --locked -p api-bones-contract-rust --test error_catalog_declarations` |
+| error-catalog-declarations | typescript | scenario | E01 An error code's catalog strings match the arguments it declares | true | false | false | n/a — build-time Rust check | none | n/a — no call | sync | n/a | n/a | n/a | n/a | n/a | n/a | n/a — build-time Rust check |
 
 Open questions: 0
 Contradictions: 0

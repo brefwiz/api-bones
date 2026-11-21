@@ -79,10 +79,16 @@ Feature: Field labels
     And the enum value "SCOPE_SELF" of "contract.v1.Scope" is not output-only
     And the enum value "SCOPE_UNSPECIFIED" of "contract.v1.Scope" is not output-only
 
-  Scenario: The shipped enum value options are exactly output-only
+  Scenario: An error enum value declaring typed arguments reads them back in order and its siblings declare none
+    Given a contract enum "SeatError" whose value "SEAT_ERROR_LIMIT" declares the error arguments "limit:int64, plan:string, ratio:double, ends_at:timestamp" beside "SEAT_ERROR_UNSPECIFIED, SEAT_ERROR_ARCHIVED"
+    When the record is read back through descriptor reflection
+    Then the enum value "SEAT_ERROR_LIMIT" of "contract.v1.SeatError" reads back the error arguments "limit:int64, plan:string, ratio:double, ends_at:timestamp"
+    And the enum value "SEAT_ERROR_ARCHIVED" of "contract.v1.SeatError" reads back the error arguments ""
+
+  Scenario: The shipped enum value options are exactly output-only and error arguments
     Given the shipped field vocabulary
     When the vocabulary is read back through descriptor reflection
-    Then the enum value options it declares are "output_only"
+    Then the enum value options it declares are "error_args, output_only"
 
   @state:error
   Scenario: A field reference naming both a field and a principal is refused at compile

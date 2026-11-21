@@ -339,6 +339,7 @@ Feature: Proto vocabulary shipped to contract authors
       | bones.v1.format               | 5102377 |
       | bones.v1.references           | 5102378 |
       | bones.v1.output_only          | 5102379 |
+      | bones.v1.error_args           | 5102380 |
 
   Scenario Outline: The call shape enum values are fixed
     Given a contract using the shipped vocabulary

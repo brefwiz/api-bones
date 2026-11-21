@@ -75,7 +75,7 @@ impl fmt::Display for ParseError {
 impl core::error::Error for ParseError {}
 
 /// The argument kind a placeholder needs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Expected {
     /// A string argument.
     String,
@@ -192,6 +192,15 @@ impl Message {
         Ok(Self(nodes))
     }
 
+    /// Every placeholder of the message with the argument kind it needs, in
+    /// name order. A name used with two kinds appears once per kind.
+    #[must_use]
+    pub fn placeholders(&self) -> Vec<(String, Expected)> {
+        let mut found = std::collections::BTreeSet::new();
+        collect(&self.0, &mut found);
+        found.into_iter().collect()
+    }
+
     /// Render in `locale` (a BCP 47 tag, normally a platform locale) with
     /// dates and times in `time_zone`.
     ///
@@ -216,6 +225,45 @@ impl Message {
         let mut out = String::new();
         cx.nodes(&self.0, None, &mut out)?;
         Ok(out)
+    }
+}
+
+fn collect(nodes: &[Node], found: &mut std::collections::BTreeSet<(String, Expected)>) {
+    for node in nodes {
+        match node {
+            Node::Text(_) | Node::Pound => {}
+            Node::Arg(arg) => {
+                found.insert((arg.clone(), Expected::String));
+            }
+            Node::Number { arg, .. } => {
+                found.insert((arg.clone(), Expected::Number));
+            }
+            Node::Date { arg, .. } | Node::Time { arg, .. } => {
+                found.insert((arg.clone(), Expected::Timestamp));
+            }
+            Node::Plural {
+                arg,
+                branches,
+                other,
+            } => {
+                found.insert((arg.clone(), Expected::Number));
+                for (_, body) in branches {
+                    collect(body, found);
+                }
+                collect(other, found);
+            }
+            Node::Select {
+                arg,
+                branches,
+                other,
+            } => {
+                found.insert((arg.clone(), Expected::String));
+                for (_, body) in branches {
+                    collect(body, found);
+                }
+                collect(other, found);
+            }
+        }
     }
 }
 
@@ -1039,6 +1087,39 @@ mod tests {
         assert_eq!(
             render_tz(both, "fr", "Pacific/Kiritimati", &when),
             "21 nov. 2026 13:30"
+        );
+    }
+
+    #[test]
+    fn placeholders_list_each_name_with_the_kind_it_needs() {
+        let message = Message::parse(
+            "{who} had {n, plural, one {# seat} other {{who} {m, number, percent}}} on {at, date, long} at {at, time, short}: {kind, select, a {{x}} other {y}}",
+        )
+        .unwrap();
+        let found = message.placeholders();
+        let has = |name: &str, kind| found.contains(&(name.to_owned(), kind));
+        assert!(has("who", Expected::String));
+        assert!(has("n", Expected::Number));
+        assert!(has("m", Expected::Number));
+        assert!(has("at", Expected::Timestamp));
+        assert!(has("kind", Expected::String));
+        assert!(has("x", Expected::String));
+        assert_eq!(found.len(), 6);
+    }
+
+    #[test]
+    fn a_name_used_with_two_kinds_is_listed_once_per_kind() {
+        let found = Message::parse("{n} {n, number}").unwrap().placeholders();
+        assert_eq!(
+            found,
+            [
+                ("n".to_owned(), Expected::String),
+                ("n".to_owned(), Expected::Number)
+            ]
+        );
+        assert_eq!(
+            Message::parse("plain # text").unwrap().placeholders().len(),
+            0
         );
     }
 

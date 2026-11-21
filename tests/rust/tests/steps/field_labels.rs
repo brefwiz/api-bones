@@ -138,6 +138,45 @@ fn given_output_only_enum(
     );
 }
 
+#[given(
+    expr = "a contract enum {string} whose value {string} declares the error arguments {string} beside {string}"
+)]
+fn given_error_args_enum(
+    world: &mut FieldLabelsWorld,
+    name: String,
+    declaring: String,
+    arguments: String,
+    siblings: String,
+) {
+    let mut values: Vec<String> = siblings
+        .split(", ")
+        .enumerate()
+        .map(|(number, value)| format!("{value} = {number};"))
+        .collect();
+    let declarations: Vec<String> = arguments
+        .split(", ")
+        .map(|argument| {
+            let (arg, kind) = argument.split_once(':').expect("name:kind");
+            format!(
+                "(bones.v1.error_args) = {{ name: \"{arg}\" kind: ERROR_ARG_KIND_{} }}",
+                kind.to_uppercase()
+            )
+        })
+        .collect();
+    values.push(format!(
+        "{declaring} = {} [{}];",
+        values.len(),
+        declarations.join(", ")
+    ));
+    world.source = format!(
+        "syntax = \"proto3\";\npackage contract.v1;\n\
+         import \"bones/v1/annotations.proto\";\n\
+         enum {name} {{ {} }}\n\
+         message Record {{ string id = 1; }}\n",
+        values.join(" ")
+    );
+}
+
 #[given("the shipped field vocabulary")]
 fn given_vocabulary(world: &mut FieldLabelsWorld) {
     world.source = record_source("id", "string", "");
@@ -241,6 +280,31 @@ fn then_output_only(world: &mut FieldLabelsWorld, value: String, enum_name: Stri
 fn then_not_output_only(world: &mut FieldLabelsWorld, value: String, enum_name: String) {
     let pool = world.pool.as_ref().expect("the record was not read back");
     assert_eq!(output_only_of(pool, &enum_name, &value), None);
+}
+
+#[then(expr = "the enum value {string} of {string} reads back the error arguments {string}")]
+fn then_error_args(
+    world: &mut FieldLabelsWorld,
+    value: String,
+    enum_name: String,
+    expected: String,
+) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let value = pool
+        .get_enum_by_name(&enum_name)
+        .unwrap_or_else(|| panic!("{enum_name} is not declared"))
+        .get_value_by_name(&value)
+        .unwrap_or_else(|| panic!("{value} is not declared"));
+    let declared = api_bones_protos::error_args::declared_error_args(&value)
+        .unwrap_or_else(|e| panic!("the declaration is refused: {e}"));
+    let found: Vec<String> = declared
+        .iter()
+        .map(|decl| {
+            let kind = format!("{:?}", decl.kind).to_lowercase();
+            format!("{}:{kind}", decl.name)
+        })
+        .collect();
+    assert_eq!(found.join(", "), expected);
 }
 
 #[then(expr = "the enum value options it declares are {string}")]

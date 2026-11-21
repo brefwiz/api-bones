@@ -314,6 +314,17 @@ pub struct PinnedPeerWorld {
     pub built: Option<Result<(), api_bones_connect::PinnedPeerError>>,
 }
 
+/// The error enum an emitter declares, the catalog strings it ships and the
+/// outcome of the `error-catalog` check over them.
+#[derive(Debug, Default, cucumber::World)]
+pub struct ErrorCatalogWorld {
+    pub emitter: String,
+    /// Each enum value with the `name:kind` arguments it declares, in order.
+    pub values: Vec<(String, Vec<String>)>,
+    pub strings: std::collections::BTreeMap<String, String>,
+    pub outcome: Option<Result<(), Vec<api_bones_i18n::Issue>>>,
+}
+
 /// The record under test, as the descriptor set it compiles to.
 #[derive(Default, cucumber::World)]
 pub struct FieldLabelsWorld {
