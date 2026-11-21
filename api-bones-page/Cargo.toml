@@ -20,7 +20,7 @@ workspace = true
 path = "src/lib.rs"
 
 [dependencies]
-api-bones = { version = "^19.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
+api-bones = { version = "^19.0.1", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
 connectrpc = "0.9.1"
 futures-core = "0.3"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

@@ -24,7 +24,7 @@ prost-reflect = { workspace = true }
 api-bones-transport = { version = "0.1.1", path = "../api-bones-transport", registry = "brefwiz" }
 api-bones-page = { version = "0.5.0", path = "../api-bones-page", registry = "brefwiz" }
 buffa = "0.9"
-api-bones = { version = "^19.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
+api-bones = { version = "^19.0.1", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
 connectrpc = { version = "0.9.1", features = ["client"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4.2"
@@ -34,6 +34,6 @@ tracing = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "test-util"] }
-api-bones-protos = { path = "../api-bones-protos", version = "^0.9.0", registry = "brefwiz" }
+api-bones-protos = { path = "../api-bones-protos", version = "^0.9.1", registry = "brefwiz" }
 protox = "0.9"
 base64 = { version = "0.23", default-features = false, features = ["alloc"] }
