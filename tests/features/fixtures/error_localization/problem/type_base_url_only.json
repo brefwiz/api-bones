@@ -1,0 +1,1 @@
+{"type":"https://errors.example.org/rate-limited","title":"Too Many Requests","status":429,"detail":"seat limit reached"}

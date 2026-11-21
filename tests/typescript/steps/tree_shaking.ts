@@ -7,6 +7,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +17,14 @@ import { create } from "@bufbuild/protobuf";
 import { ConnectError, Code } from "@connectrpc/connect";
 import { rolldown } from "rolldown";
 
-import { FieldDefinitionSchema, isReplayableTransportFailure, validateDefinition } from "@brefwiz/api-bones-connect";
+import {
+  DEFAULT_LOCALE,
+  FieldDefinitionSchema,
+  PLATFORM_LOCALES,
+  isReplayableTransportFailure,
+  localize,
+  validateDefinition,
+} from "@brefwiz/api-bones-connect";
 import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
 
 import { policy } from "./csrf_fixtures.ts";
@@ -24,6 +32,9 @@ import { policy } from "./csrf_fixtures.ts";
 const dist = dirname(fileURLToPath(import.meta.resolve("@brefwiz/api-bones-connect")));
 const ENTRY_FILE: Readonly<Record<string, string>> = { root: "index.js", web: "web.js" };
 const FIELD_VALIDATION_MODULES = ["currency-codes", "validator", "@fhir-toolkit/ucum", "dist/fields.js"];
+const CATALOGS = resolve(dirname(fileURLToPath(import.meta.url)), "../../../api-bones-i18n/catalogs/errors");
+// One title per locale that no other locale shares.
+const DISTINCTIVE_KEY = "bones.errors.RATE_LIMITED.title";
 const PEERS = [/^@connectrpc\//, /^@bufbuild\//, /^@opentelemetry\//, /^@brefwiz\/spiffe-client/];
 
 interface TreeShakingWorld extends World {
@@ -92,4 +103,32 @@ Then("the browser transport still builds a callable transport", function () {
 Then("the field-validation API still reports a malformed definition key", function () {
   const violations = validateDefinition(create(FieldDefinitionSchema, { key: "Not A Slug" }));
   assert.ok(violations.some((violation) => violation.field === "/key"));
+});
+
+const titleIn = (locale: string): string =>
+  (JSON.parse(readFileSync(resolve(CATALOGS, `${locale}.json`), "utf8")) as Record<string, string>)[DISTINCTIVE_KEY]!;
+
+Then("the bundle carries the English platform error strings", function (this: TreeShakingWorld) {
+  const { code, modules } = this.bundle ?? { code: "", modules: [] };
+  assert.ok(modules.some((id) => id.includes("error-catalogs/en.generated")), "the English catalog is missing from the bundle");
+  assert.ok(code.includes(titleIn(DEFAULT_LOCALE)), "the English strings are missing from the bundle");
+});
+
+Then("the bundle carries no other platform locale's error strings", function (this: TreeShakingWorld) {
+  const { code, modules } = this.bundle ?? { code: "", modules: [] };
+  const others = PLATFORM_LOCALES.filter((locale) => locale !== DEFAULT_LOCALE);
+  assert.equal(others.length, 28);
+  for (const locale of others) {
+    assert.deepEqual(
+      modules.filter((id) => id.includes(`error-catalogs/${locale}.generated`)),
+      [],
+      `the ${locale} catalog module leaked into the bundle`,
+    );
+    assert.ok(!code.includes(titleIn(locale)), `the ${locale} strings leaked into the bundle`);
+  }
+});
+
+Then("the error renderer still renders English text", function () {
+  const rendered = localize(new ConnectError("dropped", Code.NotFound), "en");
+  assert.equal(rendered.text, "Not found");
 });

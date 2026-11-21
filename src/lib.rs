@@ -190,6 +190,9 @@ pub mod connect;
 #[cfg(feature = "connect-core")]
 pub mod sdk;
 
+#[cfg(feature = "i18n")]
+pub mod i18n;
+
 #[cfg(feature = "opentelemetry")]
 pub mod propagation;
 

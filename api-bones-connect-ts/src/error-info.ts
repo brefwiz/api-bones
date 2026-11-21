@@ -60,7 +60,43 @@ export type ErrorArgReason =
   | "invalid-key"
   | "string-too-long"
   | "non-finite-double"
-  | "invalid-timestamp";
+  | "invalid-timestamp"
+  | "string-forbidden-char"
+  | "int64-range"
+  | "malformed";
+
+/** The shared snake_case rule names of the argument bounds. */
+export type ErrorArgRule =
+  | "too_many_args"
+  | "arg_key_format"
+  | "string_too_long"
+  | "string_forbidden_char"
+  | "non_finite_double"
+  | "timestamp_range"
+  | "int64_range"
+  | "malformed_args";
+
+const ARG_RULES: Readonly<Record<ErrorArgReason, ErrorArgRule>> = {
+  "too-many": "too_many_args",
+  "invalid-key": "arg_key_format",
+  "string-too-long": "string_too_long",
+  "string-forbidden-char": "string_forbidden_char",
+  "non-finite-double": "non_finite_double",
+  "invalid-timestamp": "timestamp_range",
+  "int64-range": "int64_range",
+  malformed: "malformed_args",
+};
+
+const MIN_INT64 = -(2n ** 63n);
+const MAX_INT64 = 2n ** 63n - 1n;
+const FORBIDDEN_CHAR = /[\p{Cc}\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/u;
+
+function byteOrder(a: string, b: string): number {
+  const x = new TextEncoder().encode(a);
+  const y = new TextEncoder().encode(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i] - y[i];
+  return x.length - y.length;
+}
 
 /**
  * Error arguments out of bounds. Arguments are bounded on construction and on
@@ -68,6 +104,8 @@ export type ErrorArgReason =
  */
 export class ErrorArgError extends Error {
   override name = "ErrorArgError";
+  /** The shared snake_case rule name, equal across languages. */
+  readonly rule: ErrorArgRule;
 
   constructor(
     /** The bound that failed. */
@@ -76,6 +114,7 @@ export class ErrorArgError extends Error {
     readonly key?: string,
   ) {
     super(key === undefined ? `error arguments: ${reason}` : `error argument ${JSON.stringify(key)}: ${reason}`);
+    this.rule = ARG_RULES[reason];
   }
 }
 
@@ -84,9 +123,10 @@ function argProblem(key: string, arg: ErrorArg): ErrorArgReason | undefined {
   if (!ARG_KEY_PATTERN.test(key)) return "invalid-key";
   switch (arg.kind) {
     case "string":
-      return new TextEncoder().encode(arg.value).length > MAX_ERROR_ARG_STRING_BYTES
-        ? "string-too-long"
-        : undefined;
+      if (new TextEncoder().encode(arg.value).length > MAX_ERROR_ARG_STRING_BYTES) return "string-too-long";
+      return FORBIDDEN_CHAR.test(arg.value) ? "string-forbidden-char" : undefined;
+    case "int64":
+      return arg.value >= MIN_INT64 && arg.value <= MAX_INT64 ? undefined : "int64-range";
     case "double":
       return Number.isFinite(arg.value) ? undefined : "non-finite-double";
     case "timestamp":
@@ -112,8 +152,8 @@ function argProblem(key: string, arg: ErrorArg): ErrorArgReason | undefined {
  */
 export function validateErrorArgs(args: ReadonlyMap<string, ErrorArg>): void {
   if (args.size > MAX_ERROR_ARGS) throw new ErrorArgError("too-many");
-  for (const [key, arg] of args) {
-    const reason = argProblem(key, arg);
+  for (const key of [...args.keys()].sort(byteOrder)) {
+    const reason = argProblem(key, args.get(key) as ErrorArg);
     if (reason) throw new ErrorArgError(reason, key);
   }
 }
@@ -339,12 +379,32 @@ function decodeArg(bytes: Uint8Array): ErrorArg | null | undefined {
   return arg;
 }
 
+/** The `field`, `message` and `rule` strings of a validation failure; `undefined` when one is malformed text. */
+function failureScalars(
+  fields: Array<[number, WireValue]>,
+): { field: string; message: string; rule: string } | undefined {
+  const failure = { field: "", message: "", rule: "" };
+  for (const [field, wire] of fields) {
+    if (field < 1 || field > 3 || wire.type !== "len") continue;
+    const text = textOf(wire.value);
+    if (text === undefined) return undefined;
+    if (field === 1) failure.field = text;
+    else if (field === 2) failure.message = text;
+    else failure.rule = text;
+  }
+  return failure;
+}
+
 /**
  * Decode the `args` map entries among `fields`. `undefined` is malformed or
  * out of bounds; an entry with no value is dropped and the last duplicate key
  * wins.
  */
-function decodeArgs(fields: Array<[number, WireValue]>, field: number): Map<string, ErrorArg> | undefined {
+function decodeArgs(
+  fields: Array<[number, WireValue]>,
+  field: number,
+  check = true,
+): Map<string, ErrorArg> | undefined {
   const args = new Map<string, ErrorArg>();
   for (const [number, wire] of fields) {
     if (number !== field || wire.type !== "len") continue;
@@ -365,6 +425,7 @@ function decodeArgs(fields: Array<[number, WireValue]>, field: number): Map<stri
     }
     if (arg) args.set(key, arg);
   }
+  if (!check) return args;
   try {
     validateErrorArgs(args);
   } catch {
@@ -420,19 +481,35 @@ export function encodeValidationFailure(failure: ValidationFailureDetail): Uint8
   return Uint8Array.from(out);
 }
 
+/**
+ * A validation failure whose arguments break the bounds, or do not decode, is
+ * kept with the refusal in place of its arguments. `undefined` only when the
+ * message bytes are malformed.
+ */
+export function decodeValidationFailureKept(
+  bytes: Uint8Array,
+): (Omit<ValidationFailureDetail, "args"> & { args: ReadonlyMap<string, ErrorArg> | ErrorArgError }) | undefined {
+  const fields = wireFields(bytes);
+  if (!fields) return undefined;
+  const failure = failureScalars(fields);
+  if (!failure) return undefined;
+  const args = decodeArgs(fields, 4, false);
+  if (!args) return { ...failure, args: new ErrorArgError("malformed") };
+  try {
+    validateErrorArgs(args);
+  } catch (error) {
+    if (error instanceof ErrorArgError) return { ...failure, args: error };
+    throw error;
+  }
+  return { ...failure, args };
+}
+
 /** Decode a validation failure; `undefined` when malformed or the arguments break the bounds. */
 export function decodeValidationFailure(bytes: Uint8Array): ValidationFailureDetail | undefined {
   const fields = wireFields(bytes);
   if (!fields) return undefined;
-  const failure = { field: "", message: "", rule: "" };
-  for (const [field, wire] of fields) {
-    if (field < 1 || field > 3 || wire.type !== "len") continue;
-    const text = textOf(wire.value);
-    if (text === undefined) return undefined;
-    if (field === 1) failure.field = text;
-    else if (field === 2) failure.message = text;
-    else failure.rule = text;
-  }
+  const failure = failureScalars(fields);
+  if (!failure) return undefined;
   const args = decodeArgs(fields, 4);
   return args ? { ...failure, args } : undefined;
 }

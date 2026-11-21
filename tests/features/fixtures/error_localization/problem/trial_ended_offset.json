@@ -1,0 +1,1 @@
+{"type":"urn:api-bones:error:precondition-failed","title":"Precondition Failed","status":412,"detail":"seat limit reached","error_info":{"code":"TRIAL_ENDED","emitter":"acme","args":{"ended_at":{"timestampValue":"2026-11-20T15:05:00+01:00"}}}}

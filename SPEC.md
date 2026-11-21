@@ -12,6 +12,7 @@ generated_paths:
   - tests/typescript/generated/bones/v1/errors_pb.ts
   - tests/typescript/generated/bones/v1/fields_pb.ts
   - tests/typescript/generated/contract/v1/fields_pb.ts
+  - api-bones-connect-ts/src/error-catalogs/*.generated.ts  # embedded from api-bones-i18n/catalogs/errors by `npm run embed-catalogs`, committed so the module resolves before a build
 # The union of every sdk_surfaces target below, which the schema requires it
 # to equal.
 sdk_languages: [rust, typescript]
@@ -319,6 +320,32 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # Layer 2 error rendering (wire-contract-proto-connect decision 9, ARB-keys-10
+  # ruled A): a Connect error, a problem+json body or a ValidationFailure
+  # renders in the viewer's locale from the owner's catalog. Catalog key
+  # resolution, fallback, locale negotiation and argument bounds have one
+  # definition tested in both languages; CLDR plural/number/date formatting is
+  # native per language (CTO carve-out 2026-11-20). No `owns:` — this surface
+  # names no RPC endpoint.
+  error-localization:
+    contract: tests/features/error_localization.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-i18n, api-bones]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
+  # The TypeScript base module carries English only and every other platform
+  # catalog loads on demand through loadErrorCatalog. Rust embeds all 29
+  # catalogs at compile time and has nothing to load, so this surface is TS
+  # alone.
+  error-localization-loading:
+    contract: tests/features/error_localization_loading.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
 internal_behavior_owners:
   # The automation manifest compiler and its DSSE signature check are library
   # code the service-kit, the CLI and the layer embed directly; no declared
@@ -384,6 +411,9 @@ library_crates:
   - api-bones-automation
   - api-bones-batch
   - api-bones-fields
+  # Independent of api-bones majors (decision 12d precedent): the error
+  # catalogs and their renderer version on their own.
+  - api-bones-i18n
   - api-bones-page
   - api-bones-progenitor
   - api-bones-protos

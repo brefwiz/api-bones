@@ -1,0 +1,1 @@
+{"type":"urn:api-bones:error:conflict","title":"Conflict","status":409,"detail":"seat limit reached","error_info":{"code":"SEATS_EXHAUSTED","emitter":"acme","args":{"count":{"int64Value":"9007199254740993"}}}}

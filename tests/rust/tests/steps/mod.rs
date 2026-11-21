@@ -8,6 +8,7 @@ mod batch;
 mod csrf_replay_rule;
 mod delegation_templates;
 mod error_info;
+mod error_localization;
 mod field_labels;
 mod fleet_connect_bound;
 #[path = "../../../shared/keyed_write_contract.rs"]

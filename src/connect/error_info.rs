@@ -204,19 +204,9 @@ impl ValidationFailureDetail {
     /// input, or arguments that break the bounds, yield `None`.
     #[must_use]
     pub fn decode(bytes: &[u8]) -> Option<Self> {
-        let mut failure = Self::default();
-        for (field, value) in wire_fields(bytes)? {
-            match (field, value) {
-                (1, Wire::Len(payload)) => failure.field = text(payload)?,
-                (2, Wire::Len(payload)) => failure.message = text(payload)?,
-                (3, Wire::Len(payload)) => failure.rule = text(payload)?,
-                (4, Wire::Len(payload)) => {
-                    if let Some((name, arg)) = decode_arg_entry(payload).ok()? {
-                        failure.args.insert(name, arg);
-                    }
-                }
-                _ => {}
-            }
+        let (failure, args_decoded) = decode_failure_unchecked(bytes)?;
+        if !args_decoded {
+            return None;
         }
         validate_args(&failure.args).ok()?;
         Some(failure)
@@ -294,6 +284,13 @@ pub fn error_info(err: &ConnectError) -> Option<ErrorInfo> {
 /// count.
 #[must_use]
 pub fn violations_of(err: &ConnectError) -> Vec<ValidationFailureDetail> {
+    validation_failure_bytes(err)
+        .filter_map(|bytes| ValidationFailureDetail::decode(&bytes))
+        .collect()
+}
+
+/// The wire bytes of each `bones.v1.ValidationFailure` detail, in detail order.
+fn validation_failure_bytes(err: &ConnectError) -> impl Iterator<Item = Vec<u8>> + '_ {
     err.details
         .iter()
         .filter(|detail| {
@@ -305,13 +302,46 @@ pub fn violations_of(err: &ConnectError) -> Vec<ValidationFailureDetail> {
         })
         .filter_map(|detail| {
             let encoded = detail.value.as_deref()?;
-            let bytes = STANDARD_NO_PAD
+            STANDARD_NO_PAD
                 .decode(encoded)
                 .or_else(|_| STANDARD.decode(encoded))
-                .ok()?;
-            ValidationFailureDetail::decode(&bytes)
+                .ok()
         })
+}
+
+/// Every `bones.v1.ValidationFailure` detail that parses as a message, in
+/// detail order, with its arguments as sent. `false` marks an argument entry
+/// that does not decode (the arguments are then empty). Bounds are the
+/// caller's to check.
+#[cfg(feature = "i18n")]
+pub fn violations_unchecked(err: &ConnectError) -> Vec<(ValidationFailureDetail, bool)> {
+    validation_failure_bytes(err)
+        .filter_map(|bytes| decode_failure_unchecked(&bytes))
         .collect()
+}
+
+fn decode_failure_unchecked(bytes: &[u8]) -> Option<(ValidationFailureDetail, bool)> {
+    let mut failure = ValidationFailureDetail::default();
+    let mut args_decoded = true;
+    for (field, value) in wire_fields(bytes)? {
+        match (field, value) {
+            (1, Wire::Len(payload)) => failure.field = text(payload)?,
+            (2, Wire::Len(payload)) => failure.message = text(payload)?,
+            (3, Wire::Len(payload)) => failure.rule = text(payload)?,
+            (4, Wire::Len(payload)) => match decode_arg_entry(payload) {
+                Ok(Some((name, arg))) => {
+                    failure.args.insert(name, arg);
+                }
+                Ok(None) => {}
+                Err(Malformed) => args_decoded = false,
+            },
+            _ => {}
+        }
+    }
+    if !args_decoded {
+        failure.args.clear();
+    }
+    Some((failure, args_decoded))
 }
 
 fn is_error_info(detail: &ErrorDetail) -> bool {

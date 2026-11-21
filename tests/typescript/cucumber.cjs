@@ -4,7 +4,9 @@
 // default precondition, retry observability, undelivered-request replay and rate-limit retry are TypeScript-only entries.
 // The list-call mapping contract is TypeScript-only: it is a Layer 2 adapter of the TS package.
 // The package-shaking contract is TypeScript-only: Rust has no bundler.
-// The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation and stream-keepalive contracts are answered by both lanes.
+// The catalog-loading contract is TypeScript-only: Rust embeds every locale at compile time.
+// It runs before error_localization.feature, whose Background loads every catalog into the one module instance.
+// The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation, stream-keepalive and error-localization contracts are answered by both lanes.
 module.exports = {
   default: {
     paths: [
@@ -32,6 +34,8 @@ module.exports = {
       "../features/connect_stream_keepalive.feature",
       "../features/connect_tree_shaking.feature",
       "../features/connect_map_list_call.feature",
+      "../features/error_localization_loading.feature",
+      "../features/error_localization.feature",
     ],
     import: [
       "steps/retry_eligibility.ts",
@@ -58,6 +62,8 @@ module.exports = {
       "steps/stream_keepalive.ts",
       "steps/tree_shaking.ts",
       "steps/map_list_call.ts",
+      "steps/error_localization_loading.ts",
+      "steps/error_localization.ts",
     ],
     strict: true,
     // The summary formatter on stderr prints each failing scenario and its

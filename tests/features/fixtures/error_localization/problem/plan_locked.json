@@ -1,0 +1,1 @@
+{"type":"urn:api-bones:error:forbidden","title":"Forbidden","status":403,"detail":"seat limit reached","error_info":{"code":"PLAN_LOCKED","emitter":"acme","args":{"plan":{"stringValue":"team"}}}}
