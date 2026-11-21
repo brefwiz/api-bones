@@ -111,6 +111,33 @@ fn given_both_references(world: &mut FieldLabelsWorld, field: String, kind: Stri
     world.source = record_source(&field, &kind, options);
 }
 
+#[given(
+    expr = "a contract enum {string} whose value {string} is labelled output-only beside {string}"
+)]
+fn given_output_only_enum(
+    world: &mut FieldLabelsWorld,
+    name: String,
+    labelled: String,
+    siblings: String,
+) {
+    let mut values: Vec<String> = siblings
+        .split(", ")
+        .enumerate()
+        .map(|(number, value)| format!("{value} = {number};"))
+        .collect();
+    values.push(format!(
+        "{labelled} = {} [(bones.v1.output_only) = true];",
+        values.len()
+    ));
+    world.source = format!(
+        "syntax = \"proto3\";\npackage contract.v1;\n\
+         import \"bones/v1/annotations.proto\";\n\
+         enum {name} {{ {} }}\n\
+         message Record {{ string id = 1; }}\n",
+        values.join(" ")
+    );
+}
+
 #[given("the shipped field vocabulary")]
 fn given_vocabulary(world: &mut FieldLabelsWorld) {
     world.source = record_source("id", "string", "");
@@ -187,6 +214,47 @@ fn then_format(world: &mut FieldLabelsWorld, expected: String) {
         .name()
         .to_owned();
     assert_eq!(name, expected);
+}
+
+fn output_only_of(pool: &DescriptorPool, enum_name: &str, value: &str) -> Option<bool> {
+    let ext = pool
+        .get_extension_by_name("bones.v1.output_only")
+        .expect("output_only extension");
+    let options = pool
+        .get_enum_by_name(enum_name)
+        .unwrap_or_else(|| panic!("{enum_name} is not declared"))
+        .get_value_by_name(value)
+        .unwrap_or_else(|| panic!("{value} is not declared"))
+        .options();
+    options
+        .has_extension(&ext)
+        .then(|| options.get_extension(&ext).as_bool().expect("a bool"))
+}
+
+#[then(expr = "the enum value {string} of {string} reads back as output-only")]
+fn then_output_only(world: &mut FieldLabelsWorld, value: String, enum_name: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    assert_eq!(output_only_of(pool, &enum_name, &value), Some(true));
+}
+
+#[then(expr = "the enum value {string} of {string} is not output-only")]
+fn then_not_output_only(world: &mut FieldLabelsWorld, value: String, enum_name: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    assert_eq!(output_only_of(pool, &enum_name, &value), None);
+}
+
+#[then(expr = "the enum value options it declares are {string}")]
+fn then_enum_value_options(world: &mut FieldLabelsWorld, expected: String) {
+    let pool = world.pool.as_ref().expect("the record was not read back");
+    let found = pool
+        .all_extensions()
+        .filter(|e| {
+            e.package_name() == "bones.v1"
+                && e.containing_message().full_name() == "google.protobuf.EnumValueOptions"
+        })
+        .map(|e| e.name().to_owned())
+        .collect();
+    assert_eq!(names(found), expected);
 }
 
 #[then(expr = "the field reference reads back as the field {string}")]

@@ -953,6 +953,15 @@ extend google.protobuf.FieldOptions {
   FieldReference references = 5102378;
 }
 
+extend google.protobuf.EnumValueOptions {
+  // This enum value is output-only: the service reports it, but no request
+  // may set it. A consumer that builds or validates a request, such as a
+  // Terraform provider's schema or a conformance sampler, leaves it out of
+  // the values a caller may choose; one that decodes a response still accepts
+  // it. Absent reads as false: the value is settable.
+  bool output_only = 5102379;
+}
+
 // One capability a service depends on, and the authority it intends to
 // exercise against it.
 //

@@ -547,6 +547,7 @@ mod tests {
             "string nested_write_of = 5102373;",
             "ValueFormat format = 5102377;",
             "FieldReference references = 5102378;",
+            "bool output_only = 5102379;",
         ] {
             assert!(body.contains(line), "annotations.proto missing `{line}`");
         }
