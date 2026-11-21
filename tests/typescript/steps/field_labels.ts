@@ -125,6 +125,19 @@ Given(
   },
 );
 
+Given(
+  "a contract enum {string} whose value {string} is labelled output-only beside {string}",
+  function (this: FieldLabelsWorld, name: string, labelled: string, siblings: string) {
+    const values = siblings.split(", ").map((value, number) => `${value} = ${number};`);
+    values.push(`${labelled} = ${values.length} [(bones.v1.output_only) = true];`);
+    this.source =
+      `syntax = "proto3";\npackage contract.v1;\n` +
+      `import "bones/v1/annotations.proto";\n` +
+      `enum ${name} { ${values.join(" ")} }\n` +
+      `message Record { string id = 1; }\n`;
+  },
+);
+
 Given("the shipped field vocabulary", function (this: FieldLabelsWorld) {
   this.source = recordSource("id", "string", "");
 });
@@ -197,6 +210,45 @@ Then("the field reference reads back as the field {string}", function (this: Fie
 
 Then("the field reference reads back as a principal of the caller's organization", function (this: FieldLabelsWorld) {
   assert.deepEqual(referenceTarget(this), { case: "principal", value: true });
+});
+
+/** The `output_only` label of one enum value, absent when the value carries none. */
+function outputOnlyOf(world: FieldLabelsWorld, enumName: string, valueName: string): boolean | undefined {
+  const found = registryOf(world).getEnum(enumName);
+  if (!found) throw new Error(`${enumName} is not declared`);
+  const value = found.values.find((v) => v.name === valueName);
+  if (!value) throw new Error(`${valueName} is not declared`);
+  const options = value.proto.options;
+  const extension = extensionOf(world, "bones.v1.output_only");
+  return options && hasExtension(options, extension) ? (getExtension(options, extension) as boolean) : undefined;
+}
+
+Then(
+  "the enum value {string} of {string} reads back as output-only",
+  function (this: FieldLabelsWorld, value: string, enumName: string) {
+    assert.equal(outputOnlyOf(this, enumName, value), true);
+  },
+);
+
+Then(
+  "the enum value {string} of {string} is not output-only",
+  function (this: FieldLabelsWorld, value: string, enumName: string) {
+    assert.equal(outputOnlyOf(this, enumName, value), undefined);
+  },
+);
+
+Then("the enum value options it declares are {string}", function (this: FieldLabelsWorld, expected: string) {
+  const found: string[] = [];
+  for (const item of registryOf(this)) {
+    if (
+      item.kind === "extension" &&
+      item.extendee.typeName === "google.protobuf.EnumValueOptions" &&
+      item.file.proto.package === "bones.v1"
+    ) {
+      found.push(item.name);
+    }
+  }
+  assert.equal(sorted(found), expected);
 });
 
 Then("the field meaning reads back as {string}", function (this: FieldLabelsWorld, expected: string) {

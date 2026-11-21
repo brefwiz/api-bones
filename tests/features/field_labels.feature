@@ -72,6 +72,18 @@ Feature: Field labels
     When the record is read back through descriptor reflection
     Then the field reference reads back as a principal of the caller's organization
 
+  Scenario: An enum value labelled output-only reads back as output-only and its siblings stay settable
+    Given a contract enum "Scope" whose value "SCOPE_SPECIFIC" is labelled output-only beside "SCOPE_UNSPECIFIED, SCOPE_SELF"
+    When the record is read back through descriptor reflection
+    Then the enum value "SCOPE_SPECIFIC" of "contract.v1.Scope" reads back as output-only
+    And the enum value "SCOPE_SELF" of "contract.v1.Scope" is not output-only
+    And the enum value "SCOPE_UNSPECIFIED" of "contract.v1.Scope" is not output-only
+
+  Scenario: The shipped enum value options are exactly output-only
+    Given the shipped field vocabulary
+    When the vocabulary is read back through descriptor reflection
+    Then the enum value options it declares are "output_only"
+
   @state:error
   Scenario: A field reference naming both a field and a principal is refused at compile
     Given a record field "owner_id" of type "string" labelled with a reference to both a field and a principal
