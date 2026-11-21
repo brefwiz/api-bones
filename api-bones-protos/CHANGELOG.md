@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-11-21
+
+### Added
+
+- *(protos)* bones.v1.error_args declares an error code's typed arguments
+
 ## [0.9.1] - 2026-11-21
 
 ### Added
