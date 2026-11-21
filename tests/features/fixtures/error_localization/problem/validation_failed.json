@@ -1,0 +1,1 @@
+{"type":"urn:api-bones:error:validation-failed","title":"Validation Failed","status":400,"detail":"seat limit reached","errors":[{"field":"/seats","message":"must be at most 10","rule":"max","args":{"max":{"int64Value":"10"}}},{"field":"/name","message":"unknown rule","rule":"zzz_unknown"}]}

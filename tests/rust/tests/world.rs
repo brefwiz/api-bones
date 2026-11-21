@@ -143,6 +143,33 @@ pub struct ErrorInfoWorld {
     pub built: Option<String>,
 }
 
+/// What the error-localization contract renders, and how each step ended.
+#[derive(Debug, Default, World)]
+pub struct LocalizationWorld {
+    pub subject: Option<LocalizationSubject>,
+    /// The violations of the subject, once read.
+    pub violations: Vec<api_bones_i18n::Violation>,
+    pub localized: Option<api_bones_i18n::Localized>,
+    /// The rule a refused `time_zone` option or argument construction named.
+    pub refused: Option<String>,
+    /// Whether building the arguments succeeded; `Err` carries the rule.
+    pub built: Option<Result<(), String>>,
+    pub registry: Option<serde_json::Value>,
+    /// `(request, negotiated, expected)` per negotiated registry entry.
+    pub negotiated: Vec<(String, String, String)>,
+    /// What the empty request negotiated to.
+    pub negotiated_empty: Option<String>,
+    pub cldr_pin: Option<String>,
+}
+
+/// What `localize` is given.
+#[derive(Debug)]
+pub enum LocalizationSubject {
+    Connect(ConnectError),
+    Problem(api_bones::ProblemJson),
+    Failure(ValidationFailureDetail),
+}
+
 /// What an SDK error type built from the failure exposes.
 #[derive(Debug)]
 pub struct ReadError {

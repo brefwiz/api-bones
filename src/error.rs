@@ -783,6 +783,13 @@ pub enum ErrorArgError {
         /// The value length in bytes.
         len: usize,
     },
+    /// A string value holding a control character (Unicode general category
+    /// Cc) or a bidirectional-formatting code point (U+061C, U+200E, U+200F,
+    /// U+202A..=U+202E, U+2066..=U+2069).
+    StringForbiddenChar {
+        /// The argument name.
+        key: String,
+    },
     /// A `NaN` or infinite double value. A catalog message cannot format one.
     NonFiniteDouble {
         /// The argument name.
@@ -794,6 +801,23 @@ pub enum ErrorArgError {
         /// The argument name.
         key: String,
     },
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl ErrorArgError {
+    /// The rule name the shared error-localization contract uses, the same
+    /// set `api_bones_i18n::ArgRule::as_str` names.
+    #[must_use]
+    pub const fn rule(&self) -> &'static str {
+        match self {
+            Self::TooMany { .. } => "too_many_args",
+            Self::InvalidKey { .. } => "arg_key_format",
+            Self::StringTooLong { .. } => "string_too_long",
+            Self::StringForbiddenChar { .. } => "string_forbidden_char",
+            Self::NonFiniteDouble { .. } => "non_finite_double",
+            Self::InvalidTimestamp { .. } => "timestamp_range",
+        }
+    }
 }
 
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -810,6 +834,10 @@ impl fmt::Display for ErrorArgError {
             Self::StringTooLong { key, len } => write!(
                 f,
                 "error argument {key:?} is {len} bytes, over the {MAX_ERROR_ARG_STRING_BYTES} byte limit"
+            ),
+            Self::StringForbiddenChar { key } => write!(
+                f,
+                "error argument {key:?} holds a control or bidirectional-formatting character"
             ),
             Self::NonFiniteDouble { key } => {
                 write!(f, "error argument {key:?} is not a finite number")
@@ -836,8 +864,8 @@ impl core::error::Error for ErrorArgError {}
 /// proto3 JSON mapping: `{"stringValue": "x"}`, `{"int64Value": "5"}`,
 /// `{"doubleValue": 1.5}` or `{"timestampValue": "1970-01-02T03:04:05Z"}`. An
 /// `int64` is a decimal string, so no JSON number loses precision above
-/// 2^53; a number is accepted when read. A timestamp is RFC 3339 in UTC. A
-/// double is always finite: `NaN` and infinity are refused on every surface.
+/// 2^53; a number is refused when read. A timestamp is RFC 3339 in UTC. A
+/// double is a JSON number, never a string, and always finite: `NaN` and infinity are refused on every surface.
 ///
 /// Equality is bitwise on a `Double`, so the type is `Eq`.
 ///
@@ -932,12 +960,22 @@ impl From<chrono::DateTime<chrono::Utc>> for ErrorArg {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
+fn forbidden_arg_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}'
+        )
+}
+
 /// Check one argument against the bounds.
 ///
 /// # Errors
 ///
 /// [`ErrorArgError`] for an invalid name, a string over
-/// [`MAX_ERROR_ARG_STRING_BYTES`], a non-finite double or an out-of-range
+/// [`MAX_ERROR_ARG_STRING_BYTES`], a string holding a control or
+/// bidirectional-formatting character, a non-finite double or an out-of-range
 /// timestamp.
 ///
 /// # Examples
@@ -964,6 +1002,11 @@ pub fn validate_arg(key: &str, value: &ErrorArg) -> Result<(), ErrorArgError> {
             Err(ErrorArgError::StringTooLong {
                 key: key.to_owned(),
                 len: text.len(),
+            })
+        }
+        ErrorArg::String(text) if text.chars().any(forbidden_arg_char) => {
+            Err(ErrorArgError::StringForbiddenChar {
+                key: key.to_owned(),
             })
         }
         ErrorArg::Double(number) if !number.is_finite() => Err(ErrorArgError::NonFiniteDouble {
@@ -1003,12 +1046,12 @@ pub(crate) fn insert_arg(
     name: String,
     value: ErrorArg,
 ) -> Result<(), ErrorArgError> {
-    validate_arg(&name, &value)?;
     if !args.contains_key(&name) && args.len() >= MAX_ERROR_ARGS {
         return Err(ErrorArgError::TooMany {
             max: MAX_ERROR_ARGS,
         });
     }
+    validate_arg(&name, &value)?;
     args.insert(name, value);
     Ok(())
 }
@@ -1044,36 +1087,30 @@ mod arg_json {
                 fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                     f.write_str("a decimal int64 string")
                 }
-                fn visit_i64<E: de::Error>(self, v: i64) -> Result<i64, E> {
-                    Ok(v)
-                }
-                fn visit_u64<E: de::Error>(self, v: u64) -> Result<i64, E> {
-                    i64::try_from(v).map_err(E::custom)
-                }
                 fn visit_str<E: de::Error>(self, v: &str) -> Result<i64, E> {
-                    v.parse().map_err(E::custom)
+                    let digits = v.strip_prefix('-').unwrap_or(v);
+                    let canonical = match digits.as_bytes() {
+                        [b'0'] => true,
+                        [b'1'..=b'9', rest @ ..] => rest.iter().all(u8::is_ascii_digit),
+                        _ => false,
+                    };
+                    if canonical {
+                        v.parse().map_err(E::custom)
+                    } else {
+                        Err(E::custom("an int64 is a canonical decimal string"))
+                    }
                 }
             }
-            d.deserialize_any(V)
+            d.deserialize_str(V)
         }
     }
 
     mod double {
         use super::{Deserialize, Deserializer, de::Error as _};
 
-        /// A JSON number, or the string form proto3 JSON also accepts.
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Wire {
-            Number(f64),
-            Text(String),
-        }
-
+        /// A finite JSON number; the string form is refused.
         pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
-            let value = match Wire::deserialize(d)? {
-                Wire::Number(v) => v,
-                Wire::Text(text) => text.parse().map_err(D::Error::custom)?,
-            };
+            let value = f64::deserialize(d)?;
             if value.is_finite() {
                 Ok(value)
             } else {
@@ -3937,8 +3974,6 @@ mod error_arg_json_tests {
     #[test]
     fn readers_accept_the_alternate_proto3_json_forms() {
         let from = |v: Value| serde_json::from_value::<ErrorArg>(v).unwrap();
-        assert_eq!(from(json!({"int64Value": 5})), ErrorArg::Int64(5));
-        assert_eq!(from(json!({"doubleValue": "1.5"})), ErrorArg::Double(1.5));
         assert_eq!(from(json!({"doubleValue": 2})), ErrorArg::Double(2.0));
         assert_eq!(
             from(json!({"timestampValue": "1970-01-01T01:00:00+01:00"})),
@@ -3961,7 +3996,13 @@ mod error_arg_json_tests {
         bad(json!({"stringValue": "a", "int64Value": "1"}));
         bad(json!({"string_value": "a"}));
         bad(json!({"int64Value": "five"}));
+        bad(json!({"int64Value": 5}));
+        bad(json!({"int64Value": "+5"}));
+        bad(json!({"int64Value": "05"}));
+        bad(json!({"int64Value": "-"}));
+        bad(json!({"int64Value": ""}));
         bad(json!({"int64Value": "9223372036854775808"}));
+        bad(json!({"doubleValue": "1.5"}));
         bad(json!({"doubleValue": "NaN"}));
         bad(json!({"doubleValue": "Infinity"}));
         bad(json!({"doubleValue": "-Infinity"}));
@@ -4035,6 +4076,76 @@ mod error_arg_json_tests {
             ErrorArgError::TooMany { max: 32 }
                 .to_string()
                 .contains("32")
+        );
+    }
+
+    #[test]
+    fn forbidden_characters_in_strings_are_refused() {
+        for text in [
+            "a\u{0007}b",
+            "a\u{0000}",
+            "a\u{061C}",
+            "\u{200E}",
+            "\u{202A}",
+            "\u{202E}",
+            "\u{2066}",
+            "\u{2069}",
+        ] {
+            assert_eq!(
+                validate_arg("note", &ErrorArg::from(text)),
+                Err(ErrorArgError::StringForbiddenChar { key: "note".into() }),
+                "{text:?}"
+            );
+        }
+        for text in ["plain", "tab\u{2028}ok", "\u{202F}", "\u{200D}", "\u{206A}"] {
+            assert_eq!(
+                validate_arg("note", &ErrorArg::from(text)),
+                Ok(()),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn with_arg_failures_name_the_contract_rule_in_check_order() {
+        let long = "x".repeat(MAX_ERROR_ARG_STRING_BYTES + 1);
+        let rule =
+            |key: &str, value: ErrorArg| validate_arg(key, &value).expect_err("refused").rule();
+        assert_eq!(rule("Bad", ErrorArg::from("ok")), "arg_key_format");
+        assert_eq!(rule("k", ErrorArg::from(long.as_str())), "string_too_long");
+        assert_eq!(
+            rule("k", ErrorArg::from(format!("{long}\u{0007}"))),
+            "string_too_long"
+        );
+        assert_eq!(
+            rule("k", ErrorArg::from("\u{0007}")),
+            "string_forbidden_char"
+        );
+        assert_eq!(
+            rule("k", ErrorArg::Double(f64::INFINITY)),
+            "non_finite_double"
+        );
+        assert_eq!(
+            rule(
+                "k",
+                ErrorArg::Timestamp {
+                    seconds: 253_402_300_800,
+                    nanos: 0
+                }
+            ),
+            "timestamp_range"
+        );
+        assert_eq!(ErrorArgError::TooMany { max: 32 }.rule(), "too_many_args");
+
+        let mut full = ErrorInfoMember::new("X", "");
+        for i in 0..MAX_ERROR_ARGS {
+            full = full.with_arg(format!("k{i}"), 1_i64).unwrap();
+        }
+        assert_eq!(
+            full.with_arg("Bad", "\u{0007}")
+                .expect_err("refused")
+                .rule(),
+            "too_many_args"
         );
     }
 

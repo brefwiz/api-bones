@@ -26,6 +26,9 @@
     "LICENSE"
   ],
   "scripts": {
+    "embed-catalogs": "node scripts/embed-catalogs.mjs",
+    "prebuild": "npm run embed-catalogs",
+    "pretest": "npm run embed-catalogs",
     "build": "tsc",
     "test": "vitest run"
   },
@@ -64,9 +67,11 @@
     "nanoid": "^3.3.18"
   },
   "dependencies": {
+    "@fhir-toolkit/ucum": "^0.2.0",
+    "@formatjs/icu-messageformat-parser": "^3.5.23",
     "@opentelemetry/api": ">=1.9.0 <1.10.0",
     "currency-codes": "^2.2.0",
-    "validator": "^13.15.15",
-    "@fhir-toolkit/ucum": "^0.2.0"
+    "intl-messageformat": "^12.2.0",
+    "validator": "^13.15.15"
   }
 }

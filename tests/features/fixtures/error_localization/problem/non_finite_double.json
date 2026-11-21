@@ -1,0 +1,1 @@
+{"type":"urn:api-bones:error:resource-already-exists","title":"Conflict","status":409,"detail":"seat limit reached","error_info":{"code":"QUOTA_USED","emitter":"acme","args":{"used":{"int64Value":"1"},"limit":{"int64Value":"2"},"ratio":{"doubleValue":"NaN"}}}}

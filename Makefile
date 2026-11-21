@@ -64,6 +64,12 @@ ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the cove
 	# not accept. ci-e2e-rust runs them.
 	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
 
+# Debuginfo off: this lane links every contract and internal-bdd test binary
+# (each carries the localization crate's CLDR data), and the CI worker's target
+# volume is bounded. Nothing debugs these runs. The profile env survives a
+# recipe that replaces RUSTFLAGS, as the platform's own build actions rely on.
+ci-e2e-rust: export CARGO_PROFILE_DEV_DEBUG := 0
+ci-e2e-rust: export CARGO_PROFILE_TEST_DEBUG := 0
 ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctests
 	# A cucumber suite is its own harness (harness = false), so nextest cannot
 	# carry it. Both contracts are pure classification/config assertions, so
@@ -82,6 +88,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_retry_eligibility
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_precondition
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_error_info
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test error_localization
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_csrf_replay_rule
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_pinned_peer
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test field_labels

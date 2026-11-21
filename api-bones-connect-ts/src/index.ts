@@ -44,9 +44,31 @@ export {
   type CarriesErrorInfo,
   type ErrorArg,
   type ErrorArgReason,
+  type ErrorArgRule,
   type ErrorInfo,
   type ValidationFailureDetail,
 } from "./error-info.js";
+
+export {
+  DEFAULT_LOCALE,
+  LOCALE_ALIASES,
+  LocalizeOptionsError,
+  PLATFORM_LOCALES,
+  errorArgs,
+  loadErrorCatalog,
+  localize,
+  negotiateLocale,
+  registerErrorCatalogs,
+  type ErrorArgValue,
+  type ErrorCatalogLoader,
+  type ErrorArgs,
+  type Localizable,
+  type ProblemJson,
+  type ValidationFailure,
+  type Violation,
+} from "./error-localization.js";
+
+export * as i18n from "./error-localization.js";
 
 export {
   MAX_CONNECT_GET_URL_BYTES,

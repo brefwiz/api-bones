@@ -1,0 +1,1 @@
+{"type":"urn:api-bones:error:rate-limited","title":"Too Many Requests","status":429,"detail":"seat limit reached","error_info":{"code":"QUOTA_USED","emitter":"acme","args":{"used":{"int64Value":"1234"},"limit":{"int64Value":"5000"},"ratio":{"doubleValue":0.25}}}}

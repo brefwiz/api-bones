@@ -1,0 +1,6 @@
+{
+  "source": "core-ui@8e3478d5f8c2e12fb793f66623bf4612c0ea9c33:src/i18n/platformLocales.ts",
+  "default": "en",
+  "locales": ["en", "fr", "de", "es", "it", "pt-BR", "nl", "sv", "da", "fi", "nb", "pl", "cs", "sk", "sl", "hr", "hu", "ro", "bg", "el", "et", "lv", "lt", "tr", "ja", "ko", "zh-Hans", "he", "ar"],
+  "aliases": {"no": "nb", "nn": "nb", "iw": "he", "pt": "pt-BR", "zh": "zh-Hans", "zh-cn": "zh-Hans", "zh-sg": "zh-Hans"}
+}

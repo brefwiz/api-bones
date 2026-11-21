@@ -68,6 +68,8 @@ mod error_info;
 mod etag;
 mod ext;
 mod get_read_client;
+#[cfg(feature = "i18n")]
+mod i18n;
 mod keepalive;
 mod page;
 mod parse;
