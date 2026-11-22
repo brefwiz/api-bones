@@ -281,7 +281,13 @@ ts-test: ts-types-generate ## Test TypeScript packages
 	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
 	: '@brefwiz/api-bones-connect through its published entry points, so the'
 	: 'package it depends on is built first.'
-	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build
+	@echo "==> prebuild connect"; log=$$(mktemp); \
+	if ( cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build ) >"$$log" 2>&1; then \
+		cat "$$log"; rm -f "$$log"; \
+	else \
+		rc=$$?; cat "$$log"; rm -f "$$log"; \
+		echo "TEST-FAIL api-bones-connect-ts exit=$$rc" >&2; exit 1; \
+	fi
 	@set -e; for pkg in $(TS_TEST_PACKAGES); do \
 		echo "==> test $$pkg"; \
 		log=$$(mktemp); \

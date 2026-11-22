@@ -44,7 +44,7 @@ import {
 } from "./retry.js";
 import { makePreconditionInterceptor } from "./precondition.js";
 import { makeStreamKeepaliveInterceptor } from "./stream-keepalive.js";
-import { pinnedPeerTlsOptions, startWatcherSafe, type PinnedPeer } from "@brefwiz/spiffe-client";
+import { pinnedPeerTlsOptions, startWatcherSafe, type PeerPathRule, type PinnedPeer } from "@brefwiz/spiffe-client";
 import { clientTlsIdentityFor, WATCHER_ATTEMPTS, WorkloadIdentityError } from "./workload-identity.js";
 
 // Workload API identity reads the local SPIFFE socket and validates X.509 with
@@ -153,6 +153,13 @@ export interface NodeConnectTransportOptions {
    * connection.
    */
   pinnedPeer?: PinnedPeer;
+  /**
+   * Admits the path an in-fleet server's leaf was issued through. Required
+   * whenever the transport takes its identity from the Workload API (an
+   * `https://` base URL with neither `tls` nor `pinnedPeer`); the caller
+   * supplies it and this package never defaults it.
+   */
+  pathRule?: PeerPathRule;
   /**
    * Per-call deadline in milliseconds, applied when the caller sets none.
    *
@@ -297,6 +304,12 @@ export async function configureNodeConnectTransport(
   }
 
   if (tlsSource === undefined && isTls) {
+    const pathRule = opts.pathRule;
+    if (pathRule === undefined) {
+      throw new Error(
+        "configureNodeConnectTransport: an in-fleet https:// transport needs `pathRule`",
+      );
+    }
     const watcher = await startWatcherSafe(WATCHER_ATTEMPTS);
     if (watcher === null) {
       throw new WorkloadIdentityError(
@@ -306,7 +319,7 @@ export async function configureNodeConnectTransport(
         "workload_api_unavailable",
       );
     }
-    tlsSource = () => clientTlsIdentityFor(watcher);
+    tlsSource = () => clientTlsIdentityFor(watcher, pathRule);
   }
 
   if (httpVersion === "1.1") {

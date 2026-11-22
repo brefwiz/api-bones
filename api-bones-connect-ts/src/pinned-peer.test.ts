@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { pinnedPeerTlsOptions } from "@brefwiz/spiffe-client";
+import { pinnedPeerTlsOptions, type PeerPathRule } from "@brefwiz/spiffe-client";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { authority } from "../../tests/typescript/steps/pinned_peer_fixtures.ts";
@@ -16,6 +16,7 @@ import { configureNodeConnectTransport } from "./node.js";
 import { resolveTlsIdentity } from "./node-diagnostics.js";
 
 const PEER = "spiffe://prod.example/svc/signer";
+const admit: PeerPathRule = () => {};
 
 const dir = mkdtempSync(join(tmpdir(), "pinned-peer-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -26,7 +27,7 @@ const base = { profile: "service" as const, baseUrl: "https://signer.example" };
 describe("configureNodeConnectTransport pinnedPeer", () => {
   it("is exclusive of tls", async () => {
     await expect(
-      configureNodeConnectTransport({ ...base, tls: {}, pinnedPeer: { bundle, peer: PEER } }),
+      configureNodeConnectTransport({ ...base, tls: {}, pinnedPeer: { bundle, peer: PEER, pathRule: admit } }),
     ).rejects.toThrow(/exclusive/);
   });
 
@@ -35,7 +36,7 @@ describe("configureNodeConnectTransport pinnedPeer", () => {
       configureNodeConnectTransport({
         ...base,
         baseUrl: "http://signer.example",
-        pinnedPeer: { bundle, peer: PEER },
+        pinnedPeer: { bundle, peer: PEER, pathRule: admit },
       }),
     ).rejects.toThrow(/https/);
   });
@@ -44,18 +45,18 @@ describe("configureNodeConnectTransport pinnedPeer", () => {
     await expect(
       configureNodeConnectTransport({
         ...base,
-        pinnedPeer: { bundle, peer: "spiffe://prod.example/svc/*" },
+        pinnedPeer: { bundle, peer: "spiffe://prod.example/svc/*", pathRule: admit },
       }),
     ).rejects.toMatchObject({ kind: "invalid_peer_id" });
     await expect(
-      configureNodeConnectTransport({ ...base, pinnedPeer: { bundle: "", peer: PEER } }),
+      configureNodeConnectTransport({ ...base, pinnedPeer: { bundle: "", peer: PEER, pathRule: admit } }),
     ).rejects.toMatchObject({ kind: "invalid_trust_bundle" });
   });
 
   it("builds a transport without reading the Workload API", async () => {
     const transport = await configureNodeConnectTransport({
       ...base,
-      pinnedPeer: { bundle, peer: PEER },
+      pinnedPeer: { bundle, peer: PEER, pathRule: admit },
     });
     expect(transport).toHaveProperty("unary");
   });
@@ -63,7 +64,7 @@ describe("configureNodeConnectTransport pinnedPeer", () => {
 
 describe("the connection options of a pin", () => {
   it("reach a connection with their session scope and TLS floor intact", () => {
-    const options = pinnedPeerTlsOptions({ bundle, peer: PEER });
+    const options = pinnedPeerTlsOptions({ bundle, peer: PEER, pathRule: admit });
     expect(resolveTlsIdentity(options)).toBe(options);
     expect(options.sessionIdContext).toBeDefined();
     expect(options.minVersion).toBe("TLSv1.2");

@@ -10,6 +10,7 @@
 
 ### Changed
 
+- **BREAKING** Require `@brefwiz/spiffe-client` `^0.46.0` and take the peer path rule from the caller: `clientTlsIdentityFor`, `workloadClientTlsIdentity`, `workloadPeerFor` and `workloadPeer` gain a required `pathRule: PeerPathRule` parameter, and an in-fleet `configureNodeConnectTransport` needs `pathRule` (a `pinnedPeer` carries its own). The caller injects the peer path rule; api-bones never defaults it. The identity `clientTlsIdentityFor` returns carries the SPIFFE client's server verification (`checkServerIdentity`, `rejectUnauthorized`, `allowPartialTrustChain`), so on both HTTP versions an in-fleet handshake refuses a server whose path the rule refuses or whose SPIFFE ID is outside the caller's trust domain.
 - Refuse generated List and declared finite-list stream methods without a paging policy entry, naming the method in `PagingPolicyError`.
 - **BREAKING** Change `bones.v1.Total.Kind` proto3 JSON names from `ESTIMATE` and `EXACT` to `KIND_ESTIMATE` and `KIND_EXACT`, and map page total kinds through the generated enum. Wire numbers 1 and 2 remain unchanged.
 

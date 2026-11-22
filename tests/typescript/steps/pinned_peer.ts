@@ -163,7 +163,7 @@ function pinnedOptions(world: PinnedPeerWorld, peer: string, baseUrl: string) {
     policy,
     httpVersion: "1.1" as const,
     retry: { initialDelayMs: 0, maxDelayMs: 0 },
-    pinnedPeer: { bundle: world.bundle, peer },
+    pinnedPeer: { bundle: world.bundle, peer, pathRule: () => {} },
   };
 }
 
