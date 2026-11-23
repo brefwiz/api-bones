@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [20.0.0] - 2026-11-23
+
+### Added
+
+- *(connect-ts)* [**breaking**] caller injects the peer path rule required by spiffe-client 0.46
+
+### Breaking changes merged after the version was prepared
+
+- feat(connect-ts)!: caller injects the peer path rule required by spiffe-client 0.46
+
 ## [19.1.0] - 2026-11-21
 
 ### Added

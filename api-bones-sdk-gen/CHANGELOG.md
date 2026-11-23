@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [4.4.8] - 2026-11-23
+
+### Other
+
+- update Cargo.lock dependencies
+
 ## [4.4.7] - 2026-11-21
 
 ### Other
