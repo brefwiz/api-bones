@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: MIT
+import type { PeerPathRule } from "@brefwiz/spiffe-client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  inDomainPeerPatterns,
   WATCHER_ATTEMPTS,
   WorkloadIdentityError,
   workloadClientTlsIdentity,
   workloadPeer,
 } from "./workload-identity.js";
 import { configureNodeConnectTransport } from "./node.js";
+
+const checkServerIdentity = vi.fn();
 
 // The 0.44 SPIFFE client takes the attempt count alone; the socket is fixed.
 // A leading `undefined` would be read as the attempt count, so each call site
@@ -17,17 +21,23 @@ vi.mock("@brefwiz/spiffe-client", async () => {
   return {
     ...actual,
     startWatcherSafe: vi.fn(),
-    tlsClientConfigFromWatcher: vi.fn((_watcher: unknown, allowedServerIds: string[]) => ({
+    tlsClientConfigFromWatcher: vi.fn((_watcher: unknown, allowedServerIds: string[], pathRule: PeerPathRule) => ({
       cert: "CERT-PEM",
       key: "KEY-PEM",
       ca: "CA-PEM",
+      allowPartialTrustChain: true,
+      rejectUnauthorized: true,
+      checkServerIdentity,
       allowedServerIds,
+      pathRule,
     })),
   };
 });
 
 const { startWatcherSafe, tlsClientConfigFromWatcher } = await import("@brefwiz/spiffe-client");
 const startWatcher = vi.mocked(startWatcherSafe);
+
+const admit: PeerPathRule = () => {};
 
 const OWN_ID = "spiffe://prod.example/o/acme/svc/bff";
 const watcher = { current: () => ({ spiffeId: OWN_ID }) } as never;
@@ -41,7 +51,7 @@ describe("workloadClientTlsIdentity", () => {
   it("starts the watcher with the attempt count alone and refuses when none answers", async () => {
     startWatcher.mockResolvedValue(null);
 
-    await expect(workloadClientTlsIdentity()).rejects.toMatchObject({
+    await expect(workloadClientTlsIdentity(admit)).rejects.toMatchObject({
       name: "WorkloadIdentityError",
       kind: "workload_api_unavailable",
     });
@@ -53,14 +63,17 @@ describe("workloadClientTlsIdentity", () => {
   it("starts the watcher with the attempt count alone and derives the identity from it", async () => {
     startWatcher.mockResolvedValue(watcher);
 
-    await expect(workloadClientTlsIdentity()).resolves.toEqual({
+    await expect(workloadClientTlsIdentity(admit)).resolves.toEqual({
       cert: "CERT-PEM",
       key: "KEY-PEM",
       ca: "CA-PEM",
+      allowPartialTrustChain: true,
+      rejectUnauthorized: true,
+      checkServerIdentity,
     });
 
     expect(startWatcher.mock.calls).toEqual([[WATCHER_ATTEMPTS]]);
-    expect(tlsClientConfigFromWatcher).toHaveBeenCalledWith(watcher, ["spiffe://prod.example/*"]);
+    expect(tlsClientConfigFromWatcher).toHaveBeenCalledWith(watcher, inDomainPeerPatterns("prod.example"), admit);
   });
 });
 
@@ -68,7 +81,7 @@ describe("workloadPeer", () => {
   it("starts the watcher with the attempt count alone and refuses when none answers", async () => {
     startWatcher.mockResolvedValue(null);
 
-    await expect(workloadPeer("ledger")).rejects.toMatchObject({
+    await expect(workloadPeer("ledger", admit)).rejects.toMatchObject({
       name: "WorkloadIdentityError",
       kind: "workload_api_unavailable",
     });
@@ -79,7 +92,7 @@ describe("workloadPeer", () => {
   it("starts the watcher with the attempt count alone and derives the peer from its SVID", async () => {
     startWatcher.mockResolvedValue(watcher);
 
-    const peer = await workloadPeer("ledger");
+    const peer = await workloadPeer("ledger", admit);
 
     expect(startWatcher.mock.calls).toEqual([[WATCHER_ATTEMPTS]]);
     expect(peer.url).toBe("https://ledger:8080");
@@ -97,6 +110,7 @@ describe("configureNodeConnectTransport", () => {
       baseUrl,
       profile: "service",
       httpVersion: "1.1",
+      pathRule: admit,
     }).catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(WorkloadIdentityError);
@@ -112,10 +126,11 @@ describe("configureNodeConnectTransport", () => {
       baseUrl,
       profile: "service",
       httpVersion: "2",
+      pathRule: admit,
     });
 
     expect(startWatcher.mock.calls).toEqual([[WATCHER_ATTEMPTS]]);
-    expect(tlsClientConfigFromWatcher).toHaveBeenCalledWith(watcher, ["spiffe://prod.example/*"]);
+    expect(tlsClientConfigFromWatcher).toHaveBeenCalledWith(watcher, inDomainPeerPatterns("prod.example"), admit);
     transport.close();
   });
 

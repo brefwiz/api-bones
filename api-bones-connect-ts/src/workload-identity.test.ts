@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { PeerPathRule } from "@brefwiz/spiffe-client";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,6 +12,8 @@ import {
   WATCHER_ATTEMPTS,
   WorkloadIdentityError,
 } from "./workload-identity.js";
+
+const checkServerIdentity = vi.fn();
 
 vi.mock("@brefwiz/spiffe-client", async () => {
   const actual = await vi.importActual<Record<string, unknown>>(
@@ -21,17 +24,27 @@ vi.mock("@brefwiz/spiffe-client", async () => {
     // Record the allow-list the transport derives, so a test can assert the
     // caller never has to name a peer.
     tlsClientConfigFromWatcher: vi.fn(
-      (_watcher: unknown, allowedServerIds: string[]) => ({
+      (_watcher: unknown, allowedServerIds: string[], pathRule: PeerPathRule) => ({
         cert: "CERT-PEM",
         key: "KEY-PEM",
         ca: "CA-PEM",
+        allowPartialTrustChain: true,
+        rejectUnauthorized: true,
+        checkServerIdentity,
         allowedServerIds,
+        pathRule,
       }),
     ),
   };
 });
 
 const { tlsClientConfigFromWatcher } = await import("@brefwiz/spiffe-client");
+
+/** Test rules: the caller injects the path rule; this package has no default. */
+const admit: PeerPathRule = () => {};
+const refuse: PeerPathRule = () => {
+  throw { kind: "peer_chain_refused", message: "path not admitted" };
+};
 
 function watcherWith(spiffeId: string): never {
   return { current: () => ({ spiffeId }) } as never;
@@ -54,28 +67,54 @@ describe("trustDomainOf", () => {
 
 describe("clientTlsIdentityFor", () => {
   it("derives the peer allow-list from the caller's own trust domain", () => {
-    clientTlsIdentityFor(watcherWith("spiffe://prod.brefwiz/svc/bff"));
+    clientTlsIdentityFor(watcherWith("spiffe://prod.brefwiz/svc/bff"), admit);
 
-    expect(tlsClientConfigFromWatcher).toHaveBeenCalledWith(expect.anything(), [
-      "spiffe://prod.brefwiz/*",
-    ]);
+    expect(tlsClientConfigFromWatcher).toHaveBeenCalledWith(
+      expect.anything(),
+      [
+        "spiffe://prod.brefwiz/*",
+        "spiffe://prod.brefwiz/*/*",
+        "spiffe://prod.brefwiz/*/*/*",
+        "spiffe://prod.brefwiz/*/*/*/*",
+        "spiffe://prod.brefwiz/*/*/*/*/*",
+        "spiffe://prod.brefwiz/*/*/*/*/*/*",
+        "spiffe://prod.brefwiz/*/*/*/*/*/*/*",
+        "spiffe://prod.brefwiz/*/*/*/*/*/*/*/*",
+      ],
+      admit,
+    );
   });
 
-  it("returns cert, key and ca — the consumer supplies none of them", () => {
+  it("hands the caller's rule to the SPIFFE client unchanged, refusing or admitting", () => {
+    clientTlsIdentityFor(watcherWith("spiffe://prod.brefwiz/svc/bff"), refuse);
+
+    const lastCall = vi.mocked(tlsClientConfigFromWatcher).mock.lastCall;
+    expect(lastCall?.[2]).toBe(refuse);
+  });
+
+  it("returns the certificate, trust and the server verification — the consumer supplies none", () => {
     const identity = clientTlsIdentityFor(
       watcherWith("spiffe://prod.brefwiz/svc/bff"),
+      admit,
     );
 
-    expect(identity).toEqual({ cert: "CERT-PEM", key: "KEY-PEM", ca: "CA-PEM" });
+    expect(identity).toEqual({
+      cert: "CERT-PEM",
+      key: "KEY-PEM",
+      ca: "CA-PEM",
+      allowPartialTrustChain: true,
+      rejectUnauthorized: true,
+      checkServerIdentity,
+    });
   });
 
   it("names the unusable SVID rather than failing opaquely", () => {
-    expect(() => clientTlsIdentityFor(watcherWith("not-a-spiffe-id"))).toThrow(
+    expect(() => clientTlsIdentityFor(watcherWith("not-a-spiffe-id"), admit)).toThrow(
       WorkloadIdentityError,
     );
 
     try {
-      clientTlsIdentityFor(watcherWith("not-a-spiffe-id"));
+      clientTlsIdentityFor(watcherWith("not-a-spiffe-id"), admit);
       expect.unreachable("must throw");
     } catch (err) {
       expect(err).toBeInstanceOf(WorkloadIdentityError);

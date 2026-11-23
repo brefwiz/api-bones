@@ -64,6 +64,30 @@ Feature: Connect workload identity
     When it tries to reach the workload "ledger"
     Then reaching the peer fails as "unusable_peer_identity"
 
+  # Which server leaf paths are admitted belongs to the product that knows its
+  # own issuance topology, so the caller supplies the rule and the package has
+  # no default. An in-fleet transport with no rule is refused rather than
+  # started with an implicit one.
+  Scenario: An in-fleet transport needs the caller's peer path rule
+    Given a workload whose SVID names "spiffe://prod.example/o/acme/svc/bff"
+    When it configures an in-fleet https transport without a peer path rule
+    Then configuring fails because the peer path rule is missing
+
+  # The rule is not decoration: it decides the handshake. A peer the caller's
+  # rule refuses is refused even though its leaf chains to the trust bundle,
+  # and one it admits completes.
+  Scenario: An in-fleet transport refuses a peer its path rule refuses
+    Given a workload whose SVID names "spiffe://prod.example/o/acme/svc/bff"
+    And a server in its trust domain presenting an SVID for "spiffe://prod.example/o/acme/svc/ledger"
+    When it calls that server over an in-fleet transport whose peer path rule refuses every path
+    Then the call is refused by the peer path rule
+
+  Scenario: An in-fleet transport admits a peer its path rule admits
+    Given a workload whose SVID names "spiffe://prod.example/o/acme/svc/bff"
+    And a server in its trust domain presenting an SVID for "spiffe://prod.example/o/acme/svc/ledger"
+    When it calls that server over an in-fleet transport whose peer path rule admits every path
+    Then the call completes
+
   # The Node transport owns the connections it opens, so the caller that is
   # done with it can release them and let the process exit. Closing twice is
   # harmless.

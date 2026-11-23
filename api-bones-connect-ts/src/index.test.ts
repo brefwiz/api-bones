@@ -337,7 +337,7 @@ describe("node transport", () => {
     vi.stubEnv("BREFWIZ_SVID_INITIAL_FETCH_TIMEOUT_SECS", "1");
     try {
       await expect(
-        configureNodeConnectTransport({ baseUrl: "https://svc", profile: "service" }),
+        configureNodeConnectTransport({ baseUrl: "https://svc", profile: "service", pathRule: () => {} }),
       ).rejects.toThrow(/Workload API unavailable/);
     } finally {
       vi.unstubAllEnvs();

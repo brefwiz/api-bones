@@ -20,6 +20,7 @@
 import {
   startWatcherSafe,
   tlsClientConfigFromWatcher,
+  type PeerPathRule,
   type SvidWatcher,
 } from "@brefwiz/spiffe-client";
 
@@ -70,12 +71,56 @@ export function trustDomainOf(spiffeId: string): string | null {
 }
 
 /**
+ * The client TLS fields a transport must hand to the connection. The server
+ * verification (`checkServerIdentity`, which runs the allow-list and the
+ * caller's path rule) travels with the certificate: dropping it would leave
+ * Node's hostname check as the only gate on an in-fleet peer.
+ */
+function verifiedIdentity(options: NodeTlsIdentity): NodeTlsIdentity {
+  return {
+    cert: options.cert,
+    key: options.key,
+    ca: options.ca,
+    allowPartialTrustChain: options.allowPartialTrustChain,
+    rejectUnauthorized: options.rejectUnauthorized,
+    checkServerIdentity: options.checkServerIdentity,
+  };
+}
+
+/** Deepest peer path, in segments, the trust-domain allow-list admits. */
+export const MAX_PEER_PATH_SEGMENTS = 8;
+
+/**
+ * The allow-list admitting any peer in `trustDomain`, at any path depth up to
+ * {@link MAX_PEER_PATH_SEGMENTS}, and nothing outside it.
+ *
+ * The TypeScript SPIFFE client's `*` matches exactly one path segment, where
+ * the Rust client's trailing `/*` matches any depth. One pattern per depth
+ * gives the Rust meaning with the TypeScript grammar: the trust domain is
+ * still compared whole, so a look-alike such as `<domain>.evil` never
+ * matches, and a deeper path is refused rather than admitted.
+ */
+export function inDomainPeerPatterns(trustDomain: string): string[] {
+  return Array.from(
+    { length: MAX_PEER_PATH_SEGMENTS },
+    (_, depth) => `spiffe://${trustDomain}${"/*".repeat(depth + 1)}`,
+  );
+}
+
+/**
  * Derive the peer allow-list from `watcher`'s own SVID and build the identity.
  *
  * Split from {@link workloadClientTlsIdentity} so the derivation is testable
  * against a watcher built in-process, without a live agent socket.
+ *
+ * `pathRule` admits the path a server's leaf was issued through. The caller
+ * supplies it: this package never defaults it, because the rule belongs to
+ * the product that knows its own issuance topology.
  */
-export function clientTlsIdentityFor(watcher: SvidWatcher): NodeTlsIdentity {
+export function clientTlsIdentityFor(
+  watcher: SvidWatcher,
+  pathRule: PeerPathRule,
+): NodeTlsIdentity {
   const svid = watcher.current();
   const trustDomain = trustDomainOf(svid.spiffeId);
 
@@ -86,11 +131,13 @@ export function clientTlsIdentityFor(watcher: SvidWatcher): NodeTlsIdentity {
     );
   }
 
-  const options = tlsClientConfigFromWatcher(watcher, [
-    `spiffe://${trustDomain}/*`,
-  ]);
+  const options = tlsClientConfigFromWatcher(
+    watcher,
+    inDomainPeerPatterns(trustDomain),
+    pathRule,
+  );
 
-  return { cert: options.cert, key: options.key, ca: options.ca };
+  return verifiedIdentity(options);
 }
 
 /**
@@ -100,7 +147,9 @@ export function clientTlsIdentityFor(watcher: SvidWatcher): NodeTlsIdentity {
  * @throws {WorkloadIdentityError} when no Workload API answers, or when its
  * SVID names no trust domain. It never resolves to an anonymous identity.
  */
-export async function workloadClientTlsIdentity(): Promise<NodeTlsIdentity> {
+export async function workloadClientTlsIdentity(
+  pathRule: PeerPathRule,
+): Promise<NodeTlsIdentity> {
   const watcher = await startWatcherSafe(WATCHER_ATTEMPTS);
 
   if (watcher === null) {
@@ -111,7 +160,7 @@ export async function workloadClientTlsIdentity(): Promise<NodeTlsIdentity> {
     );
   }
 
-  return clientTlsIdentityFor(watcher);
+  return clientTlsIdentityFor(watcher, pathRule);
 }
 
 /** Port every managed workload serves its application traffic on. */
@@ -166,6 +215,7 @@ export function peerSpiffeId(ownSpiffeId: string, workload: string): string {
 export function workloadPeerFor(
   watcher: SvidWatcher,
   workload: string,
+  pathRule: PeerPathRule,
 ): WorkloadPeer {
   if (!DNS_LABEL.test(workload)) {
     throw new WorkloadIdentityError(
@@ -179,15 +229,7 @@ export function workloadPeerFor(
     url: `https://${workload}:${MANAGED_APPLICATION_PORT}`,
     spiffeId,
     tls: () => {
-      const options = tlsClientConfigFromWatcher(watcher, [spiffeId]);
-      return {
-        cert: options.cert,
-        key: options.key,
-        ca: options.ca,
-        allowPartialTrustChain: options.allowPartialTrustChain,
-        rejectUnauthorized: options.rejectUnauthorized,
-        checkServerIdentity: options.checkServerIdentity,
-      };
+      return verifiedIdentity(tlsClientConfigFromWatcher(watcher, [spiffeId], pathRule));
     },
   };
 }
@@ -198,7 +240,10 @@ export function workloadPeerFor(
  * @throws {WorkloadIdentityError} when the name is not a DNS label, no
  * Workload API answers, or its SVID names no derivable peer.
  */
-export async function workloadPeer(service: string): Promise<WorkloadPeer> {
+export async function workloadPeer(
+  service: string,
+  pathRule: PeerPathRule,
+): Promise<WorkloadPeer> {
   const watcher = await startWatcherSafe(WATCHER_ATTEMPTS);
 
   if (watcher === null) {
@@ -209,5 +254,5 @@ export async function workloadPeer(service: string): Promise<WorkloadPeer> {
     );
   }
 
-  return workloadPeerFor(watcher, service);
+  return workloadPeerFor(watcher, service, pathRule);
 }

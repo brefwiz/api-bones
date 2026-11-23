@@ -5,12 +5,16 @@
  */
 
 import assert from "node:assert/strict";
+import { createPrivateKey, X509Certificate } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { After, Given, Then, When, World } from "@cucumber/cucumber";
-import { INITIAL_FETCH_TIMEOUT_ENV, WORKLOAD_API_SOCKET_DEFAULT } from "@brefwiz/spiffe-client";
+import { INITIAL_FETCH_TIMEOUT_ENV, WORKLOAD_API_SOCKET_DEFAULT, type PeerPathRule } from "@brefwiz/spiffe-client";
 
 import {
   type ClosableTransport,
@@ -23,9 +27,21 @@ import {
   workloadPeerFor,
 } from "@brefwiz/api-bones-connect/node";
 
-import { unaryMethodFixture } from "./support.ts";
+import { authority, leaf, listen, type Authority, type Listener } from "./pinned_peer_fixtures.ts";
+import { unaryMethodFixture, unaryPolicyDoc } from "./support.ts";
+
+const admit: PeerPathRule = () => {};
 
 type SvidWatcher = Parameters<typeof clientTlsIdentityFor>[0];
+
+// Messages of an error and of each cause beneath it, outermost first.
+function causeMessages(failure: unknown): string[] {
+  const messages: string[] = [];
+  for (let node = failure; node instanceof Error && messages.length < 10; node = node.cause) {
+    messages.push(node.message);
+  }
+  return messages;
+}
 
 interface WorkloadWorld extends World {
   spiffeId: string;
@@ -37,6 +53,10 @@ interface WorkloadWorld extends World {
   priorFetchWindow?: string;
   transport?: ClosableTransport;
   served?: Awaited<ReturnType<ClosableTransport["unary"]>>;
+  fleetDir?: string;
+  fleetCa?: Authority;
+  fleetListener?: Listener;
+  fleetCall?: { completed: boolean; failure?: unknown };
 }
 
 Given("a workload whose SVID names {string}", function (this: WorkloadWorld, spiffeId: string) {
@@ -54,7 +74,7 @@ Then(
     const watcher = { current: () => ({ spiffeId: this.spiffeId }) } as unknown as SvidWatcher;
     let failure: unknown;
     try {
-      clientTlsIdentityFor(watcher);
+      clientTlsIdentityFor(watcher, admit);
     } catch (error) {
       failure = error;
     }
@@ -65,14 +85,14 @@ Then(
 
 When("it reaches the workload {string}", function (this: WorkloadWorld, service: string) {
   const watcher = { current: () => ({ spiffeId: this.spiffeId }) } as unknown as SvidWatcher;
-  const peer = workloadPeerFor(watcher, service);
+  const peer = workloadPeerFor(watcher, service, admit);
   this.peer = peer;
 });
 
 When("it tries to reach the workload {string}", function (this: WorkloadWorld, service: string) {
   const watcher = { current: () => ({ spiffeId: this.spiffeId }) } as unknown as SvidWatcher;
   try {
-    this.peer = workloadPeerFor(watcher, service);
+    this.peer = workloadPeerFor(watcher, service, admit);
   } catch (error) {
     this.peerFailure = error;
   }
@@ -116,7 +136,7 @@ When(
   { timeout: REFUSAL_TIMEOUT_MS },
   async function (this: WorkloadWorld) {
     try {
-      await workloadClientTlsIdentity();
+      await workloadClientTlsIdentity(admit);
     } catch (error) {
       this.peerFailure = error;
     }
@@ -127,6 +147,23 @@ Then("asking fails as {string}", function (this: WorkloadWorld, kind: string) {
   const failure = this.peerFailure;
   assert.ok(failure instanceof WorkloadIdentityError, `expected a WorkloadIdentityError, got ${String(failure)}`);
   assert.equal(failure.kind, kind);
+});
+
+When(
+  "it configures an in-fleet https transport without a peer path rule",
+  async function (this: WorkloadWorld) {
+    try {
+      await configureNodeConnectTransport({ baseUrl: "https://ledger:8080", profile: "service" });
+    } catch (error) {
+      this.peerFailure = error;
+    }
+  },
+);
+
+Then("configuring fails because the peer path rule is missing", function (this: WorkloadWorld) {
+  const failure = this.peerFailure;
+  assert.ok(failure instanceof Error, `expected an Error, got ${String(failure)}`);
+  assert.match(failure.message, /needs `pathRule`/);
 });
 
 Given(
@@ -169,6 +206,83 @@ Then("every connection it opened is destroyed", async function (this: WorkloadWo
   }
   assert.ok(this.served?.message, "the served call returned no response");
   assert.ok([...this.sockets].every((s) => s.destroyed));
+});
+
+// The in-fleet transport takes its identity from the Workload API, whose socket
+// path is fixed, so the identity here is derived by the same function the
+// transport calls and handed over as `tls`. The handshake itself is a real TLS
+// exchange against a loopback server whose leaf a test CA issued.
+Given(
+  "a server in its trust domain presenting an SVID for {string}",
+  async function (this: WorkloadWorld, serverId: string) {
+    this.fleetDir = mkdtempSync(join(tmpdir(), "in-fleet-path-rule-"));
+    const ca = authority(this.fleetDir);
+    this.fleetCa = ca;
+    this.fleetListener = await listen(leaf(this.fleetDir, ca, [serverId]));
+  },
+);
+
+When(
+  /^it calls that server over an in-fleet transport whose peer path rule (admits|refuses) every path$/,
+  async function (this: WorkloadWorld, verdict: string) {
+    assert.ok(this.fleetDir && this.fleetCa && this.fleetListener, "no server is listening");
+    const own = leaf(this.fleetDir, this.fleetCa, [this.spiffeId]);
+    const watcher = {
+      current: () => ({
+        spiffeId: this.spiffeId,
+        leafDer: new X509Certificate(own.cert).raw,
+        intermediatesDer: [],
+        privateKeyDer: createPrivateKey(own.key).export({ type: "pkcs8", format: "der" }),
+        bundleDer: new X509Certificate(readFileSync(this.fleetCa.cert, "utf8")).raw,
+      }),
+    } as unknown as SvidWatcher;
+    const rule: PeerPathRule =
+      verdict === "admits"
+        ? () => {}
+        : () => {
+            throw { kind: "peer_chain_refused", message: "path not admitted" };
+          };
+
+    const transport = await configureNodeConnectTransport({
+      baseUrl: `https://127.0.0.1:${this.fleetListener.port}`,
+      profile: "service",
+      policy: unaryPolicyDoc("/pkg.v1.Fleet/Get", "UNSPECIFIED"),
+      httpVersion: "1.1",
+      retry: { initialDelayMs: 0, maxDelayMs: 0 },
+      defaultTimeoutMs: 8000,
+      tls: clientTlsIdentityFor(watcher, rule),
+    });
+    try {
+      await transport.unary(
+        unaryMethodFixture("pkg.v1.Fleet", "Get"),
+        undefined,
+        undefined,
+        undefined,
+        { value: "x" },
+      );
+      this.fleetCall = { completed: true };
+    } catch (failure) {
+      this.fleetCall = { completed: false, failure };
+    } finally {
+      transport.close();
+    }
+  },
+);
+
+Then("the call completes", function (this: WorkloadWorld) {
+  assert.ok(this.fleetCall, "no call was made");
+  assert.ok(this.fleetCall.completed, `the call failed: ${String(this.fleetCall.failure)}`);
+});
+
+Then("the call is refused by the peer path rule", function (this: WorkloadWorld) {
+  assert.ok(this.fleetCall, "no call was made");
+  assert.ok(!this.fleetCall.completed, "the call succeeded, a refusal was expected");
+  assert.match(causeMessages(this.fleetCall.failure).join(" <- "), /peer chain refused: path not admitted/);
+});
+
+After(function (this: WorkloadWorld) {
+  this.fleetListener?.close();
+  if (this.fleetDir !== undefined) rmSync(this.fleetDir, { recursive: true, force: true });
 });
 
 After(function (this: WorkloadWorld) {
