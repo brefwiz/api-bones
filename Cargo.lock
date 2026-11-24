@@ -142,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-batch"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "api-bones",
  "api-bones-page",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-page"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "api-bones",
  "connectrpc",
