@@ -49,10 +49,15 @@ export interface SpanEnd {
 
 /** The live JavaScript OpenTelemetry spans of the Rust core's spans. */
 export class JsSpanSink {
-  readonly #tracer: Tracer;
+  readonly #tracer: Tracer | undefined;
   readonly #open = new Map<string, Span>();
 
-  constructor(tracer: Tracer = trace.getTracer("@brefwiz/api-bones-sdk-runtime")) {
+  /**
+   * Without a `tracer` each span is started on the tracer the global provider
+   * gives at that moment, so a provider registered after this sink was built
+   * (the wrapper builds its sink at module load) still receives the spans.
+   */
+  constructor(tracer?: Tracer) {
     this.#tracer = tracer;
   }
 
@@ -67,7 +72,8 @@ export class JsSpanSink {
       begin.parent === undefined
         ? ROOT_CONTEXT
         : propagation.extract(ROOT_CONTEXT, { traceparent: begin.parent, tracestate: begin.tracestate });
-    const span = this.#tracer.startSpan(
+    const tracer = this.#tracer ?? trace.getTracer("@brefwiz/api-bones-sdk-runtime");
+    const span = tracer.startSpan(
       begin.name,
       {
         startTime: begin.startTime,

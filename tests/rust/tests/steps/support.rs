@@ -34,7 +34,8 @@ pub fn batch_response(
 }
 
 /// The `Widgets` methods no lane calls, each answered `unimplemented` with
-/// `$why`. Expands inside an `impl Widgets for ...` block.
+/// `$why`, except `list_widget_parts` when the block says it is
+/// `serving` it. Expands inside an `impl Widgets for ...` block.
 macro_rules! unserved_widget_methods {
     (@method $name:ident, $request:ident, $response:ident, $why:literal) => {
         async fn $name<'a>(
@@ -49,12 +50,18 @@ macro_rules! unserved_widget_methods {
             )
         }
     };
-    ($why:literal) => {
-        unserved_widget_methods!(@method list_widget_parts, ListWidgetPartsRequest, ListWidgetPartsResponse, $why);
+    (@others $why:literal) => {
         unserved_widget_methods!(@method list_widget_parts_idempotent, ListWidgetPartsRequest, ListWidgetPartsResponse, $why);
         unserved_widget_methods!(@method list_widget_parts_unspecified, ListWidgetPartsRequest, ListWidgetPartsResponse, $why);
         unserved_widget_methods!(@method update_widget_parts, UpdateWidgetPartsRequest, ListWidgetPartsResponse, $why);
         unserved_widget_methods!(@method batch_list_widget_parts, BatchListWidgetPartsRequest, BatchListWidgetPartsResponse, $why);
+    };
+    ($why:literal, serving list_widget_parts) => {
+        unserved_widget_methods!(@others $why);
+    };
+    ($why:literal) => {
+        unserved_widget_methods!(@method list_widget_parts, ListWidgetPartsRequest, ListWidgetPartsResponse, $why);
+        unserved_widget_methods!(@others $why);
     };
 }
 

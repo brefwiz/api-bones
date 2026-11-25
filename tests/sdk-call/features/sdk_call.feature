@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-@library @sdk-call @rust-sdk-only
+@library @sdk-call
 Feature: Every Layer 2 call runs through one helper
 
   A Layer 2 method never decides its call budget, its trace context or its
@@ -13,13 +13,41 @@ Feature: Every Layer 2 call runs through one helper
   head arrives; its ticks after that are bound by nothing but the stream's own
   lifetime. A server that refuses the caller as unauthenticated is told to the
   host and drops the caller's revision cache; so does a changed identity. A
-  credential source that cannot answer fails the call closed, before anything
-  is sent. Every call opens one client span when it starts and ends it with its
+  revision cache never replays the pages of one server address to a client of
+  another. A credential source that cannot answer fails the call closed,
+  before anything is sent. Every call opens one client span when it starts and ends it with its
   outcome. Every send carries the credential read just before it, and an
   anonymous caller sends none. A list, a batch or a stream refuses a read that
   starts while another is pending without disturbing the pending one, and
   cancelling it abandons the pending read, gives nothing after it and ends its
-  walk once.
+  walk once. A list walks its items as well as its pages, in order, and a
+  caller who leaves an item walk early releases the list. A cursor the server
+  refuses as expired ends the walk with a page error that says how many pages
+  and items were delivered; a page that cannot be decoded ends it too. The
+  first page of a list can be read on its own, empty or not, and says whether
+  a next page follows. An open list exposes the span of its walk while the
+  tracer records, and none when it does not. A caller who leaves a stream
+  early releases it.
+
+  @state:happy
+  Scenario: The parts of a widget are listed page by page through the SDK
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widget "w1" has the parts "bolt,nut|washer"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller lists the parts of the widget "w1" through the SDK
+    Then the caller received the part pages "bolt,nut|washer"
+    And the server saw 2 request(s)
+    And every request the server saw carried a valid traceparent
+
+  @state:error
+  Scenario: The parts of a widget the server does not know are refused as not found
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widget "w1" has the parts "bolt,nut|washer"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller lists the parts of the widget "w9" through the SDK
+    Then the call is refused with the platform code "RESOURCE_NOT_FOUND"
+    And the caller received the part pages ""
+    And the server saw 1 request(s)
 
   @state:happy
   Scenario: A call with no trace context starts a new trace
@@ -99,8 +127,75 @@ Feature: Every Layer 2 call runs through one helper
     And the caller has read the next page of the list
     When the caller reads the next page of the list
     Then the caller received the pages "1,2|3,4|5"
+    And the walk is over
     And the tracer recorded 3 client spans named "contract.v1.Numbers/ListNoSideEffects" under the span of the walk
     And every span the tracer recorded ended
+
+  @state:happy
+  Scenario: A list walk gives its items in order
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller walks the numbers list by items through the SDK
+    Then the caller received the items "1,2,3,4,5"
+    And the walk ended without refusal
+
+  @state:happy
+  Scenario: Leaving an item walk early releases the list
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller walks the numbers list by items and leaves after 3 items
+    Then the caller received the items "1,2,3"
+    And the list gives nothing after the caller left
+
+  @state:error
+  Scenario: A cursor the server refuses as expired ends the walk with a PageError
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the numbers server refuses the cursor of page 3 as expired
+    And the SDK caller is "ada" of organization "acme"
+    When the caller walks the numbers list by pages through the SDK
+    Then the caller received the pages "1,2|3,4"
+    And the walk is refused with a PageError of kind "cursor_expired" after 2 pages and 4 items
+
+  @state:error
+  Scenario: A page the core cannot decode ends the walk
+    Given the numbers server answers pages that cannot be decoded
+    And the SDK caller is "ada" of organization "acme"
+    When the caller walks the numbers list by pages through the SDK
+    Then the caller received the pages ""
+    And the walk is refused
+
+  @state:happy
+  Scenario: The first page of a list is read on its own
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller reads the first page of the numbers list through the SDK
+    Then the first page holds the numbers "1,2"
+    And the first page says a next page follows
+
+  @state:happy
+  Scenario: A list with no item gives an empty first page
+    Given the numbers server has the pages ""
+    And the SDK caller is "ada" of organization "acme"
+    When the caller reads the first page of the numbers list through the SDK
+    Then the first page holds the numbers ""
+    And the first page says no next page follows
+
+  @state:happy
+  Scenario: A list exposes the span of its walk
+    Given the numbers server has the pages "1,2|3"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller has opened a list of the numbers through the SDK
+    When the caller reads the next page of the list
+    Then the numbers list exposes the span of its walk
+
+  @state:happy
+  Scenario: A list exposes no span when the tracer does not record
+    Given the numbers server has the pages "1,2|3"
+    And the SDK caller is "ada" of organization "acme"
+    And the tracer does not record
+    And the caller has opened a list of the numbers through the SDK
+    When the caller reads the next page of the list
+    Then the numbers list exposes no span
 
   @state:error
   Scenario: An identity change between pages refuses the next page and ends the walk
@@ -160,7 +255,7 @@ Feature: Every Layer 2 call runs through one helper
     Then the caller received the ticks "0,1,2"
     And the watch was not refused
     And the server saw 1 request(s)
-    And every request the server saw stated a call budget above 29000 ms and at most 30000 ms
+    And the request the server saw stated no call budget
 
   @state:happy
   Scenario: A stream keeps delivering ticks after the call budget has passed
@@ -172,6 +267,14 @@ Feature: Every Layer 2 call runs through one helper
     And the watch lasted longer than the call budget
     And the watch was not refused
     And the server saw 1 request(s)
+
+  @state:happy
+  Scenario: Leaving a stream early releases it
+    Given the events server streams 5 ticks
+    And the SDK caller is "ada" of organization "acme"
+    When the caller watches the events through the SDK and leaves after 2 ticks
+    Then the caller received the ticks "0,1"
+    And the watch gives nothing after the caller left
 
   @state:error
   Scenario: A stream that cannot open is refused when it opens
@@ -236,6 +339,91 @@ Feature: Every Layer 2 call runs through one helper
     And the server saw 0 request(s)
     And the caller's revision cache is empty
     And the host was told 0 time(s) that a server refused the caller as unauthenticated
+
+  @state:error
+  Scenario: A refusal of one caller leaves another caller's revision cache intact
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the numbers server has the pages "1,2|3"
+    And the SDK caller is "ada" of organization "acme"
+    And the revision cache holds the numbers list
+    And the caller switches to "bob" of organization "acme"
+    And the revision cache holds the numbers list
+    And the widgets server refuses the first 1 requests as unauthenticated
+    When the caller gets the widget "w1" through the SDK
+    Then the call is refused as unauthenticated
+    And the host was told 1 time(s) that a server refused the caller as unauthenticated
+    And the revision cache still holds the numbers list of the other caller
+
+  @state:happy
+  Scenario: A list the server confirms unchanged is replayed from the revision cache
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    And the revision cache holds the numbers list
+    And the caller has opened a list of the numbers through the SDK
+    And the caller has read the first page of the list
+    And the caller has read the next page of the list
+    And the caller has read the next page of the list
+    When the caller reads the next page of the list
+    Then the caller received the pages "1,2|3,4|5"
+    And every page the caller received came from the revision cache
+    And the server saw 1 request(s)
+
+  @state:happy
+  Scenario: A list the server confirms unchanged is not replayed to a client of another server address
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    And the revision cache holds the numbers list
+    And the caller has opened a list of the numbers at another address of the server through the SDK
+    And the caller has read the first page of the list
+    And the caller has read the next page of the list
+    When the caller reads the next page of the list
+    Then the caller received the pages "1,2|3,4|5"
+    And no page the caller received came from the revision cache
+    And the server saw 3 request(s)
+
+  @state:error
+  Scenario: A changed identity while a cached list is replayed refuses the next page and drops the revision cache
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    And the revision cache holds the numbers list
+    And the caller has opened a list of the numbers through the SDK
+    And the caller has read the first page of the list
+    And the caller switches to "bob" of organization "acme"
+    When the caller reads the next page of the list
+    Then the call is refused with the code "IDENTITY_CHANGED"
+    And the caller received the pages "1,2"
+    And the caller's revision cache is empty
+    And the host was told 0 time(s) that a server refused the caller as unauthenticated
+
+  @state:error
+  Scenario: A changed identity while a cached list is replayed drops only the revision cache of the caller who was replaying
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "bob" of organization "acme"
+    And the revision cache holds the numbers list
+    And the caller switches to "ada" of organization "acme"
+    And the revision cache holds the numbers list
+    And the caller has opened a list of the numbers through the SDK
+    And the caller has read the first page of the list
+    And the caller switches to "carol" of organization "acme"
+    When the caller reads the next page of the list
+    Then the call is refused with the code "IDENTITY_CHANGED"
+    And the caller received the pages "1,2"
+    And the revision cache no longer holds the numbers list of the caller who was replaying
+    And the revision cache still holds the numbers list of the other caller
+    And the host was told 0 time(s) that a server refused the caller as unauthenticated
+
+  @state:error
+  Scenario: A server that refuses a cached list as unauthenticated is told to the host and drops the revision cache
+    Given the numbers server has the pages "1,2|3"
+    And the SDK caller is "ada" of organization "acme"
+    And the revision cache holds the numbers list
+    And the numbers server refuses the first 1 requests as unauthenticated
+    And the caller has opened a list of the numbers through the SDK
+    When the caller reads the next page of the list
+    Then the call is refused as unauthenticated
+    And the server saw 1 request(s)
+    And the host was told 1 time(s) that a server refused the caller as unauthenticated
+    And the caller's revision cache is empty
 
   @state:error
   Scenario: A credential source that cannot answer fails the call closed

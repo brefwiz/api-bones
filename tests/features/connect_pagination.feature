@@ -53,9 +53,12 @@ Feature: Paginated lists
     And the current stored list revision is remembered as "r1"
     And the generated list client uses a revision cache
     Given the consumer retains every generated list page
+    And the consumer has listed every page with page size 5
     When the consumer lists again
     Then every generated list page is marked from cache true
+    And the first revalidation carried if-none-match "\"r1\""
     And the delivered pages report whether another page follows as "true,true,false"
+    And the server saw 5 requests
 
   Scenario: Platform composition shares retained list pages across clones and isolates new clients
     Given a list of pages "1,2" "3,4" "5"

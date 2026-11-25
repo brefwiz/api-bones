@@ -3,7 +3,8 @@
 //!
 //! Each client becomes a wasm class named `<svc>__<Type>`. Its constructor
 //! export is `<svc>__<Type>__new(base_url, host)`, built from the type's
-//! `from_host(base_url: String, host: JsValue) -> Self`. Each export is a
+//! `from_host(base_url: String, host: JsValue) -> Result<Self, Error>`; the
+//! constructor throws the error JSON when that fails. Each export is a
 //! method named `<svc>__<Type>__<method>`, gated by the features `sdk-all`,
 //! `sdk-<surface>` and `sdk-m-<method>`.
 //!
@@ -14,8 +15,10 @@
 //!   returns a `Promise`. The call runs inside `CallCtx::scope`, so the call
 //!   helper reads the caller's trace fields. The promise resolves to a JSON
 //!   string and rejects with the error JSON.
-//! - An export that returns a handle resolves to a class with `next()`,
-//!   `cancel()` and `span()`; an abort of `signal` cancels the handle.
+//! - An export that returns a handle returns, at once, a class with `next()`,
+//!   `cancel()` and `span()`; the call that opens the handle runs on the first
+//!   `next()`, an abort of `signal` cancels the handle, and `span()` is
+//!   undefined until the handle opened.
 //! - A sync export takes `args_json` and returns the JSON string or throws the
 //!   error JSON.
 //!
@@ -44,20 +47,65 @@ fn gate(features: &BTreeSet<String>) -> TokenStream {
     quote!(#[cfg(all(target_arch = "wasm32", any(#(feature = #features),*)))])
 }
 
-/// The attribute that makes a struct or an impl a wasm class.
-fn class_attr(key: &str, name: &str) -> TokenStream {
-    let key = format_ident!("{}", key);
+/// The attribute of a method inside a class impl.
+///
+/// wasm-bindgen's impl expansion takes over a method's own attributes only
+/// when their path starts with `wasm_bindgen` (it matches the first segment),
+/// and it strips them, so this name is never resolved and needs no import in
+/// the consumer. A full path such as `::api_bones_sdk::__private::...` would
+/// be left on the method and expand on its own as a free function: `self`
+/// outside an impl, an unnamed `const` inside one, and the default
+/// `wasm_bindgen` crate path the consumer does not depend on.
+fn method_attr() -> TokenStream {
+    quote!(wasm_bindgen)
+}
+
+/// The attribute that makes a struct a wasm class. The struct expansion is a
+/// derive whose path is the option's value, so the option is needed here.
+fn struct_attr(name: &str) -> TokenStream {
     let private = private();
     quote! {
         #[#private::wasm_bindgen::prelude::wasm_bindgen(
             wasm_bindgen = #private::wasm_bindgen,
-            #key = #name
+            js_name = #name
         )]
+    }
+}
+
+/// The attribute that makes an impl a wasm class impl. The impl expansion does
+/// not read a `wasm_bindgen = <path>` option, so none is given: the plain
+/// `wasm_bindgen::` paths it emits resolve through the `use` of the block the
+/// client sits in.
+fn impl_attr(name: &str) -> TokenStream {
+    let private = private();
+    quote!(#[#private::wasm_bindgen::prelude::wasm_bindgen(js_class = #name)])
+}
+
+/// What a handle's `next()` resolves to for an item: a list page is its JSON
+/// and a hold on its items, which keeps them alive for as long as the host holds
+/// the page; a stream item and a batch chunk are the JSON alone.
+fn delivery(kind: HandleKind) -> TokenStream {
+    let private = private();
+    let js_value = quote!(#private::wasm_bindgen::JsValue);
+    match kind {
+        HandleKind::List => quote! {
+            #js_value::from(#private::js_sys::Array::of2(
+                &#js_value::from_str(&__text),
+                &#js_value::from(#private::PageHold::new(&__page)),
+            ))
+        },
+        HandleKind::Stream | HandleKind::Batch => quote!(#js_value::from_str(&__text)),
     }
 }
 
 /// The wasm items of one client: its class, its constructor and build info,
 /// and the methods and handle classes of its exports.
+///
+/// They sit in one anonymous block that imports the `wasm_bindgen` the SDK
+/// re-exports, so the plain `wasm_bindgen::` paths the wasm-bindgen expansions
+/// emit resolve in a consumer without a direct dependency. A block, unlike a
+/// module, leaves `self::` and `super::` meaning what they mean at the call
+/// site, and one block per client keeps two clients of a module apart.
 pub(crate) fn expand(
     service: &str,
     client: &Client,
@@ -83,25 +131,37 @@ pub(crate) fn expand(
         methods.push(shell.expand()?);
     }
     let class_gate = gate(&all);
-    let struct_attr = class_attr("js_name", &class);
-    let impl_attr = class_attr("js_class", &class);
+    let struct_attr = struct_attr(&class);
+    let impl_attr = impl_attr(&class);
     let private = private();
+    let method = method_attr();
     Ok(quote! {
         #class_gate
+        const _: () = {
+        use #private::wasm_bindgen;
+
         #struct_attr
         pub struct #class_ident {
             inner: ::std::sync::Arc<#self_ty>,
         }
 
-        #class_gate
         #impl_attr
         impl #class_ident {
-            #[#private::wasm_bindgen::prelude::wasm_bindgen(js_name = #new_js)]
-            pub fn new_js(base_url: ::std::string::String, host: #private::wasm_bindgen::JsValue) -> Self {
-                Self { inner: ::std::sync::Arc::new(<#self_ty>::from_host(base_url, host)) }
+            #[#method(js_name = #new_js)]
+            pub fn new_js(
+                base_url: ::std::string::String,
+                host: #private::wasm_bindgen::JsValue,
+            ) -> ::core::result::Result<Self, #private::wasm_bindgen::JsValue> {
+                <#self_ty>::from_host(base_url, host)
+                    .map(|__client| Self { inner: ::std::sync::Arc::new(__client) })
+                    .map_err(|__error| {
+                        #private::wasm_bindgen::JsValue::from_str(
+                            &::core::convert::Into::<::api_bones_sdk::Error>::into(__error).to_json(),
+                        )
+                    })
             }
 
-            #[#private::wasm_bindgen::prelude::wasm_bindgen(js_name = "__api_bones_sdk_build_info")]
+            #[#method(js_name = "__api_bones_sdk_build_info")]
             pub fn build_info_js() -> ::std::string::String {
                 #private::serde_json::json!({
                     "name": ::core::env!("CARGO_PKG_NAME"),
@@ -112,7 +172,25 @@ pub(crate) fn expand(
         }
 
         #(#methods)*
+        };
     })
+}
+
+/// The call of an async export, run under the caller's trace fields: `reads`
+/// parse the arguments, then `body` runs.
+fn scoped(reads: &TokenStream, body: &TokenStream) -> TokenStream {
+    quote! {
+        ::api_bones_sdk::CallCtx::scope(
+            ::api_bones_sdk::CallCtx {
+                traceparent: __traceparent,
+                tracestate: __tracestate,
+            },
+            async move {
+                #reads
+                #body
+            },
+        )
+    }
 }
 
 /// What the expansion of one export needs to know.
@@ -137,7 +215,7 @@ impl Shell<'_> {
         let method = &self.function.sig.ident;
         let shell = format_ident!("{}_js", method);
         let class_ident = self.class_ident;
-        let impl_attr = class_attr("js_class", self.class);
+        let impl_attr = impl_attr(self.class);
         let parameters: Vec<(&syn::Ident, &Type)> = self
             .function
             .sig
@@ -162,7 +240,7 @@ impl Shell<'_> {
             #( let #names: #types = ::api_bones_sdk::field(&__args, #keys)?; )*
         };
         let call = quote!(__client.#method(#(#names),*));
-        let wasm_bindgen = quote!(#private::wasm_bindgen::prelude::wasm_bindgen);
+        let wasm_bindgen = method_attr();
         let js_value = quote!(#private::wasm_bindgen::JsValue);
         let promise = quote!(#private::js_sys::Promise);
         let signal = quote!(#private::web_sys::AbortSignal);
@@ -187,43 +265,46 @@ impl Shell<'_> {
                 }
             });
         }
-        let (handle_items, outcome) = self.async_outcome(&call, &js)?;
-        let keep_signal = if matches!(self.export.ret, Return::Handle { .. }) {
-            quote!(let __abort = __signal.clone();)
-        } else {
-            TokenStream::new()
+        let params = quote! {
+            &self,
+            __args_json: ::std::string::String,
+            __traceparent: ::core::option::Option<::std::string::String>,
+            __tracestate: ::core::option::Option<::std::string::String>,
+            __signal: ::core::option::Option<#signal>,
         };
+        if let Return::Handle { kind, .. } = &self.export.ret {
+            let item = self.handle_item()?;
+            let handle_items = self.handle_class(*kind, &item, &js);
+            let handle_ident = self.handle_ident();
+            let scoped = scoped(&reads, &quote!(::core::result::Result::Ok(#call.await)));
+            return Ok(quote! {
+                #gate
+                #impl_attr
+                impl #class_ident {
+                    #[#wasm_bindgen(js_name = #js)]
+                    pub fn #shell(#params) -> #handle_ident {
+                        let __client = self.inner.clone();
+                        let __lazy = #private::Lazy::new(#scoped);
+                        let __cancel = __lazy.clone();
+                        #private::on_abort(&__signal, move || __cancel.cancel());
+                        #handle_ident { inner: __lazy }
+                    }
+                }
+
+                #handle_items
+            });
+        }
+        let scoped = scoped(&reads, &self.async_outcome(&call)?);
         Ok(quote! {
             #gate
             #impl_attr
             impl #class_ident {
                 #[#wasm_bindgen(js_name = #js)]
-                pub fn #shell(
-                    &self,
-                    __args_json: ::std::string::String,
-                    __traceparent: ::core::option::Option<::std::string::String>,
-                    __tracestate: ::core::option::Option<::std::string::String>,
-                    __signal: ::core::option::Option<#signal>,
-                ) -> #promise {
+                pub fn #shell(#params) -> #promise {
                     let __client = self.inner.clone();
-                    #keep_signal
-                    #private::promise(
-                        __signal,
-                        ::api_bones_sdk::CallCtx::scope(
-                            ::api_bones_sdk::CallCtx {
-                                traceparent: __traceparent,
-                                tracestate: __tracestate,
-                            },
-                            async move {
-                                #reads
-                                #outcome
-                            },
-                        ),
-                    )
+                    #private::promise(__signal, #scoped)
                 }
             }
-
-            #handle_items
         })
     }
 
@@ -262,45 +343,30 @@ impl Shell<'_> {
         }
     }
 
-    /// The handle class an export returns, if any, and the body of its async
-    /// block.
-    fn async_outcome(
-        &self,
-        call: &TokenStream,
-        js: &str,
-    ) -> syn::Result<(TokenStream, TokenStream)> {
+    /// The item type a handle export yields.
+    fn handle_item(&self) -> syn::Result<Type> {
+        let output = match &self.function.sig.output {
+            syn::ReturnType::Type(_, ty) => head(ty).1.into_iter().next(),
+            syn::ReturnType::Default => None,
+        };
+        output.ok_or_else(|| named("a handle yields one type"))
+    }
+
+    /// The body of the async block of a promise export.
+    fn async_outcome(&self, call: &TokenStream) -> syn::Result<TokenStream> {
         let private = private();
         let js_value = quote!(#private::wasm_bindgen::JsValue);
         match &self.export.ret {
-            Return::Handle { kind, .. } => {
-                let output = match &self.function.sig.output {
-                    syn::ReturnType::Type(_, ty) => head(ty).1.into_iter().next(),
-                    syn::ReturnType::Default => None,
-                };
-                let item = output.ok_or_else(|| named("a handle yields one type"))?;
-                let handle = self.handle_class(*kind, &item, js);
-                let handle_ident = self.handle_ident();
-                let outcome = quote! {
-                    let __handle = ::std::sync::Arc::new(#call.await);
-                    let __cancel = __handle.clone();
-                    #private::on_abort(&__abort, move || __cancel.cancel());
-                    ::core::result::Result::Ok(#js_value::from(#handle_ident { inner: __handle }))
-                };
-                Ok((handle, outcome))
-            }
             Return::Result { ok, .. } => {
                 let encoded = Self::encoded(ok.is_some());
-                Ok((
-                    TokenStream::new(),
-                    quote! {
-                        let __out = #call
-                            .await
-                            .map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;
-                        ::core::result::Result::Ok(#js_value::from_str(&#encoded))
-                    },
-                ))
+                Ok(quote! {
+                    let __out = #call
+                        .await
+                        .map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;
+                    ::core::result::Result::Ok(#js_value::from_str(&#encoded))
+                })
             }
-            Return::Unit | Return::Value(_) => {
+            Return::Handle { .. } | Return::Unit | Return::Value(_) => {
                 Err(named("an async export returns Result<T, E> or a handle"))
             }
         }
@@ -314,15 +380,15 @@ impl Shell<'_> {
         )
     }
 
-    /// The class a handle export resolves to: `next()`, `cancel()`, `span()`.
+    /// The class a handle export returns: `next()`, `cancel()`, `span()`.
     fn handle_class(&self, kind: HandleKind, item: &Type, js: &str) -> TokenStream {
         let private = private();
         let js_value = quote!(#private::wasm_bindgen::JsValue);
-        let wasm_bindgen = quote!(#private::wasm_bindgen::prelude::wasm_bindgen);
+        let wasm_bindgen = method_attr();
         let ident = self.handle_ident();
         let class = format!("{js}__Handle");
-        let struct_attr = class_attr("js_name", &class);
-        let impl_attr = class_attr("js_class", &class);
+        let struct_attr = struct_attr(&class);
+        let impl_attr = impl_attr(&class);
         let kind_ident = format_ident!("{}", kind.type_name());
         let gate = gate(
             &gate_features(&self.export.surface, &self.export.method)
@@ -330,6 +396,7 @@ impl Shell<'_> {
                 .collect(),
         );
         let json = quote!(#private::serde_json);
+        let delivered = delivery(kind);
         let next = match kind {
             HandleKind::List => quote! {
                 let mut __items = ::std::vec::Vec::new();
@@ -374,7 +441,7 @@ impl Shell<'_> {
             #gate
             #struct_attr
             pub struct #ident {
-                inner: ::std::sync::Arc<::api_bones_sdk::#kind_ident<#item>>,
+                inner: #private::Lazy<::api_bones_sdk::#kind_ident<#item>>,
             }
 
             #gate
@@ -382,17 +449,20 @@ impl Shell<'_> {
             impl #ident {
                 #[#wasm_bindgen(js_name = "next")]
                 pub fn next_js(&self) -> #private::js_sys::Promise {
-                    let __handle = self.inner.clone();
+                    let __lazy = self.inner.clone();
                     #private::promise(
                         ::core::option::Option::None,
                         async move {
+                            let ::core::option::Option::Some(__handle) = __lazy.open().await? else {
+                                return ::core::result::Result::Ok(#js_value::UNDEFINED);
+                            };
                             match __handle.next().await? {
                                 ::core::option::Option::None => {
                                     ::core::result::Result::Ok(#js_value::UNDEFINED)
                                 }
                                 ::core::option::Option::Some(__page) => {
                                     let __text = { #next };
-                                    ::core::result::Result::Ok(#js_value::from_str(&__text))
+                                    ::core::result::Result::Ok(#delivered)
                                 }
                             }
                         },
@@ -416,6 +486,7 @@ impl Shell<'_> {
 #[cfg(test)]
 mod tests {
     use api_bones_sdk_model::Model;
+    use quote::ToTokens;
 
     use super::*;
     use crate::common::flat;
@@ -478,6 +549,142 @@ mod tests {
         syn::parse2::<syn::File>(built("api-bones").expect("expanded")).expect("a file");
     }
 
+    /// Takes the attribute named `name` off `attrs`, as the compiler does
+    /// before it hands an item to an attribute macro, and returns its
+    /// arguments.
+    fn take_wasm_bindgen(attrs: &mut Vec<syn::Attribute>, name: &str) -> TokenStream {
+        let at = attrs
+            .iter()
+            .position(|attr| {
+                attr.path()
+                    .segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == name)
+            })
+            .expect("the attribute");
+        attrs
+            .remove(at)
+            .meta
+            .require_list()
+            .expect("a list")
+            .tokens
+            .clone()
+    }
+
+    /// Whether `text` names `wasm_bindgen` with a path of its own, the way the
+    /// wasm-bindgen expansions do when they emit their default path.
+    fn has_plain_path(text: &str) -> bool {
+        text.match_indices("wasm_bindgen::").any(|(at, _)| {
+            at == 0
+                || !matches!(
+                    text.as_bytes()[at - 1],
+                    b':' | b'_' | b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9'
+                )
+        })
+    }
+
+    /// The struct of a client through the wasm-bindgen struct expansion.
+    fn expand_struct(item: &syn::ItemStruct) -> String {
+        let mut item = item.clone();
+        let attr = take_wasm_bindgen(&mut item.attrs, "wasm_bindgen");
+        item.attrs.clear();
+        flat(
+            &wasm_bindgen_macro_support::expand(attr, item.to_token_stream())
+                .expect("a struct expansion"),
+        )
+    }
+
+    /// The impl of a client through the wasm-bindgen impl expansion, then each
+    /// of its methods through the class marker expansion the compiler runs on
+    /// it. Returns the number of methods and whether their expansions emit a plain
+    /// `wasm_bindgen::` path.
+    fn expand_impl(item: &syn::ItemImpl) -> (usize, bool) {
+        let mut item = item.clone();
+        let attr = take_wasm_bindgen(&mut item.attrs, "wasm_bindgen");
+        item.attrs.clear();
+        let out = wasm_bindgen_macro_support::expand(attr, item.to_token_stream())
+            .expect("an impl expansion");
+        let text = flat(&out);
+        assert!(
+            !text.contains("letwasm_bindgen:()"),
+            "an option the impl expansion ignores: {text}"
+        );
+        let file = syn::parse2::<syn::File>(out).expect("items");
+        let [syn::Item::Impl(expanded), syn::Item::Const(section)] = file.items.as_slice() else {
+            panic!("an impl and its custom section: {text}");
+        };
+        assert_eq!(section.ident, "_", "{text}");
+        let mut methods = 0;
+        let mut plain = false;
+        for member in expanded.items.iter().cloned() {
+            let syn::ImplItem::Fn(mut function) = member else {
+                panic!("a method");
+            };
+            let marker = take_wasm_bindgen(&mut function.attrs, "__wasm_bindgen_class_marker");
+            let out =
+                wasm_bindgen_macro_support::expand_class_marker(marker, function.to_token_stream())
+                    .expect("a method expansion");
+            let text = flat(&out);
+            let method = syn::parse2::<ImplItemFn>(out).expect("a method");
+            assert_eq!(method.attrs.len(), 0, "{}: {text}", method.sig.ident);
+            plain |= has_plain_path(&text);
+            methods += 1;
+        }
+        (methods, plain)
+    }
+
+    /// The expansion of a client in a consumer with no wasm-bindgen
+    /// dependency, run through the real wasm-bindgen expanders. It does not
+    /// resolve names or type-check for wasm32; the `ts` CI lane does that.
+    #[test]
+    fn a_client_expands_through_wasm_bindgen_without_a_direct_dependency() {
+        let file = syn::parse2::<syn::File>(built("api-bones").expect("expanded")).expect("a file");
+        let [syn::Item::Const(block)] = file.items.as_slice() else {
+            panic!("a client is one item: {} items", file.items.len());
+        };
+        assert_eq!(block.ident, "_");
+        let syn::Expr::Block(block) = &*block.expr else {
+            panic!("a client is a block");
+        };
+        let [syn::Stmt::Item(import), items @ ..] = block.block.stmts.as_slice() else {
+            panic!("a client opens with its import");
+        };
+        assert_eq!(
+            flat(&import.to_token_stream()),
+            "use::api_bones_sdk::__private::wasm_bindgen;"
+        );
+
+        let mut structs = 0;
+        let mut methods = 0;
+        let mut plain = false;
+        for stmt in items {
+            let syn::Stmt::Item(item) = stmt else {
+                panic!("a block of items");
+            };
+            match item {
+                syn::Item::Struct(item) => {
+                    let out = expand_struct(item);
+                    assert!(
+                        out.starts_with(
+                            "#[derive(::api_bones_sdk::__private::wasm_bindgen::__rt::BindgenedStruct)]"
+                        ),
+                        "{out}"
+                    );
+                    structs += 1;
+                }
+                syn::Item::Impl(item) => {
+                    let (count, emitted) = expand_impl(item);
+                    methods += count;
+                    plain |= emitted;
+                }
+                other => panic!("an item: {}", flat(&other.to_token_stream())),
+            }
+        }
+        assert!(structs > 0, "no class struct expanded");
+        assert!(methods > 0, "no class method expanded");
+        assert!(plain, "the import is needed by no expansion");
+    }
+
     #[test]
     fn a_client_is_a_class_named_by_service_and_type() {
         let text = text();
@@ -500,9 +707,15 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("<NumbersClient>::from_host(base_url,host)"),
+            text.contains("pubfnnew_js(base_url:::std::string::String,host:::api_bones_sdk::__private::wasm_bindgen::JsValue,)->::core::result::Result<Self,::api_bones_sdk::__private::wasm_bindgen::JsValue>"),
             "{text}"
         );
+    }
+
+    #[test]
+    fn a_constructor_that_fails_throws_the_error_json_instead_of_panicking() {
+        let text = text();
+        assert!(text.contains("<NumbersClient>::from_host(base_url,host).map(|__client|Self{inner:::std::sync::Arc::new(__client)}).map_err(|__error|{::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&::core::convert::Into::<::api_bones_sdk::Error>::into(__error).to_json(),)})"), "{text}");
     }
 
     #[test]
@@ -575,29 +788,27 @@ mod tests {
     }
 
     #[test]
-    fn a_handle_export_resolves_to_a_class_that_an_abort_cancels() {
+    fn a_handle_export_returns_its_class_at_once_and_opens_on_the_first_read() {
         let text = text();
-        assert!(text.contains("let__handle=::std::sync::Arc::new(__client.list(limit,since).await);let__cancel=__handle.clone();::api_bones_sdk::__private::on_abort(&__abort,move||__cancel.cancel());"), "{text}");
+        assert!(text.contains("__signal:::core::option::Option<::api_bones_sdk::__private::web_sys::AbortSignal>,)->ApiBonesJsNumbersClientListHandle{"), "{text}");
+        assert!(text.contains("let__lazy=::api_bones_sdk::__private::Lazy::new(::api_bones_sdk::CallCtx::scope(::api_bones_sdk::CallCtx{traceparent:__traceparent,tracestate:__tracestate,},asyncmove{let__args=::api_bones_sdk::parse_args(&__args_json)?;"), "{text}");
         assert!(
-            text.contains("JsValue::from(ApiBonesJsNumbersClientListHandle{inner:__handle})"),
+            text.contains("::core::result::Result::Ok(__client.list(limit,since).await)"),
             "{text}"
         );
+        assert!(text.contains("let__cancel=__lazy.clone();::api_bones_sdk::__private::on_abort(&__signal,move||__cancel.cancel());ApiBonesJsNumbersClientListHandle{inner:__lazy}"), "{text}");
         assert!(
             text.contains("js_name=\"api_bones__NumbersClient__list__Handle\""),
             "{text}"
         );
-        assert!(
-            text.contains("inner:::std::sync::Arc<::api_bones_sdk::ListCall<Number>>"),
-            "{text}"
-        );
-        assert!(
-            text.contains("inner:::std::sync::Arc<::api_bones_sdk::Stream<Number>>"),
-            "{text}"
-        );
-        assert!(
-            text.contains("inner:::std::sync::Arc<::api_bones_sdk::Batch<Number>>"),
-            "{text}"
-        );
+        for kind in ["ListCall", "Stream", "Batch"] {
+            assert!(
+                text.contains(&format!(
+                    "inner:::api_bones_sdk::__private::Lazy<::api_bones_sdk::{kind}<Number>>"
+                )),
+                "{kind} {text}"
+            );
+        }
     }
 
     #[test]
@@ -606,6 +817,7 @@ mod tests {
         assert!(text.contains("js_name=\"next\""), "{text}");
         assert!(text.contains("js_name=\"cancel\""), "{text}");
         assert!(text.contains("js_name=\"span\""), "{text}");
+        assert!(text.contains("let::core::option::Option::Some(__handle)=__lazy.open().await?else{return::core::result::Result::Ok(::api_bones_sdk::__private::wasm_bindgen::JsValue::UNDEFINED);};"), "{text}");
         assert!(text.contains("::core::option::Option::None=>{::core::result::Result::Ok(::api_bones_sdk::__private::wasm_bindgen::JsValue::UNDEFINED)}"), "{text}");
         assert!(text.contains("self.inner.cancel();"), "{text}");
         assert!(text.contains("self.inner.span()"), "{text}");
@@ -634,6 +846,19 @@ mod tests {
             text.contains("\"kind\":::std::format!(\"{:?}\",__total.kind).to_lowercase()"),
             "{text}"
         );
+    }
+
+    /// A list page reaches the host as its JSON and a hold on its items; a
+    /// stream item and a batch chunk are the JSON alone.
+    #[test]
+    fn a_list_page_is_delivered_with_a_hold_on_its_items_and_no_other_handle_is() {
+        let text = text();
+        let hold = "::api_bones_sdk::__private::wasm_bindgen::JsValue::from(::api_bones_sdk::__private::js_sys::Array::of2(&::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&__text),&::api_bones_sdk::__private::wasm_bindgen::JsValue::from(::api_bones_sdk::__private::PageHold::new(&__page)),))";
+        assert_eq!(text.matches(hold).count(), 1, "{text}");
+        assert_eq!(text.matches("PageHold").count(), 1, "{text}");
+        let bare = "let__text={::api_bones_sdk::to_json_string(&__page)?};::core::result::Result::Ok(::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&__text))";
+        assert_eq!(text.matches(bare).count(), 1, "{text}");
+        assert_eq!(text.matches("Array::of2").count(), 1, "{text}");
     }
 
     #[test]

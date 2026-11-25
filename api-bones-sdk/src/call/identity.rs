@@ -51,6 +51,24 @@ impl IdentityGuard {
         })
     }
 
+    /// The identity a revision cache is scoped to: the subject, the
+    /// organization and the names of the credential headers the call
+    /// started with, each length-prefixed so no two identities share an
+    /// encoding. Never a header value, so a refreshed token keeps the cache.
+    pub(crate) fn cache_identity(&self) -> String {
+        let mut names = self.required.clone();
+        names.sort_unstable();
+        let mut encoded = String::new();
+        push_part(&mut encoded, &self.identity.subject);
+        push_part(&mut encoded, &self.identity.org);
+        encoded.push_str(&names.len().to_string());
+        encoded.push(':');
+        for name in names {
+            push_part(&mut encoded, name);
+        }
+        encoded
+    }
+
     /// Reads the credential now and answers it when it is still the one the
     /// call started as.
     pub(crate) fn verify(&self, source: &dyn CredentialSource) -> Result<Credential, ConnectError> {
@@ -63,6 +81,16 @@ impl IdentityGuard {
         Ok(credential)
     }
 }
+
+fn push_part(encoded: &mut String, part: &str) {
+    encoded.push_str(&part.len().to_string());
+    encoded.push(':');
+    encoded.push_str(part);
+}
+
+/// The cache identity of a walk that could not read its credential. A real
+/// encoding always starts with a digit, so no identity equals it.
+pub(super) const UNREADABLE: &str = "";
 
 /// The one identity a whole list walk runs as: captured by the first page
 /// that sends, then shared by every later page, so a walk that started as one
@@ -82,6 +110,16 @@ impl WalkGuard {
             .get_or_init(|| IdentityGuard::capture(source, batch))
             .as_ref()
             .map_err(Clone::clone)
+    }
+
+    /// The identity a revision cache is scoped to for this walk, read from
+    /// the walk's own guard. A credential that cannot be read answers
+    /// [`UNREADABLE`]: that empty identity never has a slot, so clearing it
+    /// clears nothing, and the walk's first send fails closed with the
+    /// capture error.
+    pub(crate) fn cache_identity(&self, source: &dyn CredentialSource) -> String {
+        self.get(source, false)
+            .map_or_else(|_| UNREADABLE.to_owned(), IdentityGuard::cache_identity)
     }
 }
 
@@ -109,7 +147,7 @@ pub(super) fn checked<T: MaybeSend + 'static>(
                     Ok(item) => match guard.get(source, false).and_then(|own| own.verify(source)) {
                         Ok(_) => Some((Ok(item), Some(items))),
                         Err(refusal) => {
-                            env.refused(&refusal);
+                            env.refused(&refusal, Some(guard.as_ref()));
                             Some((Err(Error::from(refusal)), None))
                         }
                     },
@@ -172,6 +210,56 @@ mod tests {
         assert!(IdentityGuard::capture(&broken, false).is_err());
         let guard = IdentityGuard::capture(&source(who("a", &[])), false).expect("captured");
         assert!(guard.verify(&broken).is_err());
+    }
+
+    #[test]
+    fn the_cache_identity_names_subject_org_and_credential_headers_never_a_value() {
+        let identity = |subject: &str, headers: &[(&str, &str)]| {
+            IdentityGuard::capture(&source(who(subject, headers)), false)
+                .expect("captured")
+                .cache_identity()
+        };
+        let bearer = identity("a", &[("authorization", "Bearer 1")]);
+        assert_eq!(bearer, identity("a", &[("authorization", "Bearer 2")]));
+        assert!(!bearer.contains("Bearer"));
+        let relayed = identity("a", &[("brefwiz-relayed-credential", "x")]);
+        let both = identity(
+            "a",
+            &[("authorization", "x"), ("brefwiz-relayed-credential", "x")],
+        );
+        let other = identity("b", &[("authorization", "Bearer 1")]);
+        let all = [&bearer, &relayed, &both, &other];
+        for (i, left) in all.iter().enumerate() {
+            assert!(left.starts_with(|c: char| c.is_ascii_digit()));
+            for right in &all[i + 1..] {
+                assert_ne!(left, right);
+            }
+        }
+        // The length prefix keeps a subject that ends like an org apart.
+        let joined = |subject: &str, org: &str| {
+            let credential = Credential {
+                identity: Identity {
+                    subject: subject.to_owned(),
+                    org: org.to_owned(),
+                },
+                headers: Vec::new(),
+            };
+            IdentityGuard::capture(&source(credential), false)
+                .expect("captured")
+                .cache_identity()
+        };
+        assert_ne!(joined("ab", "c"), joined("a", "bc"));
+    }
+
+    #[test]
+    fn a_walk_that_cannot_read_its_credential_has_a_cache_identity_no_one_holds() {
+        let broken = || Err::<Credential, _>(ConnectError::unavailable("no credential"));
+        let walk = WalkGuard::default();
+        assert_eq!(walk.cache_identity(&broken), UNREADABLE);
+        let real = IdentityGuard::capture(&source(who("a", &[])), false)
+            .expect("captured")
+            .cache_identity();
+        assert_ne!(real, UNREADABLE);
     }
 
     #[test]

@@ -619,4 +619,3 @@ Then("the loader input is the bytes of the file", function (this: RuntimeWorld) 
   assert.ok(input instanceof Uint8Array, "the input is not bytes");
   assert.deepEqual(Array.from(input), Array.from(this.wasmBytes ?? []));
 });
-

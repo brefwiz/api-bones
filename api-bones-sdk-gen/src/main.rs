@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: MIT
+mod build_ts;
 mod features;
+mod size;
+mod wrapper_ts;
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
@@ -86,6 +89,54 @@ enum Cmd {
         #[arg(long)]
         check: bool,
     },
+    /// The TypeScript wrapper package of a Layer 2 crate
+    Wrapper {
+        #[command(subcommand)]
+        command: Wrapper,
+    },
+}
+
+/// The arguments every wrapper command shares.
+#[derive(clap::Args)]
+struct WrapperArgs {
+    /// Directory of the Layer 2 crate (holds Cargo.toml and src/)
+    #[arg(long = "crate")]
+    krate: PathBuf,
+    /// The SPEC whose front matter lists `sdk_surfaces`
+    #[arg(long, default_value = "SPEC.md")]
+    spec: PathBuf,
+    /// The `sdk_surfaces` id that owns the wrapper's `l2_methods`
+    #[arg(long)]
+    surface: String,
+    /// The package directory
+    #[arg(long)]
+    out: PathBuf,
+}
+
+#[derive(Subcommand)]
+enum Wrapper {
+    /// Write the TypeScript sources, manifest and `l2-methods.json`
+    Typescript {
+        #[command(flatten)]
+        args: WrapperArgs,
+    },
+    /// Build the wasm, bind it and compile the package
+    BuildTs {
+        #[command(flatten)]
+        args: WrapperArgs,
+        /// Cargo target directory of the wasm build
+        #[arg(long, default_value = "target")]
+        target_dir: PathBuf,
+    },
+    /// Print the `api-bones.wasm-size/v1` document of a wasm module
+    Size {
+        /// The module
+        #[arg(long)]
+        wasm: PathBuf,
+        /// The crate it was built from
+        #[arg(long = "crate-name")]
+        crate_name: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -125,6 +176,28 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Cmd::Features { krate, check } => features::run(&krate, check),
+        Cmd::Wrapper { command } => cmd_wrapper(command),
+    }
+}
+
+fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
+    match command {
+        Wrapper::Typescript { args } => {
+            let package = wrapper_ts::package_of(&args.spec, &args.krate, &args.surface)?;
+            let model = features::read_model(&args.krate)?;
+            wrapper_ts::write(&args.out, &wrapper_ts::generate(&model, &package)?)
+        }
+        Wrapper::BuildTs { args, target_dir } => build_ts::run_build(
+            &args.spec,
+            &args.krate,
+            &args.surface,
+            &args.out,
+            &target_dir,
+        ),
+        Wrapper::Size { wasm, crate_name } => {
+            print!("{}", size::document(&wasm, &crate_name)?);
+            Ok(())
+        }
     }
 }
 

@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
+#
+# The Rust step lane of the `sdk-call` surface. The lane of a surface is the
+# directory above its contract's `features` directory, so the sdk-call
+# contract (`../features/sdk_call.feature`) resolves its Rust lane here and its
+# TypeScript lane to `../typescript`. The steps drive the test service's
+# generated Layer 2 (`../../l2`) against a loopback connectrpc server.
+[package]
+name = "api-bones-sdk-call-contract-rust"
+version = "0.0.0"
+edition = "2024"
+publish = false
+# Unpublished; depends on proprietary brefwiz-cucumber-steps.
+license = "LicenseRef-Brefwiz-Proprietary"
+
+[dev-dependencies]
+api-bones = { path = "../../..", features = ["connect"] }
+api-bones-batch = { path = "../../../api-bones-batch" }
+api-bones-page = { path = "../../../api-bones-page" }
+api-bones-sdk = { path = "../../../api-bones-sdk" }
+# The generated contract types the loopback server serves.
+api-bones-contract-rust = { path = "../../rust" }
+# The test service's Layer 2: the surface the lane goes through.
+api-bones-test-service-l2 = { path = "../../l2" }
+bytes = "1"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time", "sync"] }
+connectrpc = { version = "0.9.1", features = ["client", "server"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+cucumber = "0.23"
+# The platform BDD runner.
+brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }
+
+[[test]]
+name = "sdk_call"
+harness = false

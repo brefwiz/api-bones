@@ -33,10 +33,10 @@ export interface ListCall<T> {
   readonly span?: Span;
 }
 
-/** A Rust-side cursor over a sequence of JSON documents. */
-export interface Handle {
+/** A Rust-side cursor over a sequence of documents; a document is JSON text unless the handle delivers more with it. */
+export interface Handle<Raw = string> {
   /** The next document, or `undefined` when the sequence has ended. */
-  next(): Promise<string | undefined>;
+  next(): Promise<Raw | undefined>;
   /** Releases the Rust side, dropping anything it read ahead. */
   cancel(): void;
   /** The `traceparent` of the handle's open iteration span, or `undefined` when it is not recording. */
@@ -51,9 +51,9 @@ export type ErrorMapper = (rejection: unknown) => unknown;
  * when the sequence ends, when `next()` fails, or when the consumer calls
  * `return()` (a `break`, an unmount or an abort), whichever comes first.
  */
-export function iterateHandle<T>(
-  handle: Handle,
-  decode: (json: string) => T,
+export function iterateHandle<T, Raw = string>(
+  handle: Handle<Raw>,
+  decode: (raw: Raw) => T,
   mapError: ErrorMapper = (rejection) => rejection,
 ): AsyncIterableIterator<T> {
   let closed = false;
@@ -66,19 +66,21 @@ export function iterateHandle<T>(
   return {
     async next(): Promise<IteratorResult<T, undefined>> {
       if (closed) return ended;
-      let json: string | undefined;
+      let raw: Raw | undefined;
       try {
-        json = await handle.next();
+        raw = await handle.next();
       } catch (rejection) {
-        close();
-        throw mapError(rejection);
+        const mapped = mapError(rejection);
+        // A busy refusal is about the overlapping call; the pending read still owns the handle.
+        if ((mapped as { code?: unknown } | null)?.code !== "HANDLE_BUSY") close();
+        throw mapped;
       }
-      if (json === undefined) {
+      if (raw === undefined) {
         close();
         return ended;
       }
       try {
-        return { done: false, value: decode(json) };
+        return { done: false, value: decode(raw) };
       } catch (failure) {
         close();
         throw failure;
@@ -104,18 +106,18 @@ export function iterableOf<T>(
 }
 
 /** What a generated wrapper supplies to build a {@link ListCall}. */
-export interface ListCallSource<T> {
+export interface ListCallSource<T, Raw = string> {
   /** Opens a handle over the list's pages. Called once per walk. */
-  openPages(): Handle;
-  decodePage(json: string): Page<T>;
+  openPages(): Handle<Raw>;
+  decodePage(raw: Raw): Page<T>;
   mapError?: ErrorMapper;
   /** Resolves a handle's iteration span to the live span. */
   sink: JsSpanSink;
 }
 
 /** A {@link ListCall} over Rust page handles. */
-export function listCallOf<T>(source: ListCallSource<T>): ListCall<T> {
-  let current: Handle | undefined;
+export function listCallOf<T, Raw = string>(source: ListCallSource<T, Raw>): ListCall<T> {
+  let current: Handle<Raw> | undefined;
   const pages = (): AsyncIterableIterator<Page<T>> => {
     current = source.openPages();
     return iterateHandle(current, source.decodePage, source.mapError);
@@ -141,6 +143,8 @@ export function listCallOf<T>(source: ListCallSource<T>): ListCall<T> {
           return { done: false, value: buffered[at++] };
         },
         async return(): Promise<IteratorResult<T, undefined>> {
+          buffered = [];
+          at = 0;
           await walk.return?.();
           return { done: true, value: undefined };
         },

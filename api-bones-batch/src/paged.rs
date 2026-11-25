@@ -50,13 +50,6 @@ fn identity(credential: &Credential) -> String {
     )
 }
 
-/// Request encoding used by generated paging glue, with its page field cleared.
-#[doc(hidden)]
-pub trait CanonicalPagedRequest {
-    /// Encode every request field except the page envelope.
-    fn canonical_page_request(&self) -> Vec<u8>;
-}
-
 impl<C> Batched<C> {
     /// Generated List adapter sharing the client's credential source and revision cache.
     #[doc(hidden)]
@@ -156,10 +149,8 @@ macro_rules! paged_request {
             }
         }
         impl $crate::__private::CanonicalPagedRequest for $request {
-            fn canonical_page_request(&self) -> Vec<u8> {
-                let mut request = self.clone();
-                request.$page = Default::default();
-                $crate::__private::buffa::Message::encode_to_vec(&request)
+            fn encode(&self) -> Vec<u8> {
+                $crate::__private::buffa::Message::encode_to_vec(self)
             }
         }
     };
@@ -220,7 +211,11 @@ macro_rules! paged_method {
                     self.$options(request, $crate::CallHeaders::new())
                 }
                 fn $options(&self, request: $request, headers: $crate::CallHeaders) -> $crate::__private::ListCall<$request, $response> {
-                    let canonical = $crate::__private::CanonicalPagedRequest::canonical_page_request(&request);
+                    let canonical = {
+                        let mut bare = ::std::clone::Clone::clone(&request);
+                        $crate::__private::PagedRequest::set_page(&mut bare, "", None);
+                        $crate::__private::CanonicalPagedRequest::encode(&bare)
+                    };
                     let client = self.__inner();
                     self.__list($method, $idempotency, request, &headers, &canonical, ::std::sync::Arc::new(move |request, options| {
                         let client = ::std::sync::Arc::clone(&client);

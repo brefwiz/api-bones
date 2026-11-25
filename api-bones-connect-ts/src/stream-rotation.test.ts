@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
-import { create, type DescMessage, type Message } from "@bufbuild/protobuf";
-import { FieldDescriptorProto_Label, FileDescriptorProtoSchema } from "@bufbuild/protobuf/wkt";
+import { create, createFileRegistry, type DescMessage, type Message } from "@bufbuild/protobuf";
+import {
+  FieldDescriptorProto_Label,
+  FileDescriptorProtoSchema,
+  FileDescriptorSetSchema,
+} from "@bufbuild/protobuf/wkt";
 import type { Transport } from "@connectrpc/connect";
 import { describe, expect, it, vi } from "vitest";
 
-import { T, control, field, registryWith } from "./stream-rotation.fixtures.js";
+import { T, control, field, streamFile } from "../../tests/typescript/steps/stream_rotation_fixtures.ts";
 import {
   RotationMachine,
   declaresStreamControl,
@@ -37,7 +41,9 @@ const appFile = create(FileDescriptorProtoSchema, {
   ],
 });
 
-const registry = registryWith(appFile);
+const registry = createFileRegistry(
+  create(FileDescriptorSetSchema, { file: [create(FileDescriptorProtoSchema, streamFile), appFile] }),
+);
 
 function message(name: string): DescMessage {
   const found = registry.getMessage(name);

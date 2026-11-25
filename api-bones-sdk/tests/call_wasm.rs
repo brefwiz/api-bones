@@ -213,3 +213,60 @@ async fn a_call_without_a_signal_is_never_canceled() {
     let env = CallEnv::new(user("a"));
     delay(&env, Some(flag), 30).await.expect("answered");
 }
+
+struct Probe {
+    canceled: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl api_bones_sdk::__private::Opened for Probe {
+    fn cancel(&self) {
+        self.canceled.set(true);
+    }
+
+    fn span(&self) -> Option<String> {
+        Some("span".to_owned())
+    }
+}
+
+#[wasm_bindgen_test]
+async fn a_lazy_handle_canceled_before_its_first_read_refuses_that_read_unopened() {
+    let started = std::rc::Rc::new(std::cell::Cell::new(false));
+    let seen = started.clone();
+    let lazy = api_bones_sdk::__private::Lazy::new(async move {
+        seen.set(true);
+        Ok(Probe {
+            canceled: std::rc::Rc::default(),
+        })
+    });
+    lazy.cancel();
+    let refusal = lazy.open().await.err().expect("canceled");
+    assert_eq!(refusal.code, CANCELED);
+    assert!(!started.get(), "the opening call never started");
+    assert!(lazy.open().await.expect("closed").is_none());
+}
+
+#[wasm_bindgen_test]
+async fn a_lazy_handle_has_no_span_before_it_opens_and_one_after() {
+    let lazy = api_bones_sdk::__private::Lazy::new(async {
+        Ok(Probe {
+            canceled: std::rc::Rc::default(),
+        })
+    });
+    assert_eq!(lazy.span(), None);
+    lazy.open().await.expect("opened").expect("a handle");
+    assert_eq!(lazy.span().as_deref(), Some("span"));
+}
+
+#[wasm_bindgen_test]
+async fn a_second_read_while_the_first_opens_is_refused_busy() {
+    let canceled = std::rc::Rc::new(std::cell::Cell::new(false));
+    let flag = canceled.clone();
+    let lazy = api_bones_sdk::__private::Lazy::new(async move {
+        sleep(Duration::from_millis(30)).await;
+        Ok(Probe { canceled: flag })
+    });
+    let (first, second) = join(lazy.open(), lazy.open()).await;
+    assert!(first.expect("opened").is_some());
+    assert_eq!(second.err().expect("busy").code, api_bones_sdk::HANDLE_BUSY);
+    assert!(!canceled.get());
+}

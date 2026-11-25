@@ -1,38 +1,32 @@
 // SPDX-License-Identifier: MIT
 //
 // Test-only: the hand-built descriptor of bones/v1/stream.proto, shared by the
-// unit tests and the contract lane's steps. Not part of the published build.
+// unit tests and the contract lane's steps. Plain data with no imports, so
+// either runner builds the descriptor with its own protobuf runtime. Not part
+// of the published build.
 
-import { create, createFileRegistry, type MessageShape } from "@bufbuild/protobuf";
-import {
-  FieldDescriptorProto_Label,
-  FieldDescriptorProto_Type,
-  FieldDescriptorProtoSchema,
-  FileDescriptorProtoSchema,
-  FileDescriptorSetSchema,
-  type FieldDescriptorProto,
-} from "@bufbuild/protobuf/wkt";
+/** FieldDescriptorProto.Type numbers. */
+export const T = { UINT32: 13, UINT64: 4, STRING: 9, MESSAGE: 11 } as const;
 
-export const T = FieldDescriptorProto_Type;
+const OPTIONAL = 1;
+
+export interface FieldExtra {
+  typeName?: string;
+  oneofIndex?: number;
+  label?: number;
+}
 
 export function field(
   name: string,
   jsonName: string,
   number: number,
-  type: FieldDescriptorProto_Type,
-  extra: Partial<FieldDescriptorProto> = {},
+  type: number,
+  extra: FieldExtra = {},
 ) {
-  return create(FieldDescriptorProtoSchema, {
-    name,
-    jsonName,
-    number,
-    type,
-    label: FieldDescriptorProto_Label.OPTIONAL,
-    ...extra,
-  });
+  return { name, jsonName, number, type, label: OPTIONAL, ...extra };
 }
 
-export const streamFile = create(FileDescriptorProtoSchema, {
+export const streamFile = {
   name: "bones/v1/stream.proto",
   package: "bones.v1",
   syntax: "proto3",
@@ -62,16 +56,11 @@ export const streamFile = create(FileDescriptorProtoSchema, {
       ],
     },
   ],
-});
+};
 
 /** A field carrying a `bones.v1.StreamControl` under the given number. */
-export const control = (number: number, extra: Partial<FieldDescriptorProto> = {}) =>
+export const control = (number: number, extra: FieldExtra = {}) =>
   field("bones_control", "bonesControl", number, T.MESSAGE, {
     typeName: ".bones.v1.StreamControl",
     ...extra,
   });
-
-/** A registry of the stream file and one application file that depends on it. */
-export function registryWith(appFile: MessageShape<typeof FileDescriptorProtoSchema>) {
-  return createFileRegistry(create(FileDescriptorSetSchema, { file: [streamFile, appFile] }));
-}

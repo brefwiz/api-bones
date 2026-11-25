@@ -10,9 +10,9 @@
 use std::sync::Arc;
 
 use api_bones::connect::Idempotency;
-use api_bones_page::{PageInfo, PageOptions, PagedRequest, PagedResponse};
+use api_bones_page::{CanonicalPagedRequest, PageInfo, PageOptions, PagedRequest, PagedResponse};
 use api_bones_rt::{BoxFuture, MaybeSend};
-use api_bones_sdk::call::{Attempt, CallEnv, PageSend};
+use api_bones_sdk::call::{Attempt, CallEnv, ListResponse, PageSend, not_modified};
 use api_bones_sdk::{
     Attributes, Batch, CallCtx, Error, Handle, ListCall, SpanKind, Stream, Tracer,
 };
@@ -21,6 +21,20 @@ use api_bones_transport::HttpTransport;
 use connectrpc::client::ClientConfig;
 use connectrpc::{ConnectError, ErrorCode};
 use futures_util::stream;
+
+/// The transport of the target: cleartext HTTP/2 to the loopback test server
+/// natively, the host's `fetch` in the browser.
+#[cfg(not(target_arch = "wasm32"))]
+fn transport() -> HttpTransport {
+    HttpTransport::h2c()
+}
+
+/// The transport of the target: cleartext HTTP/2 to the loopback test server
+/// natively, the host's `fetch` in the browser.
+#[cfg(target_arch = "wasm32")]
+fn transport() -> HttpTransport {
+    HttpTransport::fetch()
+}
 
 /// Layer 1: generated at build time from the contract protos.
 #[expect(
@@ -36,13 +50,70 @@ mod generated {
 use generated::contract::v1::widget_result::Outcome;
 use generated::contract::v1::{
     BatchGetWidgetsRequest, EventsClient as EventsRpc, GetWidgetRequest, ListNumbersRequest,
-    ListNumbersResponse, NumbersClient as NumbersRpc, Tick as TickWire, WatchTicksRequest,
-    WidgetsClient as WidgetsRpc,
+    ListNumbersResponse, ListWidgetPartsRequest, ListWidgetPartsResponse,
+    NumbersClient as NumbersRpc, Tick as TickWire, WatchTicksRequest, WidgetsClient as WidgetsRpc,
 };
 
 pub const NUMBERS: &str = "contract.v1.Numbers";
 pub const WIDGETS: &str = "contract.v1.Widgets";
 pub const EVENTS: &str = "contract.v1.Events";
+
+/// The server's client configuration and the env a client's calls run in.
+#[derive(Clone)]
+struct Conn {
+    config: ClientConfig,
+    env: CallEnv,
+}
+
+impl Conn {
+    fn at(base_url: &str, env: CallEnv) -> Result<Self, Error> {
+        let (config, env) = env.at(base_url)?;
+        Ok(Self { config, env })
+    }
+}
+
+/// The wasm constructor of a client: the host says how to authenticate and
+/// where to report spans.
+macro_rules! from_host {
+    ($name:ident) => {
+        #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+        impl $name {
+            /// # Errors
+            /// `invalid_argument` when `base_url` is not a URI.
+            pub fn from_host(
+                base_url: String,
+                host: api_bones_sdk::__private::wasm_bindgen::JsValue,
+            ) -> Result<Self, Error> {
+                Self::new(&base_url, CallEnv::from_host(host))
+            }
+        }
+    };
+}
+
+/// A page request that walks a list: a request message whose cursor and page
+/// size the walk sets.
+macro_rules! page_request {
+    ($name:ident, $request:ty, $doc:literal) => {
+        #[doc = $doc]
+        #[derive(Clone, Default)]
+        pub struct $name(pub $request);
+
+        impl PagedRequest for $name {
+            fn set_page(&mut self, cursor: &str, page_size: Option<u32>) {
+                let mut page = self.0.page.take().unwrap_or_default();
+                cursor.clone_into(&mut page.cursor);
+                page.page_size = page_size.unwrap_or_default();
+                self.0.page = page.into();
+            }
+        }
+
+        impl CanonicalPagedRequest for $name {
+            fn encode(&self) -> Vec<u8> {
+                buffa::Message::encode_to_vec(&self.0)
+            }
+        }
+    };
+}
 
 /// One tick of the `Events` stream.
 #[record]
@@ -89,19 +160,11 @@ impl From<generated::contract::v1::Widget> for Widget {
     }
 }
 
-/// The page request the list call walks: a `ListNumbersRequest` whose cursor
-/// and page size the walk sets.
-#[derive(Clone, Default)]
-pub struct NumbersPageRequest(ListNumbersRequest);
-
-impl PagedRequest for NumbersPageRequest {
-    fn set_page(&mut self, cursor: &str, page_size: Option<u32>) {
-        let mut page = self.0.page.take().unwrap_or_default();
-        cursor.clone_into(&mut page.cursor);
-        page.page_size = page_size.unwrap_or_default();
-        self.0.page = page.into();
-    }
-}
+page_request!(
+    NumbersPageRequest,
+    ListNumbersRequest,
+    "The page request the list call walks."
+);
 
 /// The page the list call delivers: the numbers of a `ListNumbersResponse`.
 pub struct NumbersPage(ListNumbersResponse);
@@ -127,29 +190,84 @@ impl PagedResponse for NumbersPage {
     }
 }
 
-/// The client configuration of `base_url`.
-///
-/// # Errors
-/// `invalid_argument` when `base_url` is not a URI.
-pub fn config_of(base_url: &str) -> Result<ClientConfig, Error> {
-    let uri: http::Uri = base_url
-        .parse()
-        .map_err(|_| Error::invalid_argument("base_url is not a URI"))?;
-    Ok(ClientConfig::new(uri))
+/// One part of a widget.
+#[record]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WidgetPart {
+    pub name: String,
 }
 
-/// The send of the `Numbers` list: one page per attempt, over `config`.
+page_request!(
+    WidgetPartsPageRequest,
+    ListWidgetPartsRequest,
+    "The page request of the parts of one widget."
+);
+
+/// The page the parts list delivers.
+pub struct WidgetPartsPage(ListWidgetPartsResponse);
+
+impl PagedResponse for WidgetPartsPage {
+    type Item = WidgetPart;
+
+    fn split(self) -> (Vec<WidgetPart>, PageInfo) {
+        let page = self.0.page.into_option().unwrap_or_default();
+        let items = self
+            .0
+            .items
+            .into_iter()
+            .map(|name| WidgetPart { name })
+            .collect();
+        let info = PageInfo {
+            next_cursor: page.next_cursor,
+            revision: page.revision,
+            total: None,
+        };
+        (items, info)
+    }
+}
+
+/// The send of the `ListWidgetParts` list: one page per attempt, over
+/// `config`.
+pub fn widget_parts_send(
+    config: ClientConfig,
+) -> PageSend<WidgetPartsPageRequest, WidgetPartsPage> {
+    Arc::new(
+        move |(request, attempt): (WidgetPartsPageRequest, Attempt)|
+              -> BoxFuture<'static, Result<ListResponse<WidgetPartsPage>, ConnectError>> {
+            let config = config.clone();
+            Box::pin(async move {
+                let rpc = WidgetsRpc::new(attempt.transport(transport()), config);
+                let response = rpc
+                    .list_widget_parts_with_options(request.0, attempt.options()?)
+                    .await?;
+                let confirmed = not_modified(response.headers());
+                Ok(ListResponse {
+                    body: WidgetPartsPage(response.into_owned()),
+                    not_modified: confirmed,
+                })
+            })
+        },
+    )
+}
+
+/// The send of the `Numbers` list: one page per attempt, over `config`. The
+/// answer carries whether the server confirmed the revision the attempt asked
+/// about.
 pub fn list_send(config: ClientConfig) -> PageSend<NumbersPageRequest, NumbersPage> {
     Arc::new(
         move |(request, attempt): (NumbersPageRequest, Attempt)|
-              -> BoxFuture<'static, Result<NumbersPage, ConnectError>> {
+              -> BoxFuture<'static, Result<ListResponse<NumbersPage>, ConnectError>> {
             let config = config.clone();
             Box::pin(async move {
-                let rpc = NumbersRpc::new(attempt.transport(HttpTransport::h2c()), config);
+                let rpc = NumbersRpc::new(attempt.transport(transport()), config);
                 let response = rpc
                     .list_no_side_effects_with_options(request.0, attempt.options()?)
                     .await?;
-                Ok(NumbersPage(response.into_owned()))
+                let confirmed = not_modified(response.headers());
+                Ok(ListResponse {
+                    body: NumbersPage(response.into_owned()),
+                    not_modified: confirmed,
+                })
             })
         },
     )
@@ -157,10 +275,7 @@ pub fn list_send(config: ClientConfig) -> PageSend<NumbersPageRequest, NumbersPa
 
 /// The `Numbers` service.
 #[derive(Clone)]
-pub struct NumbersClient {
-    config: ClientConfig,
-    env: CallEnv,
-}
+pub struct NumbersClient(Conn);
 
 impl NumbersClient {
     /// A client of the server at `base_url`, calling as `env` says.
@@ -168,24 +283,23 @@ impl NumbersClient {
     /// # Errors
     /// `invalid_argument` when `base_url` is not a URI.
     pub fn new(base_url: &str, env: CallEnv) -> Result<Self, Error> {
-        Ok(Self {
-            config: config_of(base_url)?,
-            env,
-        })
+        Conn::at(base_url, env).map(Self)
     }
 }
+
+from_host!(NumbersClient);
 
 #[client(surface = "connect-pagination")]
 impl NumbersClient {
     /// The numbers, one page per `next()`.
     #[export]
     pub async fn list(&self, page_size: Option<u32>) -> ListCall<Number> {
-        let send = list_send(self.config.clone());
+        let send = list_send(self.0.config.clone());
         let options = PageOptions {
             page_size,
             ..PageOptions::default()
         };
-        self.env.call(NUMBERS, "ListNoSideEffects").list(
+        self.0.env.call(NUMBERS, "ListNoSideEffects").list(
             Idempotency::NoSideEffects,
             NumbersPageRequest(ListNumbersRequest::default()),
             send,
@@ -204,7 +318,7 @@ pub async fn get_widget_send(
         id,
         ..Default::default()
     };
-    let rpc = WidgetsRpc::new(attempt.transport(HttpTransport::h2c()), config);
+    let rpc = WidgetsRpc::new(attempt.transport(transport()), config);
     let response = rpc
         .get_widget_with_options(request, attempt.options()?)
         .await?;
@@ -222,7 +336,7 @@ pub async fn batch_get_widgets_send(
         ids,
         ..Default::default()
     };
-    let rpc = WidgetsRpc::new(attempt.transport(HttpTransport::h2c()), config);
+    let rpc = WidgetsRpc::new(attempt.transport(transport()), config);
     let response = rpc
         .batch_get_widgets_with_options(request, attempt.options()?)
         .await?
@@ -243,10 +357,7 @@ pub async fn batch_get_widgets_send(
 
 /// The `Widgets` service.
 #[derive(Clone)]
-pub struct WidgetsClient {
-    config: ClientConfig,
-    env: CallEnv,
-}
+pub struct WidgetsClient(Conn);
 
 impl WidgetsClient {
     /// A client of the server at `base_url`, calling as `env` says.
@@ -254,20 +365,20 @@ impl WidgetsClient {
     /// # Errors
     /// `invalid_argument` when `base_url` is not a URI.
     pub fn new(base_url: &str, env: CallEnv) -> Result<Self, Error> {
-        Ok(Self {
-            config: config_of(base_url)?,
-            env,
-        })
+        Conn::at(base_url, env).map(Self)
     }
 }
+
+from_host!(WidgetsClient);
 
 #[client(surface = "connect-batch")]
 impl WidgetsClient {
     /// One widget by id.
     #[export]
     pub async fn get_widget(&self, id: String) -> Result<Widget, Error> {
-        let config = self.config.clone();
-        self.env
+        let config = self.0.config.clone();
+        self.0
+            .env
             .call(WIDGETS, "GetWidget")
             .unary(Idempotency::NoSideEffects, move |attempt| {
                 get_widget_send(config.clone(), id.clone(), attempt)
@@ -275,12 +386,37 @@ impl WidgetsClient {
             .await
     }
 
+    /// The parts of one widget, one page per `next()`.
+    #[export]
+    pub async fn list_widget_parts(
+        &self,
+        widget_id: String,
+        page_size: Option<u32>,
+    ) -> ListCall<WidgetPart> {
+        let send = widget_parts_send(self.0.config.clone());
+        let options = PageOptions {
+            page_size,
+            ..PageOptions::default()
+        };
+        let request = ListWidgetPartsRequest {
+            widget_id,
+            ..Default::default()
+        };
+        self.0.env.call(WIDGETS, "ListWidgetParts").list(
+            Idempotency::NoSideEffects,
+            WidgetPartsPageRequest(request),
+            send,
+            options,
+        )
+    }
+
     /// Several widgets by id, delivered as one chunk of per-id results in
     /// request order.
     #[export]
     pub async fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<Widget> {
-        let config = self.config.clone();
-        self.env
+        let config = self.0.config.clone();
+        self.0
+            .env
             .call(WIDGETS, "BatchGetWidgets")
             .batch(Idempotency::NoSideEffects, move |attempt| {
                 batch_get_widgets_send(config.clone(), ids.clone(), attempt)
@@ -294,7 +430,7 @@ pub async fn watch_open(
     count: u32,
     attempt: Attempt,
 ) -> Result<impl stream::Stream<Item = Result<Tick, ConnectError>>, ConnectError> {
-    let rpc = EventsRpc::new(attempt.transport(HttpTransport::h2c()), config);
+    let rpc = EventsRpc::new(attempt.transport(transport()), config);
     let upstream = rpc
         .watch_with_options(
             WatchTicksRequest {
@@ -320,10 +456,7 @@ pub async fn watch_open(
 
 /// The `Events` service.
 #[derive(Clone)]
-pub struct EventsClient {
-    config: ClientConfig,
-    env: CallEnv,
-}
+pub struct EventsClient(Conn);
 
 impl EventsClient {
     /// A client of the server at `base_url`, calling as `env` says.
@@ -331,12 +464,11 @@ impl EventsClient {
     /// # Errors
     /// `invalid_argument` when `base_url` is not a URI.
     pub fn new(base_url: &str, env: CallEnv) -> Result<Self, Error> {
-        Ok(Self {
-            config: config_of(base_url)?,
-            env,
-        })
+        Conn::at(base_url, env).map(Self)
     }
 }
+
+from_host!(EventsClient);
 
 #[client(surface = "sdk-call")]
 impl EventsClient {
@@ -344,8 +476,9 @@ impl EventsClient {
     /// first `next()`.
     #[export]
     pub async fn watch(&self, count: u32) -> Stream<Tick> {
-        let config = self.config.clone();
+        let config = self.0.config.clone();
         let opened = self
+            .0
             .env
             .call(EVENTS, "Watch")
             .stream(Idempotency::NoSideEffects, move |attempt| {

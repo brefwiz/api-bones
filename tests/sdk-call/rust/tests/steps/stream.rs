@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
-//! The server stream of `../../features/sdk_call.feature`: an `Events`
+//! The server stream of `../../../sdk-call/features/sdk_call.feature`: an `Events`
 //! service on the lane's loopback server, and the steps that watch it through
 //! the test service's Layer 2.
 
@@ -7,11 +7,10 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use api_bones::connect::Idempotency;
 use api_bones_contract_rust::{Events, Tick as WireTick, WatchTicksRequest};
+use api_bones_sdk::Handle;
 use api_bones_sdk::call::CALL_BUDGET;
-use api_bones_sdk::{Error, Handle};
-use api_bones_test_service_l2::{EVENTS, Tick, config_of, watch_open};
+use api_bones_test_service_l2::Tick;
 use connectrpc::{
     ConnectError, Encodable, RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream,
 };
@@ -59,43 +58,44 @@ fn given_tick_wait(world: &mut SdkCallWorld, millis: u64) {
     world.shared.tick_ms.store(millis, Ordering::SeqCst);
 }
 
-async fn open_watch(world: &SdkCallWorld) -> Result<Handle<Tick>, Error> {
+async fn open_watch(world: &SdkCallWorld) -> Handle<Tick> {
     let count = world.shared.ticks.load(Ordering::SeqCst);
-    let env = call_env(world);
-    let config = config_of(&base_url(world)).expect("a loopback uri");
-    env.call(EVENTS, "Watch")
-        .stream(Idempotency::NoSideEffects, move |attempt| {
-            watch_open(config.clone(), count, attempt)
-        })
+    api_bones_test_service_l2::EventsClient::new(&base_url(world), call_env(world))
+        .expect("the lane's server address is a URI")
+        .watch(count)
         .await
+}
+
+/// Watches the events the way a Rust caller does, reading ticks until the
+/// stream ends or is refused.
+async fn watch_events(world: &mut SdkCallWorld) {
+    let started = Instant::now();
+    let ticks = open_watch(world).await;
+    loop {
+        match ticks.next().await {
+            Ok(Some(tick)) => world.ticks.push(tick),
+            Ok(None) => {
+                world.watch_over = true;
+                break;
+            }
+            Err(error) => {
+                world.refusal = Some(error);
+                break;
+            }
+        }
+    }
+    world.watched = started.elapsed();
+    world.watch = Some(ticks);
 }
 
 #[when("the caller watches the events through the SDK")]
 async fn when_watch(world: &mut SdkCallWorld) {
-    let started = Instant::now();
-    let opened = open_watch(world).await;
-    let mut received = Vec::new();
-    let refusal = match opened {
-        Ok(ticks) => {
-            let mut last = ticks.next().await;
-            while let Ok(Some(tick)) = last {
-                received.push(tick);
-                last = ticks.next().await;
-            }
-            last.err()
-        }
-        Err(error) => Some(error),
-    };
-    world.watched = started.elapsed();
-    world.ticks.extend(received);
-    if refusal.is_some() {
-        world.refusal = refusal;
-    }
+    watch_events(world).await;
 }
 
 #[given("the caller has opened a watch of the events through the SDK")]
 async fn given_watch_opened(world: &mut SdkCallWorld) {
-    world.watch = Some(open_watch(world).await.expect("the watch opened"));
+    world.watch = Some(open_watch(world).await);
 }
 
 #[given("the caller has read the first tick of the watch")]
@@ -119,6 +119,30 @@ async fn when_next_tick(world: &mut SdkCallWorld) {
             world.watch_over = matches!(watch.next().await, Ok(None));
         }
     }
+}
+
+#[when(expr = "the caller watches the events through the SDK and leaves after {int} ticks")]
+async fn when_watch_and_leave(world: &mut SdkCallWorld, count: usize) {
+    let ticks = open_watch(world).await;
+    for _ in 0..count {
+        let tick = ticks
+            .next()
+            .await
+            .expect("a tick before the caller left")
+            .expect("the watch had a tick to give");
+        world.ticks.push(tick);
+    }
+    ticks.cancel();
+    world.watch = Some(ticks);
+}
+
+#[then("the watch gives nothing after the caller left")]
+async fn then_watch_left(world: &mut SdkCallWorld) {
+    let watch = world.watch.as_ref().expect("the caller opened a watch");
+    assert!(
+        matches!(watch.next().await, Ok(None)),
+        "the watch gave more after the caller left"
+    );
 }
 
 #[then("the watch has ended")]

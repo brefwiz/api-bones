@@ -374,14 +374,35 @@ sdk_surfaces:
   # stream reads the identity at open and checks it again before each item is
   # delivered; a change ends the stream with IDENTITY_CHANGED. A list page
   # fetched ahead is checked again before it is delivered.
-  # TypeScript reaches it only through a generated wrapper over the wasm
-  # binding, so its target joins when the test-service wrapper ships.
+  # TypeScript reaches it only through the generated wrapper package of the
+  # test service over the wasm binding. This surface is the only owner of the
+  # wrapper's l2_methods; it names no `owns:` because it is a library with no
+  # image.
   sdk-call:
-    contract: tests/features/sdk_call.feature
+    contract: tests/sdk-call/features/sdk_call.feature
+    l2_methods:
+      contract.v1.Numbers/ListNoSideEffects:
+        rust: [list]
+        typescript: [list]
+      contract.v1.Widgets/ListWidgetParts:
+        rust: [list_widget_parts]
+        typescript: [listWidgetParts]
+      contract.v1.Widgets/GetWidget:
+        rust: [get_widget]
+        typescript: [getWidget]
+      contract.v1.Widgets/BatchGetWidgets:
+        rust: [batch_get_widgets]
+        typescript: [batchGetWidgets]
+      contract.v1.Events/Watch:
+        rust: [watch]
+        typescript: [watch]
     targets:
       rust:
         delivery: package
-        packages: [api-bones-sdk]
+        packages: [api-bones-test-service-l2]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-test-service-sdk"]
   # Rust callers use api-bones-sdk directly; the runtime is the TypeScript face
   # alone, so this surface is TS alone.
   sdk-runtime:

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 import { describe, expect, it } from "vitest";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
-import { JsSpanSink, PageError, parseBonesError, type BonesError, iterableOf, iterateHandle, listCallOf, type ListCall, type Page } from "../src/index.js";
+import { JsSpanSink, PageError, parseBonesError, type BonesError, iterableOf, iterateHandle, listCallOf, type Handle, type ListCall, type Page } from "../src/index.js";
 import { HandleDouble, Rejection, pageJson, wireError } from "./handle-double.js";
 
 const decodePage = (json: string): Page<number> => JSON.parse(json) as Page<number>;
@@ -58,6 +58,15 @@ describe("handle adapters cancel the handle exactly once", () => {
     expect(handles[0]?.cancels).toBe(1);
   });
 
+  it("drops the buffered items of items() once it is returned", async () => {
+    const { call, handles } = listOver([pageJson([1, 2], true), pageJson([3, 4], true), pageJson([5], false)]);
+    const walk = call.items()[Symbol.asyncIterator]();
+    expect((await walk.next()).value).toBe(1);
+    await walk.return?.();
+    expect(await walk.next()).toEqual({ done: true, value: undefined });
+    expect(handles[0]?.cancels).toBe(1);
+  });
+
   it("when the sequence ends and the consumer returns afterwards", async () => {
     const { call, handles } = listOver([pageJson([1], false)]);
     const walk = call.pages()[Symbol.asyncIterator]();
@@ -90,6 +99,15 @@ describe("handle adapters cancel the handle exactly once", () => {
       "failed_precondition",
     ]);
     expect(refusal?.message).toBe("handle busy: next() called while a previous next() is pending");
+    expect(handle.cancels).toBe(1);
+  });
+
+  it("keeps the handle open when next() is refused as HANDLE_BUSY", async () => {
+    const handle = new HandleDouble([new Rejection(wireError("bones", "HANDLE_BUSY", "PRECONDITION_FAILED", "failed_precondition", "busy"))]);
+    const walk = iterateHandle(handle, decodeNumber, (rejection) => parseBonesError(rejection as string));
+    await expect(walk.next()).rejects.toMatchObject({ code: "HANDLE_BUSY" });
+    expect(handle.cancels).toBe(0);
+    await walk.return?.();
     expect(handle.cancels).toBe(1);
   });
 
@@ -148,6 +166,27 @@ describe("handle adapters cancel the handle exactly once", () => {
     expect(failure).toBeInstanceOf(PageError);
     expect(failure).toMatchObject({ kind: "cursor_expired", deliveredPages: 2, deliveredItems: 4 });
     expect(handle.cancels).toBe(1);
+  });
+});
+
+describe("a handle that delivers more than JSON text", () => {
+  it("hands the whole delivery to the decoder", async () => {
+    const hold = {};
+    const queue: Array<readonly [string, object]> = [["7", hold]];
+    const handle: Handle<readonly [string, object]> = {
+      next: async () => queue.shift(),
+      cancel: () => undefined,
+      span: () => undefined,
+    };
+    const seen: object[] = [];
+    for await (const value of iterateHandle(handle, ([json, held]) => {
+      seen.push(held);
+      return decodeNumber(json);
+    })) {
+      expect(value).toBe(7);
+    }
+    expect(seen).toEqual([hold]);
+    expect(seen[0]).toBe(hold);
   });
 });
 

@@ -5,7 +5,7 @@
 //! The fetch closures here stand in for the generated client's one RPC; the
 //! helper's own behaviour (what it hands each send, what it enforces around
 //! it) is what is under test. The same helper against a real server is the
-//! Gherkin lane of `tests/rust`.
+//! Gherkin lane of `tests/sdk-call/rust`.
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -17,7 +17,9 @@ use api_bones::connect::Idempotency;
 use api_bones_batch::{Credential, Identity};
 use api_bones_page::{PageInfo, PageOptions, PagedRequest, PagedResponse, RevisionCache};
 use api_bones_rt::BoxFuture;
-use api_bones_sdk::call::{AbortFlag, Attempt, CALL_BUDGET, CallEnv};
+use api_bones_sdk::call::{
+    AbortFlag, Attempt, CALL_BUDGET, CallEnv, CanonicalPagedRequest, ListResponse, PageSend,
+};
 use api_bones_sdk::{
     CALL_BUDGET_ELAPSED, CANCELED, CallCtx, Error, IDENTITY_CHANGED, SpanEnd, SpanKind, SpanSink,
     SpanStart, SpanStatus, Traceparent, Tracer,
@@ -156,6 +158,7 @@ async fn a_call_inside_a_caller_trace_sends_a_child_of_it() {
 async fn each_send_states_the_call_budget() {
     let left = attempts(steady()).await[0]
         .deadline()
+        .expect("a unary send states its deadline")
         .remaining()
         .expect("time left");
     assert!(
@@ -171,7 +174,8 @@ async fn a_retried_call_keeps_one_deadline_and_never_gains_time() {
         .call(SERVICE, "GetWidget")
         .unary(Idempotency::Idempotent, |attempt| {
             let mut seen = seen.lock().expect("seen");
-            seen.push((attempt.deadline(), attempt.deadline().remaining()));
+            let deadline = attempt.deadline().expect("a unary send has a deadline");
+            seen.push((deadline, deadline.remaining()));
             let fail = seen.len() < 3;
             std::future::ready(if fail {
                 Err(ConnectError::unavailable("try again"))
@@ -427,6 +431,21 @@ async fn a_stream_is_bounded_only_until_its_response_head() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_stream_open_states_no_deadline_to_the_server() {
+    let seen = Mutex::new(Vec::new());
+    let handle = steady()
+        .call(SERVICE, "Watch")
+        .stream(Idempotency::NoSideEffects, |attempt| {
+            seen.lock().expect("seen").push(attempt.deadline());
+            async { Ok::<_, ConnectError>(stream::once(async { Ok::<u32, ConnectError>(7) })) }
+        })
+        .await
+        .expect("the head arrives");
+    assert_eq!(handle.next().await.expect("an item"), Some(7));
+    assert_eq!(*seen.lock().expect("seen"), vec![None]);
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_stream_whose_head_never_arrives_fails_at_the_budget() {
     let (env, sink) = traced(steady());
     let refusal =
@@ -539,6 +558,12 @@ impl PagedRequest for PageReq {
     }
 }
 
+impl CanonicalPagedRequest for PageReq {
+    fn encode(&self) -> Vec<u8> {
+        b"widgets".to_vec()
+    }
+}
+
 struct PageResp {
     items: Vec<u32>,
     next: &'static str,
@@ -559,30 +584,43 @@ impl PagedResponse for PageResp {
     }
 }
 
+/// The answer to one page of the two-page list: its two pages, or nothing
+/// but the server's confirmation that the revision the caller holds is
+/// current.
+fn answer(request: &PageReq, not_modified: bool) -> ListResponse<PageResp> {
+    let body = if not_modified {
+        PageResp {
+            items: Vec::new(),
+            next: "",
+        }
+    } else if request.cursor.is_empty() {
+        PageResp {
+            items: vec![1],
+            next: "p2",
+        }
+    } else {
+        PageResp {
+            items: vec![2],
+            next: "",
+        }
+    };
+    ListResponse { body, not_modified }
+}
+
 /// A two-page list whose every page takes `each` to arrive.
 fn two_pages(
     each: Duration,
     deadlines: Arc<Mutex<Vec<api_bones_transport::Deadline>>>,
-) -> api_bones_sdk::call::PageSend<PageReq, PageResp> {
+) -> PageSend<PageReq, PageResp> {
     Arc::new(
         move |(request, attempt): (PageReq, Attempt)| -> BoxFuture<'static, _> {
             deadlines
                 .lock()
                 .expect("deadlines")
-                .push(attempt.deadline());
+                .push(attempt.deadline().expect("a page send has a deadline"));
             Box::pin(async move {
                 tokio::time::sleep(each).await;
-                Ok(if request.cursor.is_empty() {
-                    PageResp {
-                        items: vec![1],
-                        next: "p2",
-                    }
-                } else {
-                    PageResp {
-                        items: vec![2],
-                        next: "",
-                    }
-                })
+                Ok(answer(&request, false))
             })
         },
     )
@@ -798,4 +836,297 @@ async fn a_stream_opened_as_one_identity_and_answered_as_another_is_refused_at_t
         .await
         .expect_err("refused");
     assert_eq!(refusal.code, IDENTITY_CHANGED);
+}
+
+/// A two-page list that confirms the revision it is asked about, and every
+/// send it was made.
+fn revalidating(seen: Arc<Mutex<Vec<Attempt>>>) -> PageSend<PageReq, PageResp> {
+    Arc::new(
+        move |(request, attempt): (PageReq, Attempt)| -> BoxFuture<'static, _> {
+            let confirms = header(&attempt, "if-none-match").as_deref() == Some("\"r1\"");
+            seen.lock().expect("seen").push(attempt);
+            Box::pin(async move { Ok(answer(&request, confirms)) })
+        },
+    )
+}
+
+/// `env` bound to a server, which the revision cache needs to scope its keys.
+fn at(env: &CallEnv, base_url: &str) -> CallEnv {
+    env.at(base_url).expect("a URI").1
+}
+
+fn bound(env: &CallEnv) -> CallEnv {
+    at(env, "http://widgets.example")
+}
+
+fn revalidated_walk(
+    env: &CallEnv,
+    send: PageSend<PageReq, PageResp>,
+) -> api_bones_sdk::ListCall<u32> {
+    env.call(SERVICE, "ListWidgets").list(
+        Idempotency::NoSideEffects,
+        PageReq {
+            cursor: String::new(),
+        },
+        send,
+        PageOptions {
+            prefetch: 0,
+            ..PageOptions::default()
+        },
+    )
+}
+
+async fn pages_of(list: &api_bones_sdk::ListCall<u32>) -> Vec<api_bones_page::Page<u32>> {
+    let mut pages = Vec::new();
+    while let Some(page) = list.next().await.expect("a page") {
+        pages.push(page);
+    }
+    pages
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_confirmed_revision_replays_the_cached_pages() {
+    let env = bound(&steady().with_revision_cache(RevisionCache::default()));
+    let seen = Arc::default();
+    let first = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert_eq!(first.len(), 2);
+    assert!(first.iter().all(|page| !page.from_cache));
+    // The first walk opted in without holding a revision to confirm.
+    {
+        let seen = seen.lock().expect("seen");
+        assert_eq!(header(&seen[0], "bones-list-cache").as_deref(), Some("1"));
+        assert_eq!(header(&seen[0], "if-none-match"), None);
+    }
+    let replayed = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    let items: Vec<_> = replayed.iter().map(|page| page.items.to_vec()).collect();
+    assert_eq!(items, [vec![1], vec![2]]);
+    assert!(replayed.iter().all(|page| page.from_cache));
+    let seen = seen.lock().expect("seen");
+    assert_eq!(seen.len(), 3, "the replay cost one revalidation send");
+    assert_eq!(header(&seen[2], "if-none-match").as_deref(), Some("\"r1\""));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_walk_without_a_cache_sends_no_revalidation_headers_and_replays_nothing() {
+    let env = steady();
+    let seen = Arc::default();
+    for _ in 0..2 {
+        let pages = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+        assert_eq!(pages.len(), 2);
+        assert!(pages.iter().all(|page| !page.from_cache));
+    }
+    for attempt in seen.lock().expect("seen").iter() {
+        assert_eq!(header(attempt, "bones-list-cache"), None);
+        assert_eq!(header(attempt, "if-none-match"), None);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_caller_who_switches_mid_replay_is_refused_and_gets_no_cached_page_after() {
+    let (env, switched) = switchable();
+    let cache = RevisionCache::default();
+    let env = bound(&env.with_revision_cache(cache.clone()));
+    let seen = Arc::default();
+    let held = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert_eq!(held.len(), 2);
+    assert!(!cache.is_empty());
+    let list = revalidated_walk(&env, revalidating(Arc::clone(&seen)));
+    let first = list.next().await.expect("page 1").expect("a page");
+    assert!(first.from_cache);
+    switched.store(true, Ordering::SeqCst);
+    let refusal = list.next().await.expect_err("another identity");
+    assert_eq!(refusal.code, IDENTITY_CHANGED);
+    assert!(list.next().await.expect("the walk ended").is_none());
+    assert!(cache.is_empty(), "the switch dropped the cache");
+}
+
+#[tokio::test(start_paused = true)]
+async fn another_identity_never_shares_the_cache_of_the_first() {
+    let (env, switched) = switchable();
+    let env = bound(&env.with_revision_cache(RevisionCache::default()));
+    let seen = Arc::default();
+    let held = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert_eq!(held.len(), 2);
+    switched.store(true, Ordering::SeqCst);
+    let other = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert_eq!(other.len(), 2);
+    assert!(other.iter().all(|page| !page.from_cache));
+    let seen = seen.lock().expect("seen");
+    assert_eq!(
+        header(&seen[2], "if-none-match"),
+        None,
+        "nothing to confirm"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_bound_cache_keeps_the_codes_of_a_server_refusal() {
+    let cache = RevisionCache::default();
+    let env = bound(&steady().with_revision_cache(cache.clone()));
+    let refusing: PageSend<PageReq, PageResp> =
+        Arc::new(|_: (PageReq, Attempt)| -> BoxFuture<'static, _> {
+            Box::pin(async { Err(ConnectError::unauthenticated("token expired")) })
+        });
+    let refusal = revalidated_walk(&env, refusing)
+        .next()
+        .await
+        .expect_err("refused");
+    assert_eq!(
+        refusal.code,
+        Error::from(ConnectError::unauthenticated("token expired")).code
+    );
+    assert_ne!(refusal.code, IDENTITY_CHANGED);
+    assert!(cache.is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_credential_that_cannot_be_read_fails_the_cached_walk_closed() {
+    let env = bound(
+        &CallEnv::new(|| Err::<Credential, _>(ConnectError::unavailable("no credential")))
+            .with_revision_cache(RevisionCache::default()),
+    );
+    let seen = Arc::default();
+    let refusal = revalidated_walk(&env, revalidating(Arc::clone(&seen)))
+        .next()
+        .await
+        .expect_err("closed");
+    assert_eq!(refusal.platform, "SERVICE_UNAVAILABLE");
+    assert_eq!(seen.lock().expect("seen").len(), 0, "nothing was sent");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_switch_while_a_page_is_in_flight_keeps_identity_changed_with_a_cache_bound() {
+    let (env, switched) = switchable();
+    let cache = RevisionCache::default();
+    let env = bound(&env.with_revision_cache(cache.clone()));
+    let send: PageSend<PageReq, PageResp> = Arc::new(
+        move |(request, _): (PageReq, Attempt)| -> BoxFuture<'static, _> {
+            switched.store(true, Ordering::SeqCst);
+            Box::pin(async move { Ok(answer(&request, false)) })
+        },
+    );
+    let refusal = revalidated_walk(&env, send)
+        .next()
+        .await
+        .expect_err("another identity");
+    assert_eq!(refusal.code, IDENTITY_CHANGED);
+    assert!(cache.is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_env_bound_to_no_server_caches_nothing() {
+    let cache = RevisionCache::default();
+    let env = steady().with_revision_cache(cache.clone());
+    let seen = Arc::default();
+    for _ in 0..2 {
+        let pages = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+        assert!(pages.iter().all(|page| !page.from_cache));
+    }
+    assert!(cache.is_empty());
+    for attempt in seen.lock().expect("seen").iter() {
+        assert_eq!(header(attempt, "bones-list-cache"), None);
+        assert_eq!(header(attempt, "if-none-match"), None);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn two_servers_sharing_one_cache_never_replay_each_others_pages() {
+    let cache = RevisionCache::default();
+    let staging = at(
+        &steady().with_revision_cache(cache.clone()),
+        "http://staging.example",
+    );
+    let prod = at(
+        &steady().with_revision_cache(cache.clone()),
+        "http://prod.example",
+    );
+    let seen = Arc::default();
+    // The cache holds weak item references: a chain replays while its pages are held.
+    let _held = pages_of(&revalidated_walk(&staging, revalidating(Arc::clone(&seen)))).await;
+    let other = pages_of(&revalidated_walk(&prod, revalidating(Arc::clone(&seen)))).await;
+    assert!(other.iter().all(|page| !page.from_cache));
+    assert_eq!(
+        header(&seen.lock().expect("seen")[2], "if-none-match"),
+        None
+    );
+    let again = pages_of(&revalidated_walk(&staging, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        again.iter().all(|page| page.from_cache),
+        "each server keeps its own chain"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refusal_of_one_env_leaves_another_envs_cached_walk_replaying() {
+    let cache = RevisionCache::default();
+    let server = "http://widgets.example";
+    let alice = at(
+        &CallEnv::new(|| Ok(credential("a", 0))).with_revision_cache(cache.clone()),
+        server,
+    );
+    let bob = at(
+        &CallEnv::new(|| Ok(credential("b", 0))).with_revision_cache(cache.clone()),
+        server,
+    );
+    let seen = Arc::default();
+    let _alice_pages = pages_of(&revalidated_walk(&alice, revalidating(Arc::clone(&seen)))).await;
+    let _bob_pages = pages_of(&revalidated_walk(&bob, revalidating(Arc::clone(&seen)))).await;
+    alice
+        .call(SERVICE, "GetWidget")
+        .unary(Idempotency::NoSideEffects, |_| {
+            std::future::ready(Err::<u32, _>(ConnectError::unauthenticated("expired")))
+        })
+        .await
+        .expect_err("refused");
+    let bob_again = pages_of(&revalidated_walk(&bob, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        bob_again.iter().all(|page| page.from_cache),
+        "the other env's chain survives"
+    );
+    let alice_again = pages_of(&revalidated_walk(&alice, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        alice_again.iter().all(|page| !page.from_cache),
+        "the refused env's own chain is gone"
+    );
+}
+
+#[test]
+fn a_base_url_that_is_not_a_uri_is_invalid_argument() {
+    let error = steady().at("not a uri").err().expect("refused");
+    assert_eq!(error.platform, "VALIDATION_FAILED");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refused_call_drops_the_slot_of_the_identity_it_started_as() {
+    let (env, switched) = switchable();
+    let cache = RevisionCache::default();
+    let env = bound(&env.with_revision_cache(cache.clone()));
+    let seen = Arc::default();
+    // Both identities hold a slot; the cache replays only chains whose pages are held.
+    let _held_a = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    switched.store(true, Ordering::SeqCst);
+    let _held_b = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    switched.store(false, Ordering::SeqCst);
+    // A call that started as `a` is refused after the credential became `b`.
+    let flag = Arc::clone(&switched);
+    let refusal = env
+        .call(SERVICE, "GetWidget")
+        .unary(Idempotency::NoSideEffects, move |_| {
+            flag.store(true, Ordering::SeqCst);
+            std::future::ready(Ok::<u32, _>(1))
+        })
+        .await
+        .expect_err("another identity");
+    assert_eq!(refusal.code, IDENTITY_CHANGED);
+    let bob = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        bob.iter().all(|page| page.from_cache),
+        "b's slot is untouched"
+    );
+    switched.store(false, Ordering::SeqCst);
+    let ada = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        ada.iter().all(|page| !page.from_cache),
+        "a's slot was dropped"
+    );
 }
