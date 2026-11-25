@@ -23,7 +23,7 @@ path = "src/lib.rs"
 prost-reflect = { workspace = true }
 api-bones-page = { version = "0.6.0", path = "../api-bones-page", registry = "brefwiz" }
 api-bones-rt = { version = "0.1.0", path = "../api-bones-rt", registry = "brefwiz" }
-api-bones-transport = { version = "0.1.1", path = "../api-bones-transport", registry = "brefwiz" }
+api-bones-transport = { version = "0.1.2", path = "../api-bones-transport", registry = "brefwiz" }
 buffa = "0.9"
 api-bones = { version = "^20.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
 connectrpc = { version = "0.9.1", default-features = false }
