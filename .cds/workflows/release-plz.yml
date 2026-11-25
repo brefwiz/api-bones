@@ -54,6 +54,7 @@ jobs:
           checkout: "false"
           mode: release
           git-token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
+          cds-token: ${{ vars.brefwiz-secrets.CDS_RUN_READER_TOKEN }}
           forge: gitea
           gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
@@ -69,6 +70,7 @@ jobs:
           checkout: "false"
           mode: release-pr
           git-token: ${{ vars.brefwiz-secrets.RELEASE_BOT_TOKEN }}
+          cds-token: ${{ vars.brefwiz-secrets.CDS_RUN_READER_TOKEN }}
           forge: gitea
           gpg-key-id: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_ID }}
           gpg-private-key-b64: ${{ vars.brefwiz-secrets.RELEASE_BOT_GPG_KEY_B64 }}
