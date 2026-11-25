@@ -1,0 +1,10 @@
+# api-bones-sdk-gen features: begin
+sdk-all = []
+sdk-connect-batch = []
+sdk-connect-pagination = []
+sdk-m-batch_get_widgets = []
+sdk-m-get_widget = []
+sdk-m-label = []
+sdk-m-list = []
+wasm = ["api-bones-sdk/wasm"]
+# api-bones-sdk-gen features: end

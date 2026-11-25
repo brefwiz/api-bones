@@ -1,0 +1,5 @@
+error: a sync export is not `async`
+ --> tests/compile_fail/sync_async.rs:9:9
+  |
+9 |     pub async fn f(&self) {}
+  |         ^^^^^^^^^^^^^^^^^

@@ -88,7 +88,7 @@ mod uuid;
 mod webpki_store;
 
 pub use crate::error::{ErrorArg, ErrorArgError};
-pub use code::{ConnectCode, ParseConnectCodeError};
+pub use code::{ConnectCode, ParseConnectCodeError, platform_of_connect};
 pub use domain_error::{DomainErrorKind, IntoDomainErrorKind, domain_to_connect};
 pub use error_info::{
     CarriesErrorInfo, ERROR_INFO_TYPE, ErrorInfo, MAX_ERROR_INFOS, VALIDATION_FAILURE_TYPE,

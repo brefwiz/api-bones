@@ -1,0 +1,30 @@
+{
+  "schema": "api-bones.l2-methods/v1",
+  "service": "api-bones-test",
+  "crate": "api-bones-test-service-l2",
+  "package": "@brefwiz/api-bones-test-service",
+  "methods": [
+    {
+      "export": "api_bones_test__NumbersClient__list",
+      "typescript": "list",
+      "endpoints": [
+        "contract.v1.Numbers/List"
+      ]
+    },
+    {
+      "export": "api_bones_test__WidgetsClient__batch_get_widgets",
+      "typescript": "batchGetWidgets",
+      "endpoints": [
+        "contract.v1.Widgets/BatchGetWidgets",
+        "contract.v1.Widgets/GetWidget"
+      ]
+    },
+    {
+      "export": "api_bones_test__WidgetsClient__get_widget",
+      "typescript": "getWidget",
+      "endpoints": [
+        "contract.v1.Widgets/GetWidget"
+      ]
+    }
+  ]
+}

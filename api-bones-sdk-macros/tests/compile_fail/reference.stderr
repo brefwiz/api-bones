@@ -1,0 +1,5 @@
+error: parameter `x`: references and lifetimes are not allowed, take the value; allowed: bool, i32, u32, f64, String, i64, u64, Vec<u8>, SystemTime, Duration, Option<T>, Vec<T>, BTreeMap<String, T> (T itself allowed), or a type that carries #[record] or #[enumeration]
+  --> tests/compile_fail/reference.rs:10:30
+   |
+10 |     pub async fn f(&self, x: &String) -> Result<(), Error> {
+   |                              ^^^^^^^

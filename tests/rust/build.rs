@@ -15,6 +15,7 @@ const BATCH: &str = "bones/v1/batch.proto";
 const ERRORS: &str = "bones/v1/errors.proto";
 const FIELDS: &str = "bones/v1/fields.proto";
 const FIELD_CONTRACT: &str = "contract/v1/fields.proto";
+const EVENTS: &str = "contract/v1/events.proto";
 
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"));
@@ -80,9 +81,19 @@ fn main() {
         std::fs::write(policy_path, policy_bytes).expect("write generated method policy");
     }
 
+    // The stream service is the call-helper lane's alone: it joins the
+    // descriptor set only after the method policy above was derived, so the
+    // policy of the shipped contract does not carry a lane-local method.
+    compiler
+        .open_file(EVENTS)
+        .expect("compile the stream contract proto");
+    std::fs::write(&descriptor_set, compiler.encode_file_descriptor_set())
+        .expect("write descriptor set");
+
     connectrpc_build::Config::new()
         .files(&[
             WATCH,
+            EVENTS,
             STREAM,
             PAGES,
             PAGINATION,
@@ -102,6 +113,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=proto");
     println!("cargo:rerun-if-changed=../shared/proto/contract/v1/fields.proto");
+    println!("cargo:rerun-if-changed=../shared/proto/contract/v1/events.proto");
     println!("cargo:rerun-if-changed=../../api-bones-protos/proto/bones/v1/stream.proto");
     println!("cargo:rerun-if-changed=../../api-bones-protos/proto/bones/v1/pagination.proto");
     println!("cargo:rerun-if-changed=../../api-bones-protos/proto/bones/v1/batch.proto");

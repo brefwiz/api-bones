@@ -327,6 +327,61 @@ jobs:
         with:
           artifact-name: typerel-typescript
 
+  # What the browser module of a Connect client weighs, per capability.
+  # DAG contract: requirement = the probe builds in every variant and the
+  # report assembles; outputs = the `wasm-size-report` artifact
+  # (api-bones.wasm-size/v1) and a step-summary table; needs = checks;
+  # consumers = verdict (status), the ARB-keys-184 ruling (artifact). It
+  # reports numbers and judges none: no threshold, no second job. A failed
+  # build, a missing tool or a wasm-bindgen that is not Cargo.lock's fails it.
+  # Reservation: 24576, the ram-build profile default (no usage record exists
+  # yet).
+  wasm-size-probe:
+    needs: [checks]
+    if: ${{ (!startsWith(cds.event.ref, 'refs/heads/next-release/')) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',wasm-size-probe,')) }}
+    runs-on:
+      model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
+      flavor: ram-build
+      memory: "24576"
+    vars: [brefwiz-pr-readonly, brefwiz-vars]
+    env:
+      CARGO_REGISTRIES_BREFWIZ_TOKEN: ${{ vars.brefwiz-pr-readonly.CARGO_REGISTRIES_BREFWIZ_TOKEN }}
+      REGISTRY_USER: ${{ vars.brefwiz-pr-readonly.REGISTRY_USER }}
+      REGISTRY_TOKEN: ${{ vars.brefwiz-pr-readonly.REGISTRY_TOKEN }}
+      PACKAGE_READER_TOKEN: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
+      RUSTC_WRAPPER: sccache
+      SCCACHE_REDIS: ${{ vars.brefwiz-vars.SCCACHE_REDIS }}
+      CARGO_INCREMENTAL: "0"
+      CI_CACHE_S3_URL: ${{ vars.brefwiz-vars.CI_CACHE_S3_URL }}
+      CI_CACHE_KEY_ID: ${{ vars.brefwiz-pr-readonly.CI_CACHE_KEY_ID }}
+      CI_CACHE_KEY_SECRET: ${{ vars.brefwiz-pr-readonly.CI_CACHE_KEY_SECRET }}
+    steps:
+      - id: checkout
+        uses: actions/checkout
+      # The probe runs cargo in its own step, so it restores and saves its own
+      # target-dir snapshot beside sccache.
+      - id: rust-cache-restore
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rust-cache-restore@main
+        with:
+          job-class: wasm-size-probe
+      - id: wasm-size
+        run: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          tools/wasm-size-probe/build-report.sh
+          cat target/wasm-size/summary.md >> "${GITHUB_STEP_SUMMARY:-/dev/stdout}"
+      - id: rust-cache-save
+        if: ${{ always() }}
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rust-cache-save@main
+        with:
+          job-class: wasm-size-probe
+      - id: sccache-stats
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sccache-stats@main
+      - id: upload-wasm-size-report
+        uses: actions/uploadArtifact
+        with:
+          path: "target/wasm-size/wasm-size-report"
+
   # The instrumented suite from coverage-build's archive, then the report that
   # grades it (the platform default line floor, from the shared recipe) and stages target/nextest/ci/junit.xml.
   # DAG contract: requirement = the nextest suite passes under llvm-cov and the
@@ -408,7 +463,7 @@ jobs:
   # failed predecessor does not stop it. Nothing needs it: it gates no job
   # and no promotion.
   verdict:
-    needs: [rc-tree-proof, checks, cargo-package, coverage-build, gate-e2e-rust, ts, coverage, duplication-typed]
+    needs: [rc-tree-proof, checks, cargo-package, coverage-build, gate-e2e-rust, ts, coverage, duplication-typed, wasm-size-probe]
     if: ${{ (always()) && (git.ref_name != 'rc' && !startsWith(git.ref, 'refs/heads/release-plz-') && !startsWith(git.ref, 'refs/heads/next-release/') && !startsWith(git.ref, 'refs/heads/auto-tag-release/') || !contains(jobs.rc-tree-proof.outputs.proven_jobs, ',verdict,')) }}
     runs-on:
       model: BREFWIZ/brefwiz/brefwiz/infra/brefwiz-ci@main
@@ -431,3 +486,4 @@ jobs:
             ts|checks|${{ needs.ts.result }}
             coverage|coverage-build|${{ needs.coverage.result }}
             duplication-typed|coverage-build,ts|${{ needs.duplication-typed.result }}
+            wasm-size-probe|checks|${{ needs.wasm-size-probe.result }}

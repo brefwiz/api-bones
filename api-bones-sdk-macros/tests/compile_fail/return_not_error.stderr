@@ -1,0 +1,24 @@
+error[E0277]: the trait bound `api_bones_sdk::Error: From<NotAnError>` is not satisfied
+  --> tests/compile_fail/return_not_error.rs:11:41
+   |
+11 |     pub async fn f(&self) -> Result<(), NotAnError> {
+   |                                         ^^^^^^^^^^ the trait `From<NotAnError>` is not implemented for `api_bones_sdk::Error`
+   |
+help: `api_bones_sdk::Error` implements trait `From<T>`
+  --> $WORKSPACE/api-bones-sdk/src/error.rs
+   |
+   | impl From<BadValue> for Error {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<BadValue>`
+...
+   | impl From<ConnectError> for Error {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<connectrpc::error::ConnectError>`
+...
+   | impl From<PageError> for Error {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<api_bones_page::error::PageError>`
+   = note: required for `NotAnError` to implement `Into<api_bones_sdk::Error>`
+note: required by a bound in `error`
+  --> tests/compile_fail/return_not_error.rs:8:1
+   |
+ 8 | #[client(surface = "s")]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `error`
+   = note: this error originates in the attribute macro `client` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: MIT
+#
+# Measures what the browser module of a Connect client costs. The library is
+# the module (one exported entry point per capability, selected by a feature);
+# the `wasm-size-report` binary turns the built variants into
+# `api-bones.wasm-size/v1`. Never published, never linked by a product.
+[package]
+name = "api-bones-wasm-size-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+rust-version = "1.85"
+description = "The wasm size probe: builds the Connect client in capability variants and reports the size of each."
+
+[lib]
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "wasm-size-report"
+path = "src/main.rs"
+
+# Every feature below adds exactly one capability to the `floor` module, which
+# is one unary RPC. `all` is every capability at once.
+[features]
+floor = []
+page = ["dep:api-bones-batch", "dep:futures-util"]
+batch = ["dep:api-bones-batch"]
+stream = ["dep:api-bones-stream", "dep:futures-util"]
+retry = ["dep:api-bones"]
+gzip = ["connectrpc/gzip"]
+methods-10 = []
+methods-50 = []
+second-service = []
+all = ["page", "batch", "stream", "retry", "gzip", "second-service"]
+
+[dependencies]
+api-bones-rt = { path = "../../api-bones-rt", version = "0.1.0", registry = "brefwiz" }
+api-bones-transport = { path = "../../api-bones-transport", version = "0.1.2", registry = "brefwiz" }
+api-bones = { path = "../..", version = "^20.0.0", registry = "brefwiz", default-features = false, features = ["connect-core"], optional = true }
+api-bones-batch = { path = "../../api-bones-batch", version = "0.6.0", registry = "brefwiz", optional = true }
+api-bones-stream = { path = "../../api-bones-stream", version = "0.1.4", registry = "brefwiz", optional = true }
+buffa = { version = "0.9", features = ["json"] }
+buffa-types = { version = "0.9", features = ["json"] }
+connectrpc = { version = "0.9.1", default-features = false, features = ["json"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"], optional = true }
+http = "1.4.2"
+serde = { workspace = true }
+serde_json = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4.78"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+brotli = { version = "8", default-features = false, features = ["std"] }
+flate2 = "1"
+
+[build-dependencies]
+connectrpc-build = "0.9"
+protox = "0.9"
+
+[dev-dependencies]
+connectrpc-build = "0.9"
+protox = "0.9"
+
+[lints]
+workspace = true

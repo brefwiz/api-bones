@@ -40,6 +40,7 @@ pub use generated::contract::v1::{
     PlainEvent, UpdateWidgetPartsRequest, WatchEvent, Widget, WidgetPartsGroup, WidgetResult,
     Widgets, WidgetsClient, WidgetsExt, watch_event, widget_result,
 };
+pub use generated::contract::v1::{Events, EventsExt, Tick, WatchTicksRequest};
 pub use generated::contract::v1::{
     Fields, FieldsClient, FieldsExt, ValidateFieldRequest, ValidateFieldResponse,
 };

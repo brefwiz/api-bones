@@ -1,0 +1,7 @@
+error: `#[export]` belongs on a method of an impl that carries `#[client]`
+ --> tests/compile_fail/export_outside_client.rs:7:5
+  |
+7 |     #[export]
+  |     ^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `export` (in Nightly builds, run with -Z macro-backtrace for more info)

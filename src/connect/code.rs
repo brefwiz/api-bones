@@ -200,9 +200,50 @@ impl From<ConnectCode> for connectrpc::ErrorCode {
     }
 }
 
+/// The platform code of a Connect code (core-ui `connectCodeToErrorCode`).
+#[must_use]
+pub fn platform_of_connect(code: ConnectCode) -> &'static str {
+    match code {
+        ConnectCode::Unauthenticated => "UNAUTHORIZED",
+        ConnectCode::PermissionDenied => "FORBIDDEN",
+        ConnectCode::NotFound => "RESOURCE_NOT_FOUND",
+        ConnectCode::AlreadyExists => "RESOURCE_ALREADY_EXISTS",
+        ConnectCode::ResourceExhausted => "RATE_LIMITED",
+        ConnectCode::FailedPrecondition => "PRECONDITION_FAILED",
+        ConnectCode::InvalidArgument => "VALIDATION_FAILED",
+        ConnectCode::Unavailable => "SERVICE_UNAVAILABLE",
+        ConnectCode::DeadlineExceeded => "GATEWAY_TIMEOUT",
+        ConnectCode::Unimplemented => "NOT_IMPLEMENTED",
+        ConnectCode::Aborted => "CONFLICT",
+        ConnectCode::OutOfRange => "UNPROCESSABLE_ENTITY",
+        _ => "INTERNAL_SERVER_ERROR",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn platform_codes_follow_the_catalog_mapping() {
+        for (code, platform) in [
+            (ConnectCode::Unauthenticated, "UNAUTHORIZED"),
+            (ConnectCode::PermissionDenied, "FORBIDDEN"),
+            (ConnectCode::NotFound, "RESOURCE_NOT_FOUND"),
+            (ConnectCode::AlreadyExists, "RESOURCE_ALREADY_EXISTS"),
+            (ConnectCode::ResourceExhausted, "RATE_LIMITED"),
+            (ConnectCode::FailedPrecondition, "PRECONDITION_FAILED"),
+            (ConnectCode::InvalidArgument, "VALIDATION_FAILED"),
+            (ConnectCode::Unavailable, "SERVICE_UNAVAILABLE"),
+            (ConnectCode::DeadlineExceeded, "GATEWAY_TIMEOUT"),
+            (ConnectCode::Unimplemented, "NOT_IMPLEMENTED"),
+            (ConnectCode::Aborted, "CONFLICT"),
+            (ConnectCode::OutOfRange, "UNPROCESSABLE_ENTITY"),
+            (ConnectCode::Internal, "INTERNAL_SERVER_ERROR"),
+        ] {
+            assert_eq!(platform_of_connect(code), platform, "{code:?}");
+        }
+    }
 
     #[test]
     fn every_variant_round_trips_wire_string() {

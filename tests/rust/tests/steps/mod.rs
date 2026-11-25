@@ -27,6 +27,7 @@ mod shipped_resolver;
 mod stream_control;
 mod stream_keepalive;
 mod stream_rotation;
+mod support;
 
 use crate::world::RetryWorld;
 use connectrpc::{ConnectError, ErrorCode};

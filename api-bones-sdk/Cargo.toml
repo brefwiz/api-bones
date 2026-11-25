@@ -1,0 +1,61 @@
+[package]
+name = "api-bones-sdk"
+version = "0.1.0"
+publish = ["brefwiz"]
+edition = "2024"
+rust-version = "1.85"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "The Layer 2 vocabulary of the api-bones SDK: the wire error, the JSON codec, call context, span sink and the handles a call returns, decided once in Rust."
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-sdk"
+keywords = ["sdk", "connectrpc", "wasm"]
+categories = ["api-bindings", "wasm"]
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# The browser binding: the span sink that calls the host's `start` and `end`.
+# It builds on wasm32 only.
+wasm = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:web-sys"]
+
+[dependencies]
+api-bones = { version = "^20.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
+api-bones-batch = { version = "0.6.0", path = "../api-bones-batch", registry = "brefwiz" }
+api-bones-page = { version = "0.6.0", path = "../api-bones-page", registry = "brefwiz" }
+api-bones-rt = { version = "0.1.0", path = "../api-bones-rt", registry = "brefwiz" }
+api-bones-transport = { version = "0.1.2", path = "../api-bones-transport", registry = "brefwiz" }
+base64 = { version = "0.23", default-features = false, features = ["alloc"] }
+connectrpc = { version = "0.9.1", default-features = false }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http = "1.4.2"
+serde_json = "1"
+js-sys = { version = "0.3.105", optional = true }
+wasm-bindgen = { workspace = true, optional = true }
+# The promise of the browser binding.
+wasm-bindgen-futures = { version = "0.4.78", optional = true }
+# The abort listener of the browser binding.
+web-sys = { version = "0.3.105", optional = true, features = ["AbortSignal", "EventTarget"] }
+
+# A native build trusts a root store; a browser build has none, because the
+# browser owns the connection.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+api-bones = { version = "^20.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["tls-native-roots"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "time", "sync", "test-util"] }
+bytes = "1"
+http-body-util = "0.1"
+
+# The wasm suite (`tests/call_wasm.rs`) calls the real test server through
+# globalThis.fetch, the way the transport's own suite does. It runs only under
+# this crate's own `wasm` feature.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+buffa = "0.9"
+buffa-types = { version = "0.9", features = ["json"] }
+wasm-bindgen-test = "0.3.78"

@@ -61,26 +61,9 @@ type Text = <StringValue as HasMessageView>::View<'static>;
 // The server and the transport
 // ---------------------------------------------------------------------------
 
-/// The test server's base URL, from `API_BONES_TEST_SERVER`.
-fn server() -> String {
-    let process = Reflect::get(&js_sys::global(), &JsValue::from_str("process"))
-        .expect("the suite runs in Node");
-    let env = Reflect::get(&process, &JsValue::from_str("env")).expect("Node has process.env");
-    let url = Reflect::get(&env, &JsValue::from_str("API_BONES_TEST_SERVER"))
-        .ok()
-        .and_then(|value| value.as_string())
-        .map(|value| value.trim().trim_end_matches('/').to_owned())
-        .filter(|value| !value.is_empty())
-        .expect(
-            "API_BONES_TEST_SERVER must name the test server's base URL; \
-             run the suite through `make ci-wasm-test`",
-        );
-    if url.contains("://") {
-        url
-    } else {
-        format!("http://{url}")
-    }
-}
+#[path = "support/test_server.rs"]
+mod test_server;
+use test_server::server;
 
 /// The public read lane of the test server.
 fn public() -> String {

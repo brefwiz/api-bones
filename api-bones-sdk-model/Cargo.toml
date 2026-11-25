@@ -1,0 +1,27 @@
+[package]
+name = "api-bones-sdk-model"
+version = "0.1.0"
+publish = ["brefwiz"]
+edition = "2024"
+rust-version = "1.85"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "The one parse of a Layer 2 crate's SDK exports and the one classifier of the types that may cross the wasm boundary, shared by the api-bones-sdk macros and the generator."
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-sdk-model"
+keywords = ["sdk", "codegen", "wasm"]
+categories = ["development-tools"]
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+proc-macro2 = "1"
+heck = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"

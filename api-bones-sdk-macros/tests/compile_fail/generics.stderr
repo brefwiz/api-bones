@@ -1,0 +1,5 @@
+error: an export has no generics
+  --> tests/compile_fail/generics.rs:10:19
+   |
+10 |     pub async fn f<T>(&self) -> Result<(), Error> {
+   |                   ^^^
