@@ -14,11 +14,9 @@ use std::time::{Duration, Instant};
 
 use api_bones_batch::{Batched, CallHeaders};
 use api_bones_contract_rust::{
-    BatchGetWidgetsRequest, BatchGetWidgetsResponse, BatchListWidgetPartsRequest,
-    BatchListWidgetPartsResponse, GetWidgetRequest, ListNumbersRequest, ListNumbersResponse,
-    ListWidgetPartsRequest, ListWidgetPartsResponse, Numbers, NumbersClient, NumbersExt,
-    NumbersLists, PageResponse, UpdateWidgetPartsRequest, Widget, WidgetGets, WidgetResult,
-    Widgets, WidgetsClient, WidgetsExt, widget_result,
+    BatchGetWidgetsRequest, BatchGetWidgetsResponse, GetWidgetRequest, ListNumbersRequest,
+    ListNumbersResponse, Numbers, NumbersClient, NumbersExt, NumbersLists, PageResponse, Widget,
+    WidgetGets, Widgets, WidgetsClient, WidgetsExt,
 };
 use api_bones_page::{ListCall, PageError, PageErrorKind};
 use api_bones_transport::HttpTransport;
@@ -31,6 +29,7 @@ use cucumber::{given, then, when};
 use futures_util::TryStreamExt;
 use futures_util::future::{Either, select};
 
+use super::support::{batch_response, unserved_widget_methods};
 use crate::world::RateLimitWorld;
 
 type WidgetsBatched = Batched<WidgetsClient<HttpTransport>>;
@@ -118,13 +117,6 @@ impl Numbers for Throttle {
     }
 }
 
-/// The answer of a method this scenario never calls.
-fn unserved<T>() -> ServiceResult<T> {
-    Err(ConnectError::unimplemented(
-        "the throttle serves only the method under test",
-    ))
-}
-
 impl Widgets for Throttle {
     async fn get_widget<'a>(
         &'a self,
@@ -146,65 +138,16 @@ impl Widgets for Throttle {
     ) -> ServiceResult<impl connectrpc::Encodable<BatchGetWidgetsResponse> + Send + use<'a>> {
         self.admit()?;
         let asked = request.to_owned_message();
-        let results = asked
-            .ids
-            .iter()
-            .map(|id| WidgetResult {
-                id: id.clone(),
-                outcome: Some(widget_result::Outcome::Item(Box::new(Widget {
-                    id: id.clone(),
-                    kind: asked.kind.clone(),
-                    ..Default::default()
-                }))),
+        Response::ok(batch_response(&asked.ids, |id| {
+            Some(Widget {
+                id: id.to_owned(),
+                kind: asked.kind.clone(),
                 ..Default::default()
             })
-            .collect();
-        Response::ok(BatchGetWidgetsResponse {
-            results,
-            ..Default::default()
-        })
+        }))
     }
 
-    async fn list_widget_parts<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _request: ServiceRequest<'_, ListWidgetPartsRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
-        unserved::<ListWidgetPartsResponse>()
-    }
-
-    async fn list_widget_parts_idempotent<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _request: ServiceRequest<'_, ListWidgetPartsRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
-        unserved::<ListWidgetPartsResponse>()
-    }
-
-    async fn list_widget_parts_unspecified<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _request: ServiceRequest<'_, ListWidgetPartsRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
-        unserved::<ListWidgetPartsResponse>()
-    }
-
-    async fn update_widget_parts<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _request: ServiceRequest<'_, UpdateWidgetPartsRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
-        unserved::<ListWidgetPartsResponse>()
-    }
-
-    async fn batch_list_widget_parts<'a>(
-        &'a self,
-        _ctx: RequestContext,
-        _request: ServiceRequest<'_, BatchListWidgetPartsRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<BatchListWidgetPartsResponse> + Send + use<'a>>
-    {
-        unserved::<BatchListWidgetPartsResponse>()
-    }
+    unserved_widget_methods!("the throttle serves only the method under test");
 }
 
 /// Serves the router `register` builds over this scenario's throttle and

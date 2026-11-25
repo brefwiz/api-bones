@@ -1,0 +1,5 @@
+error: the return type: a sync export never returns a handle; allowed: bool, i32, u32, f64, String, i64, u64, Vec<u8>, SystemTime, Duration, Option<T>, Vec<T>, BTreeMap<String, T> (T itself allowed), or a type that carries #[record] or #[enumeration]
+  --> tests/compile_fail/return_sync_handle.rs:15:24
+   |
+15 |     pub fn f(&self) -> ListCall<Number> {
+   |                        ^^^^^^^^^^^^^^^^

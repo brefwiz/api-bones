@@ -3,32 +3,13 @@
 
 use connectrpc::ConnectError;
 
-use crate::connect::code::ConnectCode;
+use crate::connect::code::{ConnectCode, platform_of_connect};
 use crate::connect::error_info::{ValidationFailureDetail, error_info, violations_unchecked};
 use crate::i18n::{
     ArgError, ArgRule, ErrorIdentity, HasViolations, Localizable, Violation, args_of, identity_of,
     localizable,
 };
 use api_bones_i18n::Localizable as BaseLocalizable;
-
-/// The platform code of a Connect code (core-ui `connectCodeToErrorCode`).
-fn platform_of_connect(code: ConnectCode) -> &'static str {
-    match code {
-        ConnectCode::Unauthenticated => "UNAUTHORIZED",
-        ConnectCode::PermissionDenied => "FORBIDDEN",
-        ConnectCode::NotFound => "RESOURCE_NOT_FOUND",
-        ConnectCode::AlreadyExists => "RESOURCE_ALREADY_EXISTS",
-        ConnectCode::ResourceExhausted => "RATE_LIMITED",
-        ConnectCode::FailedPrecondition => "PRECONDITION_FAILED",
-        ConnectCode::InvalidArgument => "VALIDATION_FAILED",
-        ConnectCode::Unavailable => "SERVICE_UNAVAILABLE",
-        ConnectCode::DeadlineExceeded => "GATEWAY_TIMEOUT",
-        ConnectCode::Unimplemented => "NOT_IMPLEMENTED",
-        ConnectCode::Aborted => "CONFLICT",
-        ConnectCode::OutOfRange => "UNPROCESSABLE_ENTITY",
-        _ => "INTERNAL_SERVER_ERROR",
-    }
-}
 
 impl Localizable for ConnectError {
     fn identity(&self) -> ErrorIdentity {

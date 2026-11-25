@@ -63,6 +63,9 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc
 rcgen = "0.13"
 hyper = { version = "1", features = ["http2", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
+# The test service's Layer 2: the surface the call lanes go through.
+api-bones-sdk = { path = "../../api-bones-sdk" }
+api-bones-test-service-l2 = { path = "../l2" }
 
 [[test]]
 name = "connect_retry_eligibility"
@@ -155,4 +158,8 @@ harness = false
 
 [[test]]
 name = "error_localization"
+harness = false
+
+[[test]]
+name = "sdk_call"
 harness = false

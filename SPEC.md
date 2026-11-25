@@ -369,6 +369,19 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The Layer 2 call helper every service's Rust Layer 2 runs through: one
+  # call budget, trace context and identity re-check decided in Rust. A server
+  # stream reads the identity at open and checks it again before each item is
+  # delivered; a change ends the stream with IDENTITY_CHANGED. A list page
+  # fetched ahead is checked again before it is delivered.
+  # TypeScript reaches it only through a generated wrapper over the wasm
+  # binding, so its target joins when the test-service wrapper ships.
+  sdk-call:
+    contract: tests/features/sdk_call.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones-sdk]
   # Rust callers use api-bones-sdk directly; the runtime is the TypeScript face
   # alone, so this surface is TS alone.
   sdk-runtime:
@@ -450,7 +463,10 @@ library_crates:
   - api-bones-protos
   - api-bones-reqwest
   - api-bones-rt
+  - api-bones-sdk
   - api-bones-sdk-gen
+  - api-bones-sdk-macros
+  - api-bones-sdk-model
   - api-bones-stream
   - api-bones-test
   - api-bones-transport

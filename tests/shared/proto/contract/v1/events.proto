@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: MIT
+//
+// A server-streaming service shaped as the platform's streams are: one request
+// in, a stream of messages out. The call-helper lane serves it over the wire
+// and reads it through the test service's Layer 2.
+
+syntax = "proto3";
+
+package contract.v1;
+
+message WatchTicksRequest {
+  // How many ticks the server sends before it ends the stream.
+  uint32 count = 1;
+}
+
+message Tick {
+  uint32 sequence = 1;
+}
+
+service Events {
+  // Streams `count` ticks, numbered from zero.
+  rpc Watch(WatchTicksRequest) returns (stream Tick) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}

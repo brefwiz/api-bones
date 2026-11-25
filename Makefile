@@ -15,7 +15,7 @@ ADVISORY_DB ?=
 # Proto codegen reruns on a content hash of its inputs. build/brefwiz-codegen.mk
 # is vendored byte-for-byte and never edited here. The step lane's build.rs
 # generates from its own proto and from the bones protos it imports.
-CODEGEN_INPUTS := tests/rust/proto tests/shared/proto tests/wasm-server/proto api-bones-protos/proto
+CODEGEN_INPUTS := tests/rust/proto tests/shared/proto tests/wasm-server/proto api-bones-protos/proto tools/wasm-size-probe/tests/fixtures/proto
 
 include build/brefwiz-codegen.mk
 
@@ -24,7 +24,7 @@ include build/brefwiz-codegen.mk
 # never edited here; ci-workflows revendor-build-fragments.py refreshes them.
 # The two cucumber lanes are harness = false, which nextest cannot enumerate,
 # so they stay out of the archive and ci-e2e-rust runs them in gate-e2e-rust.
-COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-internal-bdd api-bones-wasm-test-server
+COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-internal-bdd api-bones-wasm-test-server api-bones-test-service-l2
 COVERAGE_ALL_FEATURES := true
 
 include build/brefwiz-coverage-common.mk
@@ -60,7 +60,7 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 	cargo check --locked --no-default-features --features alloc,serde
 
 ci-wasm: ## Build the runtime seam, the browser transport and the crates on them for wasm32-unknown-unknown (CI)
-	cargo build --locked --target wasm32-unknown-unknown -p api-bones-rt -p api-bones-transport -p api-bones-stream -p api-bones-page -p api-bones-batch
+	cargo build --locked --target wasm32-unknown-unknown -p api-bones-rt -p api-bones-transport -p api-bones-stream -p api-bones-page -p api-bones-batch -p api-bones-sdk --features wasm
 
 ci-wasm-test: ## Run the api-bones-rt and fetch-transport wasm-bindgen-test suites in Node (CI)
 	# The runner is wasm-bindgen-test-runner from the CI image, which executes
@@ -85,14 +85,15 @@ ci-wasm-test: ## Run the api-bones-rt and fetch-transport wasm-bindgen-test suit
 	API_BONES_TEST_SERVER=$$(cat "$$dir/addr"); \
 	export API_BONES_TEST_SERVER; \
 	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-rt --test wasm; \
-	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-transport --test fetch_wasm
+	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-transport --test fetch_wasm; \
+	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-sdk --features wasm --test call_wasm
 
 ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the coverage archive)
 	# Both cucumber lanes are excluded: their test targets are harness = false,
 	# and nextest enumerates targets with `--list`, which such a binary does
 	# not accept. ci-e2e-rust runs them. The wasm test server is the wasm32
 	# suite's harness, run by ci-wasm-test, not product code.
-	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --all-features --profile ci
+	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --profile ci
 
 # Debuginfo off: this lane links every contract and internal-bdd test binary
 # (each carries the localization crate's CLDR data), and the CI worker's target
@@ -132,6 +133,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_fleet_connect_bound
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_root_store
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pagination --locked
+	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test sdk_call
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_identity_guard --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_fleet_transport --locked
@@ -150,7 +152,7 @@ ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nexte
 	# Excluded for the same reason as ci-test: nextest cannot enumerate a
 	# harness = false target; the wasm test server is test harness, not
 	# product code.
-	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --all-features --fail-under-functions 100
+	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --fail-under-functions 100
 
 # Publish rehearsals, one per declared SDK language: the release operation
 # minus the upload, so a broken include or files list fails at PR time rather

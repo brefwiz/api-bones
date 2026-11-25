@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+mod features;
+
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 use std::path::{Path, PathBuf};
@@ -75,6 +77,15 @@ enum Cmd {
     },
     /// Emit the shared api-bones-sdk.mk Makefile fragment to stdout
     Makefile,
+    /// Write the sdk-* Cargo features of a Layer 2 crate into its Cargo.toml
+    Features {
+        /// Directory of the Layer 2 crate (holds Cargo.toml and src/)
+        #[arg(long = "crate")]
+        krate: PathBuf,
+        /// Fail instead of writing when the features are out of date
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -113,6 +124,7 @@ fn main() -> anyhow::Result<()> {
             print!("{}", MAKEFILE_FRAGMENT);
             Ok(())
         }
+        Cmd::Features { krate, check } => features::run(&krate, check),
     }
 }
 

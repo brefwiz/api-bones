@@ -1,0 +1,5 @@
+error: an async export is `async`; mark a plain method `#[export(sync)]`
+ --> tests/compile_fail/async_missing.rs:9:9
+  |
+9 |     pub fn f(&self) {}
+  |         ^^^^^^^^^^^
