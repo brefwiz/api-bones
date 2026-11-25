@@ -124,6 +124,25 @@ jobs:
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/clippy@main
         with:
           checkout: "false"
+      # The runtime seam's wasm32 suite, run in Node. It shares this worker
+      # with the lint step, whose ci-wasm prerequisite compiles the same
+      # wasm32 crates, so a separate job would reserve a worker to rebuild them.
+      # make-target embeds no target-dir cache, so this step restores and
+      # saves its own snapshot beside sccache.
+      - id: rust-cache-restore
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rust-cache-restore@main
+        with:
+          job-class: cargo-package-wasm-test
+      - id: wasm-test
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/make-target@main
+        with:
+          checkout: "false"
+          make-target: ci-wasm-test
+      - id: rust-cache-save
+        if: ${{ always() }}
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rust-cache-save@main
+        with:
+          job-class: cargo-package-wasm-test
       - id: sccache-stats
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/sccache-stats@main
   # The instrumented build, archived once for the coverage job.

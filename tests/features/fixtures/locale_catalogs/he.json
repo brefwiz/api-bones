@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {פריטים שנותרו: #} two {פריטים שנותרו: #} other {פריטים שנותרו: #}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {מקום #}}",
+  "corpus.errors.QUOTA.title": "מכסה {used, number} מתוך {limit, number}",
+  "corpus.errors.LOCKED.title": "{label}: נעילה בתוקף",
+  "corpus.errors.SINCE.title": "נעילה בתוקף מאז {at, date}"
+}

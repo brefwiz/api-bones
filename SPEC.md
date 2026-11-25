@@ -125,6 +125,14 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # A relative base URL is resolved against the page: only the TypeScript
+  # transport has a page, so this surface is TS alone.
+  connect-rate-limit-relative-base:
+    contract: tests/features/connect_rate_limit_relative_base.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
   # The browser transport echoes the BFF's CSRF synchronizer: only the web
   # entry talks to a session BFF, so this surface is TS alone, the same way
   # connect-public-read is.
@@ -162,12 +170,16 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
-  # A refused call's wait and typed rejection live in the retry interceptor, and
-  # Rust has no client interceptor pipeline -- so this surface is TS alone, the
-  # same way connect-undelivered-retry is.
+  # A refused call's wait, its bound by the call's deadline and abort, and its
+  # typed rejection. Rust runs the one retry policy in api-bones under the page
+  # and batch call types; TypeScript runs it in the retry interceptor. Both
+  # packages answer the one contract.
   connect-rate-limit-retry:
     contract: tests/features/connect_rate_limit_retry.feature
     targets:
+      rust:
+        delivery: package
+        packages: [api-bones, api-bones-page, api-bones-batch]
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
@@ -357,6 +369,14 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # Rust callers use api-bones-sdk directly; the runtime is the TypeScript face
+  # alone, so this surface is TS alone.
+  sdk-runtime:
+    contract: tests/features/sdk_runtime.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-sdk-runtime"]
 internal_behavior_owners:
   # The automation manifest compiler and its DSSE signature check are library
   # code the service-kit, the CLI and the layer embed directly; no declared
@@ -429,6 +449,7 @@ library_crates:
   - api-bones-progenitor
   - api-bones-protos
   - api-bones-reqwest
+  - api-bones-rt
   - api-bones-sdk-gen
   - api-bones-stream
   - api-bones-test
@@ -482,7 +503,7 @@ It publishes on two ecosystems, and they release on separate lineages:
 
 - Rust crates to crates.io on `v*` tags.
 - npm packages (`api-bones-connect`, `api-bones-axios`, `api-bones-otel`,
-  `api-bones-types`) on
+  `api-bones-types`, `api-bones-sdk-runtime`) on
   their own prefixed tags. `api-bones-connect` publishes to the brefwiz
   registry, because packages published there depend on it and npm resolves a
   registry per scope rather than per package.

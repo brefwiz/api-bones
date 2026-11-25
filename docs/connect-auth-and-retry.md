@@ -68,3 +68,39 @@ mirrors the interval, timeout and while-idle behaviour of the Rust client.
 
 Never use these predicates alone to replay a non-idempotent RPC. They answer
 whether transport failure permits replay, not whether operation semantics do.
+
+## Retrying a throttle and an unavailable peer
+
+`fetch_with_retry(fetch, retries, deadline)` is the one Rust retry loop; the
+page and batch crates run every fetch through it, so a generated client needs
+no consumer code and no knob. It retries two kinds of failure on one attempt
+count:
+
+- A throttle, a `ResourceExhausted` that carries a `retry-after` (seconds or an
+  HTTP-date, read from the response headers or the trailers). A limiter refuses
+  before the handler runs, so the call is replayed whatever the method's
+  idempotency, while the attempt count is below three. `retries_for` returning
+  zero for an unspecified method does not hold a throttle back. A
+  `ResourceExhausted` without a usable `retry-after` names no moment the server
+  will be ready and is returned at once.
+- An `Unavailable`, while the attempt count is below `retries`, which
+  `retries_for` derives from the method's declared idempotency.
+
+Because the count is shared, a throttle after blind retries has fewer repeats
+left, and the other way round. A request the transport replays on its own
+because it provably never ran is one `fetch` call and is not counted.
+
+Each wait is the server's retry-after (none for `Unavailable`) plus
+`RetryPolicy::next_delay_jittered`: a 50 ms exponential backoff with jitter,
+never shorter than the backoff and at most twice it, slept with
+`api_bones_rt::sleep`. Before sleeping:
+
+1. A wait that reaches the time left until `deadline` ends the call as
+   `DeadlineExceeded` without sleeping. This holds for every wait.
+2. A retry-after longer than five seconds returns the `ResourceExhausted`
+   unchanged, so the caller decides whether to wait that long.
+
+`deadline` is an `api_bones_rt::Instant`. The batch crate derives it from the
+call's timeout; the page crate passes none until the transport's per-call
+deadline reaches it. Dropping the call's future during a wait abandons the
+call, which a batch reports as cancelled.

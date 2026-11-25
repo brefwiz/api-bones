@@ -1,0 +1,4 @@
+{
+  "example.errors.GRANT_MISSING.title": "Access to {label} is missing",
+  "other.errors.GRANT_MISSING.title": "{label} is locked"
+}

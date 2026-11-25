@@ -5,9 +5,16 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
+use api_bones_rt::{MaybeSend, MaybeSync};
+
 use crate::{Page, Total};
 
-type Entries = HashMap<(&'static str, [u8; 32]), Box<dyn Any + Send + Sync>>;
+#[cfg(not(target_arch = "wasm32"))]
+type Chain = Box<dyn Any + Send + Sync>;
+#[cfg(target_arch = "wasm32")]
+type Chain = Box<dyn Any>;
+
+type Entries = HashMap<(&'static str, [u8; 32]), Chain>;
 
 #[derive(Default)]
 struct State {
@@ -76,7 +83,7 @@ impl RevisionCache {
         self.0.lock().expect("revision cache lock").generation
     }
 
-    pub(crate) fn replay<T: Send + Sync + 'static>(
+    pub(crate) fn replay<T: MaybeSend + MaybeSync + 'static>(
         &self,
         method: &'static str,
         key: [u8; 32],
@@ -107,7 +114,7 @@ impl RevisionCache {
             .collect()
     }
 
-    pub(crate) fn store<T: Send + Sync + 'static>(
+    pub(crate) fn store<T: MaybeSend + MaybeSync + 'static>(
         &self,
         identity: &str,
         method: &'static str,

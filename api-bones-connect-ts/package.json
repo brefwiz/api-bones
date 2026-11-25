@@ -30,9 +30,10 @@
     "prebuild": "npm run embed-catalogs",
     "pretest": "npm run embed-catalogs",
     "build": "tsc",
-    "test": "vitest run"
+    "test": "tsc -p tsconfig.test.json && vitest run"
   },
   "peerDependencies": {
+    "@brefwiz/api-bones-sdk-runtime": "^0.1.0",
     "@brefwiz/spiffe-client": "^0.46.0",
     "@bufbuild/protobuf": "^2.16.0",
     "@connectrpc/connect": "^2.0.0"
@@ -46,6 +47,7 @@
     }
   },
   "devDependencies": {
+    "@brefwiz/api-bones-sdk-runtime": "file:../api-bones-sdk-runtime-ts",
     "@brefwiz/spiffe-client": "^0.46.0",
     "@bufbuild/protobuf": "^2.16.0",
     "@connectrpc/connect": "^2.0.0",

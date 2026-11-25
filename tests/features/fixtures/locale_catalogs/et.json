@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {Alles on # üksus} other {Alles on # üksust}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.}}",
+  "corpus.errors.QUOTA.title": "Kvoot: {used, number} / {limit, number}",
+  "corpus.errors.LOCKED.title": "{label} on lukustatud",
+  "corpus.errors.SINCE.title": "Lukustatud alates {at, date}"
+}

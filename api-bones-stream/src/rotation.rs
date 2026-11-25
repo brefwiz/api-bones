@@ -18,6 +18,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use api_bones_rt::MaybeSend;
+
 use crate::StreamControl;
 
 /// The time the client keeps in hand before the cut: the replacement must
@@ -204,7 +206,10 @@ enum Phase {
     Ended,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 type TakeBufferedOld<T> = Box<dyn FnMut() -> Vec<RotationFrame<T>> + Send>;
+#[cfg(target_arch = "wasm32")]
+type TakeBufferedOld<T> = Box<dyn FnMut() -> Vec<RotationFrame<T>>>;
 
 /// The rotation decision logic. It owns no stream and no timer: every call
 /// carries the time in milliseconds, so a test drives it with a virtual clock.
@@ -242,7 +247,7 @@ impl<T: 'static> RotationMachine<T> {
     /// A machine whose old stream may hold frames the machine has not been shown.
     #[must_use]
     pub fn with_buffered_old(
-        take_buffered_old: impl FnMut() -> Vec<RotationFrame<T>> + Send + 'static,
+        take_buffered_old: impl FnMut() -> Vec<RotationFrame<T>> + MaybeSend + 'static,
     ) -> Self {
         Self {
             phase: Phase::Steady,

@@ -1,10 +1,10 @@
 # Makefile for api-bones
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-test ci-e2e-rust ci-coverage \
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-wasm ci-wasm-test ci-test ci-e2e-rust ci-coverage \
 	ci-sdk-publish-rust-dry-run ci-sdk-publish-typescript-dry-run ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
 	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
-	lockfile ci-lockfile-diff
+	lockfile ci-lockfile-diff ci-sdk-api-surface-generate sdk-api-surface
 
 .DEFAULT_GOAL := help
 
@@ -15,7 +15,7 @@ ADVISORY_DB ?=
 # Proto codegen reruns on a content hash of its inputs. build/brefwiz-codegen.mk
 # is vendored byte-for-byte and never edited here. The step lane's build.rs
 # generates from its own proto and from the bones protos it imports.
-CODEGEN_INPUTS := tests/rust/proto tests/shared/proto api-bones-protos/proto
+CODEGEN_INPUTS := tests/rust/proto tests/shared/proto tests/wasm-server/proto api-bones-protos/proto
 
 include build/brefwiz-codegen.mk
 
@@ -24,7 +24,7 @@ include build/brefwiz-codegen.mk
 # never edited here; ci-workflows revendor-build-fragments.py refreshes them.
 # The two cucumber lanes are harness = false, which nextest cannot enumerate,
 # so they stay out of the archive and ci-e2e-rust runs them in gate-e2e-rust.
-COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-internal-bdd
+COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-internal-bdd api-bones-wasm-test-server
 COVERAGE_ALL_FEATURES := true
 
 include build/brefwiz-coverage-common.mk
@@ -39,10 +39,11 @@ fmt: ## Format code
 ci-format: ## Check formatting (CI)
 	cargo fmt --all -- --check
 
-ci-lint: ci-no-std ## Run Clippy (CI — zero warnings), and build every no_std feature set
+ci-lint: ci-no-std ci-wasm ## Run Clippy (CI — zero warnings), and build every no_std feature set and the wasm32 crates
 	# Clippy runs with --all-features, which turns std on: a no_std-only break
 	# never reaches it. ci-no-std builds those feature sets, and nothing else in
-	# CI does.
+	# CI does. The same holds for wasm32: clippy runs on the host target, so
+	# ci-wasm is what compiles the crates for the browser.
 	cargo clippy --locked --workspace --all-targets --all-features --no-deps -- -D warnings
 
 ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
@@ -58,11 +59,40 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 	cargo check --locked --no-default-features --features alloc
 	cargo check --locked --no-default-features --features alloc,serde
 
+ci-wasm: ## Build the runtime seam, the browser transport and the crates on them for wasm32-unknown-unknown (CI)
+	cargo build --locked --target wasm32-unknown-unknown -p api-bones-rt -p api-bones-transport -p api-bones-stream -p api-bones-page -p api-bones-batch
+
+ci-wasm-test: ## Run the api-bones-rt and fetch-transport wasm-bindgen-test suites in Node (CI)
+	# The runner is wasm-bindgen-test-runner from the CI image, which executes
+	# the module under Node when no browser is requested. The fetch suite calls
+	# a native Connect server (tests/wasm-server) that is built, started and
+	# stopped here: it writes its base URL to the address file once it listens,
+	# and the suite reads the URL from API_BONES_TEST_SERVER. The trap stops
+	# that one process by the pid this recipe recorded.
+	cargo build --locked -p api-bones-wasm-test-server
+	set -eu; \
+	dir=$$(mktemp -d); \
+	"$${CARGO_TARGET_DIR:-target}/debug/api-bones-wasm-test-server" --addr-file "$$dir/addr" & \
+	pid=$$!; \
+	trap 'kill $$pid 2>/dev/null || true; rm -rf "$$dir"' EXIT; \
+	tries=0; \
+	while [ ! -s "$$dir/addr" ]; do \
+		kill -0 $$pid 2>/dev/null || { echo "api-bones-wasm-test-server exited before it listened" >&2; exit 1; }; \
+		tries=$$((tries + 1)); \
+		[ $$tries -le 300 ] || { echo "api-bones-wasm-test-server did not write $$dir/addr within 30 s" >&2; exit 1; }; \
+		sleep 0.1; \
+	done; \
+	API_BONES_TEST_SERVER=$$(cat "$$dir/addr"); \
+	export API_BONES_TEST_SERVER; \
+	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-rt --test wasm; \
+	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-transport --test fetch_wasm
+
 ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the coverage archive)
 	# Both cucumber lanes are excluded: their test targets are harness = false,
 	# and nextest enumerates targets with `--list`, which such a binary does
-	# not accept. ci-e2e-rust runs them.
-	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --profile ci
+	# not accept. ci-e2e-rust runs them. The wasm test server is the wasm32
+	# suite's harness, run by ci-wasm-test, not product code.
+	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --all-features --profile ci
 
 # Debuginfo off: this lane links every contract and internal-bdd test binary
 # (each carries the localization crate's CLDR data), and the CI worker's target
@@ -106,6 +136,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_identity_guard --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_fleet_transport --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_paged_without_batch --locked
+	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_rate_limit_retry --locked
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test typed_fields
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_client_headers
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_domain_error_code
@@ -117,8 +148,9 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 
 ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (local one-shot; CI splits it into archive, run, report)
 	# Excluded for the same reason as ci-test: nextest cannot enumerate a
-	# harness = false target.
-	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --all-features --fail-under-functions 100
+	# harness = false target; the wasm test server is test harness, not
+	# product code.
+	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --all-features --fail-under-functions 100
 
 # Publish rehearsals, one per declared SDK language: the release operation
 # minus the upload, so a broken include or files list fails at PR time rather
@@ -235,7 +267,7 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # api-bones-axios shipped without its build or tests ever running in CI despite
 # having both scripts. A list makes adding a package a one-line change and makes
 # an omission visible.
-TS_PACKAGES := api-bones-otel api-bones-axios api-bones-connect-ts api-bones-types
+TS_PACKAGES := api-bones-otel api-bones-axios api-bones-sdk-runtime-ts api-bones-connect-ts api-bones-types
 # The contract lane is its own TypeScript package; ts-test runs it where npm
 # credentials already exist. It is excluded from publish/pack, which iterate
 # PUBLISHABLE sets, because it ships nothing.
@@ -266,7 +298,27 @@ cds-lint: ## Validate .cds/workflows/ YAML via cdsctl — catches schema breakag
 	fi
 
 .PHONY: ci-ts
-ci-ts: ts-lint ts-build ts-test ## CI: the whole TypeScript lane in one target
+ci-ts: ts-lint ts-build ts-test sdk-api-surface ## CI: the whole TypeScript lane in one target
+
+# Public declaration surface of @brefwiz/api-bones-sdk-runtime: every emitted
+# declaration file of the built package, concatenated in a stable order. The
+# generated file is an intermediate artefact (never committed); the committed
+# baseline is api-bones-sdk-runtime-ts/api-surface.d.ts.
+ci-sdk-api-surface-generate: ts-build ## CI: emit the sdk-runtime public .d.ts surface for the api-surface snapshot diff
+	@cd api-bones-sdk-runtime-ts/dist && \
+		{ printf '// SPDX-License-Identifier: MIT\n'; \
+		find . -name '*.d.ts' | LC_ALL=C sort | \
+		while IFS= read -r f; do printf '// ===== %s =====\n' "$$f"; cat "$$f"; done; } \
+		> ../api-surface.generated.d.ts
+	@echo "sdk-api-surface: wrote api-bones-sdk-runtime-ts/api-surface.generated.d.ts ($$(wc -l < api-bones-sdk-runtime-ts/api-surface.generated.d.ts) lines)"
+
+sdk-api-surface: ci-sdk-api-surface-generate ## Diff the regenerated sdk-runtime public surface against the committed baseline
+	@if [ -f .ci-workflows/ci-scripts/sdk-api-surface-diff.py ]; then SDK_DIFF=.ci-workflows/ci-scripts/sdk-api-surface-diff.py; \
+	elif [ -f /tmp/ci-workflows/ci-scripts/sdk-api-surface-diff.py ]; then SDK_DIFF=/tmp/ci-workflows/ci-scripts/sdk-api-surface-diff.py; \
+	elif [ -f /opt/ci-workflows/ci-scripts/sdk-api-surface-diff.py ]; then SDK_DIFF=/opt/ci-workflows/ci-scripts/sdk-api-surface-diff.py; \
+	elif [ -d "$$HOME/git/ci-workflows/ci-scripts" ]; then SDK_DIFF="$$HOME/git/ci-workflows/ci-scripts/sdk-api-surface-diff.py"; \
+	else echo 'ERROR: sdk-api-surface-diff.py not found (ci-workflows not vendored)'; exit 1; fi; \
+	python3 "$$SDK_DIFF" --baseline api-bones-sdk-runtime-ts/api-surface.d.ts --current api-bones-sdk-runtime-ts/api-surface.generated.d.ts
 
 ts-types-generate: ## Generate the api-bones-types schema and TypeScript sources from the Rust crate
 	cd api-bones-types && npm install --no-audit --no-fund && npm run generate
@@ -280,7 +332,21 @@ ts-build: ts-types-generate ## Build TypeScript packages
 ts-test: ts-types-generate ## Test TypeScript packages
 	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
 	: '@brefwiz/api-bones-connect through its published entry points, so the'
-	: 'package it depends on is built first.'
+	: 'packages it depends on are built first.'
+	@echo "==> prebuild otel"; log=$$(mktemp); \
+	if ( cd api-bones-otel && npm install --no-audit --no-fund && npm run build ) >"$$log" 2>&1; then \
+		cat "$$log"; rm -f "$$log"; \
+	else \
+		rc=$$?; cat "$$log"; rm -f "$$log"; \
+		echo "TEST-FAIL api-bones-otel exit=$$rc" >&2; exit 1; \
+	fi
+	@echo "==> prebuild sdk-runtime"; log=$$(mktemp); \
+	if ( cd api-bones-sdk-runtime-ts && npm install --no-audit --no-fund && npm run build ) >"$$log" 2>&1; then \
+		cat "$$log"; rm -f "$$log"; \
+	else \
+		rc=$$?; cat "$$log"; rm -f "$$log"; \
+		echo "TEST-FAIL api-bones-sdk-runtime-ts exit=$$rc" >&2; exit 1; \
+	fi
 	@echo "==> prebuild connect"; log=$$(mktemp); \
 	if ( cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build ) >"$$log" 2>&1; then \
 		cat "$$log"; rm -f "$$log"; \

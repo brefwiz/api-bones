@@ -957,3 +957,24 @@ impl std::fmt::Debug for RootStoreWorld {
         f.debug_struct("RootStoreWorld").finish_non_exhaustive()
     }
 }
+
+/// The throttled service, the call sent to it and how the call ended.
+#[derive(Debug, Default, cucumber::World)]
+pub struct RateLimitWorld {
+    pub idempotency: String,
+    pub deadline_ms: Option<u64>,
+    pub refusals: usize,
+    pub retry_after: Option<String>,
+    pub arrivals: Arc<Mutex<Vec<std::time::Instant>>>,
+    pub server: Option<tokio::task::JoinHandle<()>>,
+    pub outcome: Option<Result<(), ConnectError>>,
+    pub elapsed: std::time::Duration,
+}
+
+impl Drop for RateLimitWorld {
+    fn drop(&mut self) {
+        if let Some(server) = self.server.take() {
+            server.abort();
+        }
+    }
+}

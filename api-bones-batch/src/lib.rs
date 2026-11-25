@@ -94,14 +94,33 @@ pub mod __private {
     pub use api_bones_page::{
         ListCall, ListResponse, PageInfo, PagedRequest, PagedResponse, Total, TotalKind,
     };
+    pub use api_bones_rt;
     pub use api_bones_transport;
     pub use buffa;
     pub use connectrpc;
     pub use connectrpc::ConnectError;
     pub use connectrpc::client::CallOptions;
+
+    /// A future yielding `T` that may cross threads where the target has threads.
+    pub trait MaybeSendFuture<T>:
+        core::future::Future<Output = T> + api_bones_rt::MaybeSend
+    {
+    }
+
+    impl<T, F> MaybeSendFuture<T> for F where
+        F: core::future::Future<Output = T> + api_bones_rt::MaybeSend
+    {
+    }
 }
 
-type Coalescers = Mutex<HashMap<&'static str, Arc<dyn Any + Send + Sync>>>;
+/// One registered coalescer, held as an `Arc<T>` behind `dyn Any`.
+#[cfg(not(target_arch = "wasm32"))]
+type AnyCoalescer = Box<dyn Any + Send + Sync>;
+/// One registered coalescer, held as an `Arc<T>` behind `dyn Any`.
+#[cfg(target_arch = "wasm32")]
+type AnyCoalescer = Box<dyn Any>;
+
+type Coalescers = Mutex<HashMap<&'static str, AnyCoalescer>>;
 
 /// A generated Connect client with batch and paging runtime: one wire, one
 /// revision cache and one set of coalescers per instance.
@@ -231,7 +250,7 @@ impl<C> Batched<C> {
 
     /// The coalescer registered under `method`, made by `make` on first use.
     #[doc(hidden)]
-    pub fn __coalescer<T: Any + Send + Sync>(
+    pub fn __coalescer<T: Any + api_bones_rt::MaybeSend + api_bones_rt::MaybeSync>(
         &self,
         method: &'static str,
         make: impl FnOnce(Arc<Wire>) -> T,
@@ -242,12 +261,12 @@ impl<C> Batched<C> {
             .unwrap_or_else(PoisonError::into_inner);
         if let Some(found) = map
             .get(method)
-            .and_then(|existing| Arc::clone(existing).downcast::<T>().ok())
+            .and_then(|existing| existing.downcast_ref::<Arc<T>>())
         {
-            return found;
+            return Arc::clone(found);
         }
         let coalescer = Arc::new(make(Arc::clone(&self.wire)));
-        map.insert(method, Arc::clone(&coalescer) as Arc<dyn Any + Send + Sync>);
+        map.insert(method, Box::new(Arc::clone(&coalescer)));
         coalescer
     }
 }
@@ -284,6 +303,14 @@ mod tests {
         let rewired = batched.observed(Arc::new(|_| {}));
         let after = rewired.__coalescer("p.S/Get", |_| 2_u32);
         assert_eq!((*before, *after), (1, 2));
+    }
+
+    #[tokio::test]
+    async fn a_maybe_send_future_resolves_to_its_output() {
+        fn answer() -> impl __private::MaybeSendFuture<u8> {
+            async { 7 }
+        }
+        assert_eq!(answer().await, 7);
     }
 
     #[test]

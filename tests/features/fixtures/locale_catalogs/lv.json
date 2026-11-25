@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, zero {Atlikuši # vienumu} one {Atlicis # vienums} other {Atlikuši # vienumi}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.}}",
+  "corpus.errors.QUOTA.title": "Kvota: {used, number} no {limit, number}",
+  "corpus.errors.LOCKED.title": "Bloķēts: {label}",
+  "corpus.errors.SINCE.title": "Bloķēts kopš {at, date}"
+}

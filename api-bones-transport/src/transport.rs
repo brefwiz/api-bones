@@ -1,5 +1,9 @@
 // SPDX-License-Identifier: MIT
 //! [`HttpTransport`]: the h2 client behind every fleet Connect client.
+//!
+//! A request carrying a [`Deadline`](crate::Deadline) extension has its
+//! timeout header set to the time remaining and gets `deadline_exceeded`
+//! when that time passes before the response head arrives.
 
 use std::fmt;
 use std::sync::Arc;
@@ -16,7 +20,7 @@ use http::{Request, Response, Uri};
 use crate::body::ResponseBody;
 use crate::connector::Connector;
 use crate::pool::Pool;
-use crate::{FLEET_CONNECT_BOUND, driver, replay};
+use crate::{FLEET_CONNECT_BOUND, deadline, driver, replay};
 
 /// The fleet's Connect client transport: HTTP/2 only, one connection per
 /// peer, a request that never ran replayed once, connections driven by the
@@ -110,7 +114,16 @@ impl ClientTransport for HttpTransport {
         if let Some(refusal) = self.mode.refuse(request.uri()) {
             return Box::pin(std::future::ready(Err(refusal)));
         }
-        Box::pin(replay::send(Arc::clone(&self.pool), request))
+        let (mut head, body) = request.into_parts();
+        let remaining = match deadline::bound(&mut head.headers, &head.extensions) {
+            Ok(remaining) => remaining,
+            Err(expired) => return Box::pin(std::future::ready(Err(expired))),
+        };
+        let request = Request::from_parts(head, body);
+        Box::pin(deadline::within(
+            remaining,
+            replay::send(Arc::clone(&self.pool), request),
+        ))
     }
 }
 

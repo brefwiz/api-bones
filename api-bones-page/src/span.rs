@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 //! One span and completion event for each list iteration.
 
-use std::time::Instant;
+use api_bones_rt::Instant;
 
 pub(crate) struct Measurement {
     span: tracing::Span,

@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {Preostalo stavki: #} few {Preostalo stavki: #} other {Preostalo stavki: #}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.}}",
+  "corpus.errors.QUOTA.title": "Kvota: {used, number} od {limit, number}",
+  "corpus.errors.LOCKED.title": "Zaključano: {label}",
+  "corpus.errors.SINCE.title": "Zaključano od {at, date}"
+}

@@ -7,6 +7,7 @@
 
 use std::time::Duration;
 
+use api_bones_rt::{MaybeSend, MaybeSync};
 use sha2::{Digest as _, Sha256};
 
 /// Header carrying the per-call deadline, in milliseconds.
@@ -187,6 +188,11 @@ impl CallHeaders {
         pairs
     }
 
+    /// The per-call deadline budget, if one is set.
+    pub(crate) fn timeout_budget(&self) -> Option<Duration> {
+        self.timeout
+    }
+
     pub(crate) fn continuation(&self) -> Self {
         Self {
             pairs: self
@@ -210,10 +216,7 @@ impl CallHeaders {
     ) -> Result<connectrpc::client::CallOptions, connectrpc::ConnectError> {
         self.validate(credential)?;
         let mut options = connectrpc::client::CallOptions::default();
-        if let Some(timeout) = self.timeout {
-            options = options.with_timeout(timeout);
-        }
-        for (name, value) in credential.iter().chain(&self.pairs) {
+        for (name, value) in credential.iter().chain(&self.effective()) {
             let name = http::header::HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| connectrpc::ConnectError::invalid_argument("invalid header name"))?;
             let value = http::header::HeaderValue::from_bytes(value)
@@ -225,7 +228,7 @@ impl CallHeaders {
 }
 
 /// Supplies the caller's credential, re-read before every send.
-pub trait CredentialSource: Send + Sync + 'static {
+pub trait CredentialSource: MaybeSend + MaybeSync + 'static {
     /// The credential right now.
     ///
     /// # Errors
@@ -236,7 +239,7 @@ pub trait CredentialSource: Send + Sync + 'static {
 
 impl<F> CredentialSource for F
 where
-    F: Fn() -> Result<Credential, connectrpc::ConnectError> + Send + Sync + 'static,
+    F: Fn() -> Result<Credential, connectrpc::ConnectError> + MaybeSend + MaybeSync + 'static,
 {
     fn current(&self) -> Result<Credential, connectrpc::ConnectError> {
         self()
@@ -352,6 +355,16 @@ mod tests {
     fn deadline_joins_the_effective_headers() {
         let headers = CallHeaders::new().timeout(Duration::from_millis(1500));
         assert_eq!(headers.effective(), vec![pair(TIMEOUT_HEADER, "1500")]);
+    }
+
+    #[test]
+    fn deadline_travels_as_a_header_only() {
+        let headers = CallHeaders::new().timeout(Duration::from_millis(1500));
+        assert_eq!(headers.timeout_budget(), Some(Duration::from_millis(1500)));
+        assert_eq!(CallHeaders::new().timeout_budget(), None);
+        let options = headers.call_options(&[]).unwrap();
+        assert_eq!(options.timeout(), None);
+        assert_eq!(options.headers().get(TIMEOUT_HEADER).unwrap(), "1500");
     }
 
     #[test]

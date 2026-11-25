@@ -230,6 +230,41 @@ impl RetryPolicy {
             }
         }
     }
+
+    /// [`next_delay`](Self::next_delay) with jitter added on top.
+    ///
+    /// The result is the policy's delay plus a share of it chosen by `sample`:
+    /// never sooner than `next_delay(attempt)`, and at most twice it. Clients
+    /// that were refused together therefore do not come back together, while
+    /// the policy's own schedule stays a floor.
+    ///
+    /// `sample` is a uniform draw in `[0, 1]`. The caller owns the randomness
+    /// so that the function stays deterministic and needs no generator. A value
+    /// outside that range is clamped to it, and `NaN` counts as `1.0`, the
+    /// longest wait, so a broken source never shortens a backoff.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use api_bones::retry::RetryPolicy;
+    /// use core::time::Duration;
+    ///
+    /// let policy = RetryPolicy::exponential(5, Duration::from_millis(100));
+    /// assert_eq!(policy.next_delay_jittered(1, 0.0), Duration::from_millis(200));
+    /// assert_eq!(policy.next_delay_jittered(1, 0.5), Duration::from_millis(300));
+    /// assert_eq!(policy.next_delay_jittered(1, 1.0), Duration::from_millis(400));
+    /// ```
+    #[must_use]
+    pub fn next_delay_jittered(&self, attempt: u32, sample: f64) -> Duration {
+        let delay = self.next_delay(attempt);
+        let share = if sample.is_nan() {
+            1.0
+        } else {
+            sample.clamp(0.0, 1.0)
+        };
+        let extra = Duration::try_from_secs_f64(delay.as_secs_f64() * share).unwrap_or(delay);
+        delay.saturating_add(extra.min(delay))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -513,6 +548,68 @@ mod tests {
                 "attempt {attempt}: delay > max_delay"
             );
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // RetryPolicy – caller-sampled jitter
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn jittered_delay_adds_a_share_of_the_policy_delay() {
+        let p = RetryPolicy::exponential(5, Duration::from_millis(100));
+        assert_eq!(p.next_delay_jittered(1, 0.0), Duration::from_millis(200));
+        assert_eq!(p.next_delay_jittered(1, 0.5), Duration::from_millis(300));
+        assert_eq!(p.next_delay_jittered(1, 1.0), Duration::from_millis(400));
+    }
+
+    #[test]
+    fn jittered_delay_never_leaves_the_policy_delay_and_twice_it() {
+        let p = RetryPolicy::exponential(5, Duration::from_millis(50));
+        for attempt in 0..6 {
+            let floor = p.next_delay(attempt);
+            for sample in [0.0, 0.25, 0.999, 1.0] {
+                let jittered = p.next_delay_jittered(attempt, sample);
+                assert!(
+                    jittered >= floor,
+                    "attempt {attempt}: {jittered:?} < {floor:?}"
+                );
+                assert!(
+                    jittered <= floor * 2,
+                    "attempt {attempt}: {jittered:?} > twice {floor:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn jittered_delay_clamps_a_sample_outside_the_unit_range() {
+        let p = RetryPolicy::fixed(3, Duration::from_millis(100));
+        assert_eq!(p.next_delay_jittered(0, -3.0), Duration::from_millis(100));
+        assert_eq!(p.next_delay_jittered(0, 7.5), Duration::from_millis(200));
+        assert_eq!(
+            p.next_delay_jittered(0, f64::NEG_INFINITY),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            p.next_delay_jittered(0, f64::INFINITY),
+            Duration::from_millis(200)
+        );
+    }
+
+    #[test]
+    fn jittered_delay_treats_nan_as_the_longest_wait() {
+        let p = RetryPolicy::fixed(3, Duration::from_millis(100));
+        assert_eq!(
+            p.next_delay_jittered(0, f64::NAN),
+            Duration::from_millis(200)
+        );
+    }
+
+    #[test]
+    fn jittered_delay_saturates_instead_of_overflowing() {
+        let p = RetryPolicy::fixed(3, Duration::MAX);
+        assert_eq!(p.next_delay_jittered(0, 1.0), Duration::MAX);
+        assert_eq!(p.next_delay_jittered(0, 0.0), Duration::MAX);
     }
 
     // -----------------------------------------------------------------------

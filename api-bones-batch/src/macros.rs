@@ -130,28 +130,28 @@ macro_rules! batch_method {
             fn $get(
                 &self,
                 request: $get_req,
-            ) -> impl ::core::future::Future<Output = $crate::ItemResult<$item>> + Send;
+            ) -> impl $crate::__private::MaybeSendFuture<$crate::ItemResult<$item>>;
 
             /// The same call with per-call headers and deadline.
             fn $get_opts(
                 &self,
                 request: $get_req,
                 headers: $crate::CallHeaders,
-            ) -> impl ::core::future::Future<Output = $crate::ItemResult<$item>> + Send;
+            ) -> impl $crate::__private::MaybeSendFuture<$crate::ItemResult<$item>>;
 
             /// An explicit batch: any number of ids, one outcome per id in
             /// input order.
             fn $batch(
                 &self,
                 template: $template,
-            ) -> impl ::core::future::Future<Output = $crate::BatchResults<$item>> + Send;
+            ) -> impl $crate::__private::MaybeSendFuture<$crate::BatchResults<$item>>;
 
             /// The same call with per-call headers and deadline.
             fn $batch_opts(
                 &self,
                 template: $template,
                 headers: $crate::CallHeaders,
-            ) -> impl ::core::future::Future<Output = $crate::BatchResults<$item>> + Send;
+            ) -> impl $crate::__private::MaybeSendFuture<$crate::BatchResults<$item>>;
         }
 
         const _: () = {
@@ -273,7 +273,7 @@ macro_rules! batch_method {
                 fn $get(
                     &self,
                     request: $get_req,
-                ) -> impl ::core::future::Future<Output = $crate::ItemResult<$item>> + Send {
+                ) -> impl $crate::__private::MaybeSendFuture<$crate::ItemResult<$item>> {
                     self.$get_opts(request, $crate::CallHeaders::new())
                 }
 
@@ -281,7 +281,7 @@ macro_rules! batch_method {
                     &self,
                     request: $get_req,
                     headers: $crate::CallHeaders,
-                ) -> impl ::core::future::Future<Output = $crate::ItemResult<$item>> + Send {
+                ) -> impl $crate::__private::MaybeSendFuture<$crate::ItemResult<$item>> {
                     let coalescer = shared(self);
                     async move { coalescer.get(request, headers).await }
                 }
@@ -289,7 +289,7 @@ macro_rules! batch_method {
                 fn $batch(
                     &self,
                     template: $template,
-                ) -> impl ::core::future::Future<Output = $crate::BatchResults<$item>> + Send {
+                ) -> impl $crate::__private::MaybeSendFuture<$crate::BatchResults<$item>> {
                     self.$batch_opts(template, $crate::CallHeaders::new())
                 }
 
@@ -297,7 +297,7 @@ macro_rules! batch_method {
                     &self,
                     mut template: $template,
                     headers: $crate::CallHeaders,
-                ) -> impl ::core::future::Future<Output = $crate::BatchResults<$item>> + Send {
+                ) -> impl $crate::__private::MaybeSendFuture<$crate::BatchResults<$item>> {
                     let coalescer = shared(self);
                     async move {
                         let ids = ::core::mem::take(&mut template.$ids);
@@ -338,18 +338,14 @@ macro_rules! batch_method {
             fn $batch(
                 &self,
                 template: $template,
-            ) -> impl ::core::future::Future<
-                Output = $crate::BatchGroups<$list_req, $list_resp>,
-            > + Send;
+            ) -> impl $crate::__private::MaybeSendFuture<$crate::BatchGroups<$list_req, $list_resp>>;
 
             /// The same call with per-call headers and deadline.
             fn $batch_opts(
                 &self,
                 template: $template,
                 headers: $crate::CallHeaders,
-            ) -> impl ::core::future::Future<
-                Output = $crate::BatchGroups<$list_req, $list_resp>,
-            > + Send;
+            ) -> impl $crate::__private::MaybeSendFuture<$crate::BatchGroups<$list_req, $list_resp>>;
         }
 
         const _: () = {
@@ -360,9 +356,7 @@ macro_rules! batch_method {
                 fn $batch(
                     &self,
                     template: $template,
-                ) -> impl ::core::future::Future<
-                    Output = $crate::BatchGroups<$list_req, $list_resp>,
-                > + Send {
+                ) -> impl $crate::__private::MaybeSendFuture<$crate::BatchGroups<$list_req, $list_resp>> {
                     self.$batch_opts(template, $crate::CallHeaders::new())
                 }
 
@@ -370,9 +364,7 @@ macro_rules! batch_method {
                     &self,
                     mut template: $template,
                     headers: $crate::CallHeaders,
-                ) -> impl ::core::future::Future<
-                    Output = $crate::BatchGroups<$list_req, $list_resp>,
-                > + Send {
+                ) -> impl $crate::__private::MaybeSendFuture<$crate::BatchGroups<$list_req, $list_resp>> {
                     let wire = self.__wire();
                     let single_client = self.__inner();
                     let batch_client = self.__inner();

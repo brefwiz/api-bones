@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {# kohde jäljellä} other {# kohdetta jäljellä}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.}}",
+  "corpus.errors.QUOTA.title": "Kiintiö {used, number} / {limit, number}",
+  "corpus.errors.LOCKED.title": "Lukittu: {label}",
+  "corpus.errors.SINCE.title": "Lukittu {at, date} alkaen"
+}

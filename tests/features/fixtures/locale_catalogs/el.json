@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {Απομένει # στοιχείο} other {Απομένουν # στοιχεία}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {Θέση #}}",
+  "corpus.errors.QUOTA.title": "Ποσόστωση: {used, number} από {limit, number}",
+  "corpus.errors.LOCKED.title": "Κλειδωμένο: {label}",
+  "corpus.errors.SINCE.title": "Κλειδωμένο από {at, date}"
+}

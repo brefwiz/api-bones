@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`api-bones-otel` 0.1.2:** declares itself an ES module (`"type": "module"`,
+  types-first `exports`, `require` kept).
+
 ## [20.0.0] - 2026-11-23
 
 ### Added

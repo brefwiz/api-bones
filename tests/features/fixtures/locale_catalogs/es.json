@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {Queda # elemento} many {Quedan # de elementos} other {Quedan # elementos}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.º}}",
+  "corpus.errors.QUOTA.title": "Cuota: {used, number} de {limit, number}",
+  "corpus.errors.LOCKED.title": "Bloqueado: {label}",
+  "corpus.errors.SINCE.title": "Bloqueado desde el {at, date}"
+}

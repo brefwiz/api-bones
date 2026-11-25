@@ -2,6 +2,7 @@
 import { getExtension, type DescMethod, type DescService } from "@bufbuild/protobuf";
 import type { BatchedClient } from "./batch.js";
 import { Code, ConnectError, type CallOptions, type Client } from "@connectrpc/connect";
+import type { ListCall, Page, PageErrorKind, PageOptions, Total } from "@brefwiz/api-bones-sdk-runtime";
 import { trace, SpanKind, SpanStatusCode, type Span } from "@opentelemetry/api";
 import { BonesError } from "./error-info.js";
 import { assertSupportedPolicySchema, indexGeneratedPolicy, type GeneratedMethodPolicyDocument, type GeneratedPagingPolicy } from "./policy.js";
@@ -28,22 +29,7 @@ export function hasPagingShape(method: DescMethod): boolean {
     method.output.fields.filter(field => field.fieldKind === "list").length === 1;
 }
 
-export interface PageOptions {
-  pageSize?: number;
-  prefetch?: 0 | 1;
-  signal?: AbortSignal;
-  cache?: "use" | "bypass";
-}
-export interface Total { readonly value: bigint; readonly kind: "estimate" | "exact"; }
-export interface Page<T> {
-  readonly items: readonly T[];
-  readonly revision: string;
-  readonly total?: Total;
-  readonly fromCache: boolean;
-  /** True exactly when the response carried a non-empty next cursor. */
-  readonly hasNext: boolean;
-}
-export type PageErrorKind = "cursor_invalid" | "cursor_expired" | "cursor_query_mismatch" | "rpc";
+export type { ListCall, Page, PageErrorKind, PageOptions, Total };
 export class PageError extends BonesError {
   override name = "PageError";
   readonly kind: PageErrorKind;
@@ -54,13 +40,6 @@ export class PageError extends BonesError {
 }
 export function isCursorRejected(error: unknown): boolean {
   return error instanceof PageError && error.kind !== "rpc";
-}
-export interface ListCall<T> {
-  pages(): AsyncIterable<Page<T>>;
-  items(): AsyncIterable<T>;
-  firstPage(): Promise<Page<T>>;
-  /** Active iteration span, usable by the UI for first-row measurements. */
-  readonly span?: Span;
 }
 
 /** Lazily map each item of a list call; page metadata, cache flags and the iteration span pass through unchanged. */

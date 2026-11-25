@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {# element tilbage} other {# elementer tilbage}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.}}",
+  "corpus.errors.QUOTA.title": "Kvote {used, number} af {limit, number}",
+  "corpus.errors.LOCKED.title": "Låst: {label}",
+  "corpus.errors.SINCE.title": "Låst siden {at, date}"
+}

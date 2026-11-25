@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {# öğe kaldı} other {# öğe kaldı}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.}}",
+  "corpus.errors.QUOTA.title": "Kota: {used, number} / {limit, number}",
+  "corpus.errors.LOCKED.title": "{label} kilitli",
+  "corpus.errors.SINCE.title": "{at, date} tarihinden beri kilitli"
+}

@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {nog # item} other {nog # items}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#e}}",
+  "corpus.errors.QUOTA.title": "Quota {used, number} van {limit, number}",
+  "corpus.errors.LOCKED.title": "{label} is vergrendeld",
+  "corpus.errors.SINCE.title": "Vergrendeld sinds {at, date}"
+}

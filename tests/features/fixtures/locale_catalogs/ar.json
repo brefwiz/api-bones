@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, zero {المتبقي: # عناصر} one {المتبقي: # عنصر} two {المتبقي: # عنصران} few {المتبقي: # عناصر} many {المتبقي: # عنصرًا} other {المتبقي: # عنصر}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {المركز #}}",
+  "corpus.errors.QUOTA.title": "الحصة المستخدمة: {used, number} من {limit, number}",
+  "corpus.errors.LOCKED.title": "مقفل: {label}",
+  "corpus.errors.SINCE.title": "القفل قائم منذ {at, date}"
+}

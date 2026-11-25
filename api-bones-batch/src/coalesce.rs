@@ -11,8 +11,9 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
+use api_bones::connect::{Idempotency, fetch_with_retry, retries_for};
+use api_bones_rt::{Instant, MaybeSend};
 use connectrpc::ConnectError;
 use connectrpc::client::CallOptions;
 use futures_util::future::join_all;
@@ -25,8 +26,12 @@ use crate::results::BatchResults;
 use crate::wire::{BatchFn, Boxed, ChunkCall, Explicit, Wire};
 
 /// Sends one single Get.
+#[cfg(not(target_arch = "wasm32"))]
 pub type SingleFn<Get, T> =
     Arc<dyn Fn(Get, CallOptions) -> Boxed<Result<T, ConnectError>> + Send + Sync>;
+/// Sends one single Get.
+#[cfg(target_arch = "wasm32")]
+pub type SingleFn<Get, T> = Arc<dyn Fn(Get, CallOptions) -> Boxed<Result<T, ConnectError>>>;
 
 /// How one `Get<Resource>` and its `BatchGet<Resources>` sibling are called.
 pub struct GetPlan<Get, Tmpl, T> {
@@ -64,11 +69,16 @@ struct Window<Get, T> {
     opened: Instant,
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+type DepartureHook = Box<dyn FnOnce() + Send>;
+#[cfg(all(test, target_arch = "wasm32"))]
+type DepartureHook = Box<dyn FnOnce()>;
+
 #[derive(Default)]
 struct Turn {
     callers: AtomicUsize,
     #[cfg(test)]
-    after_departure: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    after_departure: Mutex<Option<DepartureHook>>,
 }
 
 struct Waiting<T, F: FnOnce()> {
@@ -103,9 +113,9 @@ pub struct Coalescer<Get, Tmpl, T> {
 
 impl<Get, Tmpl, T> Coalescer<Get, Tmpl, T>
 where
-    Get: Clone + Send + 'static,
-    Tmpl: Clone + Send + 'static,
-    T: Clone + Send + 'static,
+    Get: Clone + MaybeSend + 'static,
+    Tmpl: Clone + MaybeSend + 'static,
+    T: Clone + MaybeSend + 'static,
 {
     /// A coalescer over `plan`, sharing `wire` with the client's other methods.
     #[must_use]
@@ -141,14 +151,14 @@ where
         loop {
             // Growth yields again so a parent's polling budget cannot close
             // the window before it registers the remaining siblings.
-            tokio::task::yield_now().await;
+            api_bones_rt::yield_now().await;
             let mut grew = false;
             if let Some(window) = self.take_window(&key, serial, |window| {
                 grew = observed_ids != window.ids.len();
                 observed_ids = window.ids.len();
                 !grew
             }) {
-                tokio::spawn(Arc::clone(self).run_window(window));
+                api_bones_rt::spawn(Arc::clone(self).run_window(window)).detach();
             }
             if !grew {
                 break;
@@ -235,7 +245,7 @@ where
             }
         };
         for window in flush {
-            tokio::spawn(Arc::clone(self).run_window(window));
+            api_bones_rt::spawn(Arc::clone(self).run_window(window)).detach();
         }
         Ok(PendingGet {
             key,
@@ -394,11 +404,23 @@ where
                 return fail(error);
             }
             (self.plan.set_id)(&mut request, only);
-            let options = match headers.call_options(&credential.headers) {
-                Ok(options) => options,
-                Err(error) => return fail(error),
-            };
-            let answer = (self.plan.single)(request, options).await;
+            // The call's own timeout bounds every retry wait, as for a batch.
+            let deadline = headers
+                .timeout_budget()
+                .and_then(|timeout| Instant::now().checked_add(timeout));
+            let answer = fetch_with_retry(
+                move || {
+                    let options = self
+                        .wire
+                        .verify(call.guard)
+                        .and_then(|credential| headers.call_options(&credential.headers));
+                    let request = request.clone();
+                    async move { (self.plan.single)(request, options?).await }
+                },
+                retries_for(Idempotency::NoSideEffects),
+                deadline,
+            )
+            .await;
             if self.wire.verify(call.guard).is_err() {
                 return fail(item_error::identity_changed());
             }
@@ -428,6 +450,8 @@ mod tests {
     use std::sync::Barrier;
     use std::task::Context;
     use std::time::Duration;
+
+    use connectrpc::ErrorCode;
 
     use super::*;
     use crate::key::Anonymous;
@@ -498,7 +522,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn same_tick_gets_merge_and_retry_only_the_flushed_batch() {
         let harness = Harness::new(true);
-        let started = tokio::time::Instant::now();
+        let started = Instant::now();
         let answers = join_all(
             ["w1", "w2", "w1"].map(|id| harness.coalescer.get(id.into(), CallHeaders::new())),
         )
@@ -511,7 +535,12 @@ mod tests {
             ["w1", "w2", "w1"]
         );
         harness.assert_batches(&[&["w1", "w2"], &["w1", "w2"]]);
-        assert_eq!(started.elapsed(), Duration::from_millis(50));
+        // One backoff of 50 ms plus jitter of up to the same again.
+        let elapsed = started.elapsed();
+        assert!(
+            (Duration::from_millis(50)..=Duration::from_millis(100)).contains(&elapsed),
+            "{elapsed:?} is outside the jittered backoff bounds"
+        );
         assert_eq!(harness.records.lock().expect("records").len(), 1);
     }
 
@@ -776,5 +805,77 @@ mod tests {
                 .is_empty()
         );
         harness.assert_batches(&[]);
+    }
+
+    /// A coalescer whose single RPC refuses its first `refusals` calls as rate
+    /// limited with `retry_after`; the counter reports the calls it received.
+    fn throttled_single(
+        refusals: usize,
+        retry_after: &'static str,
+    ) -> (Arc<AtomicUsize>, Coalescer<String, (), String>) {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&attempts);
+        let plan = GetPlan {
+            single_method: "/contract.Widgets/GetWidget",
+            batch_method: "/contract.Widgets/BatchGetWidgets",
+            single: Arc::new(move |id, _| {
+                let attempt = counted.fetch_add(1, Ordering::SeqCst);
+                Box::pin(async move {
+                    if attempt >= refusals {
+                        Ok(id)
+                    } else {
+                        let mut headers = http::HeaderMap::new();
+                        headers.insert(
+                            http::header::RETRY_AFTER,
+                            http::HeaderValue::from_static(retry_after),
+                        );
+                        Err(
+                            ConnectError::new(ErrorCode::ResourceExhausted, "limit reached")
+                                .with_headers(headers),
+                        )
+                    }
+                })
+            }),
+            batch: Arc::new(|(), _, _| {
+                Box::pin(async { Err(ConnectError::unimplemented("no batch is sent")) })
+            }),
+            id_of: Clone::clone,
+            set_id: |request, id| id.clone_into(request),
+            encode_cleared: |_| Vec::new(),
+            to_template: |_| (),
+            template_bytes: |()| 0,
+        };
+        let wire = Wire::new(Arc::new(Anonymous), None);
+        (attempts, Coalescer::new(plan, Arc::new(wire)))
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_single_get_waits_out_a_throttle_and_is_replayed() {
+        let (attempts, coalescer) = throttled_single(1, "2");
+        let coalescer = Arc::new(coalescer);
+        let started = Instant::now();
+        let answer = coalescer.get("w1".into(), CallHeaders::new()).await;
+        assert_eq!(answer.expect("replayed"), "w1");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        let elapsed = started.elapsed();
+        assert!(
+            (Duration::from_millis(2050)..Duration::from_millis(2100)).contains(&elapsed),
+            "{elapsed:?} is outside the retry-after plus jitter bounds"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_single_get_whose_wait_would_pass_its_timeout_ends_without_waiting() {
+        let (attempts, coalescer) = throttled_single(9, "3");
+        let coalescer = Arc::new(coalescer);
+        let started = Instant::now();
+        let headers = CallHeaders::new().timeout(Duration::from_secs(2));
+        let answer = coalescer.get("w1".into(), headers).await;
+        assert_eq!(
+            answer.expect_err("deadline").code,
+            ErrorCode::DeadlineExceeded
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(started.elapsed(), Duration::ZERO);
     }
 }

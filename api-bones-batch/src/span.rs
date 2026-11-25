@@ -59,7 +59,11 @@ pub struct BatchRecord {
 }
 
 /// Receives each record when its request ends.
+#[cfg(not(target_arch = "wasm32"))]
 pub type Observer = Arc<dyn Fn(&BatchRecord) + Send + Sync>;
+/// Receives each record when its request ends.
+#[cfg(target_arch = "wasm32")]
+pub type Observer = Arc<dyn Fn(&BatchRecord)>;
 
 // Span and completion event carry the same immutable request dimensions.
 macro_rules! request_fields {
