@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.2] - 2026-11-25
+## [0.2.0] - 2026-11-25
 
 ### Added
 
 - *(sdk-runtime)* add the @brefwiz/api-bones-sdk-runtime package
+
+### Breaking changes merged after the version was prepared
+
+- feat(sdk): L2 call helper, sdk-call surface and wasm-size probe
 
 ## [0.1.1] - 2026-11-11
 
