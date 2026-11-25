@@ -178,10 +178,19 @@ pub mod openapi;
 
 #[cfg(all(
     feature = "connect-core",
+    not(target_arch = "wasm32"),
     not(any(feature = "tls-native-roots", feature = "tls-webpki-roots"))
 ))]
 compile_error!(
     "the `connect-core` feature needs a TLS root source: enable `tls-native-roots` or `tls-webpki-roots`"
+);
+
+#[cfg(all(
+    target_arch = "wasm32",
+    any(feature = "tls-native-roots", feature = "tls-webpki-roots")
+))]
+compile_error!(
+    "`tls-native-roots` and `tls-webpki-roots` pull in the native Connect client, which does not build for wasm32: enable `connect-core` alone"
 );
 
 #[cfg(feature = "connect-core")]

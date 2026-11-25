@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {# item left} other {# items left}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}",
+  "corpus.errors.QUOTA.title": "Quota {used, number} of {limit, number}",
+  "corpus.errors.LOCKED.title": "{label} is locked",
+  "corpus.errors.SINCE.title": "Locked since {at, date}"
+}

@@ -19,8 +19,13 @@ pub const BONES_NOT_MODIFIED: HeaderName = HeaderName::from_static("bones-not-mo
 pub const BONES_LIST_CACHE: HeaderName = HeaderName::from_static("bones-list-cache");
 
 /// The generated unary List transport, preserving response metadata.
+#[cfg(not(target_arch = "wasm32"))]
 pub type ListFn<Req, Resp> =
     Arc<dyn Fn(Req, CallOptions) -> Boxed<Result<ListResponse<Resp>, ConnectError>> + Send + Sync>;
+/// The generated unary List transport, preserving response metadata.
+#[cfg(target_arch = "wasm32")]
+pub type ListFn<Req, Resp> =
+    Arc<dyn Fn(Req, CallOptions) -> Boxed<Result<ListResponse<Resp>, ConnectError>>>;
 
 /// Whether the server confirmed the complete cached revision chain.
 #[must_use]

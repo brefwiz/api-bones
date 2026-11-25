@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {# objekt kvar} other {# objekt kvar}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, one {#:a} other {#:e}}",
+  "corpus.errors.QUOTA.title": "Kvot: {used, number} av {limit, number}",
+  "corpus.errors.LOCKED.title": "Låst: {label}",
+  "corpus.errors.SINCE.title": "Låst sedan {at, date}"
+}

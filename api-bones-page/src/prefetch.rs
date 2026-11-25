@@ -1,26 +1,19 @@
 // SPDX-License-Identifier: MIT
 //! A page fetch running ahead of the consumer, aborted when dropped.
 
-use tokio::task::JoinHandle;
+use api_bones_rt::{MaybeSend, Task, spawn};
 
 /// A spawned fetch. Dropping it aborts the fetch, which drops the in-flight
 /// request future and with it the transport call.
-pub(crate) struct Prefetch<T>(JoinHandle<T>);
+pub(crate) struct Prefetch<T>(Task<T>);
 
-impl<T: Send + 'static> Prefetch<T> {
-    pub(crate) fn spawn(fetch: impl Future<Output = T> + Send + 'static) -> Self {
-        Self(tokio::spawn(fetch))
+impl<T: MaybeSend + 'static> Prefetch<T> {
+    pub(crate) fn spawn(fetch: impl Future<Output = T> + MaybeSend + 'static) -> Self {
+        Self(spawn(fetch))
     }
 
     /// The fetch's result; `None` when the task was aborted or panicked.
-    pub(crate) async fn finish(mut self) -> Option<T> {
-        let handle = &mut self.0;
-        handle.await.ok()
-    }
-}
-
-impl<T> Drop for Prefetch<T> {
-    fn drop(&mut self) {
-        self.0.abort();
+    pub(crate) async fn finish(self) -> Option<T> {
+        self.0.join().await
     }
 }

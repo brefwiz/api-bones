@@ -8,6 +8,7 @@ members = [
     "api-bones-sdk-gen",
     "api-bones-test",
     "api-bones-protos",
+    "api-bones-rt",
     "api-bones-stream",
     "api-bones-transport",
     "api-bones-page",
@@ -26,6 +27,8 @@ members = [
     # feature directory stays its own corpus root, distinct from the
     # dual-language one above.
     "tests/internal-bdd",
+    # The native Connect server the wasm32 fetch transport suite runs against.
+    "tests/wasm-server",
 ]
 resolver = "2"
 
@@ -42,6 +45,9 @@ ucum = { package = "ucum-units", version = "0.1" }
 iso_currency = "0.7"
 email_address = "0.2"
 url = "2"
+# The fleet holds one wasm-bindgen version, the one the CI image's
+# wasm-bindgen-cli is pinned at. Every crate that needs it inherits this entry.
+wasm-bindgen = "=0.2.128"
 
 [workspace.lints.rust]
 warnings    = "deny"
@@ -86,16 +92,17 @@ chrono = ["dep:chrono", "utoipa?/chrono"]
 ## ConnectOptionExt. Activates the uuid and chrono features as side-effects.
 ## Zero impact on consumers who do not declare this feature.
 connect = ["tls-native-roots"]
-## The Connect client surface without a TLS root source. Enable it only through
-## `tls-native-roots` or `tls-webpki-roots`; on its own it does not compile.
-connect-core = ["dep:api-bones-stream", "dep:connectrpc", "dep:tokio", "dep:buffa", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:base64", "dep:bytes", "dep:futures-core", "dep:http-body-util", "uuid", "chrono", "http", "std"]
+## The Connect client surface without a TLS root source or the native client.
+## On wasm32 enable it alone; elsewhere enable it only through `tls-native-roots`
+## or `tls-webpki-roots`, because on its own it does not compile there.
+connect-core = ["dep:api-bones-rt", "dep:api-bones-stream", "dep:connectrpc", "dep:tokio", "dep:buffa", "dep:buffa-types", "dep:tracing", "dep:serde", "dep:serde_json", "dep:base64", "dep:bytes", "dep:futures-core", "dep:http-body-util", "uuid", "chrono", "http", "std"]
 ## Trust the operating system root store (honours `SSL_CERT_FILE`/`SSL_CERT_DIR`).
 ## Takes precedence over `tls-webpki-roots` when both are enabled.
-tls-native-roots = ["connect-core", "dep:rustls-native-certs"]
+tls-native-roots = ["connect-core", "dep:rustls-native-certs", "connectrpc/client", "connectrpc/client-tls", "connectrpc/gzip", "connectrpc/zstd"]
 ## Trust the bundled Mozilla roots, or only the certificates named by
 ## `SSL_CERT_FILE`/`SSL_CERT_DIR` when either is set. Links no platform
 ## framework, so it cross-links from any host.
-tls-webpki-roots = ["connect-core", "dep:webpki-roots", "dep:rustls-pki-types"]
+tls-webpki-roots = ["connect-core", "dep:webpki-roots", "dep:rustls-pki-types", "connectrpc/client", "connectrpc/client-tls", "connectrpc/gzip", "connectrpc/zstd"]
 http = ["dep:http", "alloc"]
 axum = ["dep:axum", "http", "serde", "std"]
 utoipa = ["dep:utoipa", "std"]
@@ -119,6 +126,7 @@ i18n = ["dep:api-bones-i18n", "serde", "std"]
 
 [dependencies]
 thiserror = { version = "2", default-features = false }
+api-bones-rt = { version = "0.1.0", path = "api-bones-rt", registry = "brefwiz", optional = true }
 api-bones-stream = { path = "api-bones-stream", version = "^0.1.3", registry = "brefwiz", optional = true }
 api-bones-i18n = { path = "api-bones-i18n", version = "^0.1.2", registry = "brefwiz", optional = true }
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -144,7 +152,7 @@ hmac = { version = "0.13", optional = true }
 sha2 = { version = "0.11", optional = true }
 # connect feature — versions must match what buffa-types / generated proto code use.
 # Mismatch causes type-laundering pain at adapter boundaries (ADR-0096).
-connectrpc  = { version = "0.9.1", features = ["client", "client-tls"], optional = true }
+connectrpc  = { version = "0.9.1", default-features = false, features = ["json"], optional = true }
 tokio = { version = "1", features = ["time"], optional = true }
 buffa       = { version = "0.9", optional = true }
 buffa-types = { version = "0.9", features = ["json"], optional = true }
@@ -153,6 +161,10 @@ webpki-roots = { version = "1.0.10", optional = true }
 rustls-pki-types = { version = "1", features = ["std"], optional = true }
 tracing     = { version = "0.1", optional = true }
 opentelemetry = { version = "0.32", optional = true }
+
+# The browser has no OS entropy source; uuid draws it from `crypto.getRandomValues`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1.23.3", optional = true, features = ["js"] }
 
 [lints.rust]
 # Allow cfg(coverage) set by cargo-llvm-cov
@@ -202,11 +214,13 @@ cast_sign_loss = "allow"
 [dev-dependencies]
 api-bones-transport = { path = "api-bones-transport" }
 mockito = "1.7.2"
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "time", "test-util"] }
 opentelemetry_sdk = { version = "0.32", features = ["trace", "rt-tokio"] }
 bytes = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http-body-util = "0.1"
+# The in-process HTTP/2 peer of the transport replay test refuses streams.
+h2 = "0.4"
 
 [[example]]
 name = "query_builder"
@@ -313,3 +327,4 @@ api-bones-stream = { path = "api-bones-stream" }
 api-bones-i18n = { path = "api-bones-i18n" }
 api-bones-transport = { path = "api-bones-transport" }
 api-bones-page = { path = "api-bones-page" }
+api-bones-rt = { path = "api-bones-rt" }

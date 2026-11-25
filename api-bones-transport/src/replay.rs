@@ -22,7 +22,7 @@ use http_body_util::BodyExt as _;
 use crate::body::ResponseBody;
 use crate::classify::{NeverRan, TransportError, failed_to_connect, never_ran};
 use crate::conn::Conn;
-use crate::deadline::{self, Deadline};
+use crate::deadline::{self, Budget};
 use crate::peer;
 use crate::pool::Pool;
 
@@ -53,7 +53,7 @@ pub(crate) async fn send(
     pool: Arc<Pool>,
     request: Request<ClientBody>,
 ) -> Result<Response<ResponseBody>, ConnectError> {
-    let deadline = Deadline::of(request.headers(), Instant::now());
+    let deadline = Budget::of(request.headers(), Instant::now());
     let (parts, body) = request.into_parts();
     let peer = Peer::of(&parts);
 
@@ -100,7 +100,7 @@ pub(crate) async fn send(
 
 /// The request head for the replay, with its timeout header stating the
 /// time remaining, or `None` when none remains.
-fn replay_parts(mut parts: Parts, deadline: Option<Deadline>) -> Option<Parts> {
+fn replay_parts(mut parts: Parts, deadline: Option<Budget>) -> Option<Parts> {
     let Some(deadline) = deadline else {
         return Some(parts);
     };
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn a_replay_states_less_time_than_the_first_send() {
         let head = parts(Some("60000"));
-        let deadline = Deadline::of(&head.headers, Instant::now());
+        let deadline = Budget::of(&head.headers, Instant::now());
         std::thread::sleep(Duration::from_millis(5));
         let replay = replay_parts(head, deadline).expect("time is left");
         let stated: u64 = replay.headers["connect-timeout-ms"]
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn no_replay_once_the_deadline_passed() {
         let head = parts(Some("1"));
-        let deadline = Deadline::of(&head.headers, Instant::now());
+        let deadline = Budget::of(&head.headers, Instant::now());
         std::thread::sleep(Duration::from_millis(5));
         assert!(replay_parts(head, deadline).is_none());
     }

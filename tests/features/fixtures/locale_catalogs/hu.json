@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {# elem maradt} other {# elem maradt}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, one {#.} other {#.}}",
+  "corpus.errors.QUOTA.title": "Kvóta: {used, number} / {limit, number}",
+  "corpus.errors.LOCKED.title": "Zárolva: {label}",
+  "corpus.errors.SINCE.title": "{at, date} óta zárolva"
+}

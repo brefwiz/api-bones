@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: MIT
+//
+// The service the wasm32 fetch transport suite calls. Every message is a
+// well-known type, so the wasm client needs no generated code: it encodes
+// google.protobuf wrappers by hand.
+//
+// Each method stands for one behaviour of the transport:
+//   Session   the BFF session lane: mints and hands out the CSRF token.
+//   Rotate    invalidates the current token without telling the caller.
+//   Write     a state-changing call: refused with 403 and the current token
+//             unless the caller echoes the current token.
+//   Read      a read free of side effects: Connect GET, and the public lane
+//             when called under /public/.
+//   Delay     answers after the requested milliseconds with the
+//             connect-timeout-ms header the request carried.
+//   Watch     a server stream of N messages, one every 20 ms.
+//   Aborted   the labels of the requests the client abandoned.
+//   Redirector the base URL of an origin that answers 307 to this server.
+
+syntax = "proto3";
+
+package bones.test.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+
+service Fetch {
+  // Mints a fresh CSRF token; returns it as the body and in x-csrf-token.
+  rpc Session(google.protobuf.Empty) returns (google.protobuf.StringValue);
+
+  // Mints a fresh CSRF token and tells nobody, so the echo held by the
+  // caller goes stale.
+  rpc Rotate(google.protobuf.Empty) returns (google.protobuf.Empty);
+
+  // Echoes the request string once the CSRF token is echoed back. Otherwise
+  // refuses with permission_denied (HTTP 403) and the current token in
+  // x-csrf-token.
+  rpc Write(google.protobuf.StringValue) returns (google.protobuf.StringValue);
+
+  // Echoes the request string.
+  rpc Read(google.protobuf.StringValue) returns (google.protobuf.StringValue) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // Waits the requested milliseconds, then returns the connect-timeout-ms
+  // header of the request ("" when it carried none). Recorded as "Delay" by
+  // Aborted when the client goes away first.
+  rpc Delay(google.protobuf.Int64Value) returns (google.protobuf.StringValue);
+
+  // Streams "tick-0" .. "tick-(n-1)", one every 20 ms. Recorded as "Watch" by
+  // Aborted when the client goes away before the last one.
+  rpc Watch(google.protobuf.Int64Value) returns (stream google.protobuf.StringValue);
+
+  // The labels ("Delay", "Watch") of the abandoned requests, comma-separated
+  // in the order they were noticed.
+  rpc Aborted(google.protobuf.Empty) returns (google.protobuf.StringValue);
+
+  // The base URL of a second loopback origin that answers every request with
+  // a 307 to the same path on this server.
+  rpc Redirector(google.protobuf.Empty) returns (google.protobuf.StringValue);
+}

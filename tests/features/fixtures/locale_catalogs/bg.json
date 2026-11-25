@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {Остава # елемент} other {Остават # елемента}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {№ #}}",
+  "corpus.errors.QUOTA.title": "Квота {used, number} от {limit, number}",
+  "corpus.errors.LOCKED.title": "Заключено: {label}",
+  "corpus.errors.SINCE.title": "Заключено от {at, date}"
+}

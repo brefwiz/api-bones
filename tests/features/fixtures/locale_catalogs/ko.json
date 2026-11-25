@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, other {#개 남았어요}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#위}}",
+  "corpus.errors.QUOTA.title": "할당량 {used, number} / {limit, number}",
+  "corpus.errors.LOCKED.title": "{label}: 잠겨 있어요",
+  "corpus.errors.SINCE.title": "{at, date}부터 잠겨 있어요"
+}

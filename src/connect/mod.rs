@@ -78,6 +78,7 @@ mod retry_eligibility;
 mod scoped;
 pub mod stream_control;
 mod timestamp;
+#[cfg(any(feature = "tls-native-roots", feature = "tls-webpki-roots"))]
 pub mod transport;
 mod uuid;
 #[cfg(all(
@@ -119,6 +120,7 @@ pub use stream_control::{
     StreamControl, is_keepalive_payload,
 };
 pub use timestamp::{chrono_opt_to_timestamp, chrono_to_timestamp};
+#[cfg(any(feature = "tls-native-roots", feature = "tls-webpki-roots"))]
 pub use transport::{
     ConnectConfigExt, RootStoreError, client_tls_config, is_caller_rejection, root_store,
 };

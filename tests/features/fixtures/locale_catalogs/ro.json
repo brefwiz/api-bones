@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {# element rămas} few {# elemente rămase} other {# de elemente rămase}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, one {locul #} other {locul #}}",
+  "corpus.errors.QUOTA.title": "Cotă: {used, number} din {limit, number}",
+  "corpus.errors.LOCKED.title": "Blocat: {label}",
+  "corpus.errors.SINCE.title": "Blocat din {at, date}"
+}

@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {Liko # elementas} few {Liko # elementai} many {Liko # elemento} other {Liko # elementų}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.}}",
+  "corpus.errors.QUOTA.title": "Kvota {used, number} iš {limit, number}",
+  "corpus.errors.LOCKED.title": "Užrakinta: {label}",
+  "corpus.errors.SINCE.title": "Užrakinta nuo {at, date}"
+}

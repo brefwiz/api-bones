@@ -1,0 +1,24 @@
+{
+  "schema": "brefwiz.i18n.review/v1",
+  "sourceHashFormat": "fnv1a-64/utf8/nfc/lf:v1",
+  "unit": "catalog:tests/features/fixtures/locale_catalogs/en.json",
+  "locale": "pl",
+  "source": "tests/features/fixtures/locale_catalogs/en.json",
+  "target": "tests/features/fixtures/locale_catalogs/pl.json",
+  "sourceHash": null,
+  "keys": {
+    "corpus.errors.ITEMS_LEFT.title": "abbf70aa18ef419b",
+    "corpus.errors.RANK.title": "886a824532f64530",
+    "corpus.errors.QUOTA.title": "ca1a95f673b18f3a",
+    "corpus.errors.LOCKED.title": "1be3738dc6ca9449",
+    "corpus.errors.SINCE.title": "b02fd1bb6e8a8fa0"
+  },
+  "targetHash": "69bfc89b9ba93102",
+  "review": "agent",
+  "verdicts": {
+    "translation-review": "pass",
+    "no-ai-slop": "pass"
+  },
+  "rounds": 1,
+  "todoHuman": 0
+}

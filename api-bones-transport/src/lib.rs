@@ -48,6 +48,21 @@
 //! never-ran classification, so a client shows which requests a server
 //! drain caught and which it replayed.
 //!
+//! **The browser.** On `wasm32` the same type has one constructor,
+//! `HttpTransport::fetch()`, with no arguments: it calls the host's
+//! `globalThis.fetch` (a Window, a Worker or Node 18+), over connectrpc's
+//! client core with its `client` features off. The credentials mode follows the
+//! request's lane (`include` on the session lane, `omit` under `/public/`),
+//! the BFF's CSRF token is echoed per origin and shared between wasm modules on
+//! one page, an eligible read goes as a Connect GET, a failed fetch is
+//! `unavailable`, and dropping a call aborts its fetch. Server streams are read
+//! through the response's `ReadableStream`. A request that never ran is not
+//! replayed there.
+//!
+//! **One deadline source.** A [`Deadline`] in the request's extensions makes
+//! either transport state the time remaining in the timeout header and answer
+//! `deadline_exceeded` when it passes before the response head arrives.
+//!
 //! This crate depends on no api-bones major, so a consumer on any major can
 //! use it, and service-kit can hand one transport to every SDK.
 //!
@@ -60,21 +75,38 @@
 //! # let _ = (transport, config);
 //! ```
 
+#[cfg(not(target_arch = "wasm32"))]
 mod body;
+#[cfg(not(target_arch = "wasm32"))]
 mod classify;
+#[cfg(not(target_arch = "wasm32"))]
 mod conn;
+#[cfg(not(target_arch = "wasm32"))]
 mod connector;
 mod deadline;
+#[cfg(not(target_arch = "wasm32"))]
 mod driver;
+#[cfg(target_arch = "wasm32")]
+mod fetch;
+#[cfg(not(target_arch = "wasm32"))]
 mod peer;
+#[cfg(not(target_arch = "wasm32"))]
 mod pool;
+#[cfg(not(target_arch = "wasm32"))]
 mod replay;
+#[cfg(not(target_arch = "wasm32"))]
 mod transport;
 
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use body::ResponseBody;
+#[cfg(not(target_arch = "wasm32"))]
 pub use classify::{NeverRan, failed_to_connect, never_ran};
+pub use deadline::Deadline;
+#[cfg(target_arch = "wasm32")]
+pub use fetch::{FetchBody, HttpTransport};
+#[cfg(not(target_arch = "wasm32"))]
 pub use transport::HttpTransport;
 
 /// Bound on establishing a connection to a peer inside the fleet (DNS, TCP and

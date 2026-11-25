@@ -21,16 +21,24 @@ path = "src/lib.rs"
 
 [dependencies]
 prost-reflect = { workspace = true }
-api-bones-transport = { version = "0.1.1", path = "../api-bones-transport", registry = "brefwiz" }
 api-bones-page = { version = "0.6.0", path = "../api-bones-page", registry = "brefwiz" }
+api-bones-rt = { version = "0.1.0", path = "../api-bones-rt", registry = "brefwiz" }
+api-bones-transport = { version = "0.1.1", path = "../api-bones-transport", registry = "brefwiz" }
 buffa = "0.9"
-api-bones = { version = "^20.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect"] }
-connectrpc = { version = "0.9.1", features = ["client"] }
+api-bones = { version = "^20.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
+connectrpc = { version = "0.9.1", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4.2"
 sha2 = "0.11"
-tokio = { version = "1", default-features = false, features = ["rt", "sync", "time", "macros"] }
+tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
 tracing = "0.1"
+
+# A native build trusts a root store and enables connectrpc's own client; a
+# browser build has neither, because `api_bones_transport::HttpTransport::fetch`
+# calls the browser's `fetch`.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+api-bones = { version = "^20.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["tls-native-roots"] }
+connectrpc = { version = "0.9.1", default-features = false, features = ["client"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "test-util"] }

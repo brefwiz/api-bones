@@ -1,0 +1,43 @@
+[package]
+name = "api-bones-rt"
+version = "0.1.0"
+publish = ["brefwiz"]
+edition = "2024"
+rust-version = "1.85"
+authors = ["Gregoire Salingue"]
+license = "MIT"
+description = "The runtime seam of the api-bones SDK crates: spawn, sleep, timeout, Instant and Send bounds that hold on tokio and in the browser alike."
+repository = "https://github.com/brefwiz/api-bones"
+homepage = "https://github.com/brefwiz/api-bones"
+documentation = "https://docs.rs/api-bones-rt"
+keywords = ["runtime", "wasm", "async"]
+categories = ["asynchronous", "wasm"]
+
+[lints]
+workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+# Depends on no api-bones major, so a consumer on any api-bones major can use
+# the seam.
+[dependencies]
+futures-core = "0.3"
+getrandom = "0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", default-features = false, features = ["rt", "time"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+futures-channel = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+js-sys = "0.3.105"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = "0.4.78"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { version = "1", features = ["rt", "sync", "macros", "time", "test-util"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3.78"

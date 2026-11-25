@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-//! The async driver: [`RotationMachine`] over real streams and a tokio timer.
+//! The async driver: [`RotationMachine`] over real streams and the runtime
+//! seam's timer.
 
 use std::collections::VecDeque;
 use std::future::{Future, pending};
@@ -7,9 +8,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use api_bones_rt::{Instant, MaybeSend, sleep_until};
 use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt, stream};
-use tokio::time::{Instant, sleep_until};
 
 use crate::{
     ControlSignal, EndCause, RotationAction, RotationEvent, RotationFrame, RotationMachine,
@@ -156,7 +157,7 @@ struct Rotation<M, K, Open, Fut, S, E> {
 
 impl<M, K, Open, Fut, S, E> Rotation<M, K, Open, Fut, S, E>
 where
-    M: StreamControlled + Clone + Send + 'static,
+    M: StreamControlled + Clone + MaybeSend + 'static,
     K: Fn(&M) -> Option<String>,
     Open: FnMut(OpenRequest) -> Fut,
     Fut: Future<Output = Result<S, E>>,
@@ -389,7 +390,7 @@ pub fn rotating_stream<M, K, Open, Fut, S, E>(
     dedupe_key: K,
 ) -> impl Stream<Item = Result<M, E>>
 where
-    M: StreamControlled + Clone + Send + 'static,
+    M: StreamControlled + Clone + MaybeSend + 'static,
     K: Fn(&M) -> Option<String>,
     Open: FnMut(OpenRequest) -> Fut,
     Fut: Future<Output = Result<S, E>>,
@@ -516,7 +517,7 @@ mod tests {
         let mut stream = rotating(vec![Some(old_rx), Some(new_rx)], &requests);
         send(&old_tx, vec![Ok(data("a")), Ok(control(&drain(10_000)))]);
         assert_eq!(next(&mut stream).await, Some(Ok(data("a"))));
-        let _ = tokio::time::timeout(Duration::from_millis(1), next(&mut stream)).await;
+        let _ = api_bones_rt::timeout(Duration::from_millis(1), next(&mut stream)).await;
         let expected = (
             STREAM_CONTROL_HEADER.to_owned(),
             STREAM_CONTROL_HEADER_VALUE.to_owned(),
@@ -580,10 +581,10 @@ mod tests {
         send(&old_tx, vec![Ok(control(&drain(10_000)))]);
         send(&new_tx, vec![Ok(data("x"))]);
         // The deadline is 8000 ms out; nothing is yielded before then or after.
-        let quiet = tokio::time::timeout(Duration::from_secs(7), next(&mut stream)).await;
+        let quiet = api_bones_rt::timeout(Duration::from_secs(7), next(&mut stream)).await;
         assert!(quiet.is_err());
         assert!(!new_tx.is_closed(), "the rotation is still under way");
-        let quiet = tokio::time::timeout(Duration::from_secs(2), next(&mut stream)).await;
+        let quiet = api_bones_rt::timeout(Duration::from_secs(2), next(&mut stream)).await;
         assert!(quiet.is_err());
         assert!(
             new_tx.is_closed(),
@@ -614,7 +615,7 @@ mod tests {
         let mut stream = rotating(vec![Some(old_rx), Some(new_rx)], &Requests::default());
         send(&old_tx, vec![Ok(control(&drain(10_000)))]);
         send(&new_tx, vec![Err("boom".to_owned())]);
-        let quiet = tokio::time::timeout(Duration::from_millis(10), next(&mut stream)).await;
+        let quiet = api_bones_rt::timeout(Duration::from_millis(10), next(&mut stream)).await;
         assert!(quiet.is_err());
         send(&old_tx, vec![Ok(data("b"))]);
         drop(old_tx);

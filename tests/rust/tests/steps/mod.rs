@@ -20,6 +20,7 @@ mod paged_without_batch;
 mod pagination;
 mod pinned_peer;
 mod precondition;
+pub mod rate_limit_retry;
 mod root_store;
 #[path = "../../../shared/shipped_resolver.rs"]
 mod shipped_resolver;

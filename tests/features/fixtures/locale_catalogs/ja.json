@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, other {残り#件}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#位}}",
+  "corpus.errors.QUOTA.title": "クォータ：{used, number}/{limit, number}",
+  "corpus.errors.LOCKED.title": "{label}はロック中です",
+  "corpus.errors.SINCE.title": "{at, date}からロック中です"
+}

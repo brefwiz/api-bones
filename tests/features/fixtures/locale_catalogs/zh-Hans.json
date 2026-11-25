@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, other {还剩#项}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {第#名}}",
+  "corpus.errors.QUOTA.title": "配额已用{used, number}/{limit, number}",
+  "corpus.errors.LOCKED.title": "{label}已锁定",
+  "corpus.errors.SINCE.title": "自{at, date}起锁定"
+}

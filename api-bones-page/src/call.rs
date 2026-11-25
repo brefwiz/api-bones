@@ -2,20 +2,18 @@
 //! [`ListCall`]: one List RPC as a stream of pages or of items.
 
 use api_bones::connect::{Idempotency, fetch_with_retry, retries_for};
+use api_bones_rt::{BoxFuture, MaybeSend, MaybeSync, SharedFn};
 use connectrpc::ConnectError;
 use futures_core::Stream;
 use futures_util::StreamExt as _;
 use sha2::{Digest, Sha256};
-use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::error::PageError;
 use crate::prefetch::Prefetch;
 
 /// The transport call for one page: a request in, a response out.
-pub type Fetch<Req, Resp> = Arc<
-    dyn Fn(Req) -> Pin<Box<dyn Future<Output = Result<Resp, ConnectError>> + Send>> + Send + Sync,
->;
+pub type Fetch<Req, Resp> = SharedFn<Req, BoxFuture<'static, Result<Resp, ConnectError>>>;
 
 /// Metadata supplied to generated unary List transport glue.
 #[derive(Clone, Default)]
@@ -35,15 +33,23 @@ pub struct ListResponse<Resp> {
 }
 
 /// Generated unary adapter preserving request and response metadata.
+#[cfg(not(target_arch = "wasm32"))]
 pub type MetadataFetch<Req, Resp> = Arc<
-    dyn Fn(
-            Req,
-            ListMetadata,
-        )
-            -> Pin<Box<dyn Future<Output = Result<ListResponse<Resp>, ConnectError>> + Send>>
+    dyn Fn(Req, ListMetadata) -> BoxFuture<'static, Result<ListResponse<Resp>, ConnectError>>
         + Send
         + Sync,
 >;
+/// Generated unary adapter preserving request and response metadata.
+#[cfg(target_arch = "wasm32")]
+pub type MetadataFetch<Req, Resp> =
+    Arc<dyn Fn(Req, ListMetadata) -> BoxFuture<'static, Result<ListResponse<Resp>, ConnectError>>>;
+
+/// Names the identity a cached chain belongs to.
+#[cfg(not(target_arch = "wasm32"))]
+type Identity = Arc<dyn Fn() -> String + Send + Sync>;
+/// Names the identity a cached chain belongs to.
+#[cfg(target_arch = "wasm32")]
+type Identity = Arc<dyn Fn() -> String>;
 
 /// Whether to consult and rebuild a revision chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -57,7 +63,7 @@ pub enum CacheMode {
 
 struct CacheBinding {
     cache: crate::RevisionCache,
-    identity: Arc<dyn Fn() -> String + Send + Sync>,
+    identity: Identity,
     key: [u8; 32],
 }
 
@@ -92,15 +98,15 @@ pub struct PageInfo {
 }
 
 /// A request that carries a `bones.v1.PageRequest`.
-pub trait PagedRequest: Clone + Send + 'static {
+pub trait PagedRequest: Clone + MaybeSend + 'static {
     /// Set the cursor (empty = first page) and the page-size hint.
     fn set_page(&mut self, cursor: &str, page_size: Option<u32>);
 }
 
 /// A response that carries one repeated field and a `bones.v1.PageResponse`.
-pub trait PagedResponse: Send + 'static {
+pub trait PagedResponse: MaybeSend + 'static {
     /// One element of the repeated field.
-    type Item: Send + Sync + 'static;
+    type Item: MaybeSend + MaybeSync + 'static;
 
     /// Take the items and the page info out of the response.
     fn split(self) -> (Vec<Self::Item>, PageInfo);
@@ -191,7 +197,7 @@ impl<Req: PagedRequest, Resp: PagedResponse> ListCall<Req, Resp> {
         fetch: MetadataFetch<Req, Resp>,
         request: Req,
         cache: crate::RevisionCache,
-        identity: Arc<dyn Fn() -> String + Send + Sync>,
+        identity: Identity,
         canonical_request: &[u8],
     ) -> Self {
         let plain = fetch.clone();
@@ -287,12 +293,14 @@ impl<Req: PagedRequest, Resp: PagedResponse> ListCall<Req, Resp> {
 
     /// Every page, following `next_cursor` to the end. A failure ends the
     /// stream with one error after the pages already delivered.
-    pub fn pages(self) -> impl Stream<Item = Result<Page<Resp::Item>, PageError>> + Send + 'static {
+    pub fn pages(
+        self,
+    ) -> impl Stream<Item = Result<Page<Resp::Item>, PageError>> + MaybeSend + 'static {
         self.raw_pages()
     }
 
     /// Every item, following `next_cursor` to the end.
-    pub fn items(self) -> impl Stream<Item = Result<Resp::Item, PageError>> + Send + 'static
+    pub fn items(self) -> impl Stream<Item = Result<Resp::Item, PageError>> + MaybeSend + 'static
     where
         Resp::Item: Clone,
     {
@@ -307,7 +315,9 @@ impl<Req: PagedRequest, Resp: PagedResponse> ListCall<Req, Resp> {
             .fuse()
     }
 
-    fn raw_pages(self) -> impl Stream<Item = Result<Page<Resp::Item>, PageError>> + Send + 'static {
+    fn raw_pages(
+        self,
+    ) -> impl Stream<Item = Result<Page<Resp::Item>, PageError>> + MaybeSend + 'static {
         let cache_enabled = self.first.is_none() && self.options.cache == CacheMode::Use;
         let mut cache = self.cache;
         if let Some(binding) = &mut cache {
@@ -438,7 +448,7 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
                                 )
                             },
                             self.retries,
-                            tokio::time::sleep,
+                            None,
                         )
                         .await;
                         if let Some(error) = self.guard() {
@@ -577,7 +587,7 @@ async fn fetch_page<Req: Clone, Resp>(
     request: Req,
     retries: u8,
 ) -> Outcome<Resp> {
-    fetch_with_retry(move || fetch(request.clone()), retries, tokio::time::sleep).await
+    fetch_with_retry(move || fetch(request.clone()), retries, None).await
 }
 
 #[cfg(test)]
@@ -629,7 +639,7 @@ mod tests {
                     fetch,
                     Request,
                 );
-                let mut stream: Pin<Box<dyn Stream<Item = Result<Vec<u32>, PageError>> + Send>> =
+                let mut stream: api_bones_rt::BoxStream<'static, Result<Vec<u32>, PageError>> =
                     if items {
                         Box::pin(call.items().map(|result| result.map(|item| vec![item])))
                     } else {
@@ -677,7 +687,7 @@ mod tests {
                     }
                 })
             });
-            let started = tokio::time::Instant::now();
+            let started = api_bones_rt::Instant::now();
             let page = ListCall::generated(
                 "/contract.v1.Numbers/List",
                 idempotency,
@@ -692,7 +702,13 @@ mod tests {
             assert_eq!(attempts.load(Ordering::SeqCst), attempts_expected);
             if attempts_expected == 3 {
                 assert_eq!(&*page.expect("metadata fetch retried").items, &[1]);
-                assert_eq!(started.elapsed(), Duration::from_millis(150));
+                // Two backoffs: 50 ms and 100 ms, each plus jitter of up to the
+                // same again.
+                let elapsed = started.elapsed();
+                assert!(
+                    (Duration::from_millis(100)..Duration::from_millis(600)).contains(&elapsed),
+                    "{elapsed:?} is outside the jittered backoff bounds"
+                );
             } else {
                 assert!(page.is_err());
                 assert_eq!(started.elapsed(), Duration::ZERO);

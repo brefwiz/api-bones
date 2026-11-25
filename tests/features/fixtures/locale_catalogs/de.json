@@ -1,0 +1,7 @@
+{
+  "corpus.errors.ITEMS_LEFT.title": "{count, plural, one {# Element übrig} other {# Elemente übrig}}",
+  "corpus.errors.RANK.title": "{place, selectordinal, other {#.}}",
+  "corpus.errors.QUOTA.title": "Kontingent: {used, number} von {limit, number}",
+  "corpus.errors.LOCKED.title": "{label} ist gesperrt",
+  "corpus.errors.SINCE.title": "Gesperrt seit {at, date}"
+}

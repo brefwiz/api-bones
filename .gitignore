@@ -55,3 +55,4 @@ api-bones-otel/dist
 # either the repo name or a single attempt number.
 *-ci-[0-9]*-[0-9]*-*
 *-release-[0-9]*-[0-9]*-*
+api-bones-sdk-runtime-ts/api-surface.generated.d.ts

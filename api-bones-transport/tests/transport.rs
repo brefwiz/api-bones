@@ -13,7 +13,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use api_bones_transport::{HttpTransport, failed_to_connect, never_ran};
+use api_bones_rt as rt;
+use api_bones_transport::{Deadline, HttpTransport, failed_to_connect, never_ran};
 use bytes::Bytes;
 use connectrpc::ConnectError;
 use connectrpc::client::{ClientBody, ClientTransport, full_body};
@@ -485,6 +486,80 @@ async fn no_replay_past_the_deadline() {
     .await;
     assert!(result.is_err());
     assert_eq!(server.attempts("late").len(), 1);
+}
+
+fn with_deadline(mut request: Request<ClientBody>, within: Duration) -> Request<ClientBody> {
+    request
+        .extensions_mut()
+        .insert(Deadline(rt::Instant::now() + within));
+    request
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deadline_states_the_time_remaining_in_the_timeout_header() {
+    let server = Server::start(Policy::Answer).await;
+    let transport = HttpTransport::h2c();
+    let result = call(
+        &transport,
+        with_deadline(
+            request(&server.uri("http"), "stated", Some(60_000)),
+            Duration::from_secs(5),
+        ),
+    )
+    .await;
+    assert_eq!(result.ok(), Some(200));
+    let attempts = server.attempts("stated");
+    assert_eq!(attempts.len(), 1);
+    let stated: u64 = attempts[0]
+        .as_deref()
+        .expect("timeout header")
+        .parse()
+        .expect("ms");
+    assert!(
+        (1..=5_000).contains(&stated),
+        "the header states the deadline's remainder, got {stated}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_passed_deadline_answers_deadline_exceeded_without_sending() {
+    let server = Server::start(Policy::Answer).await;
+    let transport = HttpTransport::h2c();
+    let result = call(
+        &transport,
+        with_deadline(
+            request(&server.uri("http"), "expired", None),
+            Duration::ZERO,
+        ),
+    )
+    .await;
+    let error = result.expect_err("an expired deadline is not sent");
+    assert_eq!(error.code, connectrpc::ErrorCode::DeadlineExceeded);
+    assert_eq!(server.attempts("expired"), Vec::<Option<String>>::new());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deadline_that_passes_before_the_response_head_answers_deadline_exceeded() {
+    let server = Server::start(Policy::Refuse {
+        times: 1,
+        delay: Duration::from_millis(500),
+    })
+    .await;
+    let started = std::time::Instant::now();
+    let result = call(
+        &HttpTransport::h2c(),
+        with_deadline(
+            request(&server.uri("http"), "slow", None),
+            Duration::from_millis(100),
+        ),
+    )
+    .await;
+    let error = result.expect_err("the head did not arrive in time");
+    assert_eq!(error.code, connectrpc::ErrorCode::DeadlineExceeded);
+    assert!(
+        started.elapsed() < Duration::from_millis(450),
+        "the call gave up at its deadline, not at the server's pace"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

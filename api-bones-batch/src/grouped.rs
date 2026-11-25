@@ -117,8 +117,12 @@ impl<Req, Resp: PagedResponse> BatchGroups<Req, Resp> {
 }
 
 /// The single List RPC, called with the options of one page fetch.
+#[cfg(not(target_arch = "wasm32"))]
 pub type SingleList<Req, Resp> =
     Arc<dyn Fn(Req, CallOptions) -> Boxed<Result<Resp, ConnectError>> + Send + Sync>;
+/// The single List RPC, called with the options of one page fetch.
+#[cfg(target_arch = "wasm32")]
+pub type SingleList<Req, Resp> = Arc<dyn Fn(Req, CallOptions) -> Boxed<Result<Resp, ConnectError>>>;
 
 /// How one grouped method is sent.
 pub struct GroupedSpec<Tmpl, Req, Resp: PagedResponse> {
@@ -430,7 +434,7 @@ mod tests {
         method.single_call = Arc::new(move |_request, _options| {
             let changed = Arc::clone(&changed);
             Box::pin(async move {
-                tokio::task::yield_now().await;
+                api_bones_rt::yield_now().await;
                 changed.store(true, Ordering::SeqCst);
                 Ok(Resp {
                     items: vec!["must-not-deliver".to_owned()],

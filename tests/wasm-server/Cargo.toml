@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+#
+# The native Connect server the wasm32 fetch transport suite
+# (api-bones-transport/tests/fetch_wasm.rs) calls over loopback. A member so
+# the suite builds it with the same lockfile; excluded from nextest and
+# coverage because it is test harness, not product code.
+[package]
+name = "api-bones-wasm-test-server"
+version = "0.0.0"
+edition = "2024"
+publish = false
+# Unpublished; declared so workspace members all resolve one.
+license = "MIT"
+rust-version = "1.85"
+
+[dependencies]
+api-bones-connect = { path = "../../api-bones-connect" }
+connectrpc = { version = "0.9.1", features = ["client", "server"] }
+buffa = { version = "0.9", features = ["json"] }
+buffa-types = { version = "0.9", features = ["json"] }
+bytes = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http = "1.4.2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "time", "io-util"] }
+
+[build-dependencies]
+connectrpc-build = "0.9"
+protox = "0.9"
+
+[lints]
+workspace = true
