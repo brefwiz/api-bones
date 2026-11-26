@@ -27,7 +27,8 @@ Feature: Every Layer 2 call runs through one helper
   first page of a list can be read on its own, empty or not, and says whether
   a next page follows. An open list exposes the span of its walk while the
   tracer records, and none when it does not. A caller who leaves a stream
-  early releases it.
+  early releases it. A client built with a default page size asks the server
+  for pages of that size when a list call names none.
 
   @state:happy
   Scenario: The parts of a widget are listed page by page through the SDK
@@ -171,6 +172,15 @@ Feature: Every Layer 2 call runs through one helper
     When the caller reads the first page of the numbers list through the SDK
     Then the first page holds the numbers "1,2"
     And the first page says a next page follows
+
+  @state:happy
+  Scenario: A client built with a default page size asks the server for pages of that size
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    And the numbers client defaults to the page size 2
+    When the caller reads the first page of the numbers list through the SDK
+    Then the first page holds the numbers "1,2"
+    And every request the server saw asked for the page size 2
 
   @state:happy
   Scenario: A list with no item gives an empty first page

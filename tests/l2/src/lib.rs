@@ -275,7 +275,10 @@ pub fn list_send(config: ClientConfig) -> PageSend<NumbersPageRequest, NumbersPa
 
 /// The `Numbers` service.
 #[derive(Clone)]
-pub struct NumbersClient(Conn);
+pub struct NumbersClient {
+    conn: Conn,
+    default_page_size: Option<u32>,
+}
 
 impl NumbersClient {
     /// A client of the server at `base_url`, calling as `env` says.
@@ -283,23 +286,50 @@ impl NumbersClient {
     /// # Errors
     /// `invalid_argument` when `base_url` is not a URI.
     pub fn new(base_url: &str, env: CallEnv) -> Result<Self, Error> {
-        Conn::at(base_url, env).map(Self)
+        Ok(Self {
+            conn: Conn::at(base_url, env)?,
+            default_page_size: None,
+        })
+    }
+
+    /// The same client asking for pages of `size` when a call names none;
+    /// `None` leaves the page size to the server.
+    #[must_use]
+    pub fn with_default_page_size(mut self, size: Option<u32>) -> Self {
+        self.default_page_size = size;
+        self
     }
 }
 
-from_host!(NumbersClient);
-
 #[client(surface = "connect-pagination")]
 impl NumbersClient {
+    /// The wasm constructor: the host says how to authenticate and where to
+    /// report spans, and may set the page size a list asks for by default.
+    ///
+    /// # Errors
+    /// `invalid_argument` when `base_url` is not a URI.
+    #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+    pub fn from_host(
+        base_url: String,
+        host: api_bones_sdk::__private::wasm_bindgen::JsValue,
+        default_page_size: Option<u32>,
+    ) -> Result<Self, Error> {
+        let client = Self::new(&base_url, CallEnv::from_host(host))?;
+        Ok(Self {
+            default_page_size,
+            ..client
+        })
+    }
+
     /// The numbers, one page per `next()`.
     #[export]
     pub async fn list(&self, page_size: Option<u32>) -> ListCall<Number> {
-        let send = list_send(self.0.config.clone());
+        let send = list_send(self.conn.config.clone());
         let options = PageOptions {
-            page_size,
+            page_size: page_size.or(self.default_page_size),
             ..PageOptions::default()
         };
-        self.0.env.call(NUMBERS, "ListNoSideEffects").list(
+        self.conn.env.call(NUMBERS, "ListNoSideEffects").list(
             Idempotency::NoSideEffects,
             NumbersPageRequest(ListNumbersRequest::default()),
             send,

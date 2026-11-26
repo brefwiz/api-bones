@@ -39,6 +39,6 @@ pub use span::{
     ActiveSpan, Attributes, SpanEnd, SpanKind, SpanSink, SpanStart, SpanStatus, Traceparent, Tracer,
 };
 pub use wire::{
-    BadValue, Wire, double_value, field, format_rfc3339, from_json_str, parse_args, parse_rfc3339,
-    system_time_from_parts, system_time_parts, to_json_string,
+    BadValue, Wire, double_value, field, format_rfc3339, from_json_str, parse_args, parse_options,
+    parse_rfc3339, system_time_from_parts, system_time_parts, to_json_string,
 };

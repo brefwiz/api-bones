@@ -56,6 +56,8 @@ interface Seen {
   listCache: string;
   /** The `if-none-match` header; empty when the request carried none. */
   ifNoneMatch: string;
+  /** The page size a list request asked for; zero for any other request or none asked. */
+  pageSize: number;
 }
 
 interface Services {
@@ -182,13 +184,14 @@ class SdkCallServer {
     if (patch.garble !== undefined) this.garble = patch.garble;
   }
 
-  async #admit(requestHeader: Headers): Promise<void> {
+  async #admit(requestHeader: Headers, pageSize = 0): Promise<void> {
     this.seen.push({
       traceparent: requestHeader.get("traceparent") ?? "",
       authorization: requestHeader.get("authorization") ?? "",
       timeoutMs: Number(requestHeader.get("connect-timeout-ms") ?? 0) || 0,
       listCache: requestHeader.get("bones-list-cache") ?? "",
       ifNoneMatch: requestHeader.get("if-none-match") ?? "",
+      pageSize,
     });
     if (this.refreshTo !== undefined) {
       const authorization = this.refreshTo;
@@ -267,11 +270,12 @@ class SdkCallServer {
         });
         const list = method<DescMethodUnary>(numbers, "ListNoSideEffects");
         router.rpc(list, async (request, context) => {
-          const cursor = (request as unknown as { page?: { cursor: string } }).page?.cursor ?? "";
+          const page = (request as unknown as { page?: { cursor: string; pageSize: number } }).page;
+          const cursor = page?.cursor ?? "";
           const began = performance.now();
           const asked = { cursor, listCache: context.requestHeader.get("bones-list-cache"), ifNoneMatch: context.requestHeader.get("if-none-match") };
           context.signal.addEventListener("abort", () => note("list-aborted", { ...asked, ms: Math.round(performance.now() - began) }), { once: true });
-          await this.#admit(context.requestHeader);
+          await this.#admit(context.requestHeader, page?.pageSize ?? 0);
           if (cursor === "" && asked.listCache === "1" && asked.ifNoneMatch === `"${this.revision}"`) {
             context.responseHeader.set("bones-not-modified", "1");
             note("list", { ...asked, answer: "not-modified", ms: Math.round(performance.now() - began) });

@@ -92,6 +92,8 @@ class SdkCallWorld extends World {
   /** Who the caller is, as its credential source answers. */
   caller = { subject: "", org: "", authorization: "Bearer caller" };
   anonymous = false;
+  /** The page size the numbers client asks for when a call names none. */
+  defaultPageSize: number | undefined;
   sourceBroken = false;
   reads = 0;
   changeBeforeSend: string | undefined;
@@ -150,6 +152,7 @@ class SdkCallWorld extends World {
       onUnauthenticated: () => {
         this.told += 1;
       },
+      defaultPageSize: this.defaultPageSize,
     };
   }
 
@@ -218,6 +221,10 @@ Given("the numbers server answers pages that cannot be decoded", async function 
 
 Given("the SDK caller is {string} of organization {string}", function (this: SdkCallWorld, subject: string, org: string) {
   this.caller = { subject, org, authorization: "Bearer caller" };
+});
+
+Given("the numbers client defaults to the page size {int}", function (this: SdkCallWorld, size: number) {
+  this.defaultPageSize = size;
 });
 
 Given("the caller is anonymous", function (this: SdkCallWorld) {
@@ -753,6 +760,13 @@ Then("the call budget the server saw shrank from each request to the next", asyn
   for (let at = 1; at < seen.length; at += 1) {
     assert.ok(seen[at]!.timeoutMs < seen[at - 1]!.timeoutMs, `the budget did not shrink from ${seen[at - 1]!.timeoutMs} to ${seen[at]!.timeoutMs}`);
   }
+});
+
+Then("every request the server saw asked for the page size {int}", async function (this: SdkCallWorld, size: number) {
+  assert.ok(this.first, "the first page was read");
+  const asked = (await seenRequests(this)).map((request) => request.pageSize);
+  assert.deepEqual(asked, asked.map(() => size));
+  assert.equal(this.first.items.length, size);
 });
 
 Then("every request the server saw carried the caller's credential", async function (this: SdkCallWorld) {

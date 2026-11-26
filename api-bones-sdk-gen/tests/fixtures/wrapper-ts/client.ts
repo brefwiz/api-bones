@@ -33,7 +33,7 @@ export class NumbersClient {
   static async create(baseUrl: string, options: ClientOptions): Promise<NumbersClient> {
     const wasm = await init();
     try {
-      return new NumbersClient(wasm.api_bones__NumbersClient.api_bones__NumbersClient__new(baseUrl, host(options)));
+      return new NumbersClient(wasm.api_bones__NumbersClient.api_bones__NumbersClient__new(baseUrl, host(options), JSON.stringify({ defaultPageSize: options.defaultPageSize })));
     } catch (rejection) {
       throw mapError(rejection);
     }
@@ -62,7 +62,7 @@ export class WidgetsClient {
   static async create(baseUrl: string, options: ClientOptions): Promise<WidgetsClient> {
     const wasm = await init();
     try {
-      return new WidgetsClient(wasm.api_bones__WidgetsClient.api_bones__WidgetsClient__new(baseUrl, host(options)));
+      return new WidgetsClient(wasm.api_bones__WidgetsClient.api_bones__WidgetsClient__new(baseUrl, host(options), "{}"));
     } catch (rejection) {
       throw mapError(rejection);
     }
@@ -117,7 +117,7 @@ export class EventsClient {
   static async create(baseUrl: string, options: ClientOptions): Promise<EventsClient> {
     const wasm = await init();
     try {
-      return new EventsClient(wasm.api_bones__EventsClient.api_bones__EventsClient__new(baseUrl, host(options)));
+      return new EventsClient(wasm.api_bones__EventsClient.api_bones__EventsClient__new(baseUrl, host(options), "{}"));
     } catch (rejection) {
       throw mapError(rejection);
     }

@@ -183,7 +183,8 @@ fn main() -> anyhow::Result<()> {
 fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
     match command {
         Wrapper::Typescript { args } => {
-            let package = wrapper_ts::package_of(&args.spec, &args.krate, &args.surface)?;
+            let package =
+                wrapper_ts::package_of(&args.spec, &args.krate, &args.surface, &args.out)?;
             let model = features::read_model(&args.krate)?;
             wrapper_ts::write(&args.out, &wrapper_ts::generate(&model, &package)?)
         }
