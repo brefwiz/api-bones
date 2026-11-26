@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-26
+
+### Added
+
+- *(sdk)* [**breaking**] typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+- *(sdk-runtime)* add the @brefwiz/api-bones-sdk-runtime package
+
+### Other
+
+- *(release)* metadata for rc at 20af0550ef8f
+- *(release)* metadata for #241
+
 ## [0.5.2] - 2026-11-23
 
 ### Other
