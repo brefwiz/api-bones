@@ -16,12 +16,12 @@
 //!   again before every send and retry and once more after an answer arrived,
 //!   before it is delivered. A change refuses the call and clears the revision
 //!   cache; the credential a send carries is the one read just before it. A
-//!   list walk reads it once, on its first page, and every later page is
+//!   list walk reads it once, when the walk starts, and every page is
 //!   checked against that one identity, so the walk never continues as
-//!   another; a page that was fetched ahead is checked again before it is
-//!   delivered. A server stream reads the identity at open and checks it again
-//!   before each item is delivered. A change ends the stream with
-//!   `IDENTITY_CHANGED`.
+//!   another; a page that was fetched ahead, or replayed from the revision
+//!   cache, is checked again before it is delivered. A server stream reads
+//!   the identity at open and checks it again before each item is delivered.
+//!   A change ends the stream with `IDENTITY_CHANGED`.
 //! - **The trace context.** The call reads [`CallCtx::current`] synchronously
 //!   when it starts, opens its spans against the env's sink, and sends the
 //!   `traceparent` (and `tracestate`) of the span it opened.
@@ -36,6 +36,8 @@
 
 mod abort;
 mod attempt;
+#[cfg(any(test, all(feature = "wasm", target_arch = "wasm32")))]
+mod host;
 mod identity;
 mod refusal;
 mod run;
@@ -46,13 +48,17 @@ use std::time::Duration;
 use api_bones::connect::{Idempotency, retries_for};
 use api_bones_batch::{Anonymous, CredentialSource};
 use api_bones_page::{
-    ListCall as PageCall, Page, PageOptions, PagedRequest, PagedResponse, RevisionCache,
+    ListCall as PageCall, MetadataFetch, Page, PageOptions, PagedRequest, PagedResponse,
+    RevisionCache,
 };
 use api_bones_rt::{BoxFuture, MaybeSend, MaybeSync, SharedFn};
 use connectrpc::ConnectError;
+use connectrpc::client::ClientConfig;
 use futures_util::{Stream as FutureStream, StreamExt as _, stream};
 
 pub use abort::{AbortFlag, Aborted};
+pub use api_bones_batch::not_modified;
+pub use api_bones_page::{CanonicalPagedRequest, ListMetadata, ListResponse};
 pub use attempt::{Attempt, WithDeadline};
 
 use crate::ctx::CallCtx;
@@ -74,8 +80,10 @@ pub type Notify = Arc<dyn Fn() + Send + Sync>;
 pub type Notify = Arc<dyn Fn()>;
 
 /// A page fetch: the request of one page and the [`Attempt`] to send it with.
+/// The answer carries whether the server confirmed the cached revision, read
+/// with [`not_modified`] from the response headers.
 pub type PageSend<Req, Resp> =
-    SharedFn<(Req, Attempt), BoxFuture<'static, Result<Resp, ConnectError>>>;
+    SharedFn<(Req, Attempt), BoxFuture<'static, Result<ListResponse<Resp>, ConnectError>>>;
 
 /// What every call of one client shares: where its credential comes from, where
 /// its spans go and what a failure of the credential touches.
@@ -84,6 +92,9 @@ pub struct CallEnv {
     pub(crate) credentials: Arc<dyn CredentialSource>,
     pub(crate) tracer: Tracer,
     pub(crate) cache: Option<RevisionCache>,
+    /// The server the env's calls go to, as [`CallEnv::at`] parsed it. The
+    /// revision cache is scoped to it; an env without one caches nothing.
+    pub(crate) origin: Option<Arc<str>>,
     pub(crate) unauthenticated: Option<Notify>,
 }
 
@@ -96,6 +107,7 @@ impl CallEnv {
             credentials: Arc::new(credentials),
             tracer: Tracer::default(),
             cache: None,
+            origin: None,
             unauthenticated: None,
         }
     }
@@ -113,12 +125,31 @@ impl CallEnv {
         self
     }
 
-    /// Clears `cache` whenever a call finds the identity changed or is
-    /// refused as unauthenticated.
+    /// Lets a list replay pages from `cache` once the server confirms their
+    /// revision. The cache holds one slot per caller identity, so envs of
+    /// different callers may share it; a call that finds its identity changed
+    /// or is refused as unauthenticated drops its own caller's slot. A list
+    /// caches only on an env bound to a server with [`CallEnv::at`].
     #[must_use]
     pub fn with_revision_cache(mut self, cache: RevisionCache) -> Self {
         self.cache = Some(cache);
         self
+    }
+
+    /// The client configuration of the server at `base_url`, and this env
+    /// bound to that server: the revision cache is scoped to the server, so
+    /// two deployments sharing identities and revisions never replay each
+    /// other's pages.
+    ///
+    /// # Errors
+    /// `invalid_argument` when `base_url` is not a URI.
+    pub fn at(&self, base_url: &str) -> Result<(ClientConfig, Self), Error> {
+        let uri: http::Uri = base_url
+            .parse()
+            .map_err(|_| Error::invalid_argument("base_url is not a URI"))?;
+        let mut env = self.clone();
+        env.origin = Some(Arc::from(uri.to_string()));
+        Ok((ClientConfig::new(uri), env))
     }
 
     /// Calls `notify` whenever a server refuses a call as unauthenticated.
@@ -180,6 +211,7 @@ impl Call {
             deadline: self.deadline,
             retries: retries_for(idempotency),
             batch: false,
+            stream: false,
             abort: self.abort.as_ref(),
             walk: None,
         }
@@ -190,8 +222,9 @@ impl Call {
 
     /// A server stream. The budget bounds the call only until the response
     /// head arrives; the items that follow are bound by nothing but the
-    /// stream's own lifetime and an abort. The identity, unlike the budget, is
-    /// checked on every item.
+    /// stream's own lifetime and an abort. The open states no timeout to the
+    /// server, which would apply it to the whole stream. The identity, unlike
+    /// the budget, is checked on every item.
     ///
     /// # Errors
     /// As [`Call::unary`], for the open; the stream's own failures arrive
@@ -218,6 +251,7 @@ impl Call {
             deadline: self.deadline,
             retries: retries_for(idempotency),
             batch: false,
+            stream: true,
             abort: self.abort.as_ref(),
             walk: Some(guard.as_ref()),
         }
@@ -271,6 +305,7 @@ impl Call {
                 deadline,
                 retries,
                 batch: true,
+                stream: false,
                 abort: abort.as_ref(),
                 walk: None,
             }
@@ -296,6 +331,12 @@ impl Call {
     /// `IDENTITY_CHANGED`, which ends the walk. A page fetched ahead is checked
     /// against that identity again when it is about to be delivered, so it is
     /// never delivered to a caller who switched after it was fetched.
+    ///
+    /// An env that carries a revision cache makes the walk revalidate: the
+    /// first page asks the server to confirm the cached revision, and a
+    /// confirmation replays the cached pages (`from_cache`). The cache is
+    /// scoped to the server, the route, the request without its page, and the
+    /// identity.
     #[must_use]
     pub fn list<Req, Resp>(
         self,
@@ -305,21 +346,30 @@ impl Call {
         options: PageOptions,
     ) -> ListCall<Resp::Item>
     where
-        Req: PagedRequest,
+        Req: PagedRequest + CanonicalPagedRequest,
         Resp: PagedResponse,
         Resp::Item: MaybeSend + MaybeSync + 'static,
     {
+        let key = self.cache_key(&request);
         let walk = self.walk_span();
         let ctx = walk.ctx();
         let Self {
             env, route, abort, ..
         } = self;
         let retries = retries_for(idempotency);
-        // One identity for the whole walk, captured by its first page.
+        // One identity for the whole walk, captured when it starts.
         let identity = Arc::new(WalkGuard::default());
         let checks = (env.clone(), Arc::clone(&identity));
+        let cache_identity = {
+            let env = env.clone();
+            let identity = Arc::clone(&identity);
+            Arc::new(move || identity.cache_identity(&*env.credentials))
+        };
+        let cache = env.cache.clone();
         let fetch = Arc::new(
-            move |request: Req| -> BoxFuture<'static, Result<Resp, ConnectError>> {
+            move |request: Req,
+                  list: Option<ListMetadata>|
+                  -> BoxFuture<'static, Result<ListResponse<Resp>, ConnectError>> {
                 let env = env.clone();
                 let ctx = ctx.clone();
                 let abort = abort.clone();
@@ -334,23 +384,74 @@ impl Call {
                         deadline: api_bones_rt::Instant::now() + CALL_BUDGET,
                         retries,
                         batch: false,
+                        stream: false,
                         abort: abort.as_ref(),
                         walk: Some(identity.as_ref()),
                     }
                     // The attempt closure owns the request: borrowing it across
                     // the await would need `Req: Sync`, which a request only
                     // promises to be `Send`.
-                    .run(move |attempt| send((request.clone(), attempt)))
+                    .run(move |attempt| {
+                        let attempt = match &list {
+                            Some(list) => attempt.with_list(list),
+                            None => attempt,
+                        };
+                        send((request.clone(), attempt))
+                    })
                     .await
                 })
             },
         );
-        let pages = PageCall::new(route.method, idempotency, fetch, request).options(options);
+        let pages = match (cache, key) {
+            (Some(cache), Some(key)) => {
+                let revalidating: MetadataFetch<Req, Resp> =
+                    Arc::new(move |request, list| fetch(request, Some(list)));
+                PageCall::generated(
+                    route.method,
+                    idempotency,
+                    revalidating,
+                    request,
+                    cache,
+                    cache_identity,
+                    &key,
+                )
+            }
+            _ => PageCall::new(
+                route.method,
+                idempotency,
+                Arc::new(move |request| {
+                    let page = fetch(request, None);
+                    Box::pin(async move { page.await.map(|answer| answer.body) })
+                }),
+                request,
+            ),
+        }
+        .options(options);
         // A page fetched ahead was fetched as whoever the caller was then.
         let pages: api_bones_rt::BoxStream<'static, Result<Page<Resp::Item>, Error>> =
             Box::pin(pages.pages().map(|page| page.map_err(Error::from)));
         let (env, identity) = checks;
         Handle::new(identity::checked(pages, env, identity), walk)
+    }
+
+    /// What a revision cache entry of this list is keyed on: the length-prefixed
+    /// origin, the route, then the request with its page cleared. The zero byte
+    /// ends the route name, so no request encoding can extend it into another
+    /// route. An env bound to no origin has no key: its lists are not cached.
+    fn cache_key<Req: PagedRequest + CanonicalPagedRequest>(
+        &self,
+        request: &Req,
+    ) -> Option<Vec<u8>> {
+        self.env.cache.as_ref()?;
+        let origin = self.env.origin.as_deref()?;
+        let mut bare = request.clone();
+        bare.set_page("", None);
+        let mut key = (origin.len() as u64).to_le_bytes().to_vec();
+        key.extend_from_slice(origin.as_bytes());
+        key.extend_from_slice(self.route.name().as_bytes());
+        key.push(0);
+        key.extend_from_slice(&bare.encode());
+        Some(key)
     }
 
     /// The `internal` span of everything the call does.

@@ -1,0 +1,43 @@
+{
+  "schema": "api-bones.l2-methods/v1",
+  "service": "api-bones",
+  "crate": "api-bones-test-service-l2",
+  "package": "@brefwiz/api-bones-test-service-sdk",
+  "methods": [
+    {
+      "export": "api_bones__EventsClient__watch",
+      "typescript": "watch",
+      "endpoints": [
+        "contract.v1.Events/Watch"
+      ]
+    },
+    {
+      "export": "api_bones__NumbersClient__list",
+      "typescript": "list",
+      "endpoints": [
+        "contract.v1.Numbers/ListNoSideEffects"
+      ]
+    },
+    {
+      "export": "api_bones__WidgetsClient__batch_get_widgets",
+      "typescript": "batchGetWidgets",
+      "endpoints": [
+        "contract.v1.Widgets/BatchGetWidgets"
+      ]
+    },
+    {
+      "export": "api_bones__WidgetsClient__get_widget",
+      "typescript": "getWidget",
+      "endpoints": [
+        "contract.v1.Widgets/GetWidget"
+      ]
+    },
+    {
+      "export": "api_bones__WidgetsClient__list_widget_parts",
+      "typescript": "listWidgetParts",
+      "endpoints": [
+        "contract.v1.Widgets/ListWidgetParts"
+      ]
+    }
+  ]
+}

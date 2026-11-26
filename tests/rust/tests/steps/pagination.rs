@@ -775,6 +775,37 @@ async fn when_again(world: &mut PagingWorld) {
     record_pages(world);
 }
 
+#[given(expr = "the consumer has listed every page with page size {int}")]
+async fn given_listed_sized(world: &mut PagingWorld, size: u32) {
+    let start = seen(world).len();
+    let stream = Box::pin(api_bones_page::ListCall::pages(
+        generated_call(world).await.options(PageOptions {
+            page_size: Some(size),
+            ..without_prefetch()
+        }),
+    ));
+    let results: Vec<_> = stream.collect().await;
+    let (pages, error) = split_results(results);
+    assert!(error.is_none());
+    assert!(!pages.is_empty());
+    assert!(pages.iter().all(|page| !page.from_cache));
+    let (items, _) = stored(world).await;
+    assert_eq!(
+        pages
+            .iter()
+            .flat_map(|page| page.items.iter().cloned())
+            .collect::<Vec<_>>(),
+        items
+    );
+    let requests = seen(world);
+    assert!(requests.len() > start);
+    assert!(
+        requests[start..]
+            .iter()
+            .all(|request| request.page_size == Some(size))
+    );
+}
+
 #[when("the consumer lists bypassing the revision cache")]
 async fn when_bypass(world: &mut PagingWorld) {
     world.revalidation_start = seen(world).len();

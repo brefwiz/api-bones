@@ -25,6 +25,10 @@ members = [
     # an integration test of the crate it exercises, because the contract is
     # answered by two languages and each lane sits beside the corpus.
     "tests/rust",
+    # The Rust step lane of the `sdk-call` surface: the lane is the directory
+    # above the contract's `features` directory, so its own base keeps the
+    # wrapper-driven TypeScript lane beside it apart from `tests/typescript`.
+    "tests/sdk-call/rust",
     # BDD proof for provider code no declared SDK surface reaches (SPEC.md
     # `internal_behavior_owners`). A separate crate so its single-language
     # feature directory stays its own corpus root, distinct from the
@@ -56,6 +60,8 @@ url = "2"
 # CI image's wasm-bindgen-cli is pinned at. Every crate that needs it inherits
 # this entry; the range is a floor and the lockfile is the pin.
 wasm-bindgen = ">=0.2.128"
+# The expander behind `#[wasm_bindgen]`, so the macro tests run the real one.
+wasm-bindgen-macro-support = ">=0.2.128"
 
 [workspace.lints.rust]
 warnings    = "deny"

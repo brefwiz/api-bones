@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-//! Client-scoped revision chains containing weak item references only.
+//! Caller-scoped revision chains containing weak item references only.
 
 use std::any::Any;
 use std::collections::HashMap;
@@ -16,15 +16,24 @@ type Chain = Box<dyn Any>;
 
 type Entries = HashMap<(&'static str, [u8; 32]), Chain>;
 
-#[derive(Default)]
-struct State {
+/// What one identity has cached. Its generation names the slot's life: a
+/// walk that started under another generation has outlived its cache.
+struct Slot {
     generation: u64,
-    identity: Option<String>,
     entries: Entries,
 }
 
-/// Shared by all generated List methods of one client. Item data is retained
-/// only while a caller holds the delivered page's item allocation.
+#[derive(Default)]
+struct State {
+    /// Never reused, so a dropped slot's walks can never match a new one.
+    next_generation: u64,
+    slots: HashMap<String, Slot>,
+}
+
+/// Shared by all generated List methods of one caller env. One slot per
+/// identity, so callers sharing the cache never invalidate each other. Item
+/// data is retained only while a caller holds the delivered page's item
+/// allocation.
 #[derive(Clone, Default)]
 pub struct RevisionCache(Arc<Mutex<State>>);
 
@@ -47,14 +56,25 @@ impl<T> Cached<T> {
 }
 
 impl RevisionCache {
-    /// Release every chain, for example when the client session ends.
+    /// Release every chain of every identity, for example when the host
+    /// session ends. Walks in flight end as unauthenticated.
     ///
     /// # Panics
     /// Panics if the revision-cache mutex is poisoned.
     pub fn clear(&self) {
-        let mut state = self.0.lock().expect("revision cache lock");
-        state.entries.clear();
-        state.generation = state.generation.wrapping_add(1);
+        self.0.lock().expect("revision cache lock").slots.clear();
+    }
+
+    /// Release the chains of one identity only; other identities keep theirs.
+    ///
+    /// # Panics
+    /// Panics if the revision-cache mutex is poisoned.
+    pub fn clear_identity(&self, identity: &str) {
+        self.0
+            .lock()
+            .expect("revision cache lock")
+            .slots
+            .remove(identity);
     }
 
     /// Whether no complete replayable chain is registered.
@@ -66,30 +86,52 @@ impl RevisionCache {
         self.0
             .lock()
             .expect("revision cache lock")
-            .entries
-            .is_empty()
+            .slots
+            .values()
+            .all(|slot| slot.entries.is_empty())
     }
 
+    /// Opens the identity's slot when it has none. The empty identity names a
+    /// walk whose credential could not be read: it never gets a slot, so it
+    /// neither reads nor stores.
     pub(crate) fn identity(&self, identity: &str) {
+        if identity.is_empty() {
+            return;
+        }
         let mut state = self.0.lock().expect("revision cache lock");
-        if state.identity.as_deref() != Some(identity) {
-            state.entries.clear();
-            state.generation = state.generation.wrapping_add(1);
-            state.identity = Some(identity.to_owned());
+        if !state.slots.contains_key(identity) {
+            let generation = state.next_generation;
+            state.next_generation = generation.wrapping_add(1);
+            state.slots.insert(
+                identity.to_owned(),
+                Slot {
+                    generation,
+                    entries: Entries::new(),
+                },
+            );
         }
     }
 
-    pub(crate) fn generation(&self) -> u64 {
-        self.0.lock().expect("revision cache lock").generation
+    /// The generation of the identity's slot; `None` without one.
+    pub(crate) fn generation(&self, identity: &str) -> Option<u64> {
+        self.0
+            .lock()
+            .expect("revision cache lock")
+            .slots
+            .get(identity)
+            .map(|slot| slot.generation)
     }
 
     pub(crate) fn replay<T: MaybeSend + MaybeSync + 'static>(
         &self,
+        identity: &str,
         method: &'static str,
         key: [u8; 32],
     ) -> Option<Vec<Page<T>>> {
         let state = self.0.lock().expect("revision cache lock");
         let chain = state
+            .slots
+            .get(identity)?
             .entries
             .get(&(method, key))?
             .downcast_ref::<Vec<Cached<T>>>()?;
@@ -117,15 +159,17 @@ impl RevisionCache {
     pub(crate) fn store<T: MaybeSend + MaybeSync + 'static>(
         &self,
         identity: &str,
+        generation: Option<u64>,
         method: &'static str,
         key: [u8; 32],
         chain: Vec<Cached<T>>,
     ) {
         let mut state = self.0.lock().expect("revision cache lock");
-        if state.identity.as_deref() != Some(identity) {
-            return;
+        if let Some(slot) = state.slots.get_mut(identity)
+            && generation == Some(slot.generation)
+        {
+            slot.entries.insert((method, key), Box::new(chain));
         }
-        state.entries.insert((method, key), Box::new(chain));
     }
 }
 
@@ -151,44 +195,157 @@ mod tests {
         let second = page("r1");
         cache.store(
             "alice:org-a",
+            cache.generation("alice:org-a"),
             "p.S/List",
             [1; 32],
             vec![Cached::of(&first), Cached::of(&second)],
         );
         let replay = cache
-            .replay::<u32>("p.S/List", [1; 32])
+            .replay::<u32>("alice:org-a", "p.S/List", [1; 32])
             .expect("complete live chain");
         assert_eq!(replay.len(), 2);
         assert!(replay.iter().all(|page| page.from_cache));
         assert!(Arc::ptr_eq(&replay[0].items, &first.items));
         drop(replay);
         drop(second);
-        assert!(cache.replay::<u32>("p.S/List", [1; 32]).is_none());
+        assert!(
+            cache
+                .replay::<u32>("alice:org-a", "p.S/List", [1; 32])
+                .is_none()
+        );
         let second = page("r2");
         cache.store(
             "alice:org-a",
+            cache.generation("alice:org-a"),
             "p.S/List",
             [1; 32],
             vec![Cached::of(&first), Cached::of(&second)],
         );
-        assert!(cache.replay::<u32>("p.S/List", [1; 32]).is_none());
+        assert!(
+            cache
+                .replay::<u32>("alice:org-a", "p.S/List", [1; 32])
+                .is_none()
+        );
     }
 
     #[test]
-    fn identity_and_clear_invalidate_in_flight_generations() {
+    fn two_identities_interleave_and_neither_invalidates_the_other() {
         let cache = RevisionCache::default();
-        cache.identity("alice:org-a");
+        cache.identity("alice");
+        let alice_generation = cache.generation("alice");
+        let alice_page = page("r1");
+        cache.identity("bob");
+        let bob_page = page("r9");
+        cache.store(
+            "alice",
+            cache.generation("alice"),
+            "p.S/List",
+            [1; 32],
+            vec![Cached::of(&alice_page)],
+        );
+        cache.store(
+            "bob",
+            cache.generation("bob"),
+            "p.S/List",
+            [1; 32],
+            vec![Cached::of(&bob_page)],
+        );
+        cache.identity("alice");
+        assert_eq!(cache.generation("alice"), alice_generation);
+        assert_ne!(cache.generation("bob"), alice_generation);
+        let alice = cache
+            .replay::<u32>("alice", "p.S/List", [1; 32])
+            .expect("alice's chain");
+        let bob = cache
+            .replay::<u32>("bob", "p.S/List", [1; 32])
+            .expect("bob's chain");
+        assert_eq!(alice[0].revision, "r1");
+        assert_eq!(bob[0].revision, "r9");
+    }
+
+    #[test]
+    fn clear_identity_drops_one_slot_and_clear_drops_all() {
+        let cache = RevisionCache::default();
         let held = page("r1");
-        cache.store("alice:org-a", "p.S/List", [1; 32], vec![Cached::of(&held)]);
-        let generation = cache.generation();
-        cache.identity("alice:org-b");
-        assert!(cache.is_empty());
-        assert_ne!(cache.generation(), generation);
-        cache.store("alice:org-a", "p.S/List", [1; 32], vec![Cached::of(&held)]);
-        assert!(cache.is_empty(), "old identity cannot repopulate cache");
-        let generation = cache.generation();
+        for who in ["alice", "bob"] {
+            cache.identity(who);
+            cache.store(
+                who,
+                cache.generation(who),
+                "p.S/List",
+                [1; 32],
+                vec![Cached::of(&held)],
+            );
+        }
+        let bob_generation = cache.generation("bob");
+        let alice_generation = cache.generation("alice");
+        cache.clear_identity("alice");
+        assert_eq!(cache.generation("alice"), None);
+        assert!(cache.replay::<u32>("alice", "p.S/List", [1; 32]).is_none());
+        assert_eq!(cache.generation("bob"), bob_generation);
+        assert!(cache.replay::<u32>("bob", "p.S/List", [1; 32]).is_some());
+        assert!(!cache.is_empty());
+        cache.identity("alice");
+        assert_ne!(
+            cache.generation("alice"),
+            alice_generation,
+            "a dropped slot's generation is never reused"
+        );
         cache.clear();
-        assert_ne!(cache.generation(), generation);
+        assert_eq!(cache.generation("bob"), None);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn a_dropped_slot_cannot_be_repopulated_by_a_stale_store() {
+        let cache = RevisionCache::default();
+        cache.identity("alice");
+        let held = page("r1");
+        cache.clear_identity("alice");
+        cache.store(
+            "alice",
+            cache.generation("alice"),
+            "p.S/List",
+            [1; 32],
+            vec![Cached::of(&held)],
+        );
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn a_slot_recreated_mid_walk_ignores_the_stale_store() {
+        let cache = RevisionCache::default();
+        cache.identity("alice");
+        let walk_generation = cache.generation("alice");
+        cache.clear_identity("alice");
+        cache.identity("alice");
+        let held = page("r1");
+        cache.store(
+            "alice",
+            walk_generation,
+            "p.S/List",
+            [1; 32],
+            vec![Cached::of(&held)],
+        );
+        assert!(cache.replay::<u32>("alice", "p.S/List", [1; 32]).is_none());
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn the_unreadable_identity_never_gets_a_slot() {
+        let cache = RevisionCache::default();
+        cache.identity("");
+        assert_eq!(cache.generation(""), None);
+        let held = page("r1");
+        cache.store(
+            "",
+            cache.generation(""),
+            "p.S/List",
+            [1; 32],
+            vec![Cached::of(&held)],
+        );
+        assert!(cache.is_empty());
+        assert!(cache.replay::<u32>("", "p.S/List", [1; 32]).is_none());
     }
 
     #[test]
@@ -196,9 +353,27 @@ mod tests {
         let cache = RevisionCache::default();
         cache.identity("alice:org-a");
         let held = page("r1");
-        cache.store("alice:org-a", "p.S/List", [1; 32], vec![Cached::of(&held)]);
-        assert!(cache.replay::<String>("p.S/List", [1; 32]).is_none());
-        assert!(cache.replay::<u32>("p.S/Other", [1; 32]).is_none());
-        assert!(cache.replay::<u32>("p.S/List", [2; 32]).is_none());
+        cache.store(
+            "alice:org-a",
+            cache.generation("alice:org-a"),
+            "p.S/List",
+            [1; 32],
+            vec![Cached::of(&held)],
+        );
+        assert!(
+            cache
+                .replay::<String>("alice:org-a", "p.S/List", [1; 32])
+                .is_none()
+        );
+        assert!(
+            cache
+                .replay::<u32>("alice:org-a", "p.S/Other", [1; 32])
+                .is_none()
+        );
+        assert!(
+            cache
+                .replay::<u32>("alice:org-a", "p.S/List", [2; 32])
+                .is_none()
+        );
     }
 }

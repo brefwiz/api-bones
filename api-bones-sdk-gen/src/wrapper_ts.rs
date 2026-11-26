@@ -1,0 +1,886 @@
+// SPDX-License-Identifier: MIT
+//! `wrapper typescript`: the TypeScript package that fronts the wasm build of
+//! a Layer 2 crate.
+//!
+//! Every file is generated from the crate's `#[record]`, `#[enumeration]`,
+//! `#[error]` and `#[client]` items and the SPEC's `l2_methods`; nothing in the
+//! package is written by hand. The package holds no decision logic: a method
+//! marshals its arguments to JSON, calls the wasm export and revives the JSON
+//! it answers, and the list, stream and batch shapes come from the runtime
+//! package.
+
+use std::collections::BTreeSet;
+use std::fmt::Write as _;
+use std::path::Path;
+
+use anyhow::{Context, anyhow};
+use api_bones_sdk_model::{
+    Export, HandleKind, L2Methods, Model, Param, Record, Return, SpecL2Methods, WireType,
+    export_name, json_name, l2_methods, typescript_name,
+};
+
+/// What the SPEC front matter and the crate's manifest say about the package.
+///
+/// # Errors
+///
+/// A SPEC without front matter, without the surface, or without a TypeScript
+/// package for it; a manifest without a name.
+pub fn package_of(spec: &Path, krate: &Path, surface: &str) -> anyhow::Result<Package> {
+    let text =
+        std::fs::read_to_string(spec).with_context(|| format!("cannot read {}", spec.display()))?;
+    let front = text
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split("\n---").next())
+        .ok_or_else(|| anyhow!("{} has no front matter", spec.display()))?;
+    let document: serde_yaml::Value = serde_yaml::from_str(front)?;
+    let service = document["service"]
+        .as_str()
+        .ok_or_else(|| anyhow!("the SPEC names no service"))?
+        .to_owned();
+    let surfaces = document["sdk_surfaces"]
+        .as_mapping()
+        .ok_or_else(|| anyhow!("the SPEC lists no sdk_surfaces"))?;
+    let mut spec_l2 = SpecL2Methods::default();
+    for (id, _) in surfaces {
+        spec_l2
+            .surfaces
+            .insert(id.as_str().unwrap_or_default().to_owned());
+    }
+    let entry = &document["sdk_surfaces"][surface];
+    if let Some(endpoints) = entry["l2_methods"].as_mapping() {
+        for (endpoint, languages) in endpoints {
+            let rust = languages["rust"]
+                .as_sequence()
+                .into_iter()
+                .flatten()
+                .filter_map(|m| m.as_str().map(str::to_owned))
+                .collect();
+            spec_l2
+                .endpoints
+                .insert(endpoint.as_str().unwrap_or_default().to_owned(), rust);
+        }
+    }
+    let name = entry["targets"]["typescript"]["packages"][0]
+        .as_str()
+        .ok_or_else(|| anyhow!("surface `{surface}` names no TypeScript package"))?
+        .to_owned();
+    let manifest = std::fs::read_to_string(krate.join("Cargo.toml"))
+        .with_context(|| format!("cannot read the manifest of {}", krate.display()))?;
+    let field = |key: &str| {
+        manifest
+            .lines()
+            .find_map(|line| line.strip_prefix(key)?.trim_start().strip_prefix('='))
+            .map(|value| value.trim().trim_matches('"').to_owned())
+    };
+    let crate_name = field("name").ok_or_else(|| anyhow!("the manifest names no crate"))?;
+    let license = field("license");
+    let inherits = license
+        .as_deref()
+        .is_some_and(|value| value.starts_with('{'))
+        || manifest
+            .lines()
+            .any(|line| line.trim_start().starts_with("license.workspace"));
+    if inherits {
+        return Err(anyhow!(
+            "the manifest of {} inherits its license from the workspace; a literal `license = \"...\"` is required",
+            krate.display()
+        ));
+    }
+    let license = license
+        .ok_or_else(|| anyhow!("the manifest of {} declares no license", krate.display()))?;
+    Ok(Package {
+        service,
+        crate_name,
+        name,
+        version: field("version").unwrap_or_else(|| "0.0.0".to_owned()),
+        license,
+        spec: spec_l2,
+    })
+}
+
+/// The directory of the generated sources inside the package; the manifest's
+/// entry fields point at its `dist` twin.
+pub const SOURCE_DIR: &str = "src/generated-l2";
+
+/// The declaration surface of the generated clients: the one source file the
+/// package tracks, at the package root.
+pub const SURFACE_FILE: &str = "api-surface.d.ts";
+
+/// What the generator is told about the package it writes.
+pub struct Package {
+    /// The SPEC `service`.
+    pub service: String,
+    /// The Layer 2 crate, which names the wasm file.
+    pub crate_name: String,
+    /// The npm package name.
+    pub name: String,
+    /// The Layer 2 crate's version.
+    pub version: String,
+    /// The Layer 2 crate's SPDX license, published with the package.
+    pub license: String,
+    /// The `sdk_surfaces` the exports name, and each endpoint's Rust methods.
+    pub spec: SpecL2Methods,
+}
+
+/// One generated file: its path under the package directory and its text.
+pub type File = (String, String);
+
+const HEADER: &str =
+    "// SPDX-License-Identifier: MIT\n// Generated by api-bones-sdk-gen; do not edit.\n";
+
+/// Every file of the package, in path order.
+///
+/// # Errors
+///
+/// A name that cannot be spelled, an export no `l2_methods` entry lists, or a
+/// type the model does not hold.
+pub fn generate(model: &Model, package: &Package) -> anyhow::Result<Vec<File>> {
+    let document = l2_methods(
+        model,
+        &package.spec,
+        &package.service,
+        &package.crate_name,
+        &package.name,
+    )?;
+    let glue = package.crate_name.replace('-', "_");
+    let mut files = vec![
+        ("package.json".to_owned(), manifest(package, &glue)),
+        ("tsconfig.json".to_owned(), tsconfig()),
+        ("l2-methods.json".to_owned(), document.to_json()),
+        (format!("{SOURCE_DIR}/types.ts"), types_ts(model)),
+        (format!("{SOURCE_DIR}/errors.ts"), errors_ts(model)),
+        (format!("{SOURCE_DIR}/init.ts"), init_ts(package, &glue)),
+        (
+            format!("{SOURCE_DIR}/client.ts"),
+            client_ts(model, package, &document, &glue)?,
+        ),
+        (format!("{SOURCE_DIR}/index.ts"), index_ts(model)),
+        (SURFACE_FILE.to_owned(), surface_dts(model)),
+    ];
+    files.sort();
+    Ok(files)
+}
+
+/// Writes `files` under `out`.
+///
+/// # Errors
+///
+/// An I/O error.
+pub fn write(out: &Path, files: &[File]) -> anyhow::Result<()> {
+    for (path, text) in files {
+        let target = out.join(path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&target, text)
+            .with_context(|| format!("cannot write {}", target.display()))?;
+    }
+    Ok(())
+}
+
+fn manifest(package: &Package, glue: &str) -> String {
+    let entry = "./dist/generated-l2/index.js";
+    let types = "./dist/generated-l2/index.d.ts";
+    let document = serde_json::json!({
+        "name": package.name,
+        "version": package.version,
+        "private": true,
+        "license": package.license,
+        "type": "module",
+        "main": entry,
+        "types": types,
+        "exports": { ".": { "types": types, "import": entry } },
+        "files": ["dist"],
+        "scripts": { "build": format!("tsc -p tsconfig.json && node -e \"const fs=require('fs');for (const f of ['{glue}.js','{glue}_bg.wasm']) fs.copyFileSync('{SOURCE_DIR}/'+f,'dist/generated-l2/'+f)\"") },
+        "dependencies": {
+            "@brefwiz/api-bones-sdk-runtime": "file:../../../api-bones-sdk-runtime-ts",
+            "@opentelemetry/api": ">=1.9.0 <1.10.0"
+        },
+        "devDependencies": { "@types/node": "^22.20.1", "typescript": "^5.0.0" }
+    });
+    let mut text = serde_json::to_string_pretty(&document).expect("json serialises");
+    text.push('\n');
+    text
+}
+
+fn tsconfig() -> String {
+    format!(
+        "{{\n  \"compilerOptions\": {{\n    \"target\": \"ES2022\",\n    \"module\": \"ES2022\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"declaration\": true,\n    \"skipLibCheck\": true,\n    \"rootDir\": \"{SOURCE_DIR}\",\n    \"outDir\": \"dist/generated-l2\",\n    \"types\": [\"node\"]\n  }},\n  \"include\": [\"{SOURCE_DIR}/*.ts\"]\n}}\n"
+    )
+}
+
+/// The TypeScript spelling of a wire type.
+fn ts_type(ty: &WireType) -> String {
+    match ty {
+        WireType::Bool => "boolean".to_owned(),
+        WireType::I32 | WireType::U32 | WireType::F64 | WireType::Duration => "number".to_owned(),
+        WireType::String => "string".to_owned(),
+        WireType::I64 | WireType::U64 => "bigint".to_owned(),
+        WireType::Bytes => "Uint8Array".to_owned(),
+        WireType::SystemTime => "Date".to_owned(),
+        WireType::Option(inner) => format!("{} | undefined", ts_type(inner)),
+        WireType::List(inner) => format!("readonly ({})[]", ts_type(inner)),
+        WireType::Map(inner) => format!("Readonly<Record<string, {}>>", ts_type(inner)),
+        WireType::Named(name) => name.clone(),
+    }
+}
+
+/// The expression that turns the TypeScript value `v` into its JSON form.
+fn encode(ty: &WireType, v: &str) -> String {
+    match ty {
+        WireType::Bool
+        | WireType::I32
+        | WireType::U32
+        | WireType::F64
+        | WireType::Duration
+        | WireType::String => v.to_owned(),
+        WireType::I64 | WireType::U64 => format!("{v}.toString()"),
+        WireType::Bytes => format!("bytesToBase64({v})"),
+        WireType::SystemTime => format!("{v}.toISOString()"),
+        WireType::Option(inner) => format!("{v} === undefined ? undefined : {}", encode(inner, v)),
+        WireType::List(inner) => format!("{v}.map((e) => {})", encode(inner, "e")),
+        WireType::Map(inner) => format!(
+            "Object.fromEntries(Object.entries({v}).map(([k, e]) => [k, {}]))",
+            encode(inner, "e")
+        ),
+        WireType::Named(name) => format!("encode{name}({v})"),
+    }
+}
+
+/// The expression that revives the JSON value `w` into its TypeScript value.
+fn decode(ty: &WireType, w: &str) -> String {
+    match ty {
+        WireType::Bool
+        | WireType::I32
+        | WireType::U32
+        | WireType::F64
+        | WireType::Duration
+        | WireType::String => w.to_owned(),
+        WireType::I64 | WireType::U64 => format!("BigInt({w})"),
+        WireType::Bytes => format!("base64ToBytes({w})"),
+        WireType::SystemTime => format!("new Date({w})"),
+        WireType::Option(inner) => format!(
+            "{w} === null || {w} === undefined ? undefined : {}",
+            decode(inner, w)
+        ),
+        WireType::List(inner) => format!("{w}.map((e: any) => {})", decode(inner, "e")),
+        WireType::Map(inner) => format!(
+            "Object.fromEntries(Object.entries({w}).map(([k, e]: [string, any]) => [k, {}]))",
+            decode(inner, "e")
+        ),
+        WireType::Named(name) => format!("decode{name}({w})"),
+    }
+}
+
+fn is_optional(ty: &WireType) -> bool {
+    matches!(ty, WireType::Option(_))
+}
+
+fn field_decl(field: &Param) -> String {
+    let name = json_name(&field.name);
+    match &field.ty {
+        WireType::Option(inner) => format!("  readonly {name}?: {} | undefined;\n", ts_type(inner)),
+        ty => format!("  readonly {name}: {};\n", ts_type(ty)),
+    }
+}
+
+fn record_ts(record: &Record, out: &mut String) {
+    let name = &record.name;
+    let _ = writeln!(out, "export interface {name} {{");
+    for field in &record.fields {
+        out.push_str(&field_decl(field));
+    }
+    out.push_str("}\n\n");
+    let _ = writeln!(
+        out,
+        "export function decode{name}(w: any): {name} {{\n  return {{"
+    );
+    for field in &record.fields {
+        let key = json_name(&field.name);
+        let _ = writeln!(
+            out,
+            "    {key}: {},",
+            decode(&field.ty, &format!("w.{key}"))
+        );
+    }
+    let _ = writeln!(out, "  }};\n}}\n");
+    let _ = writeln!(
+        out,
+        "export function encode{name}(v: {name}): unknown {{\n  return {{"
+    );
+    for field in &record.fields {
+        let key = json_name(&field.name);
+        let _ = writeln!(
+            out,
+            "    {key}: {},",
+            encode(&field.ty, &format!("v.{key}"))
+        );
+    }
+    let _ = writeln!(out, "  }};\n}}\n");
+}
+
+fn types_ts(model: &Model) -> String {
+    let mut out = String::from(HEADER);
+    out.push_str("import type { BonesError, Page } from \"@brefwiz/api-bones-sdk-runtime\";\n\n");
+    out.push_str(
+        "/** What the host reads about the caller before every send. */\nexport interface Credential {\n  readonly subject: string;\n  readonly org: string;\n  readonly headers: Readonly<Record<string, string>>;\n}\n\n",
+    );
+    out.push_str(
+        "/** How a client authenticates: explicitly anonymous, or a credential read before every send. */\nexport interface ClientOptions {\n  readonly credential: \"anonymous\" | (() => Credential);\n  /** Called when a server refuses the credential as unauthenticated. */\n  readonly onUnauthenticated?: () => void;\n}\n\n",
+    );
+    out.push_str(
+        "/** Per-call options. */\nexport interface CallOptions {\n  readonly signal?: AbortSignal;\n}\n\n",
+    );
+    out.push_str(
+        "/** One result of a batch chunk, in request order. */\nexport type BatchItem<T> = { readonly ok: T } | { readonly error: BonesError };\n\n",
+    );
+    for enumeration in &model.enumerations {
+        let values: Vec<String> = enumeration
+            .values
+            .iter()
+            .map(|value| format!("\"{value}\""))
+            .collect();
+        let _ = writeln!(
+            out,
+            "export type {} = {};\n",
+            enumeration.name,
+            values.join(" | ")
+        );
+    }
+    for record in &model.records {
+        record_ts(record, &mut out);
+    }
+    out.push_str(
+        "/** What a list handle delivers for a page: its JSON, and the Rust-side hold on its items. */\nexport type PageDelivery = readonly [json: string, hold: object];\n\nconst PAGE_HOLD = Symbol(\"api-bones.page-hold\");\n\n/** The page, carrying the hold on its items for as long as the caller holds the page. */\nexport function decodePage<T>(delivered: PageDelivery, item: (w: any) => T): Page<T> {\n  const [json, hold] = delivered;\n  const w = JSON.parse(json);\n  const page: Page<T> = {\n    items: w.items.map(item),\n    revision: w.revision,\n    fromCache: w.fromCache,\n    hasNext: w.hasNext,\n    ...(w.total === undefined ? {} : { total: { value: BigInt(w.total.value), kind: w.total.kind } }),\n  };\n  return Object.defineProperty(page, PAGE_HOLD, { value: hold });\n}\n\n",
+    );
+    out.push_str(
+        "export function bytesToBase64(bytes: Uint8Array): string {\n  let binary = \"\";\n  for (const byte of bytes) binary += String.fromCharCode(byte);\n  return btoa(binary);\n}\n\nexport function base64ToBytes(text: string): Uint8Array {\n  const binary = atob(text);\n  return Uint8Array.from(binary, (c) => c.charCodeAt(0));\n}\n",
+    );
+    out
+}
+
+fn errors_ts(model: &Model) -> String {
+    let mut out = String::from(HEADER);
+    out.push_str(
+        "export { BonesError, PageError, isCursorRejected, parseBonesError } from \"@brefwiz/api-bones-sdk-runtime\";\n",
+    );
+    for error in &model.errors {
+        let codes: Vec<String> = error
+            .variants
+            .iter()
+            .map(|variant| format!("\"{}\"", variant.code))
+            .collect();
+        let _ = write!(
+            out,
+            "\n/** The codes `{}` carries. */\nexport type {}Code = {};\n",
+            error.name,
+            error.name,
+            codes.join(" | ")
+        );
+    }
+    out
+}
+
+/// The module that loads the wasm once and states its digest. `@GLUE@`,
+/// `@CRATE@` and `@VERSION@` are replaced.
+const INIT_TS: &str = r#"import { lazyOnce, wasmInput } from "@brefwiz/api-bones-sdk-runtime";
+import initGlue, * as glue from "./@GLUE@.js";
+
+export type Glue = typeof glue;
+
+let digest = "";
+
+type Host = { process?: { env?: Record<string, string | undefined> } };
+
+/** Appends the provenance line of the loaded wasm when the run collects evidence. */
+async function recordProvenance(wasmSha256: string): Promise<void> {
+  const directory = (globalThis as Host).process?.env?.BREFWIZ_SDK_EVIDENCE;
+  if (!directory) {
+    return;
+  }
+  const specifier = "node:fs/promises";
+  const fs = await import(specifier);
+  const line = JSON.stringify({
+    schema: "api-bones.sdk-provenance/v1",
+    crate: "@CRATE@",
+    version: "@VERSION@",
+    wasmSha256,
+  });
+  await fs.mkdir(directory, { recursive: true });
+  await fs.appendFile(`${directory}/sdk-provenance.jsonl`, `${line}\n`);
+}
+
+/** Loads the wasm module once; concurrent callers share the one load. */
+export const init = lazyOnce(async (): Promise<Glue> => {
+  const input = await wasmInput(new URL("./@GLUE@_bg.wasm", import.meta.url));
+  const bytes =
+    input instanceof URL ? new Uint8Array(await (await globalThis.fetch(input)).arrayBuffer()) : new Uint8Array(input);
+  const hash = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  digest = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
+  await initGlue({ module_or_path: bytes });
+  await recordProvenance(digest);
+  return glue;
+});
+
+/** The wasm module this package loaded: its SHA-256, crate and version. */
+export async function sdkBuildInfo(): Promise<{ wasmSha256: string; crate: string; version: string }> {
+  await init();
+  return { wasmSha256: digest, crate: "@CRATE@", version: "@VERSION@" };
+}
+"#;
+
+fn init_ts(package: &Package, glue: &str) -> String {
+    let mut out = String::from(HEADER);
+    out.push_str(
+        &INIT_TS
+            .replace("@GLUE@", glue)
+            .replace("@CRATE@", &package.crate_name)
+            .replace("@VERSION@", &package.version),
+    );
+    out
+}
+
+fn index_ts(model: &Model) -> String {
+    let mut out = String::from(HEADER);
+    let clients: Vec<&str> = model.clients.iter().map(|c| c.ty.as_str()).collect();
+    let _ = writeln!(
+        out,
+        "export {{ {} }} from \"./client.js\";",
+        clients.join(", ")
+    );
+    out.push_str("export type { BatchItem, CallOptions, ClientOptions, Credential");
+    for enumeration in &model.enumerations {
+        let _ = write!(out, ", {}", enumeration.name);
+    }
+    for record in &model.records {
+        let _ = write!(out, ", {}", record.name);
+    }
+    out.push_str(" } from \"./types.js\";\n");
+    out.push_str(
+        "export * from \"./errors.js\";\nexport { init, sdkBuildInfo } from \"./init.js\";\n",
+    );
+    out
+}
+
+/// The parameters of the TypeScript method for `export`; an async one ends
+/// with the per-call options.
+fn call_params(export: &Export) -> Vec<String> {
+    let mut params: Vec<String> = Vec::new();
+    for param in &export.params {
+        let ty = ts_type(&param.ty);
+        let optional = if is_optional(&param.ty) { "?" } else { "" };
+        let ty = ty.trim_end_matches(" | undefined");
+        params.push(format!("{}{optional}: {ty}", json_name(&param.name)));
+    }
+    if !export.sync {
+        params.push("opts?: CallOptions".to_owned());
+    }
+    params
+}
+
+/// The return type of the TypeScript method for `export`.
+fn return_type(export: &Export) -> String {
+    match &export.ret {
+        Return::Handle { kind, item } => match kind {
+            HandleKind::List => format!("ListCall<{item}>"),
+            HandleKind::Stream => format!("AsyncIterable<{item}>"),
+            HandleKind::Batch => format!("AsyncIterable<BatchItem<{item}>[]>"),
+        },
+        Return::Result { ok, .. } if !export.sync => {
+            format!(
+                "Promise<{}>",
+                ok.as_ref().map_or("void".to_owned(), ts_type)
+            )
+        }
+        Return::Value(ty) | Return::Result { ok: Some(ty), .. } => ts_type(ty),
+        _ => "void".to_owned(),
+    }
+}
+
+/// The TypeScript method for `export`, indented as a class member.
+fn method_ts(export: &Export, wasm_name: &str) -> anyhow::Result<String> {
+    let name = typescript_name(&export.method);
+    let call_params = call_params(export);
+    let ret = return_type(export);
+    let args: Vec<String> = export
+        .params
+        .iter()
+        .map(|p| {
+            let key = json_name(&p.name);
+            format!("{key}: {}", encode(&p.ty, &key))
+        })
+        .collect();
+    let args = format!("JSON.stringify({{ {} }})", args.join(", "));
+    let call = format!("this.#wasm.{wasm_name}");
+    let ctx = "const ctx = callCtx(opts?.signal);\n    ";
+    let tail = "args, ctx.traceparent, ctx.tracestate, ctx.signal";
+    let mut out = String::new();
+    match &export.ret {
+        Return::Handle { kind, item } => {
+            let item_decode = format!("(w: any) => decode{item}(w)");
+            match kind {
+                HandleKind::List => {
+                    let _ = write!(
+                        out,
+                        "  {name}({}): {ret} {{\n    {ctx}const args = {args};\n    return listCallOf<{item}, PageDelivery>({{\n      openPages: () => {call}({tail}),\n      decodePage: (delivered) => decodePage(delivered, {item_decode}),\n      mapError,\n      sink,\n    }});\n  }}\n",
+                        call_params.join(", ")
+                    );
+                }
+                HandleKind::Stream => {
+                    let _ = write!(
+                        out,
+                        "  {name}({}): {ret} {{\n    {ctx}const args = {args};\n    return iterableOf<{item}>(\n      () => {call}({tail}),\n      (json) => decode{item}(JSON.parse(json)),\n      mapError,\n    );\n  }}\n",
+                        call_params.join(", ")
+                    );
+                }
+                HandleKind::Batch => {
+                    let _ = write!(
+                        out,
+                        "  {name}({}): {ret} {{\n    {ctx}const args = {args};\n    return iterableOf<BatchItem<{item}>[]>(\n      () => {call}({tail}),\n      (json) =>\n        JSON.parse(json).map((w: any) =>\n          w.error === undefined\n            ? {{ ok: decode{item}(w.ok) }}\n            : {{ error: parseBonesError(JSON.stringify(w.error)) }},\n        ),\n      mapError,\n    );\n  }}\n",
+                        call_params.join(", ")
+                    );
+                }
+            }
+        }
+        Return::Result { ok, .. } if !export.sync => {
+            let revive = match ok {
+                Some(ty) => format!("return {};", decode(ty, "JSON.parse(json as string)")),
+                None => String::new(),
+            };
+            let _ = write!(
+                out,
+                "  async {name}({}): {ret} {{\n    {ctx}const args = {args};\n    try {{\n      const json = await {call}({tail});\n      {revive}\n    }} catch (rejection) {{\n      throw mapError(rejection);\n    }}\n  }}\n",
+                call_params.join(", ")
+            );
+        }
+        other => {
+            let revive = match other {
+                Return::Value(ty) | Return::Result { ok: Some(ty), .. } => {
+                    format!("return {};", decode(ty, "JSON.parse(json)"))
+                }
+                _ => String::new(),
+            };
+            let _ = write!(
+                out,
+                "  {name}({}): {ret} {{\n    const args = {args};\n    try {{\n      const json = {call}(args);\n      {revive}\n    }} catch (rejection) {{\n      throw mapError(rejection);\n    }}\n  }}\n",
+                call_params.join(", ")
+            );
+        }
+    }
+    Ok(out)
+}
+
+/// `api-surface.d.ts`: every client class with the signatures `client.ts`
+/// implements, so a reader of the tracked surface sees the same parameter
+/// and return types.
+fn surface_dts(model: &Model) -> String {
+    let mut out = String::from(HEADER);
+    out.push_str("import type { ListCall } from \"@brefwiz/api-bones-sdk-runtime\";\n");
+    let mut types = vec![
+        "BatchItem".to_owned(),
+        "CallOptions".to_owned(),
+        "ClientOptions".to_owned(),
+    ];
+    types.extend(model.enumerations.iter().map(|e| e.name.clone()));
+    types.extend(model.records.iter().map(|r| r.name.clone()));
+    let _ = writeln!(
+        out,
+        "import type {{ {} }} from \"./{SOURCE_DIR}/types.js\";",
+        types.join(", ")
+    );
+    for client in &model.clients {
+        let ty = &client.ty;
+        let _ = write!(
+            out,
+            "\nexport declare class {ty} {{\n  static create(baseUrl: string, options: ClientOptions): Promise<{ty}>;\n"
+        );
+        for export in &client.exports {
+            let _ = writeln!(
+                out,
+                "  {}({}): {};",
+                typescript_name(&export.method),
+                call_params(export).join(", "),
+                return_type(export)
+            );
+        }
+        out.push_str("}\n");
+    }
+    out
+}
+
+fn client_ts(
+    model: &Model,
+    package: &Package,
+    document: &L2Methods,
+    glue: &str,
+) -> anyhow::Result<String> {
+    let listed: BTreeSet<&str> = document.methods.iter().map(|m| m.export.as_str()).collect();
+    let mut out = String::from(HEADER);
+    let runtime = "callCtx, iterableOf, JsSpanSink, listCallOf, parseBonesError, type ListCall";
+    let _ = writeln!(
+        out,
+        "import {{ {runtime} }} from \"@brefwiz/api-bones-sdk-runtime\";\nimport type * as glue from \"./{glue}.js\";\nimport {{ init }} from \"./init.js\";"
+    );
+    let mut types = vec!["decodePage".to_owned(), "type PageDelivery".to_owned()];
+    for record in &model.records {
+        types.push(format!("decode{}", record.name));
+        types.push(format!("encode{}", record.name));
+        types.push(format!("type {}", record.name));
+    }
+    types.extend(["type BatchItem", "type CallOptions", "type ClientOptions"].map(str::to_owned));
+    let _ = writeln!(
+        out,
+        "import {{ {} }} from \"./types.js\";",
+        types.join(", ")
+    );
+    out.push_str(
+        "\nconst sink = new JsSpanSink();\n\nfunction mapError(rejection: unknown): unknown {\n  return typeof rejection === \"string\" ? parseBonesError(rejection) : rejection;\n}\n\nfunction host(options: ClientOptions): object {\n  const credential = options.credential;\n  return {\n    anonymous: credential === \"anonymous\",\n    credential: () => JSON.stringify(typeof credential === \"function\" ? credential() : null),\n    unauthenticated: () => options.onUnauthenticated?.(),\n    start: (json: string) => sink.start(json),\n    end: (json: string) => sink.end(json),\n  };\n}\n",
+    );
+    for client in &model.clients {
+        let class = export_name(&package.service, &client.ty, "new")?;
+        let class = class.trim_end_matches("__new").to_owned();
+        let _ = write!(
+            out,
+            "\nexport class {ty} {{\n  readonly #wasm: glue.{class};\n\n  private constructor(wasm: glue.{class}) {{\n    this.#wasm = wasm;\n  }}\n\n  /** A client of the server at `baseUrl`; rejects `invalid_argument` when it is not a URI. */\n  static async create(baseUrl: string, options: ClientOptions): Promise<{ty}> {{\n    const wasm = await init();\n    try {{\n      return new {ty}(wasm.{class}.{class}__new(baseUrl, host(options)));\n    }} catch (rejection) {{\n      throw mapError(rejection);\n    }}\n  }}\n",
+            ty = client.ty
+        );
+        for export in &client.exports {
+            let wasm_name = export_name(&package.service, &client.ty, &export.method)?;
+            if !export.sync && !listed.contains(wasm_name.as_str()) {
+                return Err(anyhow!("`{wasm_name}` is not in l2-methods"));
+            }
+            out.push('\n');
+            out.push_str(&method_ts(export, &wasm_name)?);
+        }
+        out.push_str("}\n");
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SPEC: &str = "---\nservice: svc\nsdk_surfaces:\n  s:\n    targets:\n      typescript:\n        packages: [\"@x/y\"]\n---\n";
+
+    fn package_with(tag: &str, manifest: &str) -> anyhow::Result<Package> {
+        let dir = std::env::temp_dir().join(format!("wrapper-ts-{}-{tag}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(dir.join("SPEC.md"), SPEC).expect("spec");
+        std::fs::write(dir.join("Cargo.toml"), manifest).expect("manifest");
+        let result = package_of(&dir.join("SPEC.md"), &dir, "s");
+        std::fs::remove_dir_all(&dir).expect("cleaned");
+        result
+    }
+
+    #[test]
+    fn the_license_is_read_from_the_manifest() {
+        let package =
+            package_with("ok", "[package]\nname = \"c\"\nlicense = \"MIT\"\n").expect("package");
+        assert_eq!(package.license, "MIT");
+    }
+
+    #[test]
+    fn a_manifest_without_a_license_is_refused() {
+        let error = package_with("none", "[package]\nname = \"c\"\n")
+            .err()
+            .expect("refused");
+        assert!(error.to_string().contains("declares no license"), "{error}");
+    }
+
+    #[test]
+    fn a_workspace_inherited_license_is_refused() {
+        let error = package_with("ws", "[package]\nname = \"c\"\nlicense.workspace = true\n")
+            .err()
+            .expect("refused");
+        assert!(error.to_string().contains("literal"), "{error}");
+    }
+
+    #[test]
+    fn an_inline_workspace_inherited_license_is_refused() {
+        let error = package_with(
+            "inline",
+            "[package]\nname = \"c\"\nlicense = { workspace = true }\n",
+        )
+        .err()
+        .expect("refused");
+        assert!(error.to_string().contains("a literal `license"), "{error}");
+    }
+
+    #[test]
+    fn types_encode_and_decode_through_their_wire_form() {
+        let list = WireType::List(Box::new(WireType::I64));
+        assert_eq!(ts_type(&list), "readonly (bigint)[]");
+        assert_eq!(encode(&list, "v"), "v.map((e) => e.toString())");
+        assert_eq!(decode(&list, "w"), "w.map((e: any) => BigInt(e))");
+        let option = WireType::Option(Box::new(WireType::SystemTime));
+        assert_eq!(ts_type(&option), "Date | undefined");
+        assert_eq!(
+            decode(&option, "w"),
+            "w === null || w === undefined ? undefined : new Date(w)"
+        );
+    }
+
+    fn export(method: &str, sync: bool, params: Vec<Param>, ret: Return) -> Export {
+        Export {
+            method: method.to_owned(),
+            sync,
+            surface: "s".to_owned(),
+            params,
+            ret,
+        }
+    }
+
+    fn result(ok: Option<WireType>) -> Return {
+        Return::Result {
+            ok,
+            error: api_bones_sdk_model::ErrorRef::Sdk,
+        }
+    }
+
+    fn handle(kind: HandleKind) -> Return {
+        Return::Handle {
+            kind,
+            item: "Widget".to_owned(),
+        }
+    }
+
+    /// The page a caller holds carries the hold on its items under a module
+    /// symbol, out of sight of enumeration and serialisation.
+    #[test]
+    fn a_decoded_page_carries_its_hold_where_enumeration_does_not_reach() {
+        let types = types_ts(&Model::default());
+        assert!(
+            types.contains("export type PageDelivery = readonly [json: string, hold: object];"),
+            "{types}"
+        );
+        assert!(
+            types.contains("const PAGE_HOLD = Symbol(\"api-bones.page-hold\");"),
+            "{types}"
+        );
+        assert!(types.contains("const [json, hold] = delivered;"), "{types}");
+        assert!(
+            types.contains("return Object.defineProperty(page, PAGE_HOLD, { value: hold });"),
+            "{types}"
+        );
+        assert!(!types.contains("enumerable: true"), "{types}");
+    }
+
+    #[test]
+    fn a_list_method_decodes_the_delivered_page_with_its_hold() {
+        let list = method_ts(
+            &export("list_widgets", false, vec![], handle(HandleKind::List)),
+            "w",
+        )
+        .expect("a list method");
+        assert!(list.contains("listCallOf<Widget, PageDelivery>("), "{list}");
+        assert!(
+            list.contains(
+                "decodePage: (delivered) => decodePage(delivered, (w: any) => decodeWidget(w)),"
+            ),
+            "{list}"
+        );
+        let stream = method_ts(
+            &export("watch", false, vec![], handle(HandleKind::Stream)),
+            "w",
+        )
+        .expect("a stream method");
+        assert!(!stream.contains("PageDelivery"), "{stream}");
+    }
+
+    #[test]
+    fn a_return_type_is_spelled_as_the_client_declares_it() {
+        let cases = [
+            (false, handle(HandleKind::List), "ListCall<Widget>"),
+            (false, handle(HandleKind::Stream), "AsyncIterable<Widget>"),
+            (
+                false,
+                handle(HandleKind::Batch),
+                "AsyncIterable<BatchItem<Widget>[]>",
+            ),
+            (false, result(Some(WireType::I64)), "Promise<bigint>"),
+            (false, result(None), "Promise<void>"),
+            (true, result(Some(WireType::String)), "string"),
+            (true, result(None), "void"),
+            (true, Return::Value(WireType::Bool), "boolean"),
+            (true, Return::Unit, "void"),
+        ];
+        for (sync, ret, expected) in cases {
+            assert_eq!(return_type(&export("m", sync, vec![], ret)), expected);
+        }
+    }
+
+    #[test]
+    fn an_async_method_takes_the_call_options_and_a_sync_one_does_not() {
+        let params = vec![
+            Param {
+                name: "page_size".to_owned(),
+                ty: WireType::Option(Box::new(WireType::U32)),
+            },
+            Param {
+                name: "name".to_owned(),
+                ty: WireType::String,
+            },
+        ];
+        let asynchronous = export("m", false, params.clone(), Return::Unit);
+        assert_eq!(
+            call_params(&asynchronous),
+            ["pageSize?: number", "name: string", "opts?: CallOptions"]
+        );
+        let synchronous = export("m", true, params, Return::Unit);
+        assert_eq!(
+            call_params(&synchronous),
+            ["pageSize?: number", "name: string"]
+        );
+    }
+
+    #[test]
+    fn the_surface_declares_every_client_with_its_signatures() {
+        use api_bones_sdk_model::{Client, Enumeration};
+        let model = Model {
+            records: vec![Record {
+                name: "Widget".to_owned(),
+                fields: vec![],
+            }],
+            enumerations: vec![Enumeration {
+                name: "Color".to_owned(),
+                values: vec!["red".to_owned()],
+            }],
+            clients: vec![Client {
+                ty: "WidgetClient".to_owned(),
+                surface: "s".to_owned(),
+                exports: vec![
+                    export("list_widgets", false, vec![], handle(HandleKind::List)),
+                    export("count", true, vec![], Return::Value(WireType::U32)),
+                ],
+            }],
+            ..Model::default()
+        };
+        let text = surface_dts(&model);
+        assert!(text.starts_with(HEADER), "{text}");
+        assert!(
+            text.contains("import type { ListCall } from \"@brefwiz/api-bones-sdk-runtime\";"),
+            "{text}"
+        );
+        assert!(
+            text.contains("import type { BatchItem, CallOptions, ClientOptions, Color, Widget } from \"./src/generated-l2/types.js\";"),
+            "{text}"
+        );
+        assert!(
+            text.contains("export declare class WidgetClient {"),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "  static create(baseUrl: string, options: ClientOptions): Promise<WidgetClient>;"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains("  listWidgets(opts?: CallOptions): ListCall<Widget>;"),
+            "{text}"
+        );
+        assert!(text.contains("  count(): number;"), "{text}");
+        assert!(text.ends_with("}\n"), "{text}");
+    }
+}

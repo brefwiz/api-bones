@@ -134,4 +134,17 @@ describe("JsSpanSink", () => {
     const sink = new JsSpanSink(new BasicTracerProvider({ sampler: new AlwaysOffSampler() }).getTracer("off"));
     expect(sink.start(JSON.stringify({ name: "p", startTime: 1, kind: "internal" }))).toBeUndefined();
   });
+
+  it("records a span under a tracer provider registered after the sink was built", () => {
+    exporter.reset();
+    trace.disable();
+    const sink = new JsSpanSink();
+    trace.disable();
+    trace.setGlobalTracerProvider(provider);
+    const traceparent = sink.start(JSON.stringify({ name: "late", startTime: Date.now(), kind: "internal" }));
+    trace.disable();
+    expect(traceparent).toBeDefined();
+    sink.end(JSON.stringify({ traceparent, endTime: Date.now(), status: "unset" }));
+    expect(exporter.getFinishedSpans().map((span) => span.name)).toEqual(["late"]);
+  });
 });

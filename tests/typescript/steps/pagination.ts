@@ -171,6 +171,14 @@ Given("the consumer retains every generated list page", async function (this: Pa
   const result = await collectIteration(call({ widgetId: PARENT }, { prefetch: 0 }).pages());
   assert.equal(result.error, undefined); this.paging.held = result.values;
 });
+Given("the consumer has listed every page with page size {int}", async function (this: PagingWorld, size: number) {
+  const client = pagedClient(...await pagingArguments(this)); const call = client[methodName(this)] as unknown as PartList;
+  const start = requests(this).length;
+  const result = await collectIteration(call({ widgetId: PARENT }, { prefetch: 0, pageSize: size }).pages());
+  assert.equal(result.error, undefined); assert.ok(result.values.every(page => !page.fromCache));
+  assert.deepEqual(result.values.flatMap(page => page.items), ["1", "2", "3", "4", "5"]);
+  const sent = requests(this).slice(start); assert.ok(sent.length); assert.ok(sent.every(request => request.pageSize === size));
+});
 Given("the consumer has delivered {int} stored list pages", async function (this: PagingWorld, count: number) {
   const client = pagedClient(...await pagingArguments(this)); const call = client[methodName(this)] as unknown as PartList;
   this.paging.continuation = call({ widgetId: PARENT }, { prefetch: 0 }).pages()[Symbol.asyncIterator]();

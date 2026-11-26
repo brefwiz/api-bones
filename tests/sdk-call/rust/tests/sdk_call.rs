@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 //! Runs `../features/sdk_call.feature`: the call helper every Layer 2 method
-//! runs through, driven as a Layer 2 author drives it (`CallEnv::call(..)
-//! .unary|list|batch|stream` with the test service's Layer 2 send builders)
-//! against a real connectrpc server on loopback that records what each
-//! request carried.
+//! runs through, driven as a Layer 2 consumer drives it (the test service's
+//! generated Layer 2 clients: `WidgetsClient`, `NumbersClient`,
+//! `EventsClient`) against a real connectrpc server on loopback that records
+//! what each request carried.
 //!
 //! `TwoPass` owns scenario selection, concurrency and the census.
 
@@ -14,37 +14,30 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering}
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
-use api_bones::connect::Idempotency;
+use api_bones::connect::{ErrorInfo, with_error_info};
 use api_bones_batch::{Credential, Identity};
 use api_bones_contract_rust::{
     BatchGetWidgetsRequest, BatchGetWidgetsResponse, EventsExt, GetWidgetRequest,
-    ListNumbersRequest, ListNumbersResponse, Numbers, NumbersClient as NumbersRpc, NumbersExt,
-    PageResponse, Widget, Widgets, WidgetsExt,
+    ListNumbersRequest, ListNumbersResponse, ListWidgetPartsRequest, ListWidgetPartsResponse,
+    Numbers, NumbersExt, PageResponse, Widget, Widgets, WidgetsExt,
 };
-use api_bones_page::{
-    ListCall as PageCall, ListResponse, MetadataFetch, Page, PageOptions, RevisionCache,
-};
+use api_bones_page::{Page, RevisionCache};
 use api_bones_sdk::call::CallEnv;
 use api_bones_sdk::{
     CallCtx, Error, Handle, SpanEnd, SpanKind, SpanSink, SpanStart, Traceparent, Tracer,
 };
-use api_bones_test_service_l2::{
-    NUMBERS, Number, NumbersPageRequest, Tick, WIDGETS, Widget as L2Widget, batch_get_widgets_send,
-    config_of, get_widget_send, list_send,
-};
-use api_bones_transport::HttpTransport;
+use api_bones_test_service_l2::{Number, Tick, Widget as L2Widget};
 use brefwiz_cucumber_steps::TwoPass;
-use connectrpc::client::ClientConfig;
+use bytes::Bytes;
 use connectrpc::{
-    ConnectError, ConnectRpcService, RequestContext, Response, Router, Server, ServiceRequest,
-    ServiceResult,
+    CodecFormat, ConnectError, ConnectRpcService, Encodable, ErrorCode, RequestContext, Response,
+    Router, Server, ServiceRequest, ServiceResult,
 };
 use cucumber::{given, then, when};
-use futures_util::StreamExt as _;
 
 #[path = "steps/stream.rs"]
 mod stream;
-#[path = "steps/support.rs"]
+#[path = "../../../rust/tests/steps/support.rs"]
 mod support;
 
 use support::{batch_response, unserved_widget_methods};
@@ -69,6 +62,9 @@ struct Shared {
     widgets: Mutex<HashMap<String, String>>,
     /// The pages the numbers server serves; the cursor `cN` names page `N`.
     pages: Mutex<Vec<Vec<u32>>>,
+    /// The pages of parts each widget has, by widget id; the cursor `cN` names
+    /// page `N`.
+    parts: Mutex<HashMap<String, Vec<Vec<String>>>>,
     /// How long the numbers server takes to answer each page, in milliseconds.
     page_delay_ms: AtomicU64,
     /// How many ticks the events server sends.
@@ -106,6 +102,12 @@ struct Shared {
     starts: Mutex<Vec<SpanStart>>,
     ends: Mutex<Vec<SpanEnd>>,
     started: AtomicBool,
+    /// The zero-based page whose cursor the numbers server refuses as expired.
+    expire_at_page: Mutex<Option<usize>>,
+    /// Whether the numbers server answers with bytes no decoder reads.
+    garble: AtomicBool,
+    /// Whether the caller's tracer declines to record: its sink gives no span.
+    silent: AtomicBool,
 }
 
 /// The revision cache of the caller's env, shown by whether it holds a chain.
@@ -203,12 +205,18 @@ struct Recorder(Arc<Shared>);
 
 impl SpanSink for Recorder {
     fn start(&self, span: &SpanStart) -> Option<String> {
+        if self.0.silent.load(Ordering::SeqCst) {
+            return None;
+        }
         lock(&self.0.starts).push(span.clone());
         let parent = span.parent.as_deref().and_then(Traceparent::parse);
         Some(Traceparent::mint(parent.as_ref()).to_string())
     }
 
     fn end(&self, end: &SpanEnd) {
+        if self.0.silent.load(Ordering::SeqCst) {
+            return;
+        }
         lock(&self.0.ends).push(end.clone());
     }
 }
@@ -257,7 +265,76 @@ impl Widgets for Service {
         Response::ok(response)
     }
 
-    unserved_widget_methods!("the feature serves only GetWidget and BatchGetWidgets");
+    async fn list_widget_parts<'a>(
+        &'a self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, ListWidgetPartsRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
+        let asked = request.to_owned_message();
+        self.0.admit(&ctx)?;
+        if !lock(&self.0.widgets).contains_key(&asked.widget_id) {
+            return Err(ConnectError::not_found("no such widget"));
+        }
+        let index = paged_index(&asked.page.into_option().unwrap_or_default().cursor);
+        let pages = lock(&self.0.parts)
+            .get(&asked.widget_id)
+            .cloned()
+            .unwrap_or_default();
+        Response::ok(ListWidgetPartsResponse {
+            items: pages.get(index).cloned().unwrap_or_default(),
+            page: PageResponse {
+                next_cursor: next_cursor(index, pages.len()),
+                revision: REVISION.into(),
+                ..Default::default()
+            }
+            .into(),
+            ..Default::default()
+        })
+    }
+
+    unserved_widget_methods!(
+        "the feature serves only GetWidget, BatchGetWidgets and ListWidgetParts",
+        serving list_widget_parts
+    );
+}
+
+/// The revision every page of the numbers list carries.
+const REVISION: &str = "r1";
+
+/// The zero-based index of the page a cursor `cN` names; the first page for
+/// an empty cursor.
+fn paged_index(cursor: &str) -> usize {
+    cursor
+        .strip_prefix('c')
+        .and_then(|index| index.parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
+/// The cursor of the page after `index` in a list of `pages` pages; empty at
+/// the end.
+fn next_cursor(index: usize, pages: usize) -> String {
+    if index + 1 < pages {
+        format!("c{}", index + 1)
+    } else {
+        String::new()
+    }
+}
+
+/// What the numbers server answers a list with: a page, or bytes no decoder
+/// reads.
+enum NumbersBody {
+    Page(ListNumbersResponse),
+    Undecodable,
+}
+
+impl Encodable<ListNumbersResponse> for NumbersBody {
+    fn encode(&self, codec: CodecFormat) -> Result<Bytes, ConnectError> {
+        match self {
+            Self::Page(page) => Encodable::<ListNumbersResponse>::encode(page, codec),
+            // A varint tag whose continuation never ends.
+            Self::Undecodable => Ok(Bytes::from_static(&[0xff, 0xff, 0xff])),
+        }
+    }
 }
 
 /// The `Numbers` service of the lane's server.
@@ -266,33 +343,37 @@ struct NumbersService(Arc<Shared>);
 
 impl NumbersService {
     /// The page the request asks for; its cursor `cN` names page `N`.
-    async fn page(&self, request: ListNumbersRequest) -> ListNumbersResponse {
-        let cursor = request.page.into_option().unwrap_or_default().cursor;
-        let index = cursor
-            .strip_prefix('c')
-            .and_then(|index| index.parse::<usize>().ok())
-            .unwrap_or(0);
+    async fn page(&self, request: ListNumbersRequest) -> Result<NumbersBody, ConnectError> {
+        let index = paged_index(&request.page.into_option().unwrap_or_default().cursor);
         self.0.switch_if_scripted_on_page(index);
         let delay = self.0.page_delay_ms.load(Ordering::SeqCst);
         if delay > 0 {
             tokio::time::sleep(Duration::from_millis(delay)).await;
         }
+        if *lock(&self.0.expire_at_page) == Some(index) {
+            return Err(with_error_info(
+                ConnectError::new(ErrorCode::FailedPrecondition, "the cursor expired"),
+                &ErrorInfo {
+                    code: "CURSOR_EXPIRED".into(),
+                    emitter: "numbers".into(),
+                    ..Default::default()
+                },
+            ));
+        }
+        if self.0.garble.load(Ordering::SeqCst) {
+            return Ok(NumbersBody::Undecodable);
+        }
         let pages = lock(&self.0.pages).clone();
-        let next_cursor = if index + 1 < pages.len() {
-            format!("c{}", index + 1)
-        } else {
-            String::new()
-        };
-        ListNumbersResponse {
+        Ok(NumbersBody::Page(ListNumbersResponse {
             items: pages.get(index).cloned().unwrap_or_default(),
             page: PageResponse {
-                next_cursor,
-                revision: "r1".into(),
+                next_cursor: next_cursor(index, pages.len()),
+                revision: REVISION.into(),
                 ..Default::default()
             }
             .into(),
             ..Default::default()
-        }
+        }))
     }
 }
 
@@ -301,27 +382,44 @@ impl Numbers for NumbersService {
         &'a self,
         ctx: RequestContext,
         request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
+    ) -> ServiceResult<impl Encodable<ListNumbersResponse> + Send + use<'a>> {
         self.0.admit(&ctx)?;
-        Response::ok(self.page(request.to_owned_message()).await)
+        let request = request.to_owned_message();
+        let first_page = request
+            .page
+            .clone()
+            .into_option()
+            .unwrap_or_default()
+            .cursor
+            .is_empty();
+        if first_page
+            && header(&ctx, "bones-list-cache") == "1"
+            && header(&ctx, "if-none-match") == format!("\"{REVISION}\"")
+        {
+            return Ok(
+                Response::new(NumbersBody::Page(ListNumbersResponse::default()))
+                    .with_header("bones-not-modified", "1"),
+            );
+        }
+        Response::ok(self.page(request).await?)
     }
 
     async fn list_idempotent<'a>(
         &'a self,
         ctx: RequestContext,
         request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
+    ) -> ServiceResult<impl Encodable<ListNumbersResponse> + Send + use<'a>> {
         self.0.admit(&ctx)?;
-        Response::ok(self.page(request.to_owned_message()).await)
+        Response::ok(self.page(request.to_owned_message()).await?)
     }
 
     async fn list<'a>(
         &'a self,
         ctx: RequestContext,
         request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
+    ) -> ServiceResult<impl Encodable<ListNumbersResponse> + Send + use<'a>> {
         self.0.admit(&ctx)?;
-        Response::ok(self.page(request.to_owned_message()).await)
+        Response::ok(self.page(request.to_owned_message()).await?)
     }
 }
 
@@ -337,10 +435,16 @@ struct SdkCallWorld {
     batch: Vec<Result<L2Widget, Error>>,
     /// The pages of numbers the caller read, in order.
     pages_read: Vec<Vec<u32>>,
+    /// The pages of widget parts the caller received, by part name.
+    part_pages: Vec<Vec<String>>,
     /// The `traceparent` of the span of the list walk.
     walk_span: Option<String>,
     /// Whether the walk gave nothing more after it ended.
     walk_over: bool,
+    /// The numbers of the pages the caller received, in order.
+    items_read: Vec<u32>,
+    /// The first page the caller read on its own.
+    first_page: Option<Page<Number>>,
     /// The list the caller opened and reads page by page.
     list: Option<Arc<Handle<Page<Number>>>>,
     /// The read of the next page of the list that is still waiting for its
@@ -357,7 +461,11 @@ struct SdkCallWorld {
     watched: Duration,
     /// The pages that filled the revision cache, held so the cache's weak
     /// chain stays replayable.
-    held: Vec<Page<u32>>,
+    held: Vec<Page<Number>>,
+    /// Every caller that filled the revision cache, in order.
+    cache_owners: Vec<Identity>,
+    /// Whether each page the caller read came from the revision cache.
+    pages_cached: Vec<bool>,
     /// Why the call, the chunk, a page or a tick was refused.
     refusal: Option<Error>,
 }
@@ -456,6 +564,15 @@ async fn given_widget(world: &mut SdkCallWorld, id: String, name: String) {
     serve(world).await;
 }
 
+#[given(expr = "the widget {string} has the parts {string}")]
+fn given_parts(world: &mut SdkCallWorld, id: String, pages: String) {
+    let pages = pages
+        .split('|')
+        .map(|page| page.split(',').map(str::to_owned).collect())
+        .collect();
+    lock(&world.shared.parts).insert(id, pages);
+}
+
 #[given(expr = "the numbers server has the pages {string}")]
 async fn given_pages(world: &mut SdkCallWorld, pages: String) {
     *lock(&world.shared.pages) = pages.split('|').map(numbers).collect();
@@ -487,7 +604,12 @@ fn given_anonymous(world: &mut SdkCallWorld) {
 
 #[given(expr = "the caller switches to {string} of organization {string}")]
 fn caller_switches(world: &mut SdkCallWorld, subject: String, org: String) {
-    lock(&world.shared.credential).identity = Identity { subject, org };
+    world
+        .shared
+        .credential
+        .lock()
+        .expect("the recorder is never poisoned")
+        .identity = Identity { subject, org };
 }
 
 #[given("the caller's token is refreshed")]
@@ -536,57 +658,33 @@ fn given_source_broken(world: &mut SdkCallWorld) {
     world.shared.source_broken.store(true, Ordering::SeqCst);
 }
 
-/// Fills the caller env's revision cache the way a generated list client
-/// does: one complete walk over the numbers server, its pages still held. The
-/// requests that fill it are not the call under test, so they are not counted
-/// among the ones the server saw.
+/// Fills the caller env's revision cache the way a caller does: one complete
+/// walk of the numbers list through the SDK, its pages still held. The walk
+/// that fills it is not the call under test, so what it sent, read and
+/// recorded is forgotten.
 #[given("the revision cache holds the numbers list")]
 async fn given_cached_numbers(world: &mut SdkCallWorld) {
-    let config = ClientConfig::new(base_url(world).parse().expect("a loopback uri"));
-    let rpc = Arc::new(NumbersRpc::new(HttpTransport::h2c(), config));
-    let fetch: MetadataFetch<ListNumbersRequest, ListNumbersResponse> =
-        Arc::new(move |request, _metadata| {
-            let rpc = Arc::clone(&rpc);
-            Box::pin(async move {
-                let response = rpc.list_no_side_effects(request).await?;
-                Ok::<_, ConnectError>(ListResponse {
-                    body: response.into_owned(),
-                    not_modified: false,
-                })
-            })
-        });
-    let walk = PageCall::generated(
-        "contract.v1.Numbers/ListNoSideEffects",
-        Idempotency::NoSideEffects,
-        fetch,
-        ListNumbersRequest::default(),
-        world.shared.revisions.0.clone(),
-        Arc::new(|| "ada:acme".to_owned()),
-        b"numbers",
-    );
-    let pages: Vec<_> = walk.pages().collect().await;
-    world.held = pages
-        .into_iter()
-        .map(|page| page.expect("every page of the filling walk is delivered"))
-        .collect();
+    let owner = lock(&world.shared.credential).identity.clone();
+    world.cache_owners.push(owner);
+    let list = open_numbers(world).await;
+    while let Some(page) = list.next().await.expect("every page of the filling walk") {
+        world.held.push(page);
+    }
     assert!(
         !world.shared.revisions.0.is_empty(),
         "the filling walk left the revision cache empty"
     );
     lock(&world.shared.seen).clear();
+    lock(&world.shared.starts).clear();
+    lock(&world.shared.ends).clear();
+    world.shared.reads.store(0, Ordering::SeqCst);
 }
 
 #[when(expr = "the caller gets the widget {string} through the SDK")]
 async fn when_get(world: &mut SdkCallWorld, id: String) {
-    let env = call_env(world);
-    let config = config_of(&base_url(world)).expect("a loopback uri");
-    let call = async {
-        env.call(WIDGETS, "GetWidget")
-            .unary(Idempotency::NoSideEffects, move |attempt| {
-                get_widget_send(config.clone(), id.clone(), attempt)
-            })
-            .await
-    };
+    let client = api_bones_test_service_l2::WidgetsClient::new(&base_url(world), call_env(world))
+        .expect("the lane's server address is a URI");
+    let call = client.get_widget(id);
     let outcome = match world.trace.clone() {
         Some(traceparent) => {
             let ctx = CallCtx {
@@ -605,14 +703,10 @@ async fn when_get(world: &mut SdkCallWorld, id: String) {
 
 #[when(expr = "the caller gets the widgets {string} through the SDK")]
 async fn when_batch_get(world: &mut SdkCallWorld, ids: String) {
-    let env = call_env(world);
-    let config = config_of(&base_url(world)).expect("a loopback uri");
     let ids: Vec<String> = ids.split(',').map(str::to_owned).collect();
-    let batch = env
-        .call(WIDGETS, "BatchGetWidgets")
-        .batch(Idempotency::NoSideEffects, move |attempt| {
-            batch_get_widgets_send(config.clone(), ids.clone(), attempt)
-        });
+    let client = api_bones_test_service_l2::WidgetsClient::new(&base_url(world), call_env(world))
+        .expect("the lane's server address is a URI");
+    let batch = client.batch_get_widgets(ids).await;
     match batch.next().await {
         Ok(Some(chunk)) => world.batch = chunk,
         Ok(None) => panic!("the batch delivered no chunk"),
@@ -620,20 +714,58 @@ async fn when_batch_get(world: &mut SdkCallWorld, ids: String) {
     }
 }
 
-fn open_numbers(world: &SdkCallWorld) -> Handle<Page<Number>> {
-    let env = call_env(world);
-    let config = config_of(&base_url(world)).expect("a loopback uri");
-    env.call(NUMBERS, "ListNoSideEffects").list(
-        Idempotency::NoSideEffects,
-        NumbersPageRequest::default(),
-        list_send(config),
-        PageOptions::default(),
-    )
+#[when(expr = "the caller lists the parts of the widget {string} through the SDK")]
+async fn when_list_parts(world: &mut SdkCallWorld, id: String) {
+    list_parts(world, id).await;
+}
+
+async fn list_parts(world: &mut SdkCallWorld, id: String) {
+    let client = api_bones_test_service_l2::WidgetsClient::new(&base_url(world), call_env(world))
+        .expect("the lane's server address is a URI");
+    let list = client.list_widget_parts(id, None).await;
+    loop {
+        match list.next().await {
+            Ok(Some(page)) => world
+                .part_pages
+                .push(page.items.iter().map(|part| part.name.clone()).collect()),
+            Ok(None) => return,
+            Err(error) => {
+                world.refusal = Some(error);
+                return;
+            }
+        }
+    }
+}
+
+async fn open_numbers(world: &SdkCallWorld) -> Handle<Page<Number>> {
+    open_numbers_at(world, &base_url(world)).await
+}
+
+async fn open_numbers_at(world: &SdkCallWorld, url: &str) -> Handle<Page<Number>> {
+    api_bones_test_service_l2::NumbersClient::new(url, call_env(world))
+        .expect("the lane's server address is a URI")
+        .list(None)
+        .await
+}
+
+/// The lane's server under another address: the same server and revisions, a
+/// different origin for the caller's cache.
+#[given(
+    "the caller has opened a list of the numbers at another address of the server through the SDK"
+)]
+async fn given_list_opened_elsewhere(world: &mut SdkCallWorld) {
+    let port = world
+        .address
+        .expect("a Given started the lane's server")
+        .port();
+    let list = open_numbers_at(world, &format!("http://localhost:{port}")).await;
+    world.walk_span = list.span();
+    world.list = Some(Arc::new(list));
 }
 
 #[given("the caller has opened a list of the numbers through the SDK")]
 async fn given_list_opened(world: &mut SdkCallWorld) {
-    let list = open_numbers(world);
+    let list = open_numbers(world).await;
     world.walk_span = list.span();
     world.list = Some(Arc::new(list));
 }
@@ -685,11 +817,19 @@ async fn given_next_page_read(world: &mut SdkCallWorld) {
 
 #[when("the caller reads the next page of the list")]
 async fn when_next_page(world: &mut SdkCallWorld) {
-    let list = world.list.as_ref().expect("a Given opened the list");
-    match list.next().await {
-        Ok(Some(page)) => world
-            .pages_read
-            .push(page.items.iter().map(|number| number.value).collect()),
+    match world
+        .list
+        .as_ref()
+        .expect("a Given opened the list")
+        .next()
+        .await
+    {
+        Ok(Some(page)) => {
+            world.pages_cached.push(page.from_cache);
+            world
+                .pages_read
+                .push(page.items.iter().map(|number| number.value).collect());
+        }
         Ok(None) => world.walk_over = true,
         Err(error) => world.refusal = Some(error),
     }
@@ -737,6 +877,38 @@ fn then_pages(world: &mut SdkCallWorld, expected: String) {
         .map(|page| join_numbers(page))
         .collect();
     assert_eq!(received.join("|"), expected);
+}
+
+#[then(expr = "the caller received the part pages {string}")]
+fn then_part_pages(world: &mut SdkCallWorld, expected: String) {
+    let received: Vec<String> = world.part_pages.iter().map(|page| page.join(",")).collect();
+    assert_eq!(received.join("|"), expected);
+}
+
+#[then("every page the caller received came from the revision cache")]
+fn then_pages_cached(world: &mut SdkCallWorld) {
+    assert!(
+        !world.pages_cached.is_empty(),
+        "the caller received no page"
+    );
+    assert!(
+        world.pages_cached.iter().all(|cached| *cached),
+        "pages from the cache: {:?}",
+        world.pages_cached
+    );
+}
+
+#[then("no page the caller received came from the revision cache")]
+fn then_no_page_cached(world: &mut SdkCallWorld) {
+    assert!(
+        !world.pages_cached.is_empty(),
+        "the caller received no page"
+    );
+    assert!(
+        world.pages_cached.iter().all(|cached| !*cached),
+        "pages from the cache: {:?}",
+        world.pages_cached
+    );
 }
 
 #[then("the walk is over")]
@@ -834,6 +1006,46 @@ fn then_walk_span_status(world: &mut SdkCallWorld, status: String) {
 )]
 fn then_host_told(world: &mut SdkCallWorld, times: usize) {
     assert_eq!(world.shared.told.load(Ordering::SeqCst), times);
+}
+
+#[then("the revision cache still holds the numbers list of the other caller")]
+async fn then_cache_kept(world: &mut SdkCallWorld) {
+    let owner = world
+        .cache_owners
+        .first()
+        .expect("a Given filled the revision cache")
+        .clone();
+    lock(&world.shared.credential).identity = owner;
+    let list = open_numbers(world).await;
+    let first = list
+        .next()
+        .await
+        .expect("the first page of the other caller's list")
+        .expect("the list had a page");
+    assert!(
+        first.from_cache,
+        "the refusal emptied the other caller's cache"
+    );
+}
+
+#[then("the revision cache no longer holds the numbers list of the caller who was replaying")]
+async fn then_replaying_cache_gone(world: &mut SdkCallWorld) {
+    let owner = world
+        .cache_owners
+        .last()
+        .expect("a Given filled the revision cache")
+        .clone();
+    lock(&world.shared.credential).identity = owner;
+    let list = open_numbers(world).await;
+    let first = list
+        .next()
+        .await
+        .expect("the first page of the replaying caller's list")
+        .expect("the list had a page");
+    assert!(
+        !first.from_cache,
+        "the cache kept a chain of the caller whose walk was refused"
+    );
 }
 
 #[then("the caller's revision cache is empty")]
@@ -966,6 +1178,17 @@ fn then_budget(world: &mut SdkCallWorld, above: u64, at_most: u64) {
     }
 }
 
+#[then("the request the server saw stated no call budget")]
+fn then_no_budget(world: &mut SdkCallWorld) {
+    let seen = world.seen();
+    assert_eq!(seen.len(), 1, "the server saw {} requests", seen.len());
+    assert_eq!(
+        seen[0].timeout_ms, 0,
+        "connect-timeout-ms was {}",
+        seen[0].timeout_ms
+    );
+}
+
 #[then("the call budget the server saw shrank from each request to the next")]
 fn then_budget_shrank(world: &mut SdkCallWorld) {
     let seen = world.seen();
@@ -979,6 +1202,185 @@ fn then_budget_shrank(world: &mut SdkCallWorld) {
             pair[1].timeout_ms
         );
     }
+}
+
+#[given(expr = "the numbers server refuses the cursor of page {int} as expired")]
+fn given_cursor_expired(world: &mut SdkCallWorld, page: usize) {
+    *lock(&world.shared.expire_at_page) = Some(page - 1);
+}
+
+#[given("the numbers server answers pages that cannot be decoded")]
+async fn given_undecodable(world: &mut SdkCallWorld) {
+    world.shared.garble.store(true, Ordering::SeqCst);
+    serve(world).await;
+}
+
+#[given("the tracer does not record")]
+fn given_tracer_silent(world: &mut SdkCallWorld) {
+    world.shared.silent.store(true, Ordering::SeqCst);
+}
+
+/// Walks the numbers list the way a Rust caller does, page by page, taking the
+/// items of each page in order; leaves it, as a caller who stops reading does,
+/// once `leave_after` items were taken.
+async fn walk_numbers(world: &mut SdkCallWorld, leave_after: Option<usize>) {
+    let list = open_numbers(world).await;
+    loop {
+        match list.next().await {
+            Ok(Some(page)) => {
+                let numbers: Vec<u32> = page.items.iter().map(|number| number.value).collect();
+                let Some(limit) = leave_after else {
+                    world.items_read.extend(&numbers);
+                    world.pages_read.push(numbers);
+                    continue;
+                };
+                let room = limit - world.items_read.len();
+                world.items_read.extend(numbers.iter().take(room));
+                if world.items_read.len() == limit {
+                    list.cancel();
+                    break;
+                }
+            }
+            Ok(None) => {
+                world.walk_over = true;
+                break;
+            }
+            Err(error) => {
+                world.refusal = Some(error);
+                break;
+            }
+        }
+    }
+    world.list = Some(Arc::new(list));
+}
+
+#[when("the caller walks the numbers list by pages through the SDK")]
+async fn when_walk_pages(world: &mut SdkCallWorld) {
+    walk_numbers(world, None).await;
+}
+
+#[when("the caller walks the numbers list by items through the SDK")]
+async fn when_walk_items(world: &mut SdkCallWorld) {
+    walk_numbers(world, None).await;
+}
+
+#[when(expr = "the caller walks the numbers list by items and leaves after {int} items")]
+async fn when_walk_items_and_leave(world: &mut SdkCallWorld, items: usize) {
+    walk_numbers(world, Some(items)).await;
+}
+
+#[when("the caller reads the first page of the numbers list through the SDK")]
+async fn when_first_page(world: &mut SdkCallWorld) {
+    let list = open_numbers(world).await;
+    world.first_page = Some(
+        list.next()
+            .await
+            .expect("the first page of the list")
+            .expect("the list had a first page"),
+    );
+    list.cancel();
+}
+
+#[then(expr = "the caller received the items {string}")]
+fn then_items(world: &mut SdkCallWorld, expected: String) {
+    assert_eq!(join_numbers(&world.items_read), expected);
+}
+
+#[then("the walk ended without refusal")]
+fn then_walk_clean(world: &mut SdkCallWorld) {
+    assert!(
+        world.refusal.is_none(),
+        "the walk was refused: {:?}",
+        world.refusal
+    );
+    assert!(world.walk_over, "the walk gave more after it ended");
+}
+
+#[then("the list gives nothing after the caller left")]
+async fn then_list_left(world: &mut SdkCallWorld) {
+    let list = world.list.as_ref().expect("the caller walked the list");
+    assert!(
+        matches!(list.next().await, Ok(None)),
+        "the list gave more after the caller left"
+    );
+}
+
+#[then("the walk is refused")]
+fn then_walk_refused(world: &mut SdkCallWorld) {
+    assert!(world.refusal.is_some(), "the walk was not refused");
+}
+
+#[then(
+    expr = "the walk is refused with a PageError of kind {string} after {int} pages and {int} items"
+)]
+fn then_walk_page_error(world: &mut SdkCallWorld, kind: String, pages: u32, items: u64) {
+    let error = world.refusal.as_ref().expect("the walk was refused");
+    let detail = error
+        .page
+        .as_ref()
+        .unwrap_or_else(|| panic!("the refusal names no page failure: {error:?}"));
+    assert_eq!(detail.kind.wire_name(), kind);
+    assert_eq!(detail.delivered_pages, pages);
+    assert_eq!(detail.delivered_items, items);
+}
+
+#[then(expr = "the first page holds the numbers {string}")]
+fn then_first_page_numbers(world: &mut SdkCallWorld, expected: String) {
+    let page = world
+        .first_page
+        .as_ref()
+        .expect("a When read the first page");
+    let numbers: Vec<u32> = page.items.iter().map(|number| number.value).collect();
+    assert_eq!(join_numbers(&numbers), expected);
+}
+
+#[then("the first page says a next page follows")]
+fn then_first_page_has_next(world: &mut SdkCallWorld) {
+    let page = world
+        .first_page
+        .as_ref()
+        .expect("a When read the first page");
+    assert!(page.has_next);
+}
+
+#[then("the first page says no next page follows")]
+fn then_first_page_has_no_next(world: &mut SdkCallWorld) {
+    let page = world
+        .first_page
+        .as_ref()
+        .expect("a When read the first page");
+    assert!(!page.has_next);
+}
+
+/// The span of the open list: the `traceparent` of a span the tracer started
+/// and has not ended, under which the list's pages are read.
+#[then("the numbers list exposes the span of its walk")]
+fn then_list_span(world: &mut SdkCallWorld) {
+    let walk = world
+        .list
+        .as_ref()
+        .expect("a Given opened the list")
+        .span()
+        .expect("the open list exposes no span");
+    let ends = lock(&world.shared.ends).clone();
+    assert!(
+        ends.iter().all(|end| end.traceparent != walk),
+        "the span of the walk already ended: {ends:?}"
+    );
+    let walk = Traceparent::parse(&walk).expect("the span of the walk is a traceparent");
+    let starts = lock(&world.shared.starts).clone();
+    assert!(
+        starts
+            .iter()
+            .any(|span| span.parent.as_deref().and_then(Traceparent::parse) == Some(walk)),
+        "no span the tracer started is under the span of the walk: {starts:?}"
+    );
+}
+
+#[then("the numbers list exposes no span")]
+fn then_list_no_span(world: &mut SdkCallWorld) {
+    let list = world.list.as_ref().expect("a Given opened the list");
+    assert_eq!(list.span(), None);
 }
 
 #[tokio::main]

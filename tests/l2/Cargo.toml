@@ -11,16 +11,23 @@ edition = "2024"
 publish = false
 license = "MIT"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
 # The gates `api-bones-sdk-gen features` derives from the exports below.
+# api-bones-sdk-gen features: begin
 sdk-all = []
 sdk-connect-batch = []
 sdk-connect-pagination = []
 sdk-m-batch_get_widgets = []
 sdk-m-get_widget = []
 sdk-m-list = []
+sdk-m-list_widget_parts = []
 sdk-m-watch = []
 sdk-sdk-call = []
+wasm = ["api-bones-sdk/wasm"]
+# api-bones-sdk-gen features: end
 
 [dependencies]
 api-bones = { path = "../..", default-features = false, features = ["connect-core"] }
@@ -29,13 +36,18 @@ api-bones-rt = { path = "../../api-bones-rt" }
 api-bones-sdk = { path = "../../api-bones-sdk" }
 api-bones-sdk-macros = { path = "../../api-bones-sdk-macros" }
 api-bones-transport = { path = "../../api-bones-transport" }
-connectrpc = { version = "0.9.1", default-features = false, features = ["client"] }
+connectrpc = { version = "0.9.1", default-features = false }
 buffa = { version = "0.9", features = ["json"] }
 buffa-types = { version = "0.9", features = ["json"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4.2"
 # The generated messages derive `serde` for their JSON form.
 serde.workspace = true
+
+# connectrpc's own client starts tokio tasks and opens sockets a browser has
+# not; the wasm32 build calls through the browser transport instead.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+connectrpc = { version = "0.9.1", default-features = false, features = ["client"] }
 
 [build-dependencies]
 connectrpc-build = { version = "0.9", default-features = false }

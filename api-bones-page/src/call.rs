@@ -103,6 +103,13 @@ pub trait PagedRequest: Clone + MaybeSend + 'static {
     fn set_page(&mut self, cursor: &str, page_size: Option<u32>);
 }
 
+/// A paged request that encodes itself for the revision cache key.
+pub trait CanonicalPagedRequest {
+    /// The wire encoding of every request field. The caller clears the page
+    /// first, so a cursor never reaches the key.
+    fn encode(&self) -> Vec<u8>;
+}
+
 /// A response that carries one repeated field and a `bones.v1.PageResponse`.
 pub trait PagedResponse: MaybeSend + 'static {
     /// One element of the repeated field.
@@ -332,9 +339,15 @@ impl<Req: PagedRequest, Resp: PagedResponse> ListCall<Req, Resp> {
         }
         let replay = cache
             .as_ref()
+            .zip(identity.as_deref())
             .filter(|_| cache_enabled)
-            .and_then(|binding| binding.cache.replay(self.method, binding.key));
-        let generation = cache.as_ref().map(|binding| binding.cache.generation());
+            .and_then(|(binding, identity)| {
+                binding.cache.replay(identity, self.method, binding.key)
+            });
+        let generation = cache
+            .as_ref()
+            .zip(identity.as_deref())
+            .and_then(|(binding, identity)| binding.cache.generation(identity));
         let retries = retries_for(self.idempotency);
         let state = Walk {
             cache_enabled,
@@ -451,8 +464,12 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
                             None,
                         )
                         .await;
-                        if let Some(error) = self.guard() {
-                            return Some(Err(error));
+                        // A failed answer keeps its own code; only an answer
+                        // that would be delivered is checked.
+                        if response.is_ok() {
+                            if let Some(error) = self.guard() {
+                                return Some(Err(error));
+                            }
                         }
                         match response {
                             Ok(response) if response.not_modified && self.replay.is_some() => {
@@ -485,8 +502,10 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
             };
             outcome.map(PagedResponse::split)
         };
-        if let Some(error) = self.guard() {
-            return Some(Err(error));
+        if delivered.is_ok() {
+            if let Some(error) = self.guard() {
+                return Some(Err(error));
+            }
         }
         Some(self.deliver_page(delivered))
     }
@@ -520,6 +539,7 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
                     if let (Some(binding), Some(identity)) = (&self.cache, &self.identity) {
                         binding.cache.store(
                             identity,
+                            self.generation,
                             self.method,
                             binding.key,
                             std::mem::take(&mut self.chain),
@@ -530,8 +550,8 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
             }
             Err(error) => {
                 if error.code == connectrpc::ErrorCode::Unauthenticated {
-                    if let Some(binding) = &self.cache {
-                        binding.cache.clear();
+                    if let (Some(binding), Some(identity)) = (&self.cache, &self.identity) {
+                        binding.cache.clear_identity(identity);
                     }
                 }
                 self.measurement.finish(false, false);
@@ -549,9 +569,16 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
         let identity = (binding.identity)();
         binding.cache.identity(&identity);
         if self.identity.as_deref() == Some(identity.as_str())
-            && self.generation == Some(binding.cache.generation())
+            && self.generation == binding.cache.generation(&identity)
         {
             return None;
+        }
+        // A walk that outlives its caller drops the chains of the identity it
+        // started as, and of no other.
+        if let Some(started_as) = self.identity.as_deref()
+            && started_as != identity
+        {
+            binding.cache.clear_identity(started_as);
         }
         self.cursor = None;
         self.replaying = false;
@@ -596,6 +623,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::PageErrorKind;
 
     #[derive(Clone)]
     struct Request;
@@ -714,5 +742,191 @@ mod tests {
                 assert_eq!(started.elapsed(), Duration::ZERO);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn a_failed_answer_keeps_its_own_code_when_the_cache_was_cleared_meanwhile() {
+        let cache = crate::RevisionCache::default();
+        let cleared = cache.clone();
+        let fetch: MetadataFetch<Request, Response> = Arc::new(move |_, _| {
+            // The session ended while the page was in flight.
+            cleared.clear();
+            Box::pin(async { Err(ConnectError::permission_denied("not yours")) })
+        });
+        let failure = ListCall::generated(
+            "/contract.v1.Numbers/List",
+            Idempotency::NoSideEffects,
+            fetch,
+            Request,
+            cache,
+            Arc::new(|| "principal".to_owned()),
+            &[],
+        )
+        .first_page()
+        .await
+        .expect_err("the page failed");
+        match failure.kind {
+            PageErrorKind::Rpc(error) => {
+                assert_eq!(error.code, connectrpc::ErrorCode::PermissionDenied);
+            }
+            other => panic!("expected the page's own failure, got {other:?}"),
+        }
+    }
+
+    #[derive(Clone)]
+    struct Cursor(String);
+
+    impl PagedRequest for Cursor {
+        fn set_page(&mut self, cursor: &str, _page_size: Option<u32>) {
+            self.0 = cursor.to_owned();
+        }
+    }
+
+    /// Two pages: the first names the second, the second ends the list.
+    struct TwoPages(String);
+
+    impl PagedResponse for TwoPages {
+        type Item = u32;
+
+        fn split(self) -> (Vec<Self::Item>, PageInfo) {
+            let (item, next_cursor) = if self.0.is_empty() {
+                (1, "second")
+            } else {
+                (2, "")
+            };
+            (
+                vec![item],
+                PageInfo {
+                    next_cursor: next_cursor.to_owned(),
+                    revision: "r1".to_owned(),
+                    total: None,
+                },
+            )
+        }
+    }
+
+    fn walk_as(
+        cache: &crate::RevisionCache,
+        who: &'static str,
+    ) -> impl Stream<Item = Result<crate::Page<u32>, PageError>> + MaybeSend + 'static {
+        let fetch: MetadataFetch<Cursor, TwoPages> = Arc::new(|request, _| {
+            Box::pin(async move {
+                Ok(ListResponse {
+                    body: TwoPages(request.0),
+                    not_modified: false,
+                })
+            })
+        });
+        ListCall::generated(
+            "/contract.v1.Numbers/List",
+            Idempotency::NoSideEffects,
+            fetch,
+            Cursor(String::new()),
+            cache.clone(),
+            Arc::new(move || who.to_owned()),
+            &[],
+        )
+        .pages()
+    }
+
+    #[tokio::test]
+    async fn overlapping_walks_of_two_identities_both_finish_and_both_cache() {
+        let cache = crate::RevisionCache::default();
+        let mut anonymous = Box::pin(walk_as(&cache, "anonymous"));
+        let mut signed_in = Box::pin(walk_as(&cache, "signed-in"));
+        let anonymous_slot = cache.generation("anonymous");
+        let signed_in_slot = cache.generation("signed-in");
+        assert!(anonymous_slot.is_some() && signed_in_slot.is_some());
+        assert_ne!(anonymous_slot, signed_in_slot);
+        let mut delivered = Vec::new();
+        for _ in 0..2 {
+            for walk in [&mut anonymous, &mut signed_in] {
+                delivered.push(walk.next().await.expect("a page").expect("delivered"));
+            }
+        }
+        assert_eq!(delivered.len(), 4);
+        assert!(anonymous.next().await.is_none());
+        assert!(signed_in.next().await.is_none());
+        assert_eq!(cache.generation("anonymous"), anonymous_slot);
+        assert_eq!(cache.generation("signed-in"), signed_in_slot);
+        for who in ["anonymous", "signed-in"] {
+            let chain = cache
+                .replay::<u32>(
+                    who,
+                    "/contract.v1.Numbers/List",
+                    // The walk's key: the empty canonical request, then the page size.
+                    {
+                        let mut digest = Sha256::new();
+                        digest.update(Sha256::digest(b""));
+                        digest.update(0_u32.to_le_bytes());
+                        digest.finalize().into()
+                    },
+                )
+                .expect("the finished walk stored its chain");
+            assert_eq!(chain.len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_walk_that_outlives_its_caller_drops_only_its_own_identity_slot() {
+        let cache = crate::RevisionCache::default();
+        let key = {
+            let mut digest = Sha256::new();
+            digest.update(Sha256::digest(b""));
+            digest.update(0_u32.to_le_bytes());
+            digest.finalize().into()
+        };
+        let mut held = Vec::new();
+        for who in ["alice", "bob"] {
+            let mut walk = Box::pin(walk_as(&cache, who));
+            while let Some(page) = walk.next().await {
+                held.push(page.expect("delivered"));
+            }
+        }
+        // `alice` pauses mid-replay, then the caller becomes `carol`.
+        let caller = Arc::new(std::sync::Mutex::new("alice".to_owned()));
+        let source = Arc::clone(&caller);
+        let fetch: MetadataFetch<Cursor, TwoPages> = Arc::new(|request, metadata| {
+            Box::pin(async move {
+                Ok(ListResponse {
+                    body: TwoPages(request.0),
+                    not_modified: metadata.if_none_match.is_some(),
+                })
+            })
+        });
+        let mut replay = Box::pin(
+            ListCall::generated(
+                "/contract.v1.Numbers/List",
+                Idempotency::NoSideEffects,
+                fetch,
+                Cursor(String::new()),
+                cache.clone(),
+                Arc::new(move || source.lock().expect("caller").clone()),
+                &[],
+            )
+            .pages(),
+        );
+        assert!(
+            replay
+                .next()
+                .await
+                .expect("a page")
+                .expect("delivered")
+                .from_cache
+        );
+        *caller.lock().expect("caller") = "carol".to_owned();
+        let refusal = replay
+            .next()
+            .await
+            .expect("guard result")
+            .expect_err("refused");
+        assert!(matches!(
+            refusal.kind,
+            PageErrorKind::Rpc(error) if error.code == connectrpc::ErrorCode::Unauthenticated
+        ));
+        let path = "/contract.v1.Numbers/List";
+        assert!(cache.replay::<u32>("alice", path, key).is_none());
+        assert!(cache.replay::<u32>("bob", path, key).is_some());
+        drop(held);
     }
 }

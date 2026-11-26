@@ -13,7 +13,7 @@ use serde_json::json;
 
 use super::abort::AbortFlag;
 use super::attempt::Attempt;
-use super::identity::{IdentityGuard, WalkGuard};
+use super::identity::WalkGuard;
 use super::{CallEnv, refusal};
 use crate::ctx::CallCtx;
 use crate::error::{CANCELED, Error};
@@ -54,6 +54,10 @@ pub(crate) struct Plan<'a> {
     pub(crate) retries: u8,
     /// Whether a changed identity is the batch's own refusal.
     pub(crate) batch: bool,
+    /// Whether this is a stream's open: the server is told no deadline, since
+    /// the one it would apply bounds the whole stream, not just the open. The
+    /// open stays inside the budget.
+    pub(crate) stream: bool,
     pub(crate) abort: Option<&'a AbortFlag>,
     /// The identity a whole list walk runs as; `None` when the RPC captures
     /// its own.
@@ -78,26 +82,33 @@ impl Plan<'_> {
             self.parent,
             self.route.attributes(),
         );
-        let outcome = self.abortable(&span, send).await;
+        let local = WalkGuard::default();
+        let walk = self.walk.unwrap_or(&local);
+        let outcome = self.abortable(&span, walk, send).await;
         match &outcome {
             Ok(_) => span.end(SpanStatus::Ok),
             Err(error) if refusal::is(error, CANCELED) => span.end(SpanStatus::Unset),
             Err(error) => span.fail(&Error::from(error.clone())),
         }
         if let Err(error) = &outcome {
-            env.refused(error);
+            env.refused(error, Some(walk));
         }
         outcome
     }
 
     /// The attempt-set raced against the abort. Losing the race drops the
     /// attempt-set's future, which aborts the request in flight.
-    async fn abortable<T, F, Fut>(&self, span: &ActiveSpan, send: F) -> Result<T, ConnectError>
+    async fn abortable<T, F, Fut>(
+        &self,
+        span: &ActiveSpan,
+        walk: &WalkGuard,
+        send: F,
+    ) -> Result<T, ConnectError>
     where
         F: FnMut(Attempt) -> Fut,
         Fut: Future<Output = Result<T, ConnectError>>,
     {
-        let bounded = self.bounded(span, send);
+        let bounded = self.bounded(span, walk, send);
         let Some(abort) = self.abort else {
             return bounded.await;
         };
@@ -109,13 +120,18 @@ impl Plan<'_> {
     }
 
     /// The attempt-set inside the call's one deadline.
-    async fn bounded<T, F, Fut>(&self, span: &ActiveSpan, send: F) -> Result<T, ConnectError>
+    async fn bounded<T, F, Fut>(
+        &self,
+        span: &ActiveSpan,
+        walk: &WalkGuard,
+        send: F,
+    ) -> Result<T, ConnectError>
     where
         F: FnMut(Attempt) -> Fut,
         Fut: Future<Output = Result<T, ConnectError>>,
     {
         let left = self.deadline.saturating_duration_since(rt::Instant::now());
-        rt::timeout(left, self.attempts(span, send))
+        rt::timeout(left, self.attempts(span, walk, send))
             .await
             .unwrap_or_else(|_| Err(refusal::budget_elapsed()))
     }
@@ -124,26 +140,25 @@ impl Plan<'_> {
     /// it once, on its first page), checked again
     /// before each send and retry, and checked once more after an answer
     /// arrived, before it is delivered.
-    async fn attempts<T, F, Fut>(&self, span: &ActiveSpan, mut send: F) -> Result<T, ConnectError>
+    async fn attempts<T, F, Fut>(
+        &self,
+        span: &ActiveSpan,
+        walk: &WalkGuard,
+        mut send: F,
+    ) -> Result<T, ConnectError>
     where
         F: FnMut(Attempt) -> Fut,
         Fut: Future<Output = Result<T, ConnectError>>,
     {
         let source: &dyn CredentialSource = &*self.env.credentials;
-        let own;
-        let guard = if let Some(walk) = self.walk {
-            walk.get(source, self.batch)?
-        } else {
-            own = IdentityGuard::capture(source, self.batch)?;
-            &own
-        };
+        let guard = walk.get(source, self.batch)?;
         let trace = trace_headers(span);
-        let deadline = Deadline(self.deadline);
+        let stated = (!self.stream).then_some(Deadline(self.deadline));
         let answer = fetch_with_retry(
             || {
                 let pending = guard
                     .verify(source)
-                    .map(|credential| send(Attempt::new(credential, &trace, deadline)));
+                    .map(|credential| send(Attempt::new(credential, &trace, stated)));
                 async move { pending?.await }
             },
             self.retries,
@@ -157,14 +172,17 @@ impl Plan<'_> {
 
 impl CallEnv {
     /// What a failed RPC touches: a changed identity or an unauthenticated
-    /// refusal drops the revision cache, and an unauthenticated refusal from
+    /// refusal drops the revision cache slot of the call's own identity
+    /// and no other (nothing when its credential cannot be read), and an unauthenticated refusal from
     /// a server tells the host.
-    pub(super) fn refused(&self, error: &ConnectError) {
+    pub(super) fn refused(&self, error: &ConnectError, walk: Option<&WalkGuard>) {
         let identity_changed = refusal::is_identity_changed(error);
         let unauthenticated = error.code == ErrorCode::Unauthenticated && !identity_changed;
         if identity_changed || unauthenticated {
             if let Some(cache) = &self.cache {
-                cache.clear();
+                let own = WalkGuard::default();
+                let walk = walk.unwrap_or(&own);
+                cache.clear_identity(&walk.cache_identity(&*self.credentials));
             }
         }
         if unauthenticated {

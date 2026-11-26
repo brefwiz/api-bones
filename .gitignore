@@ -56,3 +56,10 @@ api-bones-otel/dist
 *-ci-[0-9]*-[0-9]*-*
 *-release-[0-9]*-[0-9]*-*
 api-bones-sdk-runtime-ts/api-surface.generated.d.ts
+
+# The wrapper package of the test service: only package.json, its lockfile, l2-methods.json and api-surface.d.ts are tracked.
+tests/l2/typescript/*
+!tests/l2/typescript/package.json
+!tests/l2/typescript/package-lock.json
+!tests/l2/typescript/l2-methods.json
+!tests/l2/typescript/api-surface.d.ts

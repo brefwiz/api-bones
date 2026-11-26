@@ -146,10 +146,10 @@ export interface ListCall<T> {
     /** Active iteration span, usable by the UI for first-row measurements. */
     readonly span?: Span;
 }
-/** A Rust-side cursor over a sequence of JSON documents. */
-export interface Handle {
+/** A Rust-side cursor over a sequence of documents; a document is JSON text unless the handle delivers more with it. */
+export interface Handle<Raw = string> {
     /** The next document, or `undefined` when the sequence has ended. */
-    next(): Promise<string | undefined>;
+    next(): Promise<Raw | undefined>;
     /** Releases the Rust side, dropping anything it read ahead. */
     cancel(): void;
     /** The `traceparent` of the handle's open iteration span, or `undefined` when it is not recording. */
@@ -162,20 +162,20 @@ export type ErrorMapper = (rejection: unknown) => unknown;
  * when the sequence ends, when `next()` fails, or when the consumer calls
  * `return()` (a `break`, an unmount or an abort), whichever comes first.
  */
-export declare function iterateHandle<T>(handle: Handle, decode: (json: string) => T, mapError?: ErrorMapper): AsyncIterableIterator<T>;
+export declare function iterateHandle<T, Raw = string>(handle: Handle<Raw>, decode: (raw: Raw) => T, mapError?: ErrorMapper): AsyncIterableIterator<T>;
 /** A sequence that opens a fresh handle for every walk, such as a server stream. */
 export declare function iterableOf<T>(open: () => Handle, decode: (json: string) => T, mapError?: ErrorMapper): AsyncIterable<T>;
 /** What a generated wrapper supplies to build a {@link ListCall}. */
-export interface ListCallSource<T> {
+export interface ListCallSource<T, Raw = string> {
     /** Opens a handle over the list's pages. Called once per walk. */
-    openPages(): Handle;
-    decodePage(json: string): Page<T>;
+    openPages(): Handle<Raw>;
+    decodePage(raw: Raw): Page<T>;
     mapError?: ErrorMapper;
     /** Resolves a handle's iteration span to the live span. */
     sink: JsSpanSink;
 }
 /** A {@link ListCall} over Rust page handles. */
-export declare function listCallOf<T>(source: ListCallSource<T>): ListCall<T>;
+export declare function listCallOf<T, Raw = string>(source: ListCallSource<T, Raw>): ListCall<T>;
 // ===== ./loader.d.ts =====
 /**
  * Starts something once, on first use. Concurrent callers share the one start.

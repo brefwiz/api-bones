@@ -24,7 +24,7 @@ include build/brefwiz-codegen.mk
 # never edited here; ci-workflows revendor-build-fragments.py refreshes them.
 # The two cucumber lanes are harness = false, which nextest cannot enumerate,
 # so they stay out of the archive and ci-e2e-rust runs them in gate-e2e-rust.
-COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-internal-bdd api-bones-wasm-test-server api-bones-test-service-l2
+COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-sdk-call-contract-rust api-bones-internal-bdd api-bones-wasm-test-server api-bones-test-service-l2
 COVERAGE_ALL_FEATURES := true
 
 include build/brefwiz-coverage-common.mk
@@ -93,7 +93,7 @@ ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the cove
 	# and nextest enumerates targets with `--list`, which such a binary does
 	# not accept. ci-e2e-rust runs them. The wasm test server is the wasm32
 	# suite's harness, run by ci-wasm-test, not product code.
-	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --profile ci
+	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-sdk-call-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --profile ci
 
 # Debuginfo off: this lane links every contract and internal-bdd test binary
 # (each carries the localization crate's CLDR data), and the CI worker's target
@@ -133,7 +133,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_fleet_connect_bound
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_root_store
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pagination --locked
-	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test sdk_call
+	cargo test --locked --no-fail-fast -p api-bones-sdk-call-contract-rust --test sdk_call
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_identity_guard --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_fleet_transport --locked
@@ -152,7 +152,7 @@ ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nexte
 	# Excluded for the same reason as ci-test: nextest cannot enumerate a
 	# harness = false target; the wasm test server is test harness, not
 	# product code.
-	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --fail-under-functions 100
+	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-sdk-call-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --fail-under-functions 100
 
 # Publish rehearsals, one per declared SDK language: the release operation
 # minus the upload, so a broken include or files list fails at PR time rather
@@ -273,7 +273,7 @@ TS_PACKAGES := api-bones-otel api-bones-axios api-bones-sdk-runtime-ts api-bones
 # The contract lane is its own TypeScript package; ts-test runs it where npm
 # credentials already exist. It is excluded from publish/pack, which iterate
 # PUBLISHABLE sets, because it ships nothing.
-TS_TEST_PACKAGES := $(TS_PACKAGES) tests/typescript
+TS_TEST_PACKAGES := $(TS_PACKAGES) tests/typescript tests/sdk-call/typescript
 
 .PHONY: canonical-check
 canonical-check: ## Run the brefwiz canonical structural gates locally
@@ -331,6 +331,14 @@ ts-build: ts-types-generate ## Build TypeScript packages
 		( cd $$pkg && npm install --no-audit --no-fund && npm run build ); \
 	done
 
+.PHONY: l2-surface
+# Regenerates the generator-owned pinned surface that wrapper_ts_golden.rs
+# asserts; never hand-edit. Manual target, not part of any CI lane.
+l2-surface: ## Regenerate tests/l2/typescript/api-surface.d.ts from the wrapper generator
+	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	cargo run --locked -p api-bones-sdk-gen -- wrapper typescript --crate tests/l2 --spec SPEC.md --surface sdk-call --out "$$tmp"; \
+	cp "$$tmp/api-surface.d.ts" tests/l2/typescript/api-surface.d.ts
+
 ts-test: ts-types-generate ## Test TypeScript packages
 	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
 	: '@brefwiz/api-bones-connect through its published entry points, so the'
@@ -356,15 +364,30 @@ ts-test: ts-types-generate ## Test TypeScript packages
 		rc=$$?; cat "$$log"; rm -f "$$log"; \
 		echo "TEST-FAIL api-bones-connect-ts exit=$$rc" >&2; exit 1; \
 	fi
+	: 'The contract lane imports the wasm wrapper of the test service Layer 2,'
+	: 'so it is built (wasm32, bound, compiled) before the lane runs cucumber.'
+	@echo "==> prebuild test-service wrapper"; log=$$(mktemp); rcf=$$(mktemp); \
+	{ cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --out tests/l2/typescript 2>&1; echo $$? > "$$rcf"; } | tee "$$log"; \
+	rc=$$(cat "$$rcf"); rm -f "$$rcf"; \
+	if [ "$$rc" = 0 ]; then \
+		rm -f "$$log"; \
+	else \
+		echo "TEST-FAIL tests/l2/typescript exit=$$rc"; \
+		grep -nE '^(error|warning: unused)|could not compile|signal|Killed' "$$log" | head -40; \
+		tail -n 120 "$$log"; rm -f "$$log"; exit 1; \
+	fi
 	@set -e; for pkg in $(TS_TEST_PACKAGES); do \
 		echo "==> test $$pkg"; \
-		log=$$(mktemp); \
-		if ( cd $$pkg && npm install --no-audit --no-fund && npm run test ) >"$$log" 2>&1; then \
-			cat "$$log"; rm -f "$$log"; \
+		log=$$(mktemp); rcf=$$(mktemp); \
+		{ ( cd $$pkg && npm install --no-audit --no-fund && npm run test ) 2>&1 && rc=0 || rc=$$?; echo $$rc > "$$rcf"; } | tee "$$log"; \
+		rc=$$(cat "$$rcf"); rm -f "$$rcf"; \
+		if [ "$$rc" = 0 ]; then \
+			rm -f "$$log"; \
 		else \
-			rc=$$?; cat "$$log"; rm -f "$$log"; \
-			if [ -d "$$pkg/src/generated" ]; then for f in $$pkg/src/generated/*.ts; do echo "==> $$f" >&2; cat "$$f" >&2; done; fi; \
-			echo "TEST-FAIL $$pkg exit=$$rc" >&2; exit 1; \
+			if [ -d "$$pkg/src/generated" ]; then for f in $$pkg/src/generated/*.ts; do [ -e "$$f" ] || continue; echo "==> $$f"; cat "$$f"; done; fi; \
+			echo "TEST-FAIL $$pkg exit=$$rc"; \
+			grep -nE '^(error|warning: unused)|could not compile|signal|Killed' "$$log" | head -40; \
+			tail -n 120 "$$log"; rm -f "$$log"; exit 1; \
 		fi; \
 	done
 

@@ -29,3 +29,4 @@ syn = { version = "2", features = ["full"] }
 [dev-dependencies]
 api-bones-sdk = { version = "0.1.0", path = "../api-bones-sdk", registry = "brefwiz" }
 trybuild = "1"
+wasm-bindgen-macro-support = { workspace = true }

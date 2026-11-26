@@ -4,11 +4,12 @@
 
 use std::fmt;
 
-use api_bones_batch::{Credential, HeaderPair};
+use api_bones_batch::{BONES_LIST_CACHE, Credential, HeaderPair};
+use api_bones_page::ListMetadata;
 use api_bones_transport::Deadline;
 use connectrpc::ConnectError;
 use connectrpc::client::{BoxFuture, CallOptions, ClientBody, ClientTransport};
-use http::header::{HeaderName, HeaderValue};
+use http::header::{HeaderName, HeaderValue, IF_NONE_MATCH};
 use http::{Request, Response};
 
 use super::identity::CREDENTIAL_HEADERS;
@@ -17,11 +18,13 @@ use super::identity::CREDENTIAL_HEADERS;
 ///
 /// The headers are the credential read just before this send, `traceparent`
 /// and, when the call has one, `tracestate`. The deadline is the one instant
-/// the whole call shares: every retry sees the same [`Deadline`].
+/// the whole call shares: every retry sees the same [`Deadline`]. A stream's
+/// open carries none: the server is not told a budget it would apply to the
+/// whole stream.
 #[derive(Clone)]
 pub struct Attempt {
     headers: Vec<HeaderPair>,
-    deadline: Deadline,
+    deadline: Option<Deadline>,
 }
 
 /// Names the headers and shows no credential: the values of the credential
@@ -50,10 +53,31 @@ impl fmt::Debug for Attempt {
 }
 
 impl Attempt {
-    pub(crate) fn new(credential: Credential, trace: &[HeaderPair], deadline: Deadline) -> Self {
+    pub(crate) fn new(
+        credential: Credential,
+        trace: &[HeaderPair],
+        deadline: Option<Deadline>,
+    ) -> Self {
         let mut headers = credential.headers;
         headers.extend_from_slice(trace);
         Self { headers, deadline }
+    }
+
+    /// This send with a list's cache metadata: `bones-list-cache: 1` when the
+    /// list opts in, and `if-none-match` when it holds a revision to confirm.
+    #[must_use]
+    pub fn with_list(mut self, list: &ListMetadata) -> Self {
+        if list.cache_opt_in {
+            self.headers
+                .push((BONES_LIST_CACHE.as_str().to_owned(), b"1".to_vec()));
+        }
+        if let Some(revision) = &list.if_none_match {
+            self.headers.push((
+                IF_NONE_MATCH.as_str().to_owned(),
+                revision.as_bytes().to_vec(),
+            ));
+        }
+        self
     }
 
     /// The headers this send carries, names lower-case.
@@ -62,9 +86,10 @@ impl Attempt {
         &self.headers
     }
 
-    /// When the call's budget runs out.
+    /// When the call's budget runs out; `None` for a stream's open, which
+    /// states no budget to the server.
     #[must_use]
-    pub fn deadline(&self) -> Deadline {
+    pub fn deadline(&self) -> Option<Deadline> {
         self.deadline
     }
 
@@ -84,7 +109,8 @@ impl Attempt {
         Ok(CallOptions::default().with_headers(pairs))
     }
 
-    /// `inner`, with this send's deadline on every request it sends.
+    /// `inner`, with this send's deadline, when it has one, on every request
+    /// it sends.
     #[must_use]
     pub fn transport<T: ClientTransport>(&self, inner: T) -> WithDeadline<T> {
         WithDeadline {
@@ -96,11 +122,12 @@ impl Attempt {
 
 /// A transport that puts one call's [`Deadline`] in the extensions of every
 /// request, so the transport states the time left in the timeout header and
-/// gives up when it passes.
+/// gives up when it passes. A send without a deadline leaves the requests as
+/// they are.
 #[derive(Clone)]
 pub struct WithDeadline<T> {
     inner: T,
-    deadline: Deadline,
+    deadline: Option<Deadline>,
 }
 
 impl<T: ClientTransport> ClientTransport for WithDeadline<T> {
@@ -111,7 +138,9 @@ impl<T: ClientTransport> ClientTransport for WithDeadline<T> {
         &self,
         mut request: Request<ClientBody>,
     ) -> BoxFuture<'static, Result<Response<Self::ResponseBody>, Self::Error>> {
-        request.extensions_mut().insert(self.deadline);
+        if let Some(deadline) = self.deadline {
+            request.extensions_mut().insert(deadline);
+        }
         self.inner.send(request)
     }
 }
@@ -127,6 +156,10 @@ mod tests {
     use std::time::Duration;
 
     fn attempt(headers: &[(&str, &[u8])]) -> Attempt {
+        attempt_with(headers, true)
+    }
+
+    fn attempt_with(headers: &[(&str, &[u8])], deadline: bool) -> Attempt {
         let credential = Credential {
             identity: Identity::default(),
             headers: headers
@@ -138,7 +171,7 @@ mod tests {
         Attempt::new(
             credential,
             &trace,
-            Deadline(Instant::now() + Duration::from_secs(1)),
+            deadline.then(|| Deadline(Instant::now() + Duration::from_secs(1))),
         )
     }
 
@@ -151,6 +184,33 @@ mod tests {
             .map(|(name, _)| name.as_str())
             .collect();
         assert_eq!(names, ["authorization", "traceparent"]);
+    }
+
+    #[test]
+    fn list_metadata_adds_the_cache_headers_it_names() {
+        let both = attempt(&[]).with_list(&ListMetadata {
+            cache_opt_in: true,
+            if_none_match: Some("\"r1\"".to_owned()),
+        });
+        let sent: Vec<_> = both
+            .headers()
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_slice()))
+            .collect();
+        assert!(sent.contains(&("bones-list-cache", b"1".as_slice())));
+        assert!(sent.contains(&("if-none-match", b"\"r1\"".as_slice())));
+        let none = attempt(&[]).with_list(&ListMetadata::default());
+        assert_eq!(none.headers().len(), 1, "only the trace context");
+        let opted_in = attempt(&[]).with_list(&ListMetadata {
+            cache_opt_in: true,
+            if_none_match: None,
+        });
+        assert!(
+            !opted_in
+                .headers()
+                .iter()
+                .any(|(name, _)| name == "if-none-match")
+        );
     }
 
     #[test]
@@ -219,7 +279,24 @@ mod tests {
         transport.send(request).await.expect_err("recorded failure");
         assert_eq!(
             *recorder.seen.lock().expect("recorder"),
-            vec![Some(sent.deadline())]
+            vec![sent.deadline()]
         );
+        assert!(sent.deadline().is_some());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_attempt_without_a_deadline_stamps_none_on_the_request() {
+        let sent = attempt_with(&[], false);
+        assert_eq!(sent.deadline(), None);
+        let recorder = Recorder::default();
+        let transport = sent.transport(recorder.clone());
+        let body: ClientBody = Empty::<Bytes>::new()
+            .map_err(|never| match never {})
+            .boxed();
+        transport
+            .send(Request::new(body))
+            .await
+            .expect_err("recorded failure");
+        assert_eq!(*recorder.seen.lock().expect("recorder"), vec![None]);
     }
 }

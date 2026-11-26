@@ -212,9 +212,7 @@ dependencies = [
  "api-bones-i18n",
  "api-bones-page",
  "api-bones-protos",
- "api-bones-sdk",
  "api-bones-stream",
- "api-bones-test-service-l2",
  "api-bones-transport",
  "brefwiz-cucumber-steps",
  "buffa 0.9.2",
@@ -383,12 +381,31 @@ dependencies = [
  "http",
  "http-body-util",
  "js-sys",
+ "serde",
  "serde_json",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "api-bones-sdk-call-contract-rust"
+version = "0.0.0"
+dependencies = [
+ "api-bones",
+ "api-bones-batch",
+ "api-bones-contract-rust",
+ "api-bones-page",
+ "api-bones-sdk",
+ "api-bones-test-service-l2",
+ "brefwiz-cucumber-steps",
+ "bytes",
+ "connectrpc",
+ "cucumber",
+ "futures-util",
+ "tokio",
 ]
 
 [[package]]
@@ -400,6 +417,7 @@ dependencies = [
  "api-bones-sdk-model",
  "clap",
  "serde_json",
+ "serde_yaml",
  "syn 2.0.119",
 ]
 
@@ -413,6 +431,7 @@ dependencies = [
  "quote",
  "syn 2.0.119",
  "trybuild",
+ "wasm-bindgen-macro-support",
 ]
 
 [[package]]

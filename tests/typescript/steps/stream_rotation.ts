@@ -10,8 +10,8 @@
 
 import assert from "node:assert/strict";
 
-import { create, type DescMessage, type Message } from "@bufbuild/protobuf";
-import { FileDescriptorProtoSchema } from "@bufbuild/protobuf/wkt";
+import { create, createFileRegistry, type DescMessage, type Message } from "@bufbuild/protobuf";
+import { FileDescriptorProtoSchema, FileDescriptorSetSchema } from "@bufbuild/protobuf/wkt";
 import type { Transport } from "@connectrpc/connect";
 import { After, Given, Then, When, World } from "@cucumber/cucumber";
 
@@ -23,13 +23,13 @@ import {
   type StreamRole,
 } from "@brefwiz/api-bones-connect";
 
-// The descriptor is shared with the package's unit tests, which keeps one copy.
+// The descriptor is shared with the connect package's unit tests, which import it from here.
 import {
   T,
   control,
   field,
-  registryWith,
-} from "../../../api-bones-connect-ts/src/stream-rotation.fixtures.ts";
+  streamFile,
+} from "./stream_rotation_fixtures.ts";
 
 interface RotationWorld extends World {
   machine?: RotationMachine<string>;
@@ -218,17 +218,18 @@ Then(
 
 // The shipped `rotatingStream`, driven through a scripted open function.
 
-const registry = registryWith(
-  create(FileDescriptorProtoSchema, {
-    name: "app/v1/events.proto",
-    package: "app.v1",
-    syntax: "proto3",
-    dependency: ["bones/v1/stream.proto"],
-    messageType: [
-      { name: "Declaring", field: [field("id", "id", 1, T.STRING), control(2047)] },
-      { name: "NotDeclaring", field: [field("id", "id", 1, T.STRING)] },
-    ],
-  }),
+const appFile = create(FileDescriptorProtoSchema, {
+  name: "app/v1/events.proto",
+  package: "app.v1",
+  syntax: "proto3",
+  dependency: ["bones/v1/stream.proto"],
+  messageType: [
+    { name: "Declaring", field: [field("id", "id", 1, T.STRING), control(2047)] },
+    { name: "NotDeclaring", field: [field("id", "id", 1, T.STRING)] },
+  ],
+});
+const registry = createFileRegistry(
+  create(FileDescriptorSetSchema, { file: [create(FileDescriptorProtoSchema, streamFile), appFile] }),
 );
 
 function descriptor(name: string): DescMessage {

@@ -1,0 +1,29 @@
+{
+  "name": "@brefwiz/api-bones-test-service-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/generated-l2/index.js",
+  "types": "./dist/generated-l2/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/generated-l2/index.d.ts",
+      "import": "./dist/generated-l2/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');for (const f of ['api_bones_test_service_l2.js','api_bones_test_service_l2_bg.wasm']) fs.copyFileSync('src/generated-l2/'+f,'dist/generated-l2/'+f)\""
+  },
+  "dependencies": {
+    "@brefwiz/api-bones-sdk-runtime": "file:../../../api-bones-sdk-runtime-ts",
+    "@opentelemetry/api": ">=1.9.0 <1.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.0.0"
+  }
+}
