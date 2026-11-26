@@ -11,7 +11,8 @@
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, anyhow};
 use api_bones_sdk_model::{
@@ -20,12 +21,16 @@ use api_bones_sdk_model::{
 };
 
 /// What the SPEC front matter and the crate's manifest say about the package.
+/// The manifest is resolved by `cargo metadata`, so workspace-inherited fields
+/// carry their value. `out` is the directory the package is written to; the
+/// runtime dependency link is relative to it.
 ///
 /// # Errors
 ///
 /// A SPEC without front matter, without the surface, or without a TypeScript
-/// package for it; a manifest without a name.
-pub fn package_of(spec: &Path, krate: &Path, surface: &str) -> anyhow::Result<Package> {
+/// package for it; a manifest `cargo metadata` rejects or that declares no
+/// license; an `out` path that cannot be resolved.
+pub fn package_of(spec: &Path, krate: &Path, surface: &str, out: &Path) -> anyhow::Result<Package> {
     let text =
         std::fs::read_to_string(spec).with_context(|| format!("cannot read {}", spec.display()))?;
     let front = text
@@ -64,37 +69,77 @@ pub fn package_of(spec: &Path, krate: &Path, surface: &str) -> anyhow::Result<Pa
         .as_str()
         .ok_or_else(|| anyhow!("surface `{surface}` names no TypeScript package"))?
         .to_owned();
-    let manifest = std::fs::read_to_string(krate.join("Cargo.toml"))
-        .with_context(|| format!("cannot read the manifest of {}", krate.display()))?;
-    let field = |key: &str| {
-        manifest
-            .lines()
-            .find_map(|line| line.strip_prefix(key)?.trim_start().strip_prefix('='))
-            .map(|value| value.trim().trim_matches('"').to_owned())
-    };
-    let crate_name = field("name").ok_or_else(|| anyhow!("the manifest names no crate"))?;
-    let license = field("license");
-    let inherits = license
-        .as_deref()
-        .is_some_and(|value| value.starts_with('{'))
-        || manifest
-            .lines()
-            .any(|line| line.trim_start().starts_with("license.workspace"));
-    if inherits {
+    let manifest_path = krate.join("Cargo.toml");
+    let output = Command::new("cargo")
+        .args([
+            "metadata",
+            "--no-deps",
+            "--format-version",
+            "1",
+            "--manifest-path",
+        ])
+        .arg(&manifest_path)
+        .output()
+        .context("cannot start `cargo metadata`")?;
+    if !output.status.success() {
         return Err(anyhow!(
-            "the manifest of {} inherits its license from the workspace; a literal `license = \"...\"` is required",
-            krate.display()
+            "`cargo metadata` failed for {}: {}",
+            manifest_path.display(),
+            String::from_utf8_lossy(&output.stderr).trim()
         ));
     }
-    let license = license
-        .ok_or_else(|| anyhow!("the manifest of {} declares no license", krate.display()))?;
+    let manifest_path = manifest_path
+        .canonicalize()
+        .with_context(|| format!("cannot read the manifest of {}", krate.display()))?;
+    let found = crate_metadata(&String::from_utf8_lossy(&output.stdout), &manifest_path)?;
     Ok(Package {
         service,
-        crate_name,
+        crate_name: found.name,
         name,
-        version: field("version").unwrap_or_else(|| "0.0.0".to_owned()),
-        license,
+        version: found.version,
+        license: found.license,
+        private: found.private,
+        runtime: runtime_dependency(spec.parent().unwrap_or(Path::new("")), out)?,
         spec: spec_l2,
+    })
+}
+
+/// What the Layer 2 crate's manifest resolves to, workspace inheritance
+/// included.
+#[derive(Debug, PartialEq, Eq)]
+struct CrateMetadata {
+    name: String,
+    version: String,
+    license: String,
+    /// The crate says `publish = false`.
+    private: bool,
+}
+
+/// The package of `manifest` in the `cargo metadata --no-deps` document
+/// `json`.
+fn crate_metadata(json: &str, manifest: &Path) -> anyhow::Result<CrateMetadata> {
+    let document: serde_json::Value =
+        serde_json::from_str(json).context("`cargo metadata` did not answer JSON")?;
+    let package = document["packages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|package| package["manifest_path"].as_str().map(Path::new) == Some(manifest))
+        .ok_or_else(|| {
+            anyhow!(
+                "`cargo metadata` lists no package for {}",
+                manifest.display()
+            )
+        })?;
+    let text = |key: &str| package[key].as_str().map(str::to_owned);
+    Ok(CrateMetadata {
+        name: text("name").ok_or_else(|| anyhow!("the manifest names no crate"))?,
+        version: text("version").ok_or_else(|| anyhow!("the manifest declares no version"))?,
+        license: text("license")
+            .ok_or_else(|| anyhow!("the manifest of {} declares no license", manifest.display()))?,
+        private: package["publish"]
+            .as_array()
+            .is_some_and(std::vec::Vec::is_empty),
     })
 }
 
@@ -118,6 +163,10 @@ pub struct Package {
     pub version: String,
     /// The Layer 2 crate's SPDX license, published with the package.
     pub license: String,
+    /// The Layer 2 crate sets `publish = false`, so the package is private.
+    pub private: bool,
+    /// The runtime dependency spec: a `file:` link or the floor release.
+    pub runtime: String,
     /// The `sdk_surfaces` the exports name, and each endpoint's Rust methods.
     pub spec: SpecL2Methods,
 }
@@ -143,11 +192,15 @@ pub fn generate(model: &Model, package: &Package) -> anyhow::Result<Vec<File>> {
         &package.name,
     )?;
     let glue = package.crate_name.replace('-', "_");
+    let options = client_options(model)?;
     let mut files = vec![
-        ("package.json".to_owned(), manifest(package, &glue)),
+        (
+            "package.json".to_owned(),
+            manifest(package, &glue, &package.runtime),
+        ),
         ("tsconfig.json".to_owned(), tsconfig()),
         ("l2-methods.json".to_owned(), document.to_json()),
-        (format!("{SOURCE_DIR}/types.ts"), types_ts(model)),
+        (format!("{SOURCE_DIR}/types.ts"), types_ts(model, &options)),
         (format!("{SOURCE_DIR}/errors.ts"), errors_ts(model)),
         (format!("{SOURCE_DIR}/init.ts"), init_ts(package, &glue)),
         (
@@ -178,13 +231,66 @@ pub fn write(out: &Path, files: &[File]) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn manifest(package: &Package, glue: &str) -> String {
+/// The npm name of the runtime package every wrapper imports.
+pub const RUNTIME_PACKAGE: &str = "@brefwiz/api-bones-sdk-runtime";
+
+/// The lowest runtime release the emitted code runs against. Raised when the
+/// emitted code uses a runtime export a lower release lacks.
+pub const RUNTIME_FLOOR: &str = "0.2.0";
+
+/// The runtime dependency of the package written to `out`: a `file:` link to
+/// the runtime package next to the SPEC when `spec_dir` holds it, the floor
+/// release otherwise.
+fn runtime_dependency(spec_dir: &Path, out: &Path) -> anyhow::Result<String> {
+    let home = spec_dir.join("api-bones-sdk-runtime-ts");
+    let named = std::fs::read_to_string(home.join("package.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|manifest| manifest["name"] == RUNTIME_PACKAGE);
+    if !named {
+        return Ok(format!(">={RUNTIME_FLOOR}"));
+    }
+    let link = relative(&resolved(out)?, &resolved(&home)?);
+    let spelled: Vec<_> = link
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect();
+    Ok(format!("file:{}", spelled.join("/")))
+}
+
+/// `path` made absolute with its longest existing ancestor canonical; the part
+/// that does not exist yet is kept as written.
+fn resolved(path: &Path) -> anyhow::Result<PathBuf> {
+    let absolute =
+        std::path::absolute(path).with_context(|| format!("cannot resolve {}", path.display()))?;
+    let (existing, base) = absolute
+        .ancestors()
+        .find_map(|ancestor| Some((ancestor, ancestor.canonicalize().ok()?)))
+        .ok_or_else(|| anyhow!("cannot resolve {}", path.display()))?;
+    Ok(base.join(absolute.strip_prefix(existing)?))
+}
+
+/// The path from directory `from` to `to`, both absolute.
+fn relative(from: &Path, to: &Path) -> PathBuf {
+    let from: Vec<Component> = from.components().collect();
+    let to: Vec<Component> = to.components().collect();
+    let shared = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut link = PathBuf::new();
+    for _ in shared..from.len() {
+        link.push("..");
+    }
+    for part in &to[shared..] {
+        link.push(part);
+    }
+    link
+}
+
+fn manifest(package: &Package, glue: &str, runtime: &str) -> String {
     let entry = "./dist/generated-l2/index.js";
     let types = "./dist/generated-l2/index.d.ts";
-    let document = serde_json::json!({
+    let mut document = serde_json::json!({
         "name": package.name,
         "version": package.version,
-        "private": true,
         "license": package.license,
         "type": "module",
         "main": entry,
@@ -193,11 +299,14 @@ fn manifest(package: &Package, glue: &str) -> String {
         "files": ["dist"],
         "scripts": { "build": format!("tsc -p tsconfig.json && node -e \"const fs=require('fs');for (const f of ['{glue}.js','{glue}_bg.wasm']) fs.copyFileSync('{SOURCE_DIR}/'+f,'dist/generated-l2/'+f)\"") },
         "dependencies": {
-            "@brefwiz/api-bones-sdk-runtime": "file:../../../api-bones-sdk-runtime-ts",
+            (RUNTIME_PACKAGE): runtime,
             "@opentelemetry/api": ">=1.9.0 <1.10.0"
         },
         "devDependencies": { "@types/node": "^22.20.1", "typescript": "^5.0.0" }
     });
+    if package.private {
+        document["private"] = serde_json::Value::Bool(true);
+    }
     let mut text = serde_json::to_string_pretty(&document).expect("json serialises");
     text.push('\n');
     text
@@ -319,15 +428,81 @@ fn record_ts(record: &Record, out: &mut String) {
     let _ = writeln!(out, "  }};\n}}\n");
 }
 
-fn types_ts(model: &Model) -> String {
+/// The options of the package's clients: the union of the optional fields
+/// their `from_host` constructors take, in order of first appearance.
+///
+/// # Errors
+///
+/// Two clients that take the same option with different types.
+fn client_options(model: &Model) -> anyhow::Result<Vec<Param>> {
+    let mut union: Vec<Param> = Vec::new();
+    for client in &model.clients {
+        for option in &client.options {
+            match union
+                .iter()
+                .find(|seen| seen.json_name() == option.json_name())
+            {
+                Some(seen) if seen.ty != option.ty => {
+                    return Err(anyhow!(
+                        "option `{}` of `{}` is {:?} but another client takes it as {:?}",
+                        option.json_name(),
+                        client.ty,
+                        option.ty,
+                        seen.ty
+                    ));
+                }
+                Some(_) => {}
+                None => union.push(option.clone()),
+            }
+        }
+    }
+    Ok(union)
+}
+
+/// The JSON text of the client options the wasm constructor reads: each
+/// option by its camelCase name. An option the caller left unset is dropped by
+/// `JSON.stringify`, and an `#[enumeration]` crosses as its string value.
+fn options_json(model: &Model, options: &[Param]) -> String {
+    let members: Vec<String> = options
+        .iter()
+        .map(|option| {
+            let key = json_name(&option.name);
+            let source = format!("options.{key}");
+            let value = match &option.ty {
+                WireType::Option(inner)
+                    if is_enumeration(model, inner) || encode(inner, &source) == source =>
+                {
+                    source
+                }
+                ty => encode(ty, &source),
+            };
+            format!("{key}: {value}")
+        })
+        .collect();
+    if members.is_empty() {
+        "\"{}\"".to_owned()
+    } else {
+        format!("JSON.stringify({{ {} }})", members.join(", "))
+    }
+}
+
+fn is_enumeration(model: &Model, ty: &WireType) -> bool {
+    matches!(ty, WireType::Named(name) if model.enumerations.iter().any(|e| &e.name == name))
+}
+
+fn types_ts(model: &Model, options: &[Param]) -> String {
     let mut out = String::from(HEADER);
     out.push_str("import type { BonesError, Page } from \"@brefwiz/api-bones-sdk-runtime\";\n\n");
     out.push_str(
         "/** What the host reads about the caller before every send. */\nexport interface Credential {\n  readonly subject: string;\n  readonly org: string;\n  readonly headers: Readonly<Record<string, string>>;\n}\n\n",
     );
     out.push_str(
-        "/** How a client authenticates: explicitly anonymous, or a credential read before every send. */\nexport interface ClientOptions {\n  readonly credential: \"anonymous\" | (() => Credential);\n  /** Called when a server refuses the credential as unauthenticated. */\n  readonly onUnauthenticated?: () => void;\n}\n\n",
+        "/** How a client authenticates: explicitly anonymous, or a credential read before every send, and the options its constructors take. */\nexport interface ClientOptions {\n  readonly credential: \"anonymous\" | (() => Credential);\n  /** Called when a server refuses the credential as unauthenticated. */\n  readonly onUnauthenticated?: () => void;\n",
     );
+    for option in options {
+        out.push_str(&field_decl(option));
+    }
+    out.push_str("}\n\n");
     out.push_str(
         "/** Per-call options. */\nexport interface CallOptions {\n  readonly signal?: AbortSignal;\n}\n\n",
     );
@@ -637,11 +812,12 @@ fn client_ts(
         "\nconst sink = new JsSpanSink();\n\nfunction mapError(rejection: unknown): unknown {\n  return typeof rejection === \"string\" ? parseBonesError(rejection) : rejection;\n}\n\nfunction host(options: ClientOptions): object {\n  const credential = options.credential;\n  return {\n    anonymous: credential === \"anonymous\",\n    credential: () => JSON.stringify(typeof credential === \"function\" ? credential() : null),\n    unauthenticated: () => options.onUnauthenticated?.(),\n    start: (json: string) => sink.start(json),\n    end: (json: string) => sink.end(json),\n  };\n}\n",
     );
     for client in &model.clients {
+        let options = options_json(model, &client.options);
         let class = export_name(&package.service, &client.ty, "new")?;
         let class = class.trim_end_matches("__new").to_owned();
         let _ = write!(
             out,
-            "\nexport class {ty} {{\n  readonly #wasm: glue.{class};\n\n  private constructor(wasm: glue.{class}) {{\n    this.#wasm = wasm;\n  }}\n\n  /** A client of the server at `baseUrl`; rejects `invalid_argument` when it is not a URI. */\n  static async create(baseUrl: string, options: ClientOptions): Promise<{ty}> {{\n    const wasm = await init();\n    try {{\n      return new {ty}(wasm.{class}.{class}__new(baseUrl, host(options)));\n    }} catch (rejection) {{\n      throw mapError(rejection);\n    }}\n  }}\n",
+            "\nexport class {ty} {{\n  readonly #wasm: glue.{class};\n\n  private constructor(wasm: glue.{class}) {{\n    this.#wasm = wasm;\n  }}\n\n  /** A client of the server at `baseUrl`; rejects `invalid_argument` when it is not a URI. */\n  static async create(baseUrl: string, options: ClientOptions): Promise<{ty}> {{\n    const wasm = await init();\n    try {{\n      return new {ty}(wasm.{class}.{class}__new(baseUrl, host(options), {options}));\n    }} catch (rejection) {{\n      throw mapError(rejection);\n    }}\n  }}\n",
             ty = client.ty
         );
         for export in &client.exports {
@@ -663,48 +839,278 @@ mod tests {
 
     const SPEC: &str = "---\nservice: svc\nsdk_surfaces:\n  s:\n    targets:\n      typescript:\n        packages: [\"@x/y\"]\n---\n";
 
-    fn package_with(tag: &str, manifest: &str) -> anyhow::Result<Package> {
+    fn scratch(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("wrapper-ts-{}-{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("dir");
+        dir
+    }
+
+    /// A workspace whose one member `c` holds `member` as its manifest.
+    fn package_with(tag: &str, member: &str) -> anyhow::Result<Package> {
+        let dir = scratch(tag);
         std::fs::write(dir.join("SPEC.md"), SPEC).expect("spec");
-        std::fs::write(dir.join("Cargo.toml"), manifest).expect("manifest");
-        let result = package_of(&dir.join("SPEC.md"), &dir, "s");
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"c\"]\nresolver = \"3\"\n[workspace.package]\nversion = \"1.2.3\"\nlicense = \"Apache-2.0\"\n",
+        )
+        .expect("workspace");
+        std::fs::create_dir_all(dir.join("c/src")).expect("member");
+        std::fs::write(dir.join("c/src/lib.rs"), "").expect("source");
+        std::fs::write(dir.join("c/Cargo.toml"), member).expect("manifest");
+        let result = package_of(&dir.join("SPEC.md"), &dir.join("c"), "s", &dir.join("out"));
         std::fs::remove_dir_all(&dir).expect("cleaned");
         result
     }
 
+    const INHERITING: &str = "[package]\nname = \"c\"\nversion.workspace = true\nedition = \"2024\"\nlicense.workspace = true\n";
+
     #[test]
-    fn the_license_is_read_from_the_manifest() {
-        let package =
-            package_with("ok", "[package]\nname = \"c\"\nlicense = \"MIT\"\n").expect("package");
-        assert_eq!(package.license, "MIT");
+    fn the_workspace_inherited_fields_resolve_to_their_values() {
+        let package = package_with("inherit", INHERITING).expect("package");
+        assert_eq!(package.crate_name, "c");
+        assert_eq!(package.version, "1.2.3");
+        assert_eq!(package.license, "Apache-2.0");
+        assert!(!package.private);
     }
 
     #[test]
-    fn a_manifest_without_a_license_is_refused() {
-        let error = package_with("none", "[package]\nname = \"c\"\n")
-            .err()
-            .expect("refused");
-        assert!(error.to_string().contains("declares no license"), "{error}");
-    }
-
-    #[test]
-    fn a_workspace_inherited_license_is_refused() {
-        let error = package_with("ws", "[package]\nname = \"c\"\nlicense.workspace = true\n")
-            .err()
-            .expect("refused");
-        assert!(error.to_string().contains("literal"), "{error}");
-    }
-
-    #[test]
-    fn an_inline_workspace_inherited_license_is_refused() {
-        let error = package_with(
-            "inline",
-            "[package]\nname = \"c\"\nlicense = { workspace = true }\n",
+    fn a_literal_manifest_resolves_and_publish_false_makes_the_package_private() {
+        let package = package_with(
+            "literal",
+            "[package]\nname = \"c\"\nversion = \"4.5.6\"\nedition = \"2024\"\nlicense = \"MIT\"\npublish = false\n",
         )
-        .err()
-        .expect("refused");
-        assert!(error.to_string().contains("a literal `license"), "{error}");
+        .expect("package");
+        assert_eq!(package.version, "4.5.6");
+        assert_eq!(package.license, "MIT");
+        assert!(package.private);
+        assert_eq!(package.runtime, format!(">={RUNTIME_FLOOR}"));
+    }
+
+    #[test]
+    fn a_manifest_cargo_rejects_is_refused_with_its_message() {
+        let error = package_with("broken", "[package\n").err().expect("refused");
+        assert!(
+            error.to_string().contains("`cargo metadata` failed"),
+            "{error}"
+        );
+    }
+
+    fn metadata(packages: &str) -> String {
+        format!("{{\"packages\":[{packages}],\"workspace_members\":[]}}")
+    }
+
+    fn entry(manifest: &str, extra: &str) -> String {
+        format!(
+            "{{\"name\":\"n\",\"version\":\"1.0.0\",\"license\":\"MIT\",\"manifest_path\":\"{manifest}\"{extra}}}"
+        )
+    }
+
+    #[test]
+    fn the_package_of_the_manifest_is_picked_among_the_workspace_members() {
+        let json = metadata(&format!(
+            "{{\"name\":\"other\",\"version\":\"9.9.9\",\"license\":\"GPL-3.0\",\"manifest_path\":\"/w/o/Cargo.toml\",\"publish\":null}},{}",
+            entry("/w/c/Cargo.toml", ",\"publish\":null")
+        ));
+        let found = crate_metadata(&json, Path::new("/w/c/Cargo.toml")).expect("found");
+        assert_eq!(
+            found,
+            CrateMetadata {
+                name: "n".to_owned(),
+                version: "1.0.0".to_owned(),
+                license: "MIT".to_owned(),
+                private: false,
+            }
+        );
+    }
+
+    #[test]
+    fn only_an_empty_publish_list_makes_the_package_private() {
+        for (publish, private) in [
+            (",\"publish\":[]", true),
+            (",\"publish\":null", false),
+            (",\"publish\":[\"crates-io\"]", false),
+            ("", false),
+        ] {
+            let json = metadata(&entry("/w/Cargo.toml", publish));
+            let found = crate_metadata(&json, Path::new("/w/Cargo.toml")).expect("found");
+            assert_eq!(found.private, private, "{publish}");
+        }
+    }
+
+    #[test]
+    fn a_document_that_lists_no_package_for_the_manifest_is_refused() {
+        let json = metadata(&entry("/w/o/Cargo.toml", ""));
+        let error = crate_metadata(&json, Path::new("/w/c/Cargo.toml")).expect_err("absent");
+        assert!(error.to_string().contains("lists no package"), "{error}");
+        let error = crate_metadata("{}", Path::new("/w/c/Cargo.toml")).expect_err("no packages");
+        assert!(error.to_string().contains("lists no package"), "{error}");
+    }
+
+    #[test]
+    fn a_document_that_is_not_json_is_refused() {
+        let error = crate_metadata("not json", Path::new("/w/Cargo.toml")).expect_err("refused");
+        assert!(error.to_string().contains("did not answer JSON"), "{error}");
+    }
+
+    #[test]
+    fn a_package_without_a_name_a_version_or_a_license_is_refused() {
+        let at = "\"manifest_path\":\"/w/Cargo.toml\"";
+        for (fields, message) in [
+            (
+                "\"version\":\"1.0.0\",\"license\":\"MIT\"",
+                "names no crate",
+            ),
+            ("\"name\":\"n\",\"license\":\"MIT\"", "declares no version"),
+            (
+                "\"name\":\"n\",\"version\":\"1.0.0\",\"license\":null",
+                "declares no license",
+            ),
+        ] {
+            let json = metadata(&format!("{{{fields},{at}}}"));
+            let error = crate_metadata(&json, Path::new("/w/Cargo.toml")).expect_err(message);
+            assert!(error.to_string().contains(message), "{error}");
+        }
+    }
+
+    fn package_for(private: bool) -> Package {
+        Package {
+            service: "svc".to_owned(),
+            crate_name: "c".to_owned(),
+            name: "@x/y".to_owned(),
+            version: "1.2.3".to_owned(),
+            license: "MIT".to_owned(),
+            private,
+            runtime: format!(">={RUNTIME_FLOOR}"),
+            spec: SpecL2Methods::default(),
+        }
+    }
+
+    #[test]
+    fn the_manifest_is_private_only_for_a_private_crate() {
+        let read = |private| -> serde_json::Value {
+            serde_json::from_str(&manifest(&package_for(private), "c", ">=0.2.0")).expect("json")
+        };
+        assert_eq!(read(true)["private"], true);
+        assert!(read(false).get("private").is_none());
+        assert_eq!(read(false)["version"], "1.2.3");
+    }
+
+    #[test]
+    fn the_manifest_carries_the_runtime_dependency_it_is_given() {
+        let document: serde_json::Value =
+            serde_json::from_str(&manifest(&package_for(false), "c", "file:../rt")).expect("json");
+        assert_eq!(document["dependencies"][RUNTIME_PACKAGE], "file:../rt");
+    }
+
+    fn runtime_at(spec_dir: &Path, package_json: &str) {
+        let home = spec_dir.join("api-bones-sdk-runtime-ts");
+        std::fs::create_dir_all(&home).expect("home");
+        std::fs::write(home.join("package.json"), package_json).expect("package.json");
+    }
+
+    const RUNTIME_JSON: &str = "{\"name\":\"@brefwiz/api-bones-sdk-runtime\"}";
+
+    #[test]
+    fn a_runtime_package_next_to_the_spec_is_linked_relative_to_the_output() {
+        let dir = scratch("link");
+        runtime_at(&dir, RUNTIME_JSON);
+        let out = dir.join("tests/l2/typescript");
+        assert_eq!(
+            runtime_dependency(&dir, &out).expect("dependency"),
+            "file:../../../api-bones-sdk-runtime-ts"
+        );
+        std::fs::create_dir_all(&out).expect("out");
+        assert_eq!(
+            runtime_dependency(&dir, &out).expect("dependency"),
+            "file:../../../api-bones-sdk-runtime-ts"
+        );
+        assert_eq!(
+            runtime_dependency(&dir, &dir.join("sdk")).expect("dependency"),
+            "file:../api-bones-sdk-runtime-ts"
+        );
+        std::fs::remove_dir_all(&dir).expect("cleaned");
+    }
+
+    #[test]
+    fn the_link_is_the_same_through_a_symlinked_output() {
+        let dir = scratch("symlink");
+        runtime_at(&dir, RUNTIME_JSON);
+        std::fs::create_dir_all(dir.join("real/deep")).expect("real");
+        std::os::unix::fs::symlink(dir.join("real/deep"), dir.join("alias")).expect("symlink");
+        let through_alias = runtime_dependency(&dir, &dir.join("alias")).expect("dependency");
+        assert_eq!(
+            through_alias,
+            runtime_dependency(&dir, &dir.join("real/deep")).expect("dependency")
+        );
+        assert_eq!(through_alias, "file:../../api-bones-sdk-runtime-ts");
+        std::fs::remove_dir_all(&dir).expect("cleaned");
+    }
+
+    #[test]
+    fn a_missing_or_foreign_runtime_package_falls_back_to_the_floor() {
+        let floor = format!(">={RUNTIME_FLOOR}");
+        let dir = scratch("floor");
+        assert_eq!(
+            runtime_dependency(&dir, &dir.join("out")).expect("floor"),
+            floor
+        );
+        runtime_at(&dir, "{\"name\":\"@other/runtime\"}");
+        assert_eq!(
+            runtime_dependency(&dir, &dir.join("out")).expect("floor"),
+            floor
+        );
+        runtime_at(&dir, "not json");
+        assert_eq!(
+            runtime_dependency(&dir, &dir.join("out")).expect("floor"),
+            floor
+        );
+        runtime_at(&dir, "{}");
+        assert_eq!(
+            runtime_dependency(&dir, &dir.join("out")).expect("floor"),
+            floor
+        );
+        std::fs::remove_dir_all(&dir).expect("cleaned");
+    }
+
+    #[test]
+    fn the_floor_is_a_single_minimum_the_connect_package_peers_on() {
+        let parts: Vec<&str> = RUNTIME_FLOOR.split('.').collect();
+        assert_eq!(parts.len(), 3, "{RUNTIME_FLOOR}");
+        assert!(
+            parts
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())),
+            "{RUNTIME_FLOOR}"
+        );
+        let peer =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../api-bones-connect-ts/package.json");
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(peer).expect("the connect manifest"))
+                .expect("json");
+        assert_eq!(
+            manifest["peerDependencies"][RUNTIME_PACKAGE],
+            format!(">={RUNTIME_FLOOR}")
+        );
+    }
+
+    #[test]
+    fn a_relative_path_climbs_out_of_the_origin_then_descends() {
+        let path = |from, to| relative(Path::new(from), Path::new(to));
+        assert_eq!(path("/a/b/c", "/a/d"), Path::new("../../d"));
+        assert_eq!(path("/a", "/a/b/c"), Path::new("b/c"));
+        assert_eq!(path("/a/b", "/a/b"), Path::new(""));
+    }
+
+    #[test]
+    fn a_path_resolves_through_its_longest_existing_ancestor() {
+        let dir = scratch("resolved").canonicalize().expect("canonical");
+        assert_eq!(resolved(&dir).expect("existing"), dir);
+        assert_eq!(
+            resolved(&dir.join("x/y")).expect("missing tail"),
+            dir.join("x/y")
+        );
+        std::fs::remove_dir_all(&dir).expect("cleaned");
     }
 
     #[test]
@@ -749,7 +1155,7 @@ mod tests {
     /// symbol, out of sight of enumeration and serialisation.
     #[test]
     fn a_decoded_page_carries_its_hold_where_enumeration_does_not_reach() {
-        let types = types_ts(&Model::default());
+        let types = types_ts(&Model::default(), &[]);
         assert!(
             types.contains("export type PageDelivery = readonly [json: string, hold: object];"),
             "{types}"
@@ -853,6 +1259,7 @@ mod tests {
                     export("list_widgets", false, vec![], handle(HandleKind::List)),
                     export("count", true, vec![], Return::Value(WireType::U32)),
                 ],
+                options: vec![],
             }],
             ..Model::default()
         };
@@ -882,5 +1289,137 @@ mod tests {
         );
         assert!(text.contains("  count(): number;"), "{text}");
         assert!(text.ends_with("}\n"), "{text}");
+    }
+
+    fn option(name: &str, ty: WireType) -> Param {
+        Param {
+            name: name.to_owned(),
+            ty: WireType::Option(Box::new(ty)),
+        }
+    }
+
+    fn client_with(ty: &str, options: Vec<Param>) -> api_bones_sdk_model::Client {
+        api_bones_sdk_model::Client {
+            ty: ty.to_owned(),
+            surface: "s".to_owned(),
+            exports: vec![],
+            options,
+        }
+    }
+
+    fn model_of(clients: Vec<api_bones_sdk_model::Client>) -> Model {
+        Model {
+            enumerations: vec![api_bones_sdk_model::Enumeration {
+                name: "Transport".to_owned(),
+                values: vec!["connect".to_owned(), "grpc_web".to_owned()],
+            }],
+            clients,
+            ..Model::default()
+        }
+    }
+
+    #[test]
+    fn the_client_options_are_the_union_of_the_options_of_every_client() {
+        let model = model_of(vec![
+            client_with(
+                "A",
+                vec![
+                    option("default_page_size", WireType::U32),
+                    option("transport", WireType::Named("Transport".to_owned())),
+                ],
+            ),
+            client_with("B", vec![option("default_page_size", WireType::U32)]),
+            client_with("C", vec![]),
+        ]);
+        let names: Vec<_> = client_options(&model)
+            .expect("a union")
+            .iter()
+            .map(Param::json_name)
+            .collect();
+        assert_eq!(names, ["defaultPageSize", "transport"]);
+        assert!(client_options(&Model::default()).expect("none").is_empty());
+    }
+
+    #[test]
+    fn one_option_with_two_types_is_refused() {
+        let model = model_of(vec![
+            client_with("A", vec![option("size", WireType::U32)]),
+            client_with("B", vec![option("size", WireType::String)]),
+        ]);
+        let message = client_options(&model).expect_err("refused").to_string();
+        assert!(
+            message.contains("`size`") && message.contains("`B`"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn each_client_sends_only_its_own_options() {
+        let model = model_of(vec![
+            client_with("Gadgets", vec![option("default_page_size", WireType::U32)]),
+            client_with("Widgets", vec![]),
+        ]);
+        let package = package_for(false);
+        let document = l2_methods(
+            &model,
+            &package.spec,
+            &package.service,
+            &package.crate_name,
+            &package.name,
+        )
+        .expect("methods");
+        let text = client_ts(&model, &package, &document, "c").expect("client");
+        let create = |ty: &str| {
+            let from = text.find(&format!("export class {ty} ")).expect("class");
+            let body = &text[from..];
+            let line = body
+                .lines()
+                .find(|line| line.contains("__new("))
+                .expect("constructor call");
+            line.to_owned()
+        };
+        let gadgets = create("Gadgets");
+        let widgets = create("Widgets");
+        assert!(
+            gadgets.contains("JSON.stringify({ defaultPageSize: options.defaultPageSize })"),
+            "{gadgets}"
+        );
+        assert!(widgets.contains("host(options), \"{}\")"), "{widgets}");
+        assert!(!widgets.contains("defaultPageSize"), "{widgets}");
+    }
+
+    #[test]
+    fn the_options_are_declared_on_the_client_options_and_sent_as_json() {
+        let model = model_of(vec![client_with(
+            "A",
+            vec![
+                option("default_page_size", WireType::U32),
+                option("transport", WireType::Named("Transport".to_owned())),
+                option("since", WireType::SystemTime),
+            ],
+        )]);
+        let options = client_options(&model).expect("a union");
+        let types = types_ts(&model, &options);
+        assert!(
+            types.contains(
+                "  readonly onUnauthenticated?: () => void;\n  readonly defaultPageSize?: number | undefined;\n  readonly transport?: Transport | undefined;\n  readonly since?: Date | undefined;\n}\n"
+            ),
+            "{types}"
+        );
+        assert_eq!(
+            options_json(&model, &options),
+            "JSON.stringify({ defaultPageSize: options.defaultPageSize, transport: options.transport, since: options.since === undefined ? undefined : options.since.toISOString() })"
+        );
+    }
+
+    #[test]
+    fn a_package_without_options_sends_an_empty_object() {
+        let model = model_of(vec![client_with("A", vec![])]);
+        assert_eq!(options_json(&model, &[]), "\"{}\"");
+        let types = types_ts(&model, &[]);
+        assert!(
+            types.contains("  readonly onUnauthenticated?: () => void;\n}\n"),
+            "{types}"
+        );
     }
 }

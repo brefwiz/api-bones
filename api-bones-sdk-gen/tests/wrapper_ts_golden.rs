@@ -21,6 +21,10 @@ fn repo() -> PathBuf {
 }
 
 fn generate(name: &str) -> PathBuf {
+    generate_from(name, &repo().join("SPEC.md"))
+}
+
+fn generate_from(name: &str, spec: &Path) -> PathBuf {
     let out = std::env::temp_dir().join(format!(
         "api-bones-sdk-gen-wrapper-{}-{name}",
         std::process::id()
@@ -30,7 +34,7 @@ fn generate(name: &str) -> PathBuf {
         .args(["wrapper", "typescript", "--crate"])
         .arg(repo().join("tests/l2"))
         .arg("--spec")
-        .arg(repo().join("SPEC.md"))
+        .arg(spec)
         .args(["--surface", "sdk-call", "--out"])
         .arg(&out)
         .output()
@@ -59,11 +63,67 @@ fn the_snapshot_and_manifest_written_are_the_tracked_ones() {
     let out = generate("tracked");
     assert_eq!(read(&out, "l2-methods.json"), TRACKED_METHODS);
     assert_eq!(read(&out, "api-surface.d.ts"), TRACKED_SURFACE);
-    let written: serde_json::Value =
-        serde_json::from_str(&read(&out, "package.json")).expect("json");
-    let tracked: serde_json::Value = serde_json::from_str(TRACKED_MANIFEST).expect("json");
+    let (written, written_runtime) = without_runtime(&read(&out, "package.json"));
+    let (tracked, tracked_runtime) = without_runtime(TRACKED_MANIFEST);
     assert_eq!(written, tracked);
+    let link = tracked_runtime
+        .strip_prefix("file:")
+        .expect("a tracked file: link");
+    assert_eq!(
+        repo()
+            .join("tests/l2/typescript")
+            .join(link)
+            .canonicalize()
+            .expect("the tracked link resolves"),
+        repo()
+            .join("api-bones-sdk-runtime-ts")
+            .canonicalize()
+            .expect("the runtime package")
+    );
+    assert!(written_runtime.starts_with("file:"), "{written_runtime}");
     fs::remove_dir_all(&out).expect("cleaned");
+}
+
+/// The manifest without its runtime dependency, and that dependency.
+fn without_runtime(text: &str) -> (serde_json::Value, String) {
+    let mut manifest: serde_json::Value = serde_json::from_str(text).expect("json");
+    let runtime = manifest["dependencies"]
+        .as_object_mut()
+        .and_then(|dependencies| dependencies.remove("@brefwiz/api-bones-sdk-runtime"))
+        .and_then(|version| version.as_str().map(str::to_owned))
+        .expect("a runtime dependency");
+    (manifest, runtime)
+}
+
+#[test]
+fn the_runtime_next_to_the_spec_is_linked_relative_to_the_output() {
+    let out = generate("link");
+    let (_, runtime) = without_runtime(&read(&out, "package.json"));
+    let link = runtime.strip_prefix("file:").expect("a file: link");
+    assert_eq!(
+        out.join(link).canonicalize().expect("the link resolves"),
+        repo()
+            .join("api-bones-sdk-runtime-ts")
+            .canonicalize()
+            .expect("the runtime package")
+    );
+    fs::remove_dir_all(&out).expect("cleaned");
+}
+
+#[test]
+fn a_spec_without_the_runtime_beside_it_depends_on_the_floor_release() {
+    let home = std::env::temp_dir().join(format!(
+        "api-bones-sdk-gen-wrapper-{}-lone-spec",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&home);
+    fs::create_dir_all(&home).expect("a directory");
+    fs::copy(repo().join("SPEC.md"), home.join("SPEC.md")).expect("the SPEC");
+    let out = generate_from("floor", &home.join("SPEC.md"));
+    let (_, runtime) = without_runtime(&read(&out, "package.json"));
+    assert_eq!(runtime, ">=0.2.0");
+    fs::remove_dir_all(&out).expect("cleaned");
+    fs::remove_dir_all(&home).expect("cleaned");
 }
 
 #[test]

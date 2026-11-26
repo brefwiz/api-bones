@@ -53,6 +53,9 @@ struct Seen {
     /// The `authorization` header; empty when the request carried none.
     authorization: String,
     timeout_ms: u64,
+    /// The page size a list request asked for; zero for any other request or
+    /// none asked.
+    page_size: u32,
 }
 
 /// The server's script and record, the caller's credential source and the
@@ -139,12 +142,18 @@ impl Shared {
     /// owes, if any. Every service of the lane's server admits its requests
     /// through here.
     fn admit(&self, ctx: &RequestContext) -> Result<(), ConnectError> {
+        self.admit_sized(ctx, 0)
+    }
+
+    /// [`Shared::admit`] for a list request that asked for `page_size`.
+    fn admit_sized(&self, ctx: &RequestContext, page_size: u32) -> Result<(), ConnectError> {
         lock(&self.seen).push(Seen {
             traceparent: header(ctx, "traceparent"),
             authorization: header(ctx, "authorization"),
             timeout_ms: header(ctx, "connect-timeout-ms")
                 .parse()
                 .unwrap_or_default(),
+            page_size,
         });
         let refreshed = lock(&self.refresh_to).take();
         if let Some(authorization) = refreshed {
@@ -383,15 +392,10 @@ impl Numbers for NumbersService {
         ctx: RequestContext,
         request: ServiceRequest<'_, ListNumbersRequest>,
     ) -> ServiceResult<impl Encodable<ListNumbersResponse> + Send + use<'a>> {
-        self.0.admit(&ctx)?;
         let request = request.to_owned_message();
-        let first_page = request
-            .page
-            .clone()
-            .into_option()
-            .unwrap_or_default()
-            .cursor
-            .is_empty();
+        let page = request.page.clone().into_option().unwrap_or_default();
+        self.0.admit_sized(&ctx, page.page_size)?;
+        let first_page = page.cursor.is_empty();
         if first_page
             && header(&ctx, "bones-list-cache") == "1"
             && header(&ctx, "if-none-match") == format!("\"{REVISION}\"")
@@ -468,6 +472,9 @@ struct SdkCallWorld {
     pages_cached: Vec<bool>,
     /// Why the call, the chunk, a page or a tick was refused.
     refusal: Option<Error>,
+    /// The page size the caller's numbers client asks for when a call names
+    /// none.
+    default_page_size: Option<u32>,
 }
 
 impl Drop for SdkCallWorld {
@@ -595,6 +602,11 @@ fn given_caller(world: &mut SdkCallWorld, subject: String, org: String) {
         identity: Identity { subject, org },
         headers: vec![("authorization".to_owned(), b"Bearer caller".to_vec())],
     };
+}
+
+#[given(expr = "the numbers client defaults to the page size {int}")]
+fn given_default_page_size(world: &mut SdkCallWorld, size: u32) {
+    world.default_page_size = Some(size);
 }
 
 #[given("the caller is anonymous")]
@@ -744,6 +756,7 @@ async fn open_numbers(world: &SdkCallWorld) -> Handle<Page<Number>> {
 async fn open_numbers_at(world: &SdkCallWorld, url: &str) -> Handle<Page<Number>> {
     api_bones_test_service_l2::NumbersClient::new(url, call_env(world))
         .expect("the lane's server address is a URI")
+        .with_default_page_size(world.default_page_size)
         .list(None)
         .await
 }
@@ -1095,6 +1108,18 @@ fn then_request_carried_span(world: &mut SdkCallWorld) {
 #[then(expr = "the server saw {int} request\\(s\\)")]
 fn then_count(world: &mut SdkCallWorld, count: usize) {
     assert_eq!(world.seen().len(), count);
+}
+
+#[then(expr = "every request the server saw asked for the page size {int}")]
+fn then_page_size(world: &mut SdkCallWorld, size: u32) {
+    let page = world
+        .first_page
+        .as_ref()
+        .expect("a When read the first page");
+    let asked: Vec<u32> = world.seen().iter().map(|seen| seen.page_size).collect();
+    assert!(!asked.is_empty(), "the server saw no request");
+    assert_eq!(asked, vec![size; asked.len()]);
+    assert_eq!(page.items.len(), size as usize);
 }
 
 #[then("every request the server saw carried a valid traceparent")]

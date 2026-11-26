@@ -24,7 +24,9 @@ use connectrpc::client::{
     BoxFuture, CallOptions, ClientBody, ClientConfig, ClientTransport, call_server_stream,
     call_unary, call_unary_get,
 };
-use connectrpc::{ConnectError, ErrorCode, HasMessageView, JsonSerialize, Spec, StreamType};
+use connectrpc::{
+    ConnectError, ErrorCode, HasMessageView, JsonSerialize, Protocol, Spec, StreamType,
+};
 use http::{Request, Response, Uri};
 use js_sys::{Array, Function, Object, Promise, Reflect, Symbol};
 use wasm_bindgen::{JsCast, JsValue};
@@ -229,6 +231,7 @@ globalThis.fetch = function (input, init) {
     csrf: header("x-csrf-token"),
     authorization: header("authorization"),
     timeout: header("connect-timeout-ms"),
+    contentType: header("content-type"),
     signal: init ? init.signal : null,
   });
   return original.call(globalThis, input, init);
@@ -251,6 +254,7 @@ struct Seen {
     csrf: Option<String>,
     authorization: Option<String>,
     timeout: Option<String>,
+    content_type: Option<String>,
     signal: JsValue,
 }
 
@@ -267,6 +271,7 @@ impl Seen {
             csrf: string("csrf"),
             authorization: string("authorization"),
             timeout: string("timeout"),
+            content_type: string("contentType"),
             signal: field("signal"),
         }
     }
@@ -577,20 +582,18 @@ async fn dropping_a_call_aborts_its_fetch() {
     await_abandoned("Delay", before).await;
 }
 
-#[wasm_bindgen_test]
-async fn a_server_stream_is_read_message_by_message() {
-    let recorder = Recorder::install();
+/// Every message of a `Watch` stream opened with `config`, in order.
+async fn watch_ticks(config: &ClientConfig) -> Vec<String> {
     let spec = Spec::client(WATCH, StreamType::ServerStream);
     let mut stream = call_server_stream::<_, Int64Value, Text>(
         &Probe::new(),
-        &config(&server()),
+        config,
         spec,
         millis(3),
         CallOptions::default(),
     )
     .await
     .expect("the stream opens");
-
     let mut ticks = Vec::new();
     while let Some(message) = stream
         .message::<StringValue>()
@@ -599,10 +602,75 @@ async fn a_server_stream_is_read_message_by_message() {
     {
         ticks.push(message.to_owned_message().value);
     }
+    ticks
+}
+
+#[wasm_bindgen_test]
+async fn a_server_stream_is_read_message_by_message() {
+    let recorder = Recorder::install();
+    let ticks = watch_ticks(&config(&server())).await;
     assert_eq!(ticks, ["tick-0", "tick-1", "tick-2"]);
     let seen = recorder.take();
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].credentials, "include");
+}
+
+/// The gRPC-Web framing and its trailer frame are connectrpc's client core's;
+/// the transport passes the request's content type and body bytes to `fetch`
+/// and the response's headers and bytes back, so these calls prove the bytes
+/// survive both ways.
+#[wasm_bindgen_test]
+async fn a_grpc_web_unary_call_round_trips_and_names_its_content_type() {
+    let recorder = Recorder::install();
+    let config = config(&server()).with_protocol(Protocol::GrpcWeb);
+    let spec = Spec::client(READ, StreamType::Unary);
+    let answer = call_unary::<_, StringValue, Text>(
+        &Probe::new(),
+        &config,
+        spec,
+        text("web"),
+        CallOptions::default(),
+    )
+    .await
+    .expect("the gRPC-Web call succeeds")
+    .into_owned()
+    .value;
+    assert_eq!(answer, "web");
+    let seen = recorder.take();
+    assert_eq!(seen.len(), 1);
+    assert!(
+        seen[0]
+            .content_type
+            .as_deref()
+            .is_some_and(|value| value.starts_with("application/grpc-web")),
+        "content type: {:?}",
+        seen[0].content_type
+    );
+}
+
+#[wasm_bindgen_test]
+async fn a_grpc_web_refusal_reaches_the_caller_with_its_status() {
+    // The public lane carries no CSRF token, which the server refuses; the
+    // status arrives in the gRPC-Web trailer frame or the response headers.
+    let spec = Spec::client(WRITE, StreamType::Unary);
+    let config = config(&public()).with_protocol(Protocol::GrpcWeb);
+    let error = call_unary::<_, StringValue, Text>(
+        &Probe::new(),
+        &config,
+        spec,
+        text("refused"),
+        CallOptions::default(),
+    )
+    .await
+    .map(|_| ())
+    .expect_err("the server refuses the write");
+    assert_eq!(error.code, ErrorCode::PermissionDenied, "{error:?}");
+}
+
+#[wasm_bindgen_test]
+async fn a_grpc_web_server_stream_is_read_message_by_message() {
+    let ticks = watch_ticks(&config(&server()).with_protocol(Protocol::GrpcWeb)).await;
+    assert_eq!(ticks, ["tick-0", "tick-1", "tick-2"]);
 }
 
 #[wasm_bindgen_test]

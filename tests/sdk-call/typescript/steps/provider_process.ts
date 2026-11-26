@@ -26,6 +26,8 @@ export interface Seen {
   listCache: string;
   /** The `if-none-match` header; empty when the request carried none. */
   ifNoneMatch: string;
+  /** The page size a list request asked for; zero for any other request or none asked. */
+  pageSize: number;
 }
 
 /** A change of the caller the server scripts while it handles a request. */

@@ -273,6 +273,36 @@ mod tests {
     }
 
     #[test]
+    fn a_from_host_in_the_impl_is_kept_and_its_options_reach_the_constructor() {
+        let text = flat(&run(
+            quote!(surface = "s"),
+            "impl C { pub fn from_host(base_url: String, host: JsValue, size: Option<u32>) -> Result<Self, Error> { body() } }",
+        ));
+        assert!(
+            text.contains("pubfnfrom_host(base_url:String,host:JsValue,size:Option<u32>)"),
+            "{text}"
+        );
+        assert!(text.contains("&[\"size\"]"), "{text}");
+        assert!(
+            text.contains(
+                "<C>::from_host(base_url,host,::api_bones_sdk::field(&__options,\"size\")?)"
+            ),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn an_option_of_from_host_that_is_not_optional_is_refused() {
+        let text = flat(&run(
+            quote!(surface = "s"),
+            "impl C { pub fn from_host(base_url: String, host: JsValue, size: u32) -> Result<Self, Error> { body() } }",
+        ));
+        assert!(text.starts_with("::core::compile_error!"), "{text}");
+        assert!(text.contains("option`size`"), "{text}");
+        assert!(text.contains("`Option`"), "{text}");
+    }
+
+    #[test]
     fn a_trait_impl_or_generic_impl_is_refused() {
         let text = flat(&run(quote!(surface = "s"), "impl<T> C<T> {}"));
         assert!(text.contains("inherent,non-genericimpl"), "{text}");

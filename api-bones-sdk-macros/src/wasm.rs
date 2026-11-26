@@ -2,9 +2,13 @@
 //! The wasm32 exports of a `#[client]` impl.
 //!
 //! Each client becomes a wasm class named `<svc>__<Type>`. Its constructor
-//! export is `<svc>__<Type>__new(base_url, host)`, built from the type's
-//! `from_host(base_url: String, host: JsValue) -> Result<Self, Error>`; the
-//! constructor throws the error JSON when that fails. Each export is a
+//! export is `<svc>__<Type>__new(base_url, host, options_json)`, built from the
+//! type's `from_host(base_url: String, host: JsValue, ..) -> Result<Self, Error>`.
+//! A `from_host` inside the `#[client]` impl may take further parameters, each an
+//! `Option` of a wire type; they are the client's options, read from the
+//! `options_json` object by camelCase name, and a member that is not one of
+//! them is refused. The constructor throws the error JSON when that fails.
+//! Each export is a
 //! method named `<svc>__<Type>__<method>`, gated by the features `sdk-all`,
 //! `sdk-<surface>` and `sdk-m-<method>`.
 //!
@@ -28,7 +32,7 @@
 use std::collections::BTreeSet;
 
 use api_bones_sdk_model::{
-    Client, Export, HandleKind, Return, export_name, gate_features, json_name,
+    Client, Export, HandleKind, Param, Return, export_name, gate_features, json_name,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -135,6 +139,7 @@ pub(crate) fn expand(
     let impl_attr = impl_attr(&class);
     let private = private();
     let method = method_attr();
+    let option_keys: Vec<String> = client.options.iter().map(Param::json_name).collect();
     Ok(quote! {
         #class_gate
         const _: () = {
@@ -151,14 +156,22 @@ pub(crate) fn expand(
             pub fn new_js(
                 base_url: ::std::string::String,
                 host: #private::wasm_bindgen::JsValue,
+                options_json: ::std::string::String,
             ) -> ::core::result::Result<Self, #private::wasm_bindgen::JsValue> {
-                <#self_ty>::from_host(base_url, host)
-                    .map(|__client| Self { inner: ::std::sync::Arc::new(__client) })
-                    .map_err(|__error| {
-                        #private::wasm_bindgen::JsValue::from_str(
-                            &::core::convert::Into::<::api_bones_sdk::Error>::into(__error).to_json(),
-                        )
-                    })
+                (|| -> ::core::result::Result<#self_ty, ::api_bones_sdk::Error> {
+                    let __options = ::api_bones_sdk::parse_options(
+                        &options_json,
+                        &[#(#option_keys),*],
+                    )?;
+                    <#self_ty>::from_host(
+                        base_url,
+                        host
+                        #(, ::api_bones_sdk::field(&__options, #option_keys)?)*
+                    )
+                    .map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)
+                })()
+                .map(|__client| Self { inner: ::std::sync::Arc::new(__client) })
+                .map_err(|__error| #private::wasm_bindgen::JsValue::from_str(&__error.to_json()))
             }
 
             #[#method(js_name = "__api_bones_sdk_build_info")]
@@ -519,7 +532,11 @@ mod tests {
     "#;
 
     fn built(service: &str) -> syn::Result<TokenStream> {
-        let file: syn::File = syn::parse_str(SOURCE).expect("a file");
+        built_from(SOURCE, service)
+    }
+
+    fn built_from(source: &str, service: &str) -> syn::Result<TokenStream> {
+        let file: syn::File = syn::parse_str(source).expect("a file");
         let model = Model::from_files([&file]).expect("a model");
         let item = file
             .items
@@ -533,7 +550,11 @@ mod tests {
             .items
             .iter()
             .filter_map(|member| match member {
-                syn::ImplItem::Fn(function) => Some(function),
+                syn::ImplItem::Fn(function)
+                    if api_bones_sdk_model::attrs::find(&function.attrs, "export").is_some() =>
+                {
+                    Some(function)
+                }
                 _ => None,
             })
             .collect();
@@ -707,7 +728,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("pubfnnew_js(base_url:::std::string::String,host:::api_bones_sdk::__private::wasm_bindgen::JsValue,)->::core::result::Result<Self,::api_bones_sdk::__private::wasm_bindgen::JsValue>"),
+            text.contains("pubfnnew_js(base_url:::std::string::String,host:::api_bones_sdk::__private::wasm_bindgen::JsValue,options_json:::std::string::String,)->::core::result::Result<Self,::api_bones_sdk::__private::wasm_bindgen::JsValue>"),
             "{text}"
         );
     }
@@ -715,7 +736,36 @@ mod tests {
     #[test]
     fn a_constructor_that_fails_throws_the_error_json_instead_of_panicking() {
         let text = text();
-        assert!(text.contains("<NumbersClient>::from_host(base_url,host).map(|__client|Self{inner:::std::sync::Arc::new(__client)}).map_err(|__error|{::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&::core::convert::Into::<::api_bones_sdk::Error>::into(__error).to_json(),)})"), "{text}");
+        assert!(text.contains("(||->::core::result::Result<NumbersClient,::api_bones_sdk::Error>{let__options=::api_bones_sdk::parse_options(&options_json,&[],)?;<NumbersClient>::from_host(base_url,host).map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)})().map(|__client|Self{inner:::std::sync::Arc::new(__client)}).map_err(|__error|::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&__error.to_json()))"), "{text}");
+    }
+
+    #[test]
+    fn the_options_of_from_host_are_read_from_the_options_json_by_name() {
+        let source = r#"
+            #[enumeration]
+            pub enum Transport { Fetch }
+
+            #[client(surface = "s")]
+            impl NumbersClient {
+                pub fn from_host(
+                    base_url: String,
+                    host: JsValue,
+                    default_page_size: Option<u32>,
+                    transport: Option<Transport>,
+                ) -> Result<Self, Error> { body() }
+                #[export]
+                pub async fn clear(&self) -> Result<(), Error> { body() }
+            }
+        "#;
+        let text = flat(&built_from(source, "api-bones").expect("expanded"));
+        assert!(
+            text.contains("::api_bones_sdk::parse_options(&options_json,&[\"defaultPageSize\",\"transport\"],)?;"),
+            "{text}"
+        );
+        assert!(
+            text.contains("<NumbersClient>::from_host(base_url,host,::api_bones_sdk::field(&__options,\"defaultPageSize\")?,::api_bones_sdk::field(&__options,\"transport\")?)"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -970,6 +1020,7 @@ mod tests {
             ty: "C".to_owned(),
             surface: "s".to_owned(),
             exports: vec![export],
+            options: Vec::new(),
         };
         assert_eq!(model.clients.len(), 0);
         let error = expand("svc", &client, &item.self_ty, &[function]).expect_err("refused");

@@ -143,6 +143,10 @@ pub struct Client {
     pub surface: String,
     /// The exports, in declaration order.
     pub exports: Vec<Export>,
+    /// The options the impl's own `from_host` takes after `base_url` and
+    /// `host`, in declaration order; empty when the impl has no `from_host`.
+    /// Each is an `Option` of a wire type.
+    pub options: Vec<Param>,
 }
 
 /// Everything a Layer 2 crate annotates.
@@ -412,7 +416,56 @@ fn client(item: &ItemImpl, env: &Env) -> syn::Result<Option<Client>> {
         ty,
         surface: args.surface,
         exports,
+        options: options(item, env)?,
     }))
+}
+
+/// The parameters of the impl's `from_host` after `base_url` and `host`.
+///
+/// The constructor is detected, not required: an impl without one has no
+/// options. Each option is optional on the wire, so a host that sets none
+/// builds the same client.
+fn options(item: &ItemImpl, env: &Env) -> syn::Result<Vec<Param>> {
+    let Some(function) = item.items.iter().find_map(|member| match member {
+        ImplItem::Fn(function) if function.sig.ident == "from_host" => Some(function),
+        _ => None,
+    }) else {
+        return Ok(Vec::new());
+    };
+    let inputs: Vec<&syn::PatType> = function
+        .sig
+        .inputs
+        .iter()
+        .filter_map(|input| match input {
+            FnArg::Typed(typed) => Some(typed),
+            FnArg::Receiver(_) => None,
+        })
+        .collect();
+    if inputs.len() < 2 {
+        return Err(syn::Error::new_spanned(
+            &function.sig,
+            "`from_host` takes `base_url` and `host`, then its options",
+        ));
+    }
+    let mut parsed = Vec::new();
+    for typed in &inputs[2..] {
+        let Pat::Ident(ident) = &*typed.pat else {
+            return Err(syn::Error::new_spanned(
+                &typed.pat,
+                "a parameter is a plain name",
+            ));
+        };
+        let name = ident.ident.to_string();
+        let ty = classify(&typed.ty, env, &format!("option `{name}`"))?;
+        if !matches!(ty, WireType::Option(_)) {
+            return Err(syn::Error::new_spanned(
+                &typed.ty,
+                format!("option `{name}` of `from_host` is an `Option` of a wire type"),
+            ));
+        }
+        parsed.push(Param { name, ty });
+    }
+    Ok(parsed)
 }
 
 fn export(
@@ -729,5 +782,76 @@ mod tests {
         assert!(message.contains("the return type"), "{message}");
         let message = export_refused("#[export(bad)] fn go(&self) {}");
         assert!(message.contains("unknown argument"), "{message}");
+    }
+
+    fn options_of(constructor: &str) -> syn::Result<Vec<Param>> {
+        let text = format!(
+            "#[enumeration] enum Kind {{ A }} #[client(surface = \"s\")] impl C {{ {constructor} }}"
+        );
+        Model::from_source(&text).map(|model| model.clients[0].options.clone())
+    }
+
+    #[test]
+    fn a_client_without_from_host_has_no_options() {
+        let model = Model::from_source(SAMPLE).expect("ok");
+        assert_eq!(model.clients[0].options, Vec::<Param>::new());
+    }
+
+    #[test]
+    fn the_options_of_from_host_follow_base_url_and_host() {
+        let options = options_of(
+            "pub fn from_host(base_url: String, host: JsValue, default_page_size: Option<u32>, \
+             transport: Option<Kind>) -> Result<Self, Error> { body() }",
+        )
+        .expect("ok");
+        assert_eq!(
+            options,
+            [
+                Param {
+                    name: "default_page_size".to_owned(),
+                    ty: WireType::Option(Box::new(WireType::U32))
+                },
+                Param {
+                    name: "transport".to_owned(),
+                    ty: WireType::Option(Box::new(WireType::Named("Kind".to_owned())))
+                },
+            ]
+        );
+        assert_eq!(options[0].json_name(), "defaultPageSize");
+        let none = options_of(
+            "pub fn from_host(base_url: String, host: JsValue) -> Result<Self, Error> { body() }",
+        )
+        .expect("ok");
+        assert_eq!(none, Vec::<Param>::new());
+    }
+
+    #[test]
+    fn an_option_of_from_host_is_an_optional_plain_wire_parameter() {
+        let message = options_of(
+            "pub fn from_host(base_url: String, host: JsValue, size: u32) -> Result<Self, Error> { body() }",
+        )
+        .expect_err("refused")
+        .to_string();
+        assert!(
+            message.contains("option `size`") && message.contains("`Option`"),
+            "{message}"
+        );
+        let message = options_of(
+            "pub fn from_host(base_url: String, host: JsValue, size: Option<usize>) -> Result<Self, Error> { body() }",
+        )
+        .expect_err("refused")
+        .to_string();
+        assert!(message.contains("option `size`"), "{message}");
+        let message = options_of(
+            "pub fn from_host(base_url: String, host: JsValue, (a, b): (i32, i32)) -> Result<Self, Error> { body() }",
+        )
+        .expect_err("refused")
+        .to_string();
+        assert!(message.contains("a parameter is a plain name"), "{message}");
+        let message =
+            options_of("pub fn from_host(base_url: String) -> Result<Self, Error> { body() }")
+                .expect_err("refused")
+                .to_string();
+        assert!(message.contains("`base_url` and `host`"), "{message}");
     }
 }

@@ -9,11 +9,12 @@ export interface Credential {
   readonly headers: Readonly<Record<string, string>>;
 }
 
-/** How a client authenticates: explicitly anonymous, or a credential read before every send. */
+/** How a client authenticates: explicitly anonymous, or a credential read before every send, and the options its constructors take. */
 export interface ClientOptions {
   readonly credential: "anonymous" | (() => Credential);
   /** Called when a server refuses the credential as unauthenticated. */
   readonly onUnauthenticated?: () => void;
+  readonly defaultPageSize?: number | undefined;
 }
 
 /** Per-call options. */

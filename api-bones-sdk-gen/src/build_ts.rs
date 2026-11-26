@@ -92,7 +92,7 @@ pub fn build(
     out: &Path,
     target_dir: &Path,
 ) -> anyhow::Result<()> {
-    let package = wrapper_ts::package_of(spec, krate, surface)?;
+    let package = wrapper_ts::package_of(spec, krate, surface, out)?;
     let glue = package.crate_name.replace('-', "_");
     tools.run(&Step {
         what: "cargo build for wasm32",

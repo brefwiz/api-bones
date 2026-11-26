@@ -132,6 +132,21 @@ pub fn parse_args(text: &str) -> Result<Map<String, Value>, BadValue> {
     }
 }
 
+/// The members of a client options object, keyed by option name.
+///
+/// An option the client does not take is refused, so a misspelled or stale
+/// option fails the constructor instead of being ignored.
+///
+/// # Errors
+/// The text is not a JSON object, or names a member outside `known`.
+pub fn parse_options(text: &str, known: &[&str]) -> Result<Map<String, Value>, BadValue> {
+    let members = parse_args(text)?;
+    match members.keys().find(|key| !known.contains(&key.as_str())) {
+        Some(key) => Err(BadValue::new(format!("unknown option `{key}`"))),
+        None => Ok(members),
+    }
+}
+
 /// The member `name` of `members` as a `T`. An absent member reads as `null`,
 /// so only an `Option` accepts it.
 ///
@@ -703,6 +718,43 @@ mod tests {
         assert_eq!(
             parse_args("[]").unwrap_err().to_string(),
             "expected an object of arguments, found an array"
+        );
+    }
+
+    #[test]
+    fn options_are_an_object_of_known_members() {
+        let known = ["defaultPageSize", "transport"];
+        let options = parse_options("{\"defaultPageSize\":7}", &known).unwrap();
+        assert_eq!(
+            field::<Option<u32>>(&options, "defaultPageSize").unwrap(),
+            Some(7)
+        );
+        assert_eq!(field::<Option<u32>>(&options, "transport").unwrap(), None);
+        assert!(parse_options("{}", &known).unwrap().is_empty());
+        assert!(parse_options("{}", &[]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_option_outside_the_known_set_or_a_non_object_is_refused() {
+        assert_eq!(
+            parse_options("{\"pageSize\":7}", &["defaultPageSize"])
+                .unwrap_err()
+                .to_string(),
+            "unknown option `pageSize`"
+        );
+        assert_eq!(
+            parse_options("{\"x\":1}", &[]).unwrap_err().to_string(),
+            "unknown option `x`"
+        );
+        assert_eq!(
+            parse_options("[]", &[]).unwrap_err().to_string(),
+            "expected an object of arguments, found an array"
+        );
+        assert!(
+            parse_options("", &[])
+                .unwrap_err()
+                .to_string()
+                .starts_with("not JSON: ")
         );
     }
 
