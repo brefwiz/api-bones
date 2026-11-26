@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.0.0] - 2026-11-26
+
+### Added
+
+- *(sdk-gen)* [**breaking**] resolve wrapper package metadata from cargo metadata and expose from_host options
+
 ## [4.4.8] - 2026-11-23
 
 ### Other

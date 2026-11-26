@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-sdk-gen"
-version = "4.4.8"
+version = "5.0.0"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 api-bones-progenitor = { path = "../api-bones-progenitor", version = "^4.4.2", registry = "brefwiz" }
-api-bones-sdk-model = { version = "0.1.0", path = "../api-bones-sdk-model", registry = "brefwiz" }
+api-bones-sdk-model = { version = "0.2.0", path = "../api-bones-sdk-model", registry = "brefwiz" }
 clap = { version = "4", features = ["derive"] }
 syn = { version = "2", features = ["full"] }
 anyhow = "1"
