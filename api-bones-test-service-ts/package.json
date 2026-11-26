@@ -1,0 +1,48 @@
+{
+  "name": "@brefwiz/api-bones-test-service",
+  "version": "0.0.0",
+  "description": "The api-bones test service as a loopback Node process: `POST /configure` seeds what it answers, `GET /seen` reads back what each request carried.",
+  "author": "Brefwiz Team",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "api-bones-test-service": "dist/bin.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./bin": "./dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prebuild": "node ../scripts/build-test-service-contract.mjs",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.16.0",
+    "@connectrpc/connect": "^2.0.0",
+    "@connectrpc/connect-node": "^2.0.0"
+  },
+  "peerDependencies": {
+    "@brefwiz/api-bones-connect": ">=0.9.1"
+  },
+  "devDependencies": {
+    "@brefwiz/api-bones-connect": "file:../api-bones-connect-ts",
+    "@brefwiz/api-bones-sdk-runtime": "file:../api-bones-sdk-runtime-ts",
+    "@brefwiz/spiffe-client": ">=0.46.0",
+    "@bufbuild/buf": "^1.50.0",
+    "@types/node": "^22.20.1",
+    "typescript": "^5.0.0"
+  },
+  "publishConfig": {
+    "registry": "https://git.brefwiz.com/api/packages/brefwiz/npm/",
+    "access": "public"
+  }
+}

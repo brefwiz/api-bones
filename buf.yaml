@@ -3,5 +3,6 @@ version: v2
 modules:
   - path: api-bones-protos/proto
   - path: api-bones-protos/vendor
+  - path: tests/l2/proto
   - path: tests/rust/proto
   - path: tests/shared/proto

@@ -26,7 +26,8 @@
     "@opentelemetry/context-async-hooks": "^2.0.0",
     "@opentelemetry/core": "^2.0.0",
     "@opentelemetry/sdk-trace-base": "^2.0.0",
-    "@bufbuild/protoc-gen-es": "^2.16.0"
+    "@bufbuild/protoc-gen-es": "^2.16.0",
+    "@brefwiz/api-bones-test-service": "file:../../api-bones-test-service-ts"
   },
   "overrides": {
     "brace-expansion": "^5.0.12"

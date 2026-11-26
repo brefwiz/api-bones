@@ -163,7 +163,7 @@ pub struct Package {
     pub version: String,
     /// The Layer 2 crate's SPDX license, published with the package.
     pub license: String,
-    /// The Layer 2 crate sets `publish = false`, so the package is private.
+    /// Private when the Layer 2 crate does not publish; the manifest is also private when its runtime is an in-tree `file:` link.
     pub private: bool,
     /// The runtime dependency spec: a `file:` link or the floor release.
     pub runtime: String,
@@ -304,7 +304,7 @@ fn manifest(package: &Package, glue: &str, runtime: &str) -> String {
         },
         "devDependencies": { "@types/node": "^22.20.1", "typescript": "^5.0.0" }
     });
-    if package.private {
+    if package.private || runtime.starts_with("file:") {
         document["private"] = serde_json::Value::Bool(true);
     }
     let mut text = serde_json::to_string_pretty(&document).expect("json serialises");
@@ -987,12 +987,15 @@ mod tests {
     }
 
     #[test]
-    fn the_manifest_is_private_only_for_a_private_crate() {
+    fn the_manifest_is_private_for_a_private_crate_or_an_in_tree_runtime() {
         let read = |private| -> serde_json::Value {
             serde_json::from_str(&manifest(&package_for(private), "c", ">=0.2.0")).expect("json")
         };
         assert_eq!(read(true)["private"], true);
         assert!(read(false).get("private").is_none());
+        let linked: serde_json::Value =
+            serde_json::from_str(&manifest(&package_for(false), "c", "file:../rt")).expect("json");
+        assert_eq!(linked["private"], true);
         assert_eq!(read(false)["version"], "1.2.3");
     }
 

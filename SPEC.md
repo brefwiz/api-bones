@@ -490,6 +490,7 @@ library_crates:
   - api-bones-sdk-model
   - api-bones-stream
   - api-bones-test
+  - api-bones-test-service-l2
   - api-bones-transport
   - api-bones-tower
 rpc_protocols:
@@ -540,7 +541,7 @@ It publishes on two ecosystems, and they release on separate lineages:
 
 - Rust crates to crates.io on `v*` tags.
 - npm packages (`api-bones-connect`, `api-bones-axios`, `api-bones-otel`,
-  `api-bones-types`, `api-bones-sdk-runtime`) on
+  `api-bones-types`, `api-bones-sdk-runtime`, `api-bones-test-service`) on
   their own prefixed tags. `api-bones-connect` publishes to the brefwiz
   registry, because packages published there depend on it and npm resolves a
   registry per scope rather than per package.

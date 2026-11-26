@@ -15,7 +15,7 @@ ADVISORY_DB ?=
 # Proto codegen reruns on a content hash of its inputs. build/brefwiz-codegen.mk
 # is vendored byte-for-byte and never edited here. The step lane's build.rs
 # generates from its own proto and from the bones protos it imports.
-CODEGEN_INPUTS := tests/rust/proto tests/shared/proto tests/wasm-server/proto api-bones-protos/proto tools/wasm-size-probe/tests/fixtures/proto
+CODEGEN_INPUTS := tests/l2/proto tests/rust/proto tests/shared/proto tests/wasm-server/proto api-bones-protos/proto tools/wasm-size-probe/tests/fixtures/proto
 
 include build/brefwiz-codegen.mk
 
@@ -363,6 +363,15 @@ ts-test: ts-types-generate ## Test TypeScript packages
 		rc=$$?; cat "$$log"; rm -f "$$log"; \
 		echo "TEST-FAIL api-bones-connect-ts exit=$$rc" >&2; exit 1; \
 	fi
+	: 'The contract lanes serve and read the test service through its package,'
+	: 'built (descriptor set from tests/l2/proto, then tsc) once connect is built.'
+	@echo "==> prebuild test-service package"; log=$$(mktemp); \
+	if ( cd api-bones-test-service-ts && npm install --no-audit --no-fund && npm run build ) >"$$log" 2>&1; then \
+		cat "$$log"; rm -f "$$log"; \
+	else \
+		rc=$$?; cat "$$log"; rm -f "$$log"; \
+		echo "TEST-FAIL api-bones-test-service-ts exit=$$rc" >&2; exit 1; \
+	fi
 	: 'The contract lane imports the wasm wrapper of the test service Layer 2,'
 	: 'so it is built (wasm32, bound, compiled) before the lane runs cucumber.'
 	@echo "==> prebuild test-service wrapper"; log=$$(mktemp); rcf=$$(mktemp); \
@@ -411,3 +420,7 @@ ci-changelog: ## CI: verify CHANGELOG.md has entry for current package version (
 ci-sdk-autogenerate: ts-types-generate ## Generate canonical TypeScript typed-field protobuf messages and the api-bones-types sources
 	cd api-bones-connect-ts && npm install --no-audit --no-fund && buf generate
 	cd tests/typescript && npm install --no-audit --no-fund && buf generate
+	: 'The test service wrapper links the built sdk-runtime package, which links otel.'
+	cd api-bones-otel && npm install --no-audit --no-fund && npm run build
+	cd api-bones-sdk-runtime-ts && npm install --no-audit --no-fund && npm run build
+	cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --out tests/l2/typescript

@@ -39,3 +39,6 @@ name = "api-bones-i18n"
 
 [[package]]
 name = "api-bones-rt"
+
+[[package]]
+name = "api-bones-test-service-l2"

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 /**
- * The loopback server of the sdk-call lane, run as its own process: the
+ * The api-bones test service, run as its own process: the
  * `Widgets`, `Numbers` and `Events` services of the test contract on one
- * address, recording what each request carried. It is the TypeScript twin of
- * the Rust lane's server in `tests/sdk-call/rust/tests/sdk_call.rs`.
+ * loopback address, recording what each request carried. It is the TypeScript
+ * twin of the Rust lane's server in `tests/sdk-call/rust/tests/sdk_call.rs`.
  *
- * The lane's steps reach the services only over the wire, through the generated
+ * Callers reach the services only over the wire, through the generated
  * wrapper. They script and read the server through a control endpoint on a
  * second address (`POST /reset`, `POST /configure`, `GET /seen`,
  * `POST /seen/clear`, `POST /alias`, `POST /ack/<id>`).
@@ -26,16 +26,15 @@
  * process ends when its stdin closes.
  */
 
-import { readFileSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { Patch } from "../../sdk-call/typescript/steps/provider_process.ts";
 import { setTimeout as delay } from "node:timers/promises";
-import { create, type DescMethodServerStreaming, type DescMethodUnary, type DescService } from "@bufbuild/protobuf";
+import { create, type DescMessage, type DescMethodServerStreaming, type DescMethodUnary, type DescService, type MessageShape } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { encodeErrorInfo } from "@brefwiz/api-bones-connect";
-import { compileContract } from "../steps/descriptor_contract.ts";
+import { contractRegistry } from "./contract.js";
+import type { Patch, Seen } from "./types.js";
 
 /** The scenario the server last heard of; every line it narrates names it. */
 let scenario = "";
@@ -46,20 +45,6 @@ function note(event: string, fields: Record<string, unknown> = {}): void {
 }
 
 
-/** What one request carried. */
-interface Seen {
-  traceparent: string;
-  /** The `authorization` header; empty when the request carried none. */
-  authorization: string;
-  timeoutMs: number;
-  /** The `bones-list-cache` header; empty when the request carried none. */
-  listCache: string;
-  /** The `if-none-match` header; empty when the request carried none. */
-  ifNoneMatch: string;
-  /** The page size a list request asked for; zero for any other request or none asked. */
-  pageSize: number;
-}
-
 interface Services {
   widgets: DescService;
   numbers: DescService;
@@ -68,20 +53,12 @@ interface Services {
 
 let services: Services | undefined;
 
-function serviceOf(prefix: string, protoPath: string, name: string): DescService {
-  const compiled = compileContract(prefix, readFileSync(new URL(protoPath, import.meta.url), "utf8"));
-  try {
-    return compiled.registry.getService(name)!;
-  } finally {
-    rmSync(compiled.workdir, { recursive: true, force: true });
-  }
-}
-
 function contract(): Services {
+  const registry = contractRegistry();
   services ??= {
-    widgets: serviceOf("sdk-call-widgets", "../../rust/proto/contract/v1/widgets.proto", "contract.v1.Widgets"),
-    numbers: serviceOf("sdk-call-numbers", "../../rust/proto/contract/v1/pages.proto", "contract.v1.Numbers"),
-    events: serviceOf("sdk-call-events", "../../shared/proto/contract/v1/events.proto", "contract.v1.Events"),
+    widgets: registry.getService("contract.v1.Widgets")!,
+    numbers: registry.getService("contract.v1.Numbers")!,
+    events: registry.getService("contract.v1.Events")!,
   };
   return services;
 }
@@ -217,9 +194,9 @@ class SdkCallServer {
       await changeCaller({ subject });
     }
     if (this.expireAtPage === index) {
-      throw new ConnectError("the cursor expired", Code.FailedPrecondition, undefined, [
-        { type: "bones.v1.ErrorInfo", value: encodeErrorInfo({ code: "CURSOR_EXPIRED", emitter: "numbers" }) },
-      ]);
+      const expired = new ConnectError("the cursor expired", Code.FailedPrecondition);
+      expired.details.push({ type: "bones.v1.ErrorInfo", value: encodeErrorInfo({ code: "CURSOR_EXPIRED", emitter: "numbers" }) });
+      throw expired;
     }
     if (this.pageDelayMs > 0) await delay(this.pageDelayMs);
     return {
@@ -313,7 +290,7 @@ class SdkCallServer {
     return `http://127.0.0.1:${(alias.address() as AddressInfo).port}`;
   }
 
-  async *#ticks(count: number, requestHeader: Headers, watch: DescMethodServerStreaming, signal: AbortSignal): AsyncGenerator<unknown> {
+  async *#ticks(count: number, requestHeader: Headers, watch: DescMethodServerStreaming, signal: AbortSignal): AsyncGenerator<MessageShape<DescMessage>> {
     const began = performance.now();
     const elapsed = (): number => Math.round(performance.now() - began);
     signal.addEventListener("abort", () => note("watch-aborted", { ms: elapsed() }), { once: true });
