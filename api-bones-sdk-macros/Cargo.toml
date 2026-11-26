@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-sdk-macros"
-version = "0.3.0"
+version = "0.3.1"
 publish = ["brefwiz"]
 edition = "2024"
 rust-version = "1.85"
@@ -27,6 +27,6 @@ quote = "1"
 syn = { version = "2", features = ["full"] }
 
 [dev-dependencies]
-api-bones-sdk = { version = "0.3.0", path = "../api-bones-sdk", registry = "brefwiz" }
+api-bones-sdk = { version = "0.3.1", path = "../api-bones-sdk", registry = "brefwiz" }
 trybuild = "1"
 wasm-bindgen-macro-support = { workspace = true }

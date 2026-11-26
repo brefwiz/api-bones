@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [22.1.0] - 2026-11-26
+
+### Added
+
+- *(sdk)* publish the test service Layer 2 crate and run its TypeScript service as a package bin
+
 ## [22.0.0] - 2026-11-26
 
 ### Added
