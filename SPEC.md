@@ -545,6 +545,13 @@ It publishes on two ecosystems, and they release on separate lineages:
   registry, because packages published there depend on it and npm resolves a
   registry per scope rather than per package.
 
+## Coverage
+
+Target 100%, floor 96 (lines and functions), raise the floor as gaps close.
+The floor is set in the `Makefile` (`COVERAGE_FAIL_UNDER_LINES`,
+`COVERAGE_FAIL_UNDER_FUNCTIONS`); CI and `make ci-coverage` apply the same
+gate knobs.
+
 ## Canonical home
 
 This repository lives in Gitea; the GitHub repository is a downstream push

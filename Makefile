@@ -26,6 +26,8 @@ include build/brefwiz-codegen.mk
 # so they stay out of the archive and ci-e2e-rust runs them in gate-e2e-rust.
 COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-sdk-call-contract-rust api-bones-internal-bdd api-bones-wasm-test-server api-bones-test-service-l2
 COVERAGE_ALL_FEATURES := true
+COVERAGE_FAIL_UNDER_LINES := 96
+COVERAGE_FAIL_UNDER_FUNCTIONS := 96
 
 include build/brefwiz-coverage-common.mk
 include build/brefwiz-coverage-split.mk
@@ -148,11 +150,8 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test proto_vocabulary
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test automation_manifest
 
-ci-coverage: ci-e2e-rust ## Enforce 100% function coverage with llvm-cov + nextest (local one-shot; CI splits it into archive, run, report)
-	# Excluded for the same reason as ci-test: nextest cannot enumerate a
-	# harness = false target; the wasm test server is test harness, not
-	# product code.
-	cargo llvm-cov nextest --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-sdk-call-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --fail-under-functions 100
+ci-coverage: ci-e2e-rust ## Enforce the line and function floor (one-shot local run with the same gate knobs CI reads)
+	cargo llvm-cov nextest --locked --no-fail-fast --workspace $(foreach c,$(COVERAGE_EXCLUDE),--exclude $(c)) --all-features --profile $(COVERAGE_NEXTEST_PROFILE) $(_COVERAGE_IGNORE) $(_COVERAGE_LINE_GATE) $(_COVERAGE_FUNCTION_GATE)
 
 # Publish rehearsals, one per declared SDK language: the release operation
 # minus the upload, so a broken include or files list fails at PR time rather
