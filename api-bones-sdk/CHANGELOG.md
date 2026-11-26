@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-26
+
+### Other
+
+- updated the following local packages: api-bones, api-bones, api-bones-page, api-bones-batch
+
+### Breaking changes merged after the version was prepared
+
+- feat(sdk)!: typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+- feat(sdk)!: typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+
 ## [0.1.0] - 2026-11-25
 
 ### Added

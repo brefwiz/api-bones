@@ -7,10 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [21.0.0] - 2026-11-26
+
+### Other
+
+- *(coverage)* ratchet the line and function floor to 96 and share one recipe locally and in CI
+
 ### Changed
 
 - **`api-bones-otel` 0.1.2:** declares itself an ES module (`"type": "module"`,
   types-first `exports`, `require` kept).
+
+### Breaking changes merged after the version was prepared
+
+- feat(sdk)!: typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+- feat(sdk)!: typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+- feat(sdk): L2 call helper, sdk-call surface and wasm-size probe
 
 ## [20.0.0] - 2026-11-23
 

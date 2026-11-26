@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-26
+
+### Other
+
+- *(release)* metadata for #258
+
+### Breaking changes merged after the version was prepared
+
+- feat(sdk)!: typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+- feat(sdk)!: typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+
 ## [0.6.0] - 2026-11-26
 
 ### Added
