@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT
 //! Generates the Layer 1 types of the `Numbers` and `Widgets` contract
-//! services from the protos the Rust lanes already own, so there is one proto
-//! source and no copy.
+//! services from the contract protos this crate owns under `proto/`, which the
+//! Rust and TypeScript lanes read from here, so there is one proto source and
+//! no copy. The shipped `bones/v1` protos come from `api-bones-protos`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const PAGES: &str = "contract/v1/pages.proto";
 const WIDGETS: &str = "contract/v1/widgets.proto";
@@ -15,13 +16,11 @@ const ANNOTATIONS: &str = "bones/v1/annotations.proto";
 
 fn main() {
     let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"));
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let contract = manifest.join("../rust/proto");
-    let bones = manifest.join("../../api-bones-protos/proto");
-    let shared = manifest.join("../shared/proto");
+    let contract = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("proto");
+    let bones = out_dir.join("bones-protos");
+    write_bones_protos(&bones);
 
-    let mut compiler =
-        protox::Compiler::new([&contract, &bones, &shared]).expect("proto include paths");
+    let mut compiler = protox::Compiler::new([&contract, &bones]).expect("proto include paths");
     compiler.include_imports(true);
     compiler
         .open_files([PAGES, WIDGETS, EVENTS])
@@ -47,8 +46,17 @@ fn main() {
         .compile()
         .expect("generate the contract protos");
 
-    println!("cargo:rerun-if-changed=../rust/proto");
-    println!("cargo:rerun-if-changed=../shared/proto/contract/v1/events.proto");
-    println!("cargo:rerun-if-changed=../../api-bones-protos/proto/bones/v1");
+    println!("cargo:rerun-if-changed=proto");
     println!("cargo:rerun-if-env-changed=BREFWIZ_CODEGEN_INPUTS_SHA");
+}
+
+/// Writes the shipped `bones/v1` protos under `root`, at the import paths the
+/// contract protos use.
+fn write_bones_protos(root: &Path) {
+    for (relative, bytes) in api_bones_protos::files() {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().expect("a proto path has a directory"))
+            .expect("create the bones proto directory");
+        std::fs::write(path, bytes).expect("write a bones proto");
+    }
 }

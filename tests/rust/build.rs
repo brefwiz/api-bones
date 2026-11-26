@@ -23,7 +23,9 @@ fn main() {
     let bones = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../api-bones-protos/proto");
 
     let shared = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../shared/proto");
-    let mut compiler = protox::Compiler::new([&own, &bones, &shared]).expect("proto include paths");
+    let l2 = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../l2/proto");
+    let mut compiler =
+        protox::Compiler::new([&own, &bones, &shared, &l2]).expect("proto include paths");
     compiler.include_imports(true);
     compiler
         .open_files([WATCH, PAGES, WIDGETS, FIELD_CONTRACT])
@@ -113,7 +115,7 @@ fn main() {
 
     println!("cargo:rerun-if-changed=proto");
     println!("cargo:rerun-if-changed=../shared/proto/contract/v1/fields.proto");
-    println!("cargo:rerun-if-changed=../shared/proto/contract/v1/events.proto");
+    println!("cargo:rerun-if-changed=../l2/proto/contract/v1");
     println!("cargo:rerun-if-changed=../../api-bones-protos/proto/bones/v1/stream.proto");
     println!("cargo:rerun-if-changed=../../api-bones-protos/proto/bones/v1/pagination.proto");
     println!("cargo:rerun-if-changed=../../api-bones-protos/proto/bones/v1/batch.proto");

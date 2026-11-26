@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
+// SPDX-License-Identifier: MIT
 //
 // A service shaped as the platform's batch RPCs declare it: a single Get and
 // its BatchGet, a paged List and its grouped BatchList. The Rust lane serves

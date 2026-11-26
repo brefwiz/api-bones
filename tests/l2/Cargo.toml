@@ -7,9 +7,15 @@
 [package]
 name = "api-bones-test-service-l2"
 version = "0.0.0"
+publish = ["brefwiz"]
 edition = "2024"
-publish = false
+authors = ["Gregoire Salingue"]
 license = "MIT"
+# The sources the published tarball compiles: the contract protos live in this
+# crate, the bones protos come from the api-bones-protos build dependency.
+include = ["src/**", "proto/**/*.proto", "build.rs", "LICENSE", "CHANGELOG.md"]
+description = "The api-bones test service's Rust Layer 2: the Numbers, Widgets and Events contract services behind the SDK macros."
+repository = "https://github.com/brefwiz/api-bones"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
@@ -30,12 +36,12 @@ wasm = ["api-bones-sdk/wasm"]
 # api-bones-sdk-gen features: end
 
 [dependencies]
-api-bones = { path = "../..", default-features = false, features = ["connect-core"] }
-api-bones-page = { path = "../../api-bones-page" }
-api-bones-rt = { path = "../../api-bones-rt" }
-api-bones-sdk = { path = "../../api-bones-sdk" }
-api-bones-sdk-macros = { path = "../../api-bones-sdk-macros" }
-api-bones-transport = { path = "../../api-bones-transport" }
+api-bones = { version = "^22.0.0", path = "../..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
+api-bones-page = { version = "0.8.0", path = "../../api-bones-page", registry = "brefwiz" }
+api-bones-rt = { version = "0.1.0", path = "../../api-bones-rt", registry = "brefwiz" }
+api-bones-sdk = { version = "0.3.0", path = "../../api-bones-sdk", registry = "brefwiz" }
+api-bones-sdk-macros = { version = "0.3.0", path = "../../api-bones-sdk-macros", registry = "brefwiz" }
+api-bones-transport = { version = "0.3.0", path = "../../api-bones-transport", registry = "brefwiz" }
 connectrpc = { version = "0.9.1", default-features = false }
 buffa = { version = "0.9", features = ["json"] }
 buffa-types = { version = "0.9", features = ["json"] }
@@ -50,5 +56,6 @@ serde.workspace = true
 connectrpc = { version = "0.9.1", default-features = false, features = ["client"] }
 
 [build-dependencies]
+api-bones-protos = { version = "0.9.2", path = "../../api-bones-protos", registry = "brefwiz" }
 connectrpc-build = { version = "0.9", default-features = false }
 protox = "0.9"

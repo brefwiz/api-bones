@@ -484,6 +484,7 @@ version = "0.0.0"
 dependencies = [
  "api-bones",
  "api-bones-page",
+ "api-bones-protos",
  "api-bones-rt",
  "api-bones-sdk",
  "api-bones-sdk-macros",

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { EventEmitter, once } from "node:events";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { type DescService } from "@bufbuild/protobuf";
@@ -13,7 +13,7 @@ import { trace } from "@opentelemetry/api";
 import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
 import { batchedClient, createPlatformClient, errorInfoOf, PageError, serveBatchRequest, type BatchResults, type GeneratedMethodPolicyDocument, type ListCall } from "@brefwiz/api-bones-connect";
 import { configureConnectTransport } from "@brefwiz/api-bones-connect/web";
-import { compileContract } from "./descriptor_contract.ts";
+import { contractRegistry } from "@brefwiz/api-bones-test-service";
 import { listSpans } from "./list-observability.ts";
 
 AfterAll(stopWidgetPostgres);
@@ -58,7 +58,7 @@ export interface BatchState extends WidgetDatabase {
   reverse: boolean; failures: { carrying?: string; code: Code; remaining: number }[];
   authorizationFault?: { id: string; message: string };
   completions: Record<string, unknown>[]; firstTokenCalls: number; records: { name: string; attributes: Record<string, unknown> }[];
-  server?: Server; workdir?: string; service?: DescService; policy?: GeneratedMethodPolicyDocument;
+  server?: Server; service?: DescService; policy?: GeneratedMethodPolicyDocument;
   client?: BatchClient;
   raw?: { getWidget(request: object): Promise<Widget>; batchGetWidgets(request: object): Promise<unknown> };
   swapOnRequest?: Session; swapAfterDelivery?: Session;
@@ -115,8 +115,7 @@ function credentialSnapshot(s: BatchState) {
 export async function prepareBatch(world: BatchWorld): Promise<BatchState> {
   const s = state(world);
   if (s.transport) return s;
-  const compiled = compileContract("bones-batch", readFileSync(new URL("../../rust/proto/contract/v1/widgets.proto", import.meta.url), "utf8"));
-  s.workdir = compiled.workdir; s.service = compiled.registry.getService("contract.v1.Widgets")!;
+  s.service = contractRegistry().getService("contract.v1.Widgets")!;
   s.policy = JSON.parse(readFileSync(new URL("../connect-method-policy.json", import.meta.url), "utf8"));
   await startWidgetsProvider(s);
   const transport = configureConnectTransport({ baseUrl: `http://127.0.0.1:${(s.server.address() as AddressInfo).port}`, profile: "service", policy: s.policy, fetch: s.fetch, session: { snapshot: () => credentialSnapshot(s) }, interceptors: [next => req => { if (s.metadata !== undefined) req.header.set("x-trace", s.metadata); return next(req); }], retry: { initialDelayMs: 0, maxDelayMs: 0 } });
@@ -389,7 +388,7 @@ Then("one bones.batch record names {string} with {int} items and {int} calls", f
   assert.equal(spans[0].attributes["bones.batch.chunk_index"], 0);
   assert.equal(spans[0].attributes["bones.batch.chunks"], 1);
   assertTelemetry(s, "ok"); });
-After(async function (this: BatchWorld) { const s = this.batch; if (!s) return; if (s.server) { const closed = new Promise<void>(resolve => s.server!.close(() => resolve())); s.server.closeAllConnections(); await closed; } await stopWidgetsProvider(s); if (s.workdir) rmSync(s.workdir, { recursive: true, force: true }); });
+After(async function (this: BatchWorld) { const s = this.batch; if (!s) return; if (s.server) { const closed = new Promise<void>(resolve => s.server!.close(() => resolve())); s.server.closeAllConnections(); await closed; } await stopWidgetsProvider(s); });
 Given("the metadata producer attaches the x-trace value {string}", function (this: BatchWorld, value: string) { state(this).metadata = value; });
 When("the callers get {string} while the metadata producer changes to {string} after enqueue", async function (this: BatchWorld, ids: string, next: string) { const s = await prepareBatch(this); const client = batchedClient(createPlatformClient(s.service!, s.transport!), s.policy!) as unknown as BatchClient; const pending = split(ids).map(id => settle(client.getWidget({ id }))); s.metadata = next; this.batchResults = await Promise.all(pending); });
 Then("every request carried the captured x-trace value {string}", function (this: BatchWorld, value: string) { assert.ok(seen(this).length); for (const request of seen(this)) assert.equal(request.trace, value); });

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
+// SPDX-License-Identifier: MIT
 //
 // A list service shaped as the platform's List RPCs declare it: a
 // bones.v1.PageRequest in, one repeated field and a bones.v1.PageResponse out.
