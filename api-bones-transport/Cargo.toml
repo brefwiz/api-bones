@@ -20,10 +20,10 @@ workspace = true
 [lib]
 path = "src/lib.rs"
 
-# Depends on neither api-bones nor api-bones-connect: the transport type
-# crosses crate boundaries (service-kit hands it to every SDK), so it must not
-# move with an api-bones major.
+# Depends on api-bones only for `Reach`, a plain enum with no dependencies
+# (default features off), and not on api-bones-connect.
 [dependencies]
+api-bones = { version = "^22.2.1", path = "..", registry = "brefwiz", default-features = false }
 # The client core only. connectrpc's `client` and `client-tls` features start
 # tokio tasks and read `std::time::Instant`, neither of which a browser has, so
 # they are enabled for native targets alone (see below).

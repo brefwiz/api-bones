@@ -519,6 +519,7 @@ dependencies = [
 name = "api-bones-transport"
 version = "0.3.0"
 dependencies = [
+ "api-bones",
  "api-bones-rt",
  "buffa 0.9.2",
  "buffa-types",

@@ -129,6 +129,7 @@ pub mod links;
 pub mod org_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub mod range;
+pub mod reach;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub mod request_id;
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -286,6 +287,7 @@ pub use query::{FilterEntry, FilterOp, FilterParams, SearchParams, SortParams};
 pub use range::{ByteRange, ContentRange, ParseRangeError, RangeHeader};
 #[cfg(any(feature = "std", feature = "alloc"))]
 pub use ratelimit::RateLimitInfo;
+pub use reach::Reach;
 #[cfg(all(any(feature = "std", feature = "alloc"), feature = "uuid"))]
 pub use request_id::{RequestId, RequestIdError, RequestIdParseError};
 #[cfg(any(feature = "std", feature = "alloc"))]
