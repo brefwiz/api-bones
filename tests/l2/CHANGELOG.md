@@ -6,3 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-11-27
+
+### Added
+
+- *(sdk-gen)* publish the generated test-service wrapper with a runtime peer range
+
+### Other
+
+- *(release)* metadata for #262
+
+### Breaking changes merged after the version was prepared
+
+- feat(sdk-gen)!: resolve wrapper package metadata from cargo metadata and expose from_host options
+- feat(sdk-gen)!: resolve wrapper package metadata from cargo metadata and expose from_host options
+- feat(sdk)!: typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+- feat(sdk)!: typed list/watch/batch calls with per-identity revision cache, and the TypeScript wrapper package
+

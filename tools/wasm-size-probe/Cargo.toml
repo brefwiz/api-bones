@@ -38,8 +38,8 @@ all = ["page", "batch", "stream", "retry", "gzip", "second-service"]
 [dependencies]
 api-bones-rt = { path = "../../api-bones-rt", version = "0.1.0", registry = "brefwiz" }
 api-bones-transport = { path = "../../api-bones-transport", version = "0.3.0", registry = "brefwiz" }
-api-bones = { path = "../..", version = "^22.1.0", registry = "brefwiz", default-features = false, features = ["connect-core"], optional = true }
-api-bones-batch = { path = "../../api-bones-batch", version = "0.8.1", registry = "brefwiz", optional = true }
+api-bones = { path = "../..", version = "^22.2.0", registry = "brefwiz", default-features = false, features = ["connect-core"], optional = true }
+api-bones-batch = { path = "../../api-bones-batch", version = "0.8.2", registry = "brefwiz", optional = true }
 api-bones-stream = { path = "../../api-bones-stream", version = "0.1.4", registry = "brefwiz", optional = true }
 buffa = { version = "0.9", features = ["json"] }
 buffa-types = { version = "0.9", features = ["json"] }
