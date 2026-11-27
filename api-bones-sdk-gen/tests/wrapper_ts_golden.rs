@@ -12,9 +12,9 @@ const GOLDEN_TYPES: &str = include_str!("fixtures/wrapper-ts/types.ts");
 const GOLDEN_ERRORS: &str = include_str!("fixtures/wrapper-ts/errors.ts");
 const GOLDEN_INDEX: &str = include_str!("fixtures/wrapper-ts/index.ts");
 const GOLDEN_INIT: &str = include_str!("fixtures/wrapper-ts/init.ts");
-const TRACKED_METHODS: &str = include_str!("../../tests/l2/typescript/l2-methods.json");
-const TRACKED_SURFACE: &str = include_str!("../../tests/l2/typescript/api-surface.d.ts");
-const TRACKED_MANIFEST: &str = include_str!("../../tests/l2/typescript/package.json");
+const TRACKED_METHODS: &str = include_str!("../../api-bones-test-service-sdk-ts/l2-methods.json");
+const TRACKED_SURFACE: &str = include_str!("../../api-bones-test-service-sdk-ts/api-surface.d.ts");
+const TRACKED_MANIFEST: &str = include_str!("../../api-bones-test-service-sdk-ts/package.json");
 
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..")
@@ -24,7 +24,7 @@ fn generate(name: &str) -> PathBuf {
     generate_from(name, &repo().join("SPEC.md"))
 }
 
-fn generate_from(name: &str, spec: &Path) -> PathBuf {
+fn run_from(name: &str, spec: &Path) -> (std::process::Output, PathBuf) {
     let out = std::env::temp_dir().join(format!(
         "api-bones-sdk-gen-wrapper-{}-{name}",
         std::process::id()
@@ -39,6 +39,11 @@ fn generate_from(name: &str, spec: &Path) -> PathBuf {
         .arg(&out)
         .output()
         .expect("the generator runs");
+    (output, out)
+}
+
+fn generate_from(name: &str, spec: &Path) -> PathBuf {
+    let (output, out) = run_from(name, spec);
     assert!(
         output.status.success(),
         "{}",
@@ -66,12 +71,17 @@ fn the_snapshot_and_manifest_written_are_the_tracked_ones() {
     let (written, written_runtime) = without_runtime(&read(&out, "package.json"));
     let (tracked, tracked_runtime) = without_runtime(TRACKED_MANIFEST);
     assert_eq!(written, tracked);
+    assert_eq!(
+        written["peerDependencies"]["@brefwiz/api-bones-sdk-runtime"],
+        ">=0.2.0"
+    );
+    assert!(written.get("private").is_none());
     let link = tracked_runtime
         .strip_prefix("file:")
         .expect("a tracked file: link");
     assert_eq!(
         repo()
-            .join("tests/l2/typescript")
+            .join("api-bones-test-service-sdk-ts")
             .join(link)
             .canonicalize()
             .expect("the tracked link resolves"),
@@ -84,14 +94,16 @@ fn the_snapshot_and_manifest_written_are_the_tracked_ones() {
     fs::remove_dir_all(&out).expect("cleaned");
 }
 
-/// The manifest without its runtime dependency, and that dependency.
+/// The manifest without its runtime dev link (which spells the path from the
+/// package directory), and that link. The runtime peer range stays in the
+/// manifest, so the comparison covers it.
 fn without_runtime(text: &str) -> (serde_json::Value, String) {
     let mut manifest: serde_json::Value = serde_json::from_str(text).expect("json");
-    let runtime = manifest["dependencies"]
+    let runtime = manifest["devDependencies"]
         .as_object_mut()
         .and_then(|dependencies| dependencies.remove("@brefwiz/api-bones-sdk-runtime"))
         .and_then(|version| version.as_str().map(str::to_owned))
-        .expect("a runtime dependency");
+        .expect("a runtime dev link");
     (manifest, runtime)
 }
 
@@ -111,7 +123,7 @@ fn the_runtime_next_to_the_spec_is_linked_relative_to_the_output() {
 }
 
 #[test]
-fn a_spec_without_the_runtime_beside_it_depends_on_the_floor_release() {
+fn a_published_wrapper_without_the_runtime_beside_its_spec_is_refused() {
     let home = std::env::temp_dir().join(format!(
         "api-bones-sdk-gen-wrapper-{}-lone-spec",
         std::process::id()
@@ -119,10 +131,10 @@ fn a_spec_without_the_runtime_beside_it_depends_on_the_floor_release() {
     let _ = fs::remove_dir_all(&home);
     fs::create_dir_all(&home).expect("a directory");
     fs::copy(repo().join("SPEC.md"), home.join("SPEC.md")).expect("the SPEC");
-    let out = generate_from("floor", &home.join("SPEC.md"));
-    let (_, runtime) = without_runtime(&read(&out, "package.json"));
-    assert_eq!(runtime, ">=0.2.0");
-    fs::remove_dir_all(&out).expect("cleaned");
+    let (output, out) = run_from("floor", &home.join("SPEC.md"));
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("publishConfig.registry"));
+    assert!(!out.join("package.json").exists());
     fs::remove_dir_all(&home).expect("cleaned");
 }
 

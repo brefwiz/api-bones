@@ -26,6 +26,8 @@ export interface Patch {
   tickMs?: number;
   unavailable?: number;
   unauthenticated?: number;
+  /** Answer the next `count` requests as resource exhausted, naming `retryAfterSeconds` whole seconds in `retry-after`. */
+  exhausted?: { count: number; retryAfterSeconds: number };
   switchTo?: string | null;
   switchOnPage?: { index: number; subject: string } | null;
   refreshTo?: string | null;

@@ -192,6 +192,13 @@ Given("the widgets server has the widget {string} named {string}", async functio
   await this.provider.configure({ widgets: { [id]: name } });
 });
 
+Given(
+  "the widgets server refuses the first {int} requests as resource exhausted with a Retry-After of {int} seconds",
+  async function (this: SdkCallWorld, refusals: number, seconds: number) {
+    await this.provider.configure({ exhausted: { count: refusals, retryAfterSeconds: seconds } });
+  },
+);
+
 Given("the numbers server has the pages {string}", async function (this: SdkCallWorld, pages: string) {
   await this.provider.configure({ pages: pages.split("|").map(numbersIn) });
 });

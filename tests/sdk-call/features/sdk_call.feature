@@ -28,7 +28,10 @@ Feature: Every Layer 2 call runs through one helper
   a next page follows. An open list exposes the span of its walk while the
   tracer records, and none when it does not. A caller who leaves a stream
   early releases it. A client built with a default page size asks the server
-  for pages of that size when a list call names none.
+  for pages of that size when a list call names none. A server that throttles
+  a call and names when it will be ready is waited out and asked again, inside
+  the same budget; a wait longer than five seconds is not sat out, and the call
+  is refused as rate limited.
 
   @state:happy
   Scenario: The parts of a widget are listed page by page through the SDK
@@ -85,6 +88,24 @@ Feature: Every Layer 2 call runs through one helper
     Then the response is the widget "w1" named "Anvil"
     And the server saw 3 request(s)
     And the call budget the server saw shrank from each request to the next
+
+  @state:happy
+  Scenario: A throttled call is asked again after the wait the server named
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widgets server refuses the first 1 requests as resource exhausted with a Retry-After of 1 seconds
+    And the SDK caller is "ada" of organization "acme"
+    When the caller gets the widget "w1" through the SDK
+    Then the response is the widget "w1" named "Anvil"
+    And the server saw 2 request(s)
+
+  @state:error
+  Scenario: A wait past five seconds is not sat out
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widgets server refuses the first 1 requests as resource exhausted with a Retry-After of 6 seconds
+    And the SDK caller is "ada" of organization "acme"
+    When the caller gets the widget "w1" through the SDK
+    Then the call is refused with the platform code "RATE_LIMITED"
+    And the server saw 1 request(s)
 
   @state:error
   Scenario: An identity change before the send refuses the call and sends nothing
