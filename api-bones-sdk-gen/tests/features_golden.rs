@@ -17,13 +17,13 @@ impl WidgetsClient {
     #[export]
     pub async fn get_widget(&self, id: String) -> Result<generated::sdk::v1::Widget, Error> { body() }
     #[export]
-    pub async fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<generated::sdk::v1::Widget> { body() }
+    pub fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<generated::sdk::v1::Widget> { body() }
 }
 
 #[client(surface = "connect-pagination", proto = generated::sdk::v1)]
 impl NumbersClient {
     #[export]
-    pub async fn list(&self, limit: u32) -> ListCall<generated::sdk::v1::Number> { body() }
+    pub fn list(&self, limit: u32) -> ListCall<generated::sdk::v1::Number> { body() }
 }
 "#;
 

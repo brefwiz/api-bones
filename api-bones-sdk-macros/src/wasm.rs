@@ -33,6 +33,9 @@
 //!   returns a `Promise`. The call runs inside `CallCtx::scope`, so the call
 //!   helper reads the caller's trace fields. The promise resolves to the
 //!   result bytes and rejects with `bones.sdk.v1.CallError` bytes.
+//! - A list or batch export is a plain `fn` that returns the handle, which opens
+//!   its call on first use; `async` on one is refused. A stream export is
+//!   `async`, because opening a stream awaits the call.
 //! - An export that returns a handle returns, at once, a class with `next()`,
 //!   `cancel()` and `span()`; the call that opens the handle runs on the first
 //!   `next()`, an abort of `signal` cancels the handle, and `span()` is
@@ -608,7 +611,13 @@ impl Shell<'_> {
         let item = self.handle_item(wire)?;
         let handle_items = self.handle_class(kind, &item, wire, js);
         let handle_ident = self.handle_ident();
-        let body = quote!(::core::result::Result::Ok(#call.await));
+        // A list or a batch export is a plain `fn` that returns its handle; a
+        // stream export awaits the call that opens the stream.
+        let body = if kind.is_async() {
+            quote!(::core::result::Result::Ok(#call.await))
+        } else {
+            quote!(::core::result::Result::Ok(#call))
+        };
         let scoped = scoped(kind == HandleKind::List, reads, &body);
         let shell = quote! {
             #[#wasm_bindgen(js_name = #js)]
@@ -769,11 +778,11 @@ mod tests {
         #[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
         impl NumbersClient {
             #[export]
-            pub async fn list(&self, limit: u32, since: Option<SystemTime>) -> ListCall<generated::contract::sdk::v1::Number> { body() }
+            pub fn list(&self, limit: u32, since: Option<SystemTime>) -> ListCall<generated::contract::sdk::v1::Number> { body() }
             #[export]
             pub async fn watch(&self) -> Stream<generated::contract::sdk::v1::Number> { body() }
             #[export]
-            pub async fn get_all(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> { body() }
+            pub fn get_all(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> { body() }
             #[export(surface = "connect-batch")]
             pub async fn get(&self, id: String) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
             #[export]
@@ -1258,6 +1267,16 @@ mod tests {
             text.contains("::core::result::Result::Ok(__client.watch().await)"),
             "{text}"
         );
+        assert!(
+            text.contains("::core::result::Result::Ok(__client.list(limit,since))"),
+            "{text}"
+        );
+        assert!(
+            text.contains("::core::result::Result::Ok(__client.get_all(ids))"),
+            "{text}"
+        );
+        assert!(!text.contains("__client.list(limit,since).await"), "{text}");
+        assert!(!text.contains("__client.get_all(ids).await"), "{text}");
         assert!(text.contains("let__cancel=__lazy.clone();::api_bones_sdk::__private::on_abort(&__signal,move||__cancel.cancel());ApiBonesJsNumbersClientListHandle{inner:__lazy}"), "{text}");
         assert!(
             text.contains("js_name=\"api_bones__NumbersClient__list__Handle\""),

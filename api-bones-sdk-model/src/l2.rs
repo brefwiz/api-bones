@@ -32,9 +32,9 @@ pub struct SpecL2Methods {
 pub enum L2Kind {
     /// An async export returning `Result<T, E>`.
     Unary,
-    /// An async export returning `ListCall<T>`.
+    /// A plain `fn` export returning `ListCall<T>`.
     List,
-    /// An async export returning `Batch<T>`.
+    /// A plain `fn` export returning `Batch<T>`.
     Batch,
     /// An async export returning `Stream<T>`.
     Stream,
@@ -446,8 +446,8 @@ mod tests {
         let source = r#"
             #[client(surface = "s")]
             impl C {
-                #[export] async fn a(&self) -> ListCall<generated::p::v1::R> { body() }
-                #[export] async fn b(&self) -> Batch<generated::p::v1::R> { body() }
+                #[export] fn a(&self) -> ListCall<generated::p::v1::R> { body() }
+                #[export] fn b(&self) -> Batch<generated::p::v1::R> { body() }
                 #[export] async fn c(&self) -> Stream<generated::p::v1::R> { body() }
                 #[export] async fn d(&self) -> Result<generated::p::v1::R, Error> { body() }
             }

@@ -1647,11 +1647,11 @@ impl Widgets {
     #[export]
     pub async fn ping(&self) -> Result<(), Error> { body() }
     #[export]
-    pub async fn list_numbers(&self, limit: u32, page_size: Option<u32>) -> ListCall<generated::t::v1::Number> { body() }
+    pub fn list_numbers(&self, limit: u32, page_size: Option<u32>) -> ListCall<generated::t::v1::Number> { body() }
     #[export]
     pub async fn watch(&self, from: String) -> Stream<generated::t::v1::Tick> { body() }
     #[export]
-    pub async fn chunks(&self, key: String) -> Batch<generated::t::v1::Widget> { body() }
+    pub fn chunks(&self, key: String) -> Batch<generated::t::v1::Widget> { body() }
     #[export(sync)]
     pub fn label(&self, kind: &str, suffix: Option<String>) -> String { body() }
     #[export(sync)]

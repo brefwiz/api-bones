@@ -132,7 +132,7 @@ mod tests {
         #[client(surface = "connect-pagination")]
         impl NumbersClient {
             #[export]
-            pub async fn list(&self) -> ListCall<generated::sdk::v1::Number> { body() }
+            pub fn list(&self) -> ListCall<generated::sdk::v1::Number> { body() }
         }
 
         #[client(surface = "connect-batch", proto = generated::sdk::v1)]

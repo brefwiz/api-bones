@@ -10,7 +10,7 @@ const SOURCE: &str = r#"
     #[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
     impl NumbersClient {
         #[export]
-        pub async fn list(&self, limit: u32) -> ListCall<generated::contract::sdk::v1::Number> { body() }
+        pub fn list(&self, limit: u32) -> ListCall<generated::contract::sdk::v1::Number> { body() }
     }
 
     #[client(surface = "connect-batch", proto = generated::contract::sdk::v1)]
@@ -18,7 +18,7 @@ const SOURCE: &str = r#"
         #[export]
         pub async fn get_widget(&self, id: String) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
         #[export]
-        pub async fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> { body() }
+        pub fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> { body() }
         #[export(sync)]
         pub fn build_label(&self) -> String { body() }
     }

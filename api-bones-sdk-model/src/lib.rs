@@ -29,5 +29,5 @@ pub use model::{
 pub use names::{NameError, export_name, gate_features, json_name, typescript_name};
 pub use ty::{
     ALLOWED, EMPTY, Env, ErrorRef, HandleKind, ProtoRef, Return, Wire, Wrapper, classify_return,
-    classify_wire, path_text, proto_ref,
+    classify_wire, handle_kind, path_text, proto_ref,
 };

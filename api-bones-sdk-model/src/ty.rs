@@ -15,7 +15,9 @@
 //!
 //! A return is `Result<T, E>` or a handle (`ListCall<T>`, `Batch<T>`,
 //! `Stream<T>`); a sync export returns a plain value instead and never a
-//! handle. Rust types are never checked here beyond their shape: the compiler
+//! handle. A `ListCall` or `Batch` export is a plain `fn` that returns the
+//! handle, which opens its call on first use; a `Stream` export is `async`,
+//! because opening a stream awaits. Rust types are never checked here beyond their shape: the compiler
 //! checks them, because the expansion names them.
 
 use std::collections::BTreeSet;
@@ -321,7 +323,7 @@ pub(crate) fn last_ident(ty: &Type) -> Option<String> {
     }
 }
 
-/// The kind of a handle an async export returns.
+/// The kind of a handle an export returns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandleKind {
     /// `ListCall<T>`, which yields pages.
@@ -341,6 +343,15 @@ impl HandleKind {
             Self::Batch => "Batch",
             Self::Stream => "Stream",
         }
+    }
+
+    /// Whether an export returning this handle is `async`. A `ListCall` and a
+    /// `Batch` open their call on first use, so their export only builds the
+    /// handle and is a plain `fn`; a `Stream` export awaits the call that
+    /// opens the stream.
+    #[must_use]
+    pub fn is_async(self) -> bool {
+        matches!(self, Self::Stream)
     }
 
     fn of(name: &str) -> Option<Self> {
@@ -373,13 +384,24 @@ pub enum Return {
         /// The error type.
         error: ErrorRef,
     },
-    /// A handle over a message or a scalar: an async export only.
+    /// A handle over a message or a scalar: never a sync export. A `Stream`
+    /// export is `async`; a `ListCall` or `Batch` export is a plain `fn`.
     Handle {
         /// Which handle.
         kind: HandleKind,
         /// What one item the handle yields crosses as.
         item: Wire,
     },
+}
+
+/// The kind of handle a return type names, when it names one: the head of the
+/// type is `ListCall`, `Batch` or `Stream`, whatever its arguments.
+#[must_use]
+pub fn handle_kind(output: &ReturnType) -> Option<HandleKind> {
+    match output {
+        ReturnType::Type(_, ty) => HandleKind::of(&generic_head(ty).0),
+        ReturnType::Default => None,
+    }
 }
 
 /// Classifies the return type of an export.
@@ -737,6 +759,31 @@ mod tests {
                 error: ErrorRef::Named("Anything".to_owned())
             }
         );
+    }
+
+    #[test]
+    fn only_a_stream_handle_is_async() {
+        assert!(!HandleKind::List.is_async());
+        assert!(!HandleKind::Batch.is_async());
+        assert!(HandleKind::Stream.is_async());
+    }
+
+    #[test]
+    fn handle_kind_reads_the_head_of_a_return_type() {
+        assert_eq!(
+            handle_kind(&ret("-> ListCall<Widget>")),
+            Some(HandleKind::List)
+        );
+        assert_eq!(
+            handle_kind(&ret("-> api_bones_sdk::Batch<u32>")),
+            Some(HandleKind::Batch)
+        );
+        assert_eq!(
+            handle_kind(&ret("-> Stream<String>")),
+            Some(HandleKind::Stream)
+        );
+        assert_eq!(handle_kind(&ret("-> Result<(), Error>")), None);
+        assert_eq!(handle_kind(&ret("")), None);
     }
 
     #[test]

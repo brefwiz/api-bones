@@ -342,10 +342,7 @@ impl NumbersClient {
 
     /// The numbers, one page per `next()`.
     #[export(args = generated::contract::sdk::v1::ListNumbersArgs)]
-    pub async fn list(
-        &self,
-        page_size: Option<u32>,
-    ) -> ListCall<generated::contract::sdk::v1::Number> {
+    pub fn list(&self, page_size: Option<u32>) -> ListCall<generated::contract::sdk::v1::Number> {
         let send = list_send(self.conn.config.clone());
         let options = PageOptions {
             page_size: page_size.or(self.default_page_size),
@@ -458,7 +455,7 @@ impl WidgetsClient {
 
     /// The parts of one widget, one page per `next()`.
     #[export]
-    pub async fn list_widget_parts(
+    pub fn list_widget_parts(
         &self,
         widget_id: String,
         page_size: Option<u32>,
@@ -483,10 +480,7 @@ impl WidgetsClient {
     /// Several widgets by id, delivered as one chunk of per-id results in
     /// request order.
     #[export]
-    pub async fn batch_get_widgets(
-        &self,
-        ids: Vec<String>,
-    ) -> Batch<generated::contract::v1::Widget> {
+    pub fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<generated::contract::v1::Widget> {
         let config = self.0.config.clone();
         self.0
             .env

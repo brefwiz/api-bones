@@ -954,7 +954,7 @@ async fn given_cached_parts(world: &mut SdkCallWorld, id: String) {
     world.cache_owners.push(owner);
     let client = api_bones_test_service_l2::WidgetsClient::new(&base_url(world), call_env(world))
         .expect("the lane's server address is a URI");
-    let list = client.list_widget_parts(id, None).await;
+    let list = client.list_widget_parts(id, None);
     let pages = hold_filling_walk(world, &list, true).await;
     world.held_parts.extend(pages);
 }
@@ -981,7 +981,7 @@ async fn given_session_holds_numbers(world: &mut SdkCallWorld) {
     let client = api_bones_test_service_l2::NumbersClient::new(&base_url(world), call_env(world))
         .expect("the lane's server address is a URI")
         .with_default_page_size(world.default_page_size);
-    let list = client.list(None).await;
+    let list = client.list(None);
     let pages = hold_filling_walk(world, &list, true).await;
     world.held.extend(pages);
     world.session = Some(Session(client));
@@ -1005,7 +1005,7 @@ async fn when_read_through_session(world: &mut SdkCallWorld) {
         .expect("a Given opened the caller's session")
         .0
         .clone();
-    let list = client.list(None).await;
+    let list = client.list(None);
     world.refusal = list.next().await.err();
 }
 
@@ -1113,7 +1113,7 @@ async fn list_and_read(
     client: &api_bones_test_service_l2::NumbersClient,
     size: Option<u32>,
 ) {
-    let list = client.list(size).await;
+    let list = client.list(size);
     read_every_page(world, &list).await;
 }
 
@@ -1145,7 +1145,7 @@ async fn when_batch_get(world: &mut SdkCallWorld, ids: String) {
     let ids: Vec<String> = ids.split(',').map(str::to_owned).collect();
     let client = api_bones_test_service_l2::WidgetsClient::new(&base_url(world), call_env(world))
         .expect("the lane's server address is a URI");
-    let batch = client.batch_get_widgets(ids).await;
+    let batch = client.batch_get_widgets(ids);
     match batch.next().await {
         Ok(Some(chunk)) => world.batch = chunk,
         Ok(None) => panic!("the batch delivered no chunk"),
@@ -1172,7 +1172,7 @@ async fn list_parts(world: &mut SdkCallWorld, id: String) {
 async fn list_parts_sized(world: &mut SdkCallWorld, id: String, size: Option<u32>) {
     let client = api_bones_test_service_l2::WidgetsClient::new(&base_url(world), call_env(world))
         .expect("the lane's server address is a URI");
-    let list = client.list_widget_parts(id, size).await;
+    let list = client.list_widget_parts(id, size);
     loop {
         match list.next().await {
             Ok(Some(page)) => {
@@ -1214,7 +1214,6 @@ async fn open_numbers_ahead(
             .expect("the lane's server address is a URI")
             .with_default_page_size(world.default_page_size)
             .list(None)
-            .await
     })
     .await
 }
@@ -1911,7 +1910,6 @@ async fn read_first_page_alone(world: &mut SdkCallWorld, prefetch: Option<u8>) {
             .expect("the lane's server address is a URI")
             .with_default_page_size(world.default_page_size)
             .list(None)
-            .await
     })
     .await;
     world.first_page = Some(

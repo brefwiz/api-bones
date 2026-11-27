@@ -36,7 +36,8 @@ use syn::{
 use crate::attrs::{ClientArgs, ErrorArgs, ErrorVariantArgs, ExportArgs, find, tokens};
 use crate::names::json_name;
 use crate::ty::{
-    Env, ProtoRef, Return, Wire, classify_return, classify_wire, last_ident, proto_ref,
+    Env, HandleKind, ProtoRef, Return, Wire, classify_return, classify_wire, handle_kind,
+    last_ident, proto_ref,
 };
 
 /// A named parameter of an export and its type as written.
@@ -550,11 +551,20 @@ fn export(
             "a constant export is `#[export(sync)]`: it has no endpoint to call",
         ));
     }
-    if args.sync == sig.asyncness.is_some() {
+    let is_async = sig.asyncness.is_some();
+    if args.sync && is_async {
+        return Err(syn::Error::new_spanned(sig, "a sync export is not `async`"));
+    }
+    // A `ListCall` or `Batch` export only builds its handle, which opens its
+    // call on first use, so it is a plain `fn`; every other export that is not
+    // sync awaits its call.
+    let handle = handle_kind(&sig.output);
+    if !args.sync && is_async != handle.is_none_or(HandleKind::is_async) {
         return Err(syn::Error::new_spanned(
             sig,
-            if args.sync {
-                "a sync export is not `async`"
+            if is_async {
+                "a ListCall or Batch export is a plain `fn` returning the handle, not `async`: \
+                 the handle opens its call on first use"
             } else {
                 "an async export is `async`; mark a plain method `#[export(sync)]`"
             },
@@ -582,7 +592,7 @@ fn export(
             return Err(syn::Error::new_spanned(
                 &sig.ident,
                 "an async export takes `&self`: a function with no receiver is `#[export(sync)]`, \
-                 and an async one belongs on a method of a client",
+                 and an async one, or one that returns a handle, belongs on a method of a client",
             ));
         }
     };
@@ -647,7 +657,7 @@ mod tests {
         #[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
         impl NumbersClient {
             #[export]
-            pub async fn list_numbers(
+            pub fn list_numbers(
                 &self, limit: u32, since: Option<SystemTime>,
             ) -> ListCall<generated::contract::sdk::v1::Number> { body() }
             #[export(sync)]
@@ -948,8 +958,47 @@ mod tests {
         assert!(message.contains("a parameter is a plain name"), "{message}");
         let message = export_refused("#[export] async fn go(&self) -> Plain { body() }");
         assert!(message.contains("the return type"), "{message}");
+        let message =
+            export_refused("#[export] fn go() -> ListCall<generated::p::v1::R> { body() }");
+        assert!(
+            message.contains("or one that returns a handle, belongs on a method"),
+            "{message}"
+        );
         let message = export_refused("#[export(bad)] fn go(&self) {}");
         assert!(message.contains("unknown argument"), "{message}");
+    }
+
+    #[test]
+    fn a_list_or_batch_export_is_a_plain_fn_and_a_stream_export_is_async() {
+        for handle in ["ListCall", "Batch"] {
+            let ret = format!("-> {handle}<generated::p::v1::R>");
+            let message =
+                export_refused(&format!("#[export] async fn go(&self) {ret} {{ body() }}"));
+            assert!(
+                message.contains("a ListCall or Batch export is a plain `fn`"),
+                "{handle}: {message}"
+            );
+            let model = Model::from_source(&format!(
+                "#[client(surface = \"s\")] impl C {{ #[export] fn go(&self) {ret} {{ body() }} }}"
+            ))
+            .expect("a plain fn export of a list or batch handle");
+            let export = &model.clients[0].exports[0];
+            assert!(!export.sync);
+            assert!(matches!(export.ret, Return::Handle { .. }));
+            let message =
+                export_refused(&format!("#[export(sync)] fn go(&self) {ret} {{ body() }}"));
+            assert!(
+                message.contains("a sync export never returns a handle"),
+                "{message}"
+            );
+        }
+        let message =
+            export_refused("#[export] fn go(&self) -> Stream<generated::p::v1::R> { body() }");
+        assert!(message.contains("an async export is `async`"), "{message}");
+        Model::from_source(
+            "#[client(surface = \"s\")] impl C { #[export] async fn go(&self) -> Stream<generated::p::v1::R> { body() } }",
+        )
+        .expect("an async stream export");
     }
 
     const STATICS: &str = r#"

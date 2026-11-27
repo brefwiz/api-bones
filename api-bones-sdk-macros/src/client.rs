@@ -215,7 +215,7 @@ mod tests {
             #[export(sync)]
             pub fn label(&self, n: u32) -> String { body() }
             #[export]
-            pub async fn list(&self, limit: u32) -> ListCall<generated::contract::sdk::v1::Number> { body() }
+            pub fn list(&self, limit: u32) -> ListCall<generated::contract::sdk::v1::Number> { body() }
             #[export(sync)]
             pub fn reset(&self) { body() }
             #[export]
@@ -242,7 +242,9 @@ mod tests {
         let text = flat(&sample());
         assert!(text.starts_with("implNumbersClient{"), "{text}");
         assert!(
-            text.contains("pubasyncfnlist(&self,limit:u32)->ListCall<generated::contract::sdk::v1::Number>{body()}"),
+            text.contains(
+                "pubfnlist(&self,limit:u32)->ListCall<generated::contract::sdk::v1::Number>{body()}"
+            ),
             "{text}"
         );
         assert!(text.contains("pubfnplain(&self){}"), "{text}");
@@ -253,7 +255,7 @@ mod tests {
     fn a_kept_export_allows_the_argument_count_its_contract_sets() {
         let text = flat(&sample());
         assert!(
-            text.contains("#[allow(clippy::too_many_arguments)]pubasyncfnlist("),
+            text.contains("#[allow(clippy::too_many_arguments)]pubfnlist("),
             "{text}"
         );
         assert!(
@@ -283,7 +285,7 @@ mod tests {
     fn an_impl_without_a_result_export_has_no_checks() {
         let text = flat(&run(
             quote!(surface = "s"),
-            "impl C { #[export(sync)] fn b(&self) {} #[export] async fn l(&self) -> ListCall<generated::contract::v1::Number> { body() } }",
+            "impl C { #[export(sync)] fn b(&self) {} #[export] fn l(&self) -> ListCall<generated::contract::v1::Number> { body() } }",
         ));
         assert!(!text.contains("fnerror"), "{text}");
         let text = flat(&run(quote!(surface = "s"), "impl C {}"));
@@ -332,6 +334,28 @@ mod tests {
             "impl C { #[export] async fn a(&mut self) -> Result<(), Error> { body() } }",
         ));
         assert!(text.contains("takes`&self`"), "{text}");
+    }
+
+    #[test]
+    fn an_async_list_or_batch_export_is_refused_with_the_rule_and_a_stream_stays_async() {
+        for handle in ["ListCall", "Batch"] {
+            let text = flat(&run(
+                quote!(surface = "s"),
+                &format!(
+                    "impl C {{ #[export] async fn a(&self) -> {handle}<generated::contract::v1::Number> {{ body() }} }}"
+                ),
+            ));
+            assert!(
+                text.contains("aListCallorBatchexportisaplain`fn`returningthehandle,not`async`"),
+                "{handle}: {text}"
+            );
+        }
+        let text = flat(&run(
+            quote!(surface = "s"),
+            "impl C { #[export] async fn a(&self) -> Stream<generated::contract::v1::Number> { body() } }",
+        ));
+        assert!(!text.contains("compile_error"), "{text}");
+        assert!(text.contains("ApiBonesJsCAHandle"), "{text}");
     }
 
     #[test]

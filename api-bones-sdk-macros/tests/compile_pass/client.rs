@@ -37,12 +37,12 @@ pub struct NumbersClient;
 #[client(surface = "numbers", proto = generated::contract::sdk::v1)]
 impl NumbersClient {
     #[export]
-    pub async fn list(
+    pub fn list(
         &self,
         limit: u32,
         since: Option<SystemTime>,
     ) -> ListCall<generated::contract::sdk::v1::Number> {
-        std::future::pending().await
+        loop {}
     }
 
     #[export]
@@ -54,8 +54,8 @@ impl NumbersClient {
     }
 
     #[export]
-    pub async fn get_all(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> {
-        std::future::pending().await
+    pub fn get_all(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> {
+        loop {}
     }
 
     #[export(surface = "numbers-write")]
