@@ -26,6 +26,7 @@ bytes = "1"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time", "sync"] }
 connectrpc = { version = "0.9.1", features = ["client", "server"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+http = "1.4.2"
 cucumber = "0.23"
 # The platform BDD runner.
 brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }

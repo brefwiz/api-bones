@@ -8,6 +8,7 @@
 // The catalog-loading contract is TypeScript-only: Rust embeds every locale at compile time.
 // It runs before error_localization.feature, whose Background loads every catalog into the one module instance.
 // The SDK runtime contract is TypeScript-only: Rust callers use api-bones-sdk directly.
+// The test service preflight contract is TypeScript-only: the Rust test service serves no browser page.
 // The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation, stream-keepalive and error-localization contracts are answered by both lanes.
 module.exports = {
   default: {
@@ -40,6 +41,7 @@ module.exports = {
       "../features/error_localization_loading.feature",
       "../features/error_localization.feature",
       "../features/sdk_runtime.feature",
+      "../features/test_service_preflight.feature",
     ],
     import: [
       "steps/retry_eligibility.ts",
@@ -69,6 +71,7 @@ module.exports = {
       "steps/error_localization_loading.ts",
       "steps/error_localization.ts",
       "steps/sdk_runtime.ts",
+      "steps/test_service_preflight.ts",
     ],
     strict: true,
     // The summary formatter on stderr prints each failing scenario and its

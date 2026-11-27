@@ -34,6 +34,7 @@ use connectrpc::{
     Router, Server, ServiceRequest, ServiceResult,
 };
 use cucumber::{given, then, when};
+use http::{HeaderMap, HeaderValue};
 
 #[path = "steps/stream.rs"]
 mod stream;
@@ -79,6 +80,10 @@ struct Shared {
     refusals: AtomicUsize,
     /// Requests the server still refuses as unauthenticated.
     unauthenticated: AtomicUsize,
+    /// Requests the server still throttles as resource exhausted.
+    exhausted: AtomicUsize,
+    /// The whole seconds each throttle names in its `retry-after`.
+    retry_after_s: AtomicU64,
     /// How many times the host was told a server refused the caller.
     told: AtomicUsize,
     /// Whether the caller's credential source can no longer answer.
@@ -164,6 +169,14 @@ impl Shared {
         }
         if spend(&self.refusals) {
             return Err(ConnectError::unavailable("the server is down"));
+        }
+        if spend(&self.exhausted) {
+            let retry_after = HeaderValue::from(self.retry_after_s.load(Ordering::SeqCst));
+            let mut headers = HeaderMap::new();
+            headers.insert(http::header::RETRY_AFTER, retry_after);
+            return Err(
+                ConnectError::resource_exhausted("the server is throttling").with_headers(headers)
+            );
         }
         Ok(())
     }
@@ -594,6 +607,14 @@ fn given_page_delay(world: &mut SdkCallWorld, millis: u64) {
 #[given(expr = "the widgets server refuses the first {int} requests as unavailable")]
 fn given_refusals(world: &mut SdkCallWorld, refusals: usize) {
     world.shared.refusals.store(refusals, Ordering::SeqCst);
+}
+
+#[given(
+    expr = "the widgets server refuses the first {int} requests as resource exhausted with a Retry-After of {int} seconds"
+)]
+fn given_throttled(world: &mut SdkCallWorld, refusals: usize, seconds: u64) {
+    world.shared.retry_after_s.store(seconds, Ordering::SeqCst);
+    world.shared.exhausted.store(refusals, Ordering::SeqCst);
 }
 
 #[given(expr = "the SDK caller is {string} of organization {string}")]

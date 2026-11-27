@@ -272,7 +272,7 @@ TS_PACKAGES := api-bones-otel api-bones-axios api-bones-sdk-runtime-ts api-bones
 # The contract lane is its own TypeScript package; ts-test runs it where npm
 # credentials already exist. It is excluded from publish/pack, which iterate
 # PUBLISHABLE sets, because it ships nothing.
-TS_TEST_PACKAGES := $(TS_PACKAGES) tests/typescript tests/sdk-call/typescript
+TS_TEST_PACKAGES := $(TS_PACKAGES) api-bones-test-service-ts tests/typescript tests/sdk-call/typescript
 
 .PHONY: canonical-check
 canonical-check: ## Run the brefwiz canonical structural gates locally
@@ -333,10 +333,10 @@ ts-build: ts-types-generate ## Build TypeScript packages
 .PHONY: l2-surface
 # Regenerates the generator-owned pinned surface that wrapper_ts_golden.rs
 # asserts; never hand-edit. Manual target, not part of any CI lane.
-l2-surface: ## Regenerate tests/l2/typescript/api-surface.d.ts from the wrapper generator
+l2-surface: ## Regenerate api-bones-test-service-sdk-ts/api-surface.d.ts from the wrapper generator
 	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
 	cargo run --locked -p api-bones-sdk-gen -- wrapper typescript --crate tests/l2 --spec SPEC.md --surface sdk-call --out "$$tmp"; \
-	cp "$$tmp/api-surface.d.ts" tests/l2/typescript/api-surface.d.ts
+	cp "$$tmp/api-surface.d.ts" api-bones-test-service-sdk-ts/api-surface.d.ts
 
 ts-test: ts-types-generate ## Test TypeScript packages
 	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
@@ -375,12 +375,12 @@ ts-test: ts-types-generate ## Test TypeScript packages
 	: 'The contract lane imports the wasm wrapper of the test service Layer 2,'
 	: 'so it is built (wasm32, bound, compiled) before the lane runs cucumber.'
 	@echo "==> prebuild test-service wrapper"; log=$$(mktemp); rcf=$$(mktemp); \
-	{ cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --out tests/l2/typescript 2>&1; echo $$? > "$$rcf"; } | tee "$$log"; \
+	{ cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --out api-bones-test-service-sdk-ts 2>&1; echo $$? > "$$rcf"; } | tee "$$log"; \
 	rc=$$(cat "$$rcf"); rm -f "$$rcf"; \
 	if [ "$$rc" = 0 ]; then \
 		rm -f "$$log"; \
 	else \
-		echo "TEST-FAIL tests/l2/typescript exit=$$rc"; \
+		echo "TEST-FAIL api-bones-test-service-sdk-ts exit=$$rc"; \
 		grep -nE '^(error|warning: unused)|could not compile|signal|Killed' "$$log" | head -40; \
 		tail -n 120 "$$log"; rm -f "$$log"; exit 1; \
 	fi
@@ -423,4 +423,4 @@ ci-sdk-autogenerate: ts-types-generate ## Generate canonical TypeScript typed-fi
 	: 'The test service wrapper links the built sdk-runtime package, which links otel.'
 	cd api-bones-otel && npm install --no-audit --no-fund && npm run build
 	cd api-bones-sdk-runtime-ts && npm install --no-audit --no-fund && npm run build
-	cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --out tests/l2/typescript
+	cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --out api-bones-test-service-sdk-ts

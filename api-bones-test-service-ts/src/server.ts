@@ -10,6 +10,11 @@
  * second address (`POST /reset`, `POST /configure`, `GET /seen`,
  * `POST /seen/clear`, `POST /alias`, `POST /ack/<id>`).
  *
+ * A CORS preflight (`OPTIONS` naming an `Origin`) is answered on the services'
+ * address for loopback origins only; any other origin is refused with no CORS
+ * header. A scripted `exhausted` answers the next requests as resource
+ * exhausted with a `retry-after` of the scripted seconds.
+ *
  * The caller's credential state lives in the steps process. A scripted change
  * of the caller (`switchTo`, `switchOnPage`, `refreshTo`) is published on
  * stdout as one JSON line `{"event":"caller","id":N,...}`; the server holds the
@@ -34,6 +39,9 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { encodeErrorInfo } from "@brefwiz/api-bones-connect";
 import { contractRegistry } from "./contract.js";
+import { refuse } from "./control-guard.js";
+import { preflight } from "./cors.js";
+import { throttled } from "./throttle.js";
 import type { Patch, Seen } from "./types.js";
 
 /** The scenario the server last heard of; every line it narrates names it. */
@@ -94,6 +102,9 @@ class SdkCallServer {
   readonly seen: Seen[] = [];
   readonly unavailable = { count: 0 };
   readonly unauthenticated = { count: 0 };
+  /** The throttles the server still answers, and the seconds each names in its `retry-after`. */
+  readonly exhausted = { count: 0 };
+  exhaustedRetryAfterSeconds = 0;
   /** The subject the server switches the caller to while it handles a request. */
   switchTo: string | undefined;
   /** The subject the server switches the caller to while it handles the request for the zero-based page. */
@@ -127,6 +138,8 @@ class SdkCallServer {
     this.seen.length = 0;
     this.unavailable.count = 0;
     this.unauthenticated.count = 0;
+    this.exhausted.count = 0;
+    this.exhaustedRetryAfterSeconds = 0;
     this.switchTo = undefined;
     this.switchOnPage = undefined;
     this.refreshTo = undefined;
@@ -154,6 +167,11 @@ class SdkCallServer {
     if (patch.tickMs !== undefined) this.tickMs = patch.tickMs;
     if (patch.unavailable !== undefined) this.unavailable.count = patch.unavailable;
     if (patch.unauthenticated !== undefined) this.unauthenticated.count = patch.unauthenticated;
+    if (patch.exhausted !== undefined) {
+      throttled(patch.exhausted.retryAfterSeconds); // refuses a retry-after no throttle could name
+      this.exhausted.count = patch.exhausted.count;
+      this.exhaustedRetryAfterSeconds = patch.exhausted.retryAfterSeconds;
+    }
     if (patch.switchTo !== undefined) this.switchTo = patch.switchTo ?? undefined;
     if (patch.switchOnPage !== undefined) this.switchOnPage = patch.switchOnPage ?? undefined;
     if (patch.refreshTo !== undefined) this.refreshTo = patch.refreshTo ?? undefined;
@@ -177,6 +195,7 @@ class SdkCallServer {
     }
     if (spend(this.unauthenticated)) throw new ConnectError("the caller is not signed in", Code.Unauthenticated);
     if (spend(this.unavailable)) throw new ConnectError("the server is down", Code.Unavailable);
+    if (spend(this.exhausted)) throw throttled(this.exhaustedRetryAfterSeconds);
   }
 
   async #switchIfScripted(): Promise<void> {
@@ -269,6 +288,13 @@ class SdkCallServer {
       },
     });
     this.#handle = (request, response) => {
+      const answer = preflight(request.method, request.headers.origin, request.headers["access-control-request-headers"]);
+      if (answer !== undefined) {
+        note("preflight", { origin: request.headers.origin, status: answer.status });
+        response.writeHead(answer.status, answer.headers);
+        response.end();
+        return;
+      }
       if (this.garble && request.url?.startsWith("/contract.v1.Numbers/")) {
         response.writeHead(200, { "content-type": request.headers["content-type"] ?? "application/proto" });
         response.end(Buffer.from([0xff, 0xff, 0xff]));
@@ -347,13 +373,18 @@ async function body(request: IncomingMessage): Promise<string> {
 }
 
 function controlServer(server: SdkCallServer): Server {
-  return createServer((request, response) => {
+  const control: Server = createServer((request, response) => {
     void (async () => {
       const route = `${request.method} ${request.url}`;
       const reply = (status: number, value: unknown): void => {
         response.writeHead(status, { "content-type": "application/json" });
         response.end(JSON.stringify(value));
       };
+      const refusal = refuse(request, (control.address() as AddressInfo).port);
+      if (refusal !== undefined) {
+        reply(refusal.status, { error: refusal.error });
+        return;
+      }
       try {
         const ack = /^POST \/ack\/(\d+)$/.exec(route);
         if (ack !== null) {
@@ -382,6 +413,7 @@ function controlServer(server: SdkCallServer): Server {
       }
     })();
   });
+  return control;
 }
 
 const server = new SdkCallServer();

@@ -412,6 +412,16 @@ sdk_surfaces:
         delivery: package
         packages: ["@brefwiz/api-bones-sdk-runtime"]
 internal_behavior_owners:
+  # The TypeScript test service is the loopback server a browser page under
+  # test calls: it answers a preflight for loopback origins only, and its
+  # control port serves only Host 127.0.0.1:<port> and POSTs of
+  # application/json, with no CORS headers. The package exports no call that
+  # reaches either check, so they are provider code no declared sdk_surface
+  # exposes.
+  - paths:
+      - api-bones-test-service-ts/src/cors.ts
+      - api-bones-test-service-ts/src/control-guard.ts
+    feature: tests/features/test_service_preflight.feature
   # The automation manifest compiler and its DSSE signature check are library
   # code the service-kit, the CLI and the layer embed directly; no declared
   # sdk_surface exposes them.
@@ -541,10 +551,20 @@ It publishes on two ecosystems, and they release on separate lineages:
 
 - Rust crates to crates.io on `v*` tags.
 - npm packages (`api-bones-connect`, `api-bones-axios`, `api-bones-otel`,
-  `api-bones-types`, `api-bones-sdk-runtime`, `api-bones-test-service`) on
-  their own prefixed tags. `api-bones-connect` publishes to the brefwiz
+  `api-bones-types`, `api-bones-sdk-runtime`, `api-bones-test-service`,
+  `api-bones-test-service-sdk`) on their own prefixed tags.
+  `api-bones-connect` publishes to the brefwiz
   registry, because packages published there depend on it and npm resolves a
   registry per scope rather than per package.
+- `@brefwiz/api-bones-test-service-sdk` is the generated TypeScript wrapper of
+  `api-bones-test-service-l2` (directory `api-bones-test-service-sdk-ts`, outside
+  `tests/` so the package lane discovers it). The generator writes its
+  manifest: `private` follows the Layer 2 crate's `publish` setting, the sdk
+  runtime is a peer dependency (`>=` the runtime floor) with the in-tree `file:`
+  link as a dev dependency, and a published manifest names the registry
+  its sdk runtime publishes to. Its `src/generated-l2` is gitignored and built by
+  `ci-sdk-autogenerate`; only `package.json`, `package-lock.json`,
+  `l2-methods.json`, `api-surface.d.ts` and `LICENSE` are tracked.
 
 ## Coverage
 

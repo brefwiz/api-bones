@@ -19,11 +19,13 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.test.*",
     "LICENSE"
   ],
   "scripts": {
     "prebuild": "node ../scripts/build-test-service-contract.mjs",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "tsc && node --test dist/*.test.js"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.16.0",

@@ -405,6 +405,7 @@ dependencies = [
  "connectrpc",
  "cucumber",
  "futures-util",
+ "http",
  "tokio",
 ]
 
