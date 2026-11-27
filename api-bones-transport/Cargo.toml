@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-transport"
-version = "0.4.1"
+version = "0.5.0"
 publish = ["brefwiz"]
 edition = "2024"
 rust-version = "1.85"
@@ -23,7 +23,7 @@ path = "src/lib.rs"
 # Depends on api-bones only for `Reach`, a plain enum with no dependencies
 # (default features off), and not on api-bones-connect.
 [dependencies]
-api-bones = { version = "^23.1.0", path = "..", registry = "brefwiz", default-features = false }
+api-bones = { version = "^24.0.0", path = "..", registry = "brefwiz", default-features = false }
 # The client core only. connectrpc's `client` and `client-tls` features start
 # tokio tasks and read `std::time::Instant`, neither of which a browser has, so
 # they are enabled for native targets alone (see below).

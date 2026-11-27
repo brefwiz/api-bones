@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-27
+
+### Other
+
+- updated the following local packages: api-bones, api-bones, api-bones-transport, api-bones-page, api-bones-batch
+
 ## [0.4.1] - 2026-11-27
 
 ### Other

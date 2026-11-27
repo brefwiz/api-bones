@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [24.0.0] - 2026-11-27
+
+### Added
+
+- *(sdk-gen)* [**breaking**] one wrapper per declared npm package
+
 ## [23.1.0] - 2026-11-27
 
 ### Added
