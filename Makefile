@@ -15,7 +15,7 @@ ADVISORY_DB ?=
 # Proto codegen reruns on a content hash of its inputs. build/brefwiz-codegen.mk
 # is vendored byte-for-byte and never edited here. The step lane's build.rs
 # generates from its own proto and from the bones protos it imports.
-CODEGEN_INPUTS := tests/l2/proto tests/rust/proto tests/shared/proto tests/wasm-server/proto api-bones-protos/proto tools/wasm-size-probe/tests/fixtures/proto
+CODEGEN_INPUTS := tests/l2/proto tests/rust/proto tests/shared/proto tests/wasm-server/proto api-bones-protos/proto tools/wasm-size-probe/tests/fixtures/proto tests/emitter-catalogs/catalogs
 
 include build/brefwiz-codegen.mk
 

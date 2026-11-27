@@ -1,0 +1,4 @@
+{
+  "acme-origin.errors.LIMIT.title": "Limit {limit, number} reached",
+  "acme-edge.errors.DENIED.title": "No seat {seat}"
+}

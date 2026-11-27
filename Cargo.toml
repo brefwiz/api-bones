@@ -34,6 +34,9 @@ members = [
     # feature directory stays its own corpus root, distinct from the
     # dual-language one above.
     "tests/internal-bdd",
+    # Calls the api-bones-i18n error-catalog build helper from a real build
+    # script and evaluates `emitter_error_catalogs!` over what it wrote.
+    "tests/emitter-catalogs",
     # The native Connect server the wasm32 fetch transport suite runs against.
     "tests/wasm-server",
     # The api-bones test service's Rust Layer 2: annotated with the SDK
