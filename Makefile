@@ -276,9 +276,11 @@ spec-check: ## L1 ADR-0086: SPEC.md exists and wire_surface is valid
 # an omission visible.
 TS_PACKAGES := api-bones-otel api-bones-axios api-bones-sdk-runtime-ts api-bones-connect-ts api-bones-types
 # The contract lane is its own TypeScript package; ts-test runs it where npm
-# credentials already exist. It is excluded from publish/pack, which iterate
+# credentials already exist. tests/typescript-floor installs the published runtime at
+# the generator's floor version and compiles the generated wrapper against it.
+# The lanes are excluded from publish/pack, which iterate
 # PUBLISHABLE sets, because it ships nothing.
-TS_TEST_PACKAGES := $(TS_PACKAGES) api-bones-test-service-ts tests/typescript tests/sdk-call/typescript
+TS_TEST_PACKAGES := $(TS_PACKAGES) api-bones-test-service-ts tests/typescript tests/sdk-call/typescript tests/typescript-floor
 
 .PHONY: canonical-check
 canonical-check: ## Run the brefwiz canonical structural gates locally

@@ -269,7 +269,7 @@ pub(crate) const RUNTIME_PACKAGE: &str = "@brefwiz/api-bones-sdk-runtime";
 
 /// The lowest runtime release the emitted code runs against. Raised when the
 /// emitted code uses a runtime export a lower release lacks.
-pub(crate) const RUNTIME_FLOOR: &str = "0.2.0";
+pub(crate) const RUNTIME_FLOOR: &str = "0.3.0";
 
 /// The runtime dependency of the package written to `out`: a `file:` link to
 /// the runtime package next to the SPEC when `spec_dir` holds it, the floor
@@ -1602,6 +1602,20 @@ mod tests {
             floor
         );
         std::fs::remove_dir_all(&dir).expect("cleaned");
+    }
+
+    #[test]
+    fn the_floor_contract_lane_pins_the_runtime_at_the_floor() {
+        let manifest =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/typescript-floor/package.json");
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(manifest).expect("the floor lane manifest"),
+        )
+        .expect("json");
+        assert_eq!(
+            manifest["devDependencies"][RUNTIME_PACKAGE], RUNTIME_FLOOR,
+            "the floor lane installs the runtime at exactly the floor"
+        );
     }
 
     #[test]
