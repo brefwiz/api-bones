@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-sdk"
-version = "0.5.0"
+version = "0.6.0"
 publish = ["brefwiz"]
 edition = "2024"
 rust-version = "1.85"
@@ -25,11 +25,11 @@ path = "src/lib.rs"
 wasm = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:web-sys"]
 
 [dependencies]
-api-bones = { version = "^24.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
-api-bones-batch = { version = "0.10.0", path = "../api-bones-batch", registry = "brefwiz" }
-api-bones-page = { version = "0.10.0", path = "../api-bones-page", registry = "brefwiz" }
+api-bones = { version = "^25.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
+api-bones-batch = { version = "0.11.0", path = "../api-bones-batch", registry = "brefwiz" }
+api-bones-page = { version = "0.11.0", path = "../api-bones-page", registry = "brefwiz" }
 api-bones-rt = { version = "0.1.0", path = "../api-bones-rt", registry = "brefwiz" }
-api-bones-transport = { version = "0.5.0", path = "../api-bones-transport", registry = "brefwiz" }
+api-bones-transport = { version = "0.6.0", path = "../api-bones-transport", registry = "brefwiz" }
 buffa = "0.9"
 buffa-types = "0.9"
 connectrpc = { version = "0.9.1", default-features = false }
@@ -47,7 +47,7 @@ web-sys = { version = "0.3.105", optional = true, features = ["AbortController",
 # A native build trusts a root store; a browser build has none, because the
 # browser owns the connection.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-api-bones = { version = "^24.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["tls-webpki-roots"] }
+api-bones = { version = "^25.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["tls-webpki-roots"] }
 # connectrpc's own client starts tokio tasks a browser has not.
 connectrpc = { version = "0.9.1", default-features = false, features = ["client"] }
 

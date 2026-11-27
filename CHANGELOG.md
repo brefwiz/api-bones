@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [25.0.0] - 2026-11-27
+
+### Fixed
+
+- *(tls)* [**breaking**] library crates select webpki roots; native roots are the binary's choice
+
 ## [24.0.0] - 2026-11-27
 
 ### Added
