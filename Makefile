@@ -153,6 +153,7 @@ ci-e2e-rust: ci-sdk-autogenerate ## Run what nextest cannot carry: the Gherkin c
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_if_match_precondition
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_get_reads
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test proto_vocabulary
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_wrapper_package
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test automation_manifest
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_wasm_integrity
 
@@ -342,9 +343,7 @@ ts-build: ts-types-generate ## Build TypeScript packages
 # Regenerates the generator-owned pinned surface that wrapper_ts_golden.rs
 # asserts; never hand-edit. Manual target, not part of any CI lane.
 l2-surface: ## Regenerate api-bones-test-service-sdk-ts/api-surface.d.ts from the wrapper generator
-	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
-	cargo run --locked -p api-bones-sdk-gen -- wrapper typescript --crate tests/l2 --spec SPEC.md --surface sdk-call --wasm-sha256 abababababababababababababababababababababababababababababababab --descriptor api-bones-test-service-ts/dist/contract.binpb --out "$$tmp"; \
-	cp "$$tmp/api-surface.d.ts" api-bones-test-service-sdk-ts/api-surface.d.ts
+	cargo run --locked -p api-bones-sdk-gen -- wrapper typescript --crate tests/l2 --spec SPEC.md --wasm-sha256 abababababababababababababababababababababababababababababababab --descriptor api-bones-test-service-ts/dist/contract.binpb --out api-bones-test-service-sdk-ts
 
 ts-test: ts-types-generate ## Test TypeScript packages
 	: 'Iterates the TEST set, which adds the contract lane. That lane consumes'
@@ -383,7 +382,7 @@ ts-test: ts-types-generate ## Test TypeScript packages
 	: 'The contract lane imports the wasm wrapper of the test service Layer 2,'
 	: 'so it is built (wasm32, bound, compiled) before the lane runs cucumber.'
 	@echo "==> prebuild test-service wrapper"; log=$$(mktemp); rcf=$$(mktemp); \
-	{ cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --descriptor api-bones-test-service-ts/dist/contract.binpb --out api-bones-test-service-sdk-ts 2>&1; echo $$? > "$$rcf"; } | tee "$$log"; \
+	{ cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --descriptor api-bones-test-service-ts/dist/contract.binpb --out api-bones-test-service-sdk-ts 2>&1; echo $$? > "$$rcf"; } | tee "$$log"; \
 	rc=$$(cat "$$rcf"); rm -f "$$rcf"; \
 	if [ "$$rc" = 0 ]; then \
 		rm -f "$$log"; \
@@ -435,4 +434,4 @@ ci-sdk-autogenerate: ts-types-generate ## Generate canonical TypeScript typed-fi
 	: 'writes on build once connect is built.'
 	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build
 	cd api-bones-test-service-ts && npm install --no-audit --no-fund && npm run build
-	cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --descriptor api-bones-test-service-ts/dist/contract.binpb --out api-bones-test-service-sdk-ts
+	cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --descriptor api-bones-test-service-ts/dist/contract.binpb --out api-bones-test-service-sdk-ts

@@ -21,6 +21,7 @@ use std::process::Command;
 use anyhow::{Context, ensure};
 use sha2::{Digest, Sha256};
 
+use crate::wrapper_package;
 use crate::wrapper_ts::{self, Contract, SOURCE_DIR};
 
 /// The cargo profile the wasm is built under.
@@ -140,7 +141,6 @@ pub struct Descriptors<'a> {
 pub fn run_build(
     spec: &Path,
     krate: &Path,
-    surface: &str,
     out: &Path,
     target_dir: &Path,
     descriptor: &Path,
@@ -151,7 +151,6 @@ pub fn run_build(
         &System,
         spec,
         krate,
-        surface,
         out,
         target_dir,
         &Descriptors {
@@ -172,13 +171,12 @@ pub fn build(
     tools: &dyn Tools,
     spec: &Path,
     krate: &Path,
-    surface: &str,
     out: &Path,
     target_dir: &Path,
     descriptors: &Descriptors,
 ) -> anyhow::Result<()> {
     let Descriptors { contract, path } = descriptors;
-    let mut package = wrapper_ts::package_of(spec, krate, surface, out)?;
+    let mut package = wrapper_package::package_of(spec, krate, out)?;
     let glue = package.crate_name.replace('-', "_");
     tools.run(&Step {
         what: "cargo build for wasm32",
@@ -336,17 +334,47 @@ mod tests {
         }
     }
 
+    /// The generator replaced the tracked manifest with the one it writes.
+    fn written(out: &Path) -> bool {
+        std::fs::read_to_string(out.join("package.json"))
+            .is_ok_and(|text| text.contains("\"version\""))
+    }
+
     fn with_lockfile(out: &Path) {
         std::fs::create_dir_all(out).expect("a directory");
         std::fs::write(out.join("package-lock.json"), "").expect("a lockfile");
     }
 
-    fn build_with(tools: &Recorder, surface: &str, out: &Path) -> anyhow::Result<()> {
+    /// A git work tree at `out` that tracks the `package.json` of the test
+    /// service wrapper, the way the repository does.
+    fn track_manifest(out: &Path) {
+        std::fs::create_dir_all(out).expect("a directory");
+        std::fs::write(
+            out.join("package.json"),
+            "{\"name\":\"@brefwiz/api-bones-test-service-sdk\"}",
+        )
+        .expect("a manifest");
+        for args in [["init", "-q"], ["add", "package.json"]] {
+            let status = Command::new("git")
+                .arg("-C")
+                .arg(out)
+                .args(args)
+                .status()
+                .expect("git runs");
+            assert!(status.success(), "git {args:?}");
+        }
+    }
+
+    fn build_with(tools: &Recorder, out: &Path) -> anyhow::Result<()> {
+        track_manifest(out);
+        build_untracked(tools, out)
+    }
+
+    fn build_untracked(tools: &Recorder, out: &Path) -> anyhow::Result<()> {
         build(
             tools,
             &repo().join("SPEC.md"),
             &repo().join("tests/l2"),
-            surface,
             out,
             Path::new("/target"),
             &Descriptors {
@@ -396,7 +424,7 @@ mod tests {
         let out = scratch("steps");
         with_lockfile(&out);
         let tools = Recorder::new(None);
-        build_with(&tools, "sdk-call", &out).expect("the build");
+        build_with(&tools, &out).expect("the build");
         assert_eq!(
             tools.whats(),
             [
@@ -473,7 +501,7 @@ mod tests {
         );
         assert_eq!(steps[5].dir.as_deref(), Some(out.as_path()));
         assert!(out.join(SOURCE_DIR).join("client.ts").is_file());
-        assert!(out.join("package.json").is_file());
+        assert!(written(&out));
         std::fs::remove_dir_all(&out).expect("cleaned");
     }
 
@@ -507,11 +535,11 @@ mod tests {
             let out = scratch("failing");
             with_lockfile(&out);
             let tools = Recorder::new(Some(failing));
-            let error = build_with(&tools, "sdk-call", &out).expect_err(failing);
+            let error = build_with(&tools, &out).expect_err(failing);
             assert_eq!(error.to_string(), format!("{failing} failed"));
             assert_eq!(tools.steps.borrow().len(), ran, "{failing}");
             assert_eq!(
-                out.join("package.json").exists(),
+                written(&out),
                 ran >= 4,
                 "{failing}: the sources are written after wasm-opt and before npm ci"
             );
@@ -523,10 +551,10 @@ mod tests {
     fn a_build_without_a_lockfile_stops_before_npm() {
         let out = scratch("no-lockfile");
         let tools = Recorder::new(None);
-        let error = build_with(&tools, "sdk-call", &out).expect_err("no lockfile");
+        let error = build_with(&tools, &out).expect_err("no lockfile");
         assert!(error.to_string().contains("package-lock.json"), "{error}");
         assert_eq!(tools.steps.borrow().len(), 3);
-        assert!(out.join("package.json").is_file());
+        assert!(written(&out));
         std::fs::remove_dir_all(&out).expect("cleaned");
     }
 
@@ -549,24 +577,28 @@ mod tests {
     }
 
     #[test]
-    fn a_surface_the_spec_does_not_list_runs_no_tool() {
+    fn an_output_without_a_tracked_package_json_runs_no_tool() {
         let tools = Recorder::new(None);
-        build_with(&tools, "no-such-surface", &scratch("absent")).expect_err("no such surface");
+        let out = scratch("absent");
+        let error = build_untracked(&tools, &out).expect_err("no package.json");
+        assert!(
+            error.to_string().contains("tracked package.json"),
+            "{error}"
+        );
         assert_eq!(tools.steps.borrow().len(), 0);
     }
 
     #[test]
-    fn the_system_build_fails_before_any_tool_for_an_absent_surface() {
+    fn the_system_build_fails_before_any_tool_without_a_tracked_package_json() {
         let out = scratch("system-absent");
         run_build(
             &repo().join("SPEC.md"),
             &repo().join("tests/l2"),
-            "no-such-surface",
             &out,
             Path::new("/target"),
             &wrapper_ts::testkit::descriptor_file("absent-surface"),
         )
-        .expect_err("no such surface");
+        .expect_err("no package.json");
         assert!(!out.exists());
     }
 
@@ -576,7 +608,6 @@ mod tests {
         let error = run_build(
             &repo().join("SPEC.md"),
             &repo().join("tests/l2"),
-            "sdk-call",
             &out,
             Path::new("/target"),
             Path::new("/no/such/descriptor.binpb"),
@@ -591,7 +622,7 @@ mod tests {
         let out = scratch("stamp");
         with_lockfile(&out);
         let tools = Recorder::new(None);
-        build_with(&tools, "sdk-call", &out).expect("the build");
+        build_with(&tools, &out).expect("the build");
         assert_eq!(
             tools.read.borrow().as_slice(),
             [out.join(SOURCE_DIR)

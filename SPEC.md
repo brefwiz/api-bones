@@ -536,6 +536,12 @@ internal_behavior_owners:
   # records stays on the sdk-wasm-load surface.
   - paths: [api-bones-sdk-gen/src/wrapper_ts.rs]
     feature: tests/internal-bdd/tests/features/sdk_wasm_integrity.feature
+  # The package a generated wrapper publishes is the name in the
+  # `package.json` tracked beside it; the generator refuses a crate whose
+  # exports or listing surfaces disagree with that package. It is build
+  # tooling, so no SDK call can reach it.
+  - paths: [api-bones-sdk-gen/src/wrapper_package.rs, api-bones-sdk-gen/src/build_ts.rs]
+    feature: tests/internal-bdd/tests/features/sdk_wrapper_package.feature
 library_crates:
   - api-bones
   - api-bones-automation
@@ -614,7 +620,8 @@ It publishes on two ecosystems, and they release on separate lineages:
 - `@brefwiz/api-bones-test-service-sdk` is the generated TypeScript wrapper of
   `api-bones-test-service-l2` (directory `api-bones-test-service-sdk-ts`, outside
   `tests/` so the package lane discovers it). The generator writes its
-  manifest: `private` follows the Layer 2 crate's `publish` setting, the sdk
+  manifest: its `name` is the package, read back from the tracked
+  `package.json` (one crate, one wrapper, one package); `private` follows the Layer 2 crate's `publish` setting, the sdk
   runtime is a peer dependency (`>=` the runtime floor) with the in-tree `file:`
   link as a dev dependency, and a published manifest names the registry
   its sdk runtime publishes to. Its `src/generated` is gitignored and built by

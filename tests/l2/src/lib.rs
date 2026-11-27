@@ -319,7 +319,7 @@ impl NumbersClient {
     }
 }
 
-#[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
+#[client(surface = "sdk-call", proto = generated::contract::sdk::v1)]
 impl NumbersClient {
     /// The wasm constructor: the host says how to authenticate and where to
     /// report spans, and the options message may set the page size a list asks
@@ -427,7 +427,7 @@ impl WidgetsClient {
 
 from_host!(WidgetsClient);
 
-#[client(surface = "connect-batch", proto = generated::contract::sdk::v1)]
+#[client(surface = "sdk-call", proto = generated::contract::sdk::v1)]
 impl WidgetsClient {
     /// One widget by id.
     #[export]
