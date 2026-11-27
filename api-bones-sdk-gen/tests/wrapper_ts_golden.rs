@@ -131,7 +131,7 @@ fn the_snapshot_and_manifest_written_are_the_tracked_ones() {
     assert_eq!(written, tracked);
     assert_eq!(
         written["peerDependencies"]["@brefwiz/api-bones-sdk-runtime"],
-        ">=0.2.0"
+        ">=0.3.0"
     );
     assert!(written.get("private").is_none());
     let link = tracked_runtime
