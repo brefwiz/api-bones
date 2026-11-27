@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [23.0.0] - 2026-11-27
+
+### Added
+
+- *(sdk)* [**breaking**] the Rust core owns Retry-After and per-call prefetch; the test service scripts failing, counted expiry and widget parts
+
+### Other
+
+- *(release)* metadata for #268
+- Merge pull request 'feat(i18n,connect): build helper and bin that embed and check an emitter's error catalogs' (#268) from feat/catalog-embed-helper into rc
+
 ## [22.4.0] - 2026-11-27
 
 ### Added

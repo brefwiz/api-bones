@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.0.0] - 2026-11-27
+
+### Added
+
+- *(sdk)* [**breaking**] the Rust core owns Retry-After and per-call prefetch; the test service scripts failing, counted expiry and widget parts
+
 ## [5.2.1] - 2026-11-27
 
 ### Fixed

@@ -1,6 +1,6 @@
 [package]
 name = "api-bones-sdk-gen"
-version = "5.2.1"
+version = "6.0.0"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 api-bones-progenitor = { path = "../api-bones-progenitor", version = "^4.4.2", registry = "brefwiz" }
-api-bones-sdk-model = { version = "0.2.0", path = "../api-bones-sdk-model", registry = "brefwiz" }
+api-bones-sdk-model = { version = "0.3.0", path = "../api-bones-sdk-model", registry = "brefwiz" }
 brotli = { version = "8", default-features = false, features = ["std"] }
 clap = { version = "4", features = ["derive"] }
 flate2 = "1"
@@ -27,5 +27,5 @@ serde_json = "1"
 serde_yaml = "0.9"
 
 [dev-dependencies]
-api-bones-protos = { path = "../api-bones-protos", version = "^0.9.2", registry = "brefwiz" }
+api-bones-protos = { path = "../api-bones-protos", version = "^0.10.0", registry = "brefwiz" }
 protox = "0.9"

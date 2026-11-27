@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-27
+
+### Added
+
+- *(sdk)* [**breaking**] the Rust core owns Retry-After and per-call prefetch; the test service scripts failing, counted expiry and widget parts
+
 ## [0.8.5] - 2026-11-27
 
 ### Other
