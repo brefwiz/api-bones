@@ -185,6 +185,33 @@ fn then_watch_outlasted_budget(world: &mut SdkCallWorld) {
     );
 }
 
+/// The tracked snapshot of the wrapper lists `method` once, with this kind and
+/// surface.
+#[then(expr = "the wrapper lists {string} as a {string} method of the surface {string}")]
+fn then_wrapper_lists(_world: &mut SdkCallWorld, method: String, kind: String, surface: String) {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../../api-bones-test-service-sdk-ts/l2-methods.json"
+    ))
+    .expect("the tracked snapshot");
+    let entries: Vec<&str> = text
+        .split("\"export\":")
+        .skip(1)
+        .filter(|entry| entry.contains(&format!("\"rust\": \"{method}\"")))
+        .collect();
+    assert_eq!(entries.len(), 1, "{method} is listed once");
+    assert!(
+        entries[0].contains(&format!("\"kind\": \"{kind}\"")),
+        "{}",
+        entries[0]
+    );
+    assert!(
+        entries[0].contains(&format!("\"surface\": \"{surface}\"")),
+        "{}",
+        entries[0]
+    );
+}
+
 #[then("the watch was not refused")]
 fn then_watch_not_refused(world: &mut SdkCallWorld) {
     assert!(

@@ -2,6 +2,8 @@
 //! The document built for a small Layer 2 crate equals the golden text, byte
 //! for byte: the wrapper's snapshot gate compares the same bytes.
 
+use std::collections::BTreeMap;
+
 use api_bones_sdk_model::{Model, SpecL2Methods, l2_methods};
 
 const SOURCE: &str = r#"
@@ -24,31 +26,39 @@ const SOURCE: &str = r#"
 
 fn spec() -> SpecL2Methods {
     let endpoints = [
-        ("contract.v1.Numbers/List", vec!["list"]),
         (
+            "connect-pagination",
+            "contract.v1.Numbers/List",
+            vec!["list"],
+        ),
+        (
+            "connect-batch",
             "contract.v1.Widgets/GetWidget",
             vec!["get_widget", "batch_get_widgets"],
         ),
         (
+            "connect-batch",
             "contract.v1.Widgets/BatchGetWidgets",
             vec!["batch_get_widgets"],
         ),
     ];
-    SpecL2Methods {
+    let mut spec = SpecL2Methods {
         surfaces: ["connect-pagination", "connect-batch"]
             .into_iter()
             .map(str::to_owned)
             .collect(),
-        endpoints: endpoints
-            .into_iter()
-            .map(|(endpoint, rust)| {
-                (
-                    endpoint.to_owned(),
-                    rust.into_iter().map(str::to_owned).collect(),
-                )
-            })
-            .collect(),
+        endpoints: BTreeMap::new(),
+    };
+    for (surface, endpoint, rust) in endpoints {
+        spec.endpoints
+            .entry(surface.to_owned())
+            .or_default()
+            .insert(
+                endpoint.to_owned(),
+                rust.into_iter().map(str::to_owned).collect(),
+            );
     }
+    spec
 }
 
 #[test]

@@ -6,14 +6,22 @@
   "methods": [
     {
       "export": "api_bones_test__NumbersClient__list",
+      "type": "NumbersClient",
+      "rust": "list",
       "typescript": "list",
+      "surface": "connect-pagination",
+      "kind": "list",
       "endpoints": [
         "contract.v1.Numbers/List"
       ]
     },
     {
       "export": "api_bones_test__WidgetsClient__batch_get_widgets",
+      "type": "WidgetsClient",
+      "rust": "batch_get_widgets",
       "typescript": "batchGetWidgets",
+      "surface": "connect-batch",
+      "kind": "batch",
       "endpoints": [
         "contract.v1.Widgets/BatchGetWidgets",
         "contract.v1.Widgets/GetWidget"
@@ -21,7 +29,11 @@
     },
     {
       "export": "api_bones_test__WidgetsClient__get_widget",
+      "type": "WidgetsClient",
+      "rust": "get_widget",
       "typescript": "getWidget",
+      "surface": "connect-batch",
+      "kind": "unary",
       "endpoints": [
         "contract.v1.Widgets/GetWidget"
       ]

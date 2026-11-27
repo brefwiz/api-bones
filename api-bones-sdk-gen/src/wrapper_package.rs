@@ -61,10 +61,11 @@ pub(crate) fn package_of(spec: &Path, krate: &Path, out: &Path) -> anyhow::Resul
             continue;
         }
         let mut endpoints = Vec::new();
+        let by_endpoint = spec_l2.endpoints.entry(id.clone()).or_default();
         if let Some(mapping) = entry["l2_methods"].as_mapping() {
             for (endpoint, languages) in mapping {
                 let endpoint = endpoint.as_str().unwrap_or_default().to_owned();
-                let rust = spec_l2.endpoints.entry(endpoint.clone()).or_default();
+                let rust = by_endpoint.entry(endpoint.clone()).or_default();
                 for method in languages["rust"]
                     .as_sequence()
                     .into_iter()
@@ -194,7 +195,7 @@ fn verify(model: &Model, package: &Package) -> anyhow::Result<()> {
                 document
                     .methods
                     .iter()
-                    .any(|method| method.endpoints.contains(endpoint)),
+                    .any(|method| method.surface == *surface && method.endpoints.contains(endpoint)),
                 "surface `{surface}` lists package `{}` and names endpoint `{endpoint}`, which no export of `{}` serves",
                 package.name,
                 package.crate_name
@@ -518,6 +519,8 @@ mod tests {
                 package
                     .spec
                     .endpoints
+                    .entry((*surface).to_owned())
+                    .or_default()
                     .insert((*endpoint).to_owned(), vec!["ping".to_owned()]);
             }
         }
@@ -542,11 +545,23 @@ mod tests {
         package
             .spec
             .endpoints
+            .entry("t".to_owned())
+            .or_default()
             .insert("p.S/Other".to_owned(), vec!["other".to_owned()]);
         let error = verify(&model_of(PINGING), &package).expect_err("uncovered");
         assert_eq!(
             error.to_string(),
             "surface `t` lists package `@x/y` and names endpoint `p.S/Other`, which no export of `c` serves"
+        );
+    }
+
+    #[test]
+    fn an_endpoint_is_served_only_by_an_export_of_its_own_surface() {
+        let package = listing(&[("s", &["p.S/Ping"]), ("t", &["p.S/Ping"])]);
+        let error = verify(&model_of(PINGING), &package).expect_err("t has no export");
+        assert_eq!(
+            error.to_string(),
+            "surface `t` lists package `@x/y` and names endpoint `p.S/Ping`, which no export of `c` serves"
         );
     }
 
@@ -567,10 +582,14 @@ mod tests {
         package
             .spec
             .endpoints
+            .entry("alpha".to_owned())
+            .or_default()
             .insert("p.S/E1".to_owned(), vec!["ping".to_owned()]);
         package
             .spec
             .endpoints
+            .entry("beta".to_owned())
+            .or_default()
             .insert("p.S/E2".to_owned(), vec!["pong".to_owned()]);
         package
     }

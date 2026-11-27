@@ -5,6 +5,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
 use std::process::Command;
 use std::sync::OnceLock;
 
@@ -136,6 +137,31 @@ fn read(out: &Path, path: &str) -> String {
 fn the_client_written_is_the_golden_one() {
     let out = generate("client");
     assert_eq!(read(&out, "src/generated/client.ts"), GOLDEN_CLIENT);
+    fs::remove_dir_all(&out).expect("cleaned");
+}
+
+#[test]
+fn a_tracked_snapshot_missing_a_field_is_refused_and_left_untouched() {
+    let out = std::env::temp_dir().join(format!(
+        "api-bones-sdk-gen-wrapper-{}-drift",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&out);
+    track_manifest(&out, PACKAGE);
+    let tracked = fs::read_to_string(repo().join("api-bones-test-service-sdk-ts/l2-methods.json"))
+        .expect("the tracked snapshot");
+    let stripped: String = tracked
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("\"kind\":"))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    assert_ne!(stripped, tracked);
+    fs::write(out.join("l2-methods.json"), &stripped).expect("a drifted snapshot");
+    let output = wrapper_run(&repo().join("tests/l2"), &repo().join("SPEC.md"), &out);
+    assert!(!output.status.success(), "a drifted snapshot was replaced");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("missing field `kind`"), "{stderr}");
+    assert_eq!(read(&out, "l2-methods.json"), stripped);
     fs::remove_dir_all(&out).expect("cleaned");
 }
 

@@ -49,6 +49,10 @@ struct WrapperWorld {
     retargeted: BTreeMap<String, String>,
     /// Endpoints a surface names that its crate does not serve.
     unserved: BTreeMap<String, String>,
+    /// Async exports of a crate: (Type, surface, Rust method), by crate.
+    exports: BTreeMap<String, Vec<(String, String, String)>>,
+    /// Endpoints a surface serves: (endpoint, Rust method), by surface.
+    served: BTreeMap<String, Vec<(String, String)>>,
     outcomes: BTreeMap<String, Output>,
 }
 
@@ -87,15 +91,27 @@ impl WrapperWorld {
             {
                 continue;
             }
-            spec.push_str(&format!("  {surface}:\n"));
-            if let Some(endpoint) = self.unserved.get(&surface) {
-                spec.push_str(&format!(
-                    "    l2_methods:\n      {endpoint}:\n        rust: [unserved]\n        typescript: [unserved]\n"
-                ));
+            spec.push_str(&self.surface_entry(&surface, target));
+        }
+        // A surface an export names beyond the crate's own default.
+        let mut extra: Vec<(String, String)> = Vec::new();
+        for (name, list) in &self.exports {
+            for (_, surface, _) in list {
+                if !self
+                    .crates
+                    .keys()
+                    .any(|krate| format!("s-{krate}") == *surface)
+                {
+                    extra.push((surface.clone(), self.crates[name].clone()));
+                }
             }
-            spec.push_str(&format!(
-                "    targets:\n      typescript:\n        packages: [\"{target}\"]\n"
-            ));
+        }
+        let mut seen = Vec::new();
+        for (surface, package) in extra {
+            if !seen.contains(&surface) {
+                spec.push_str(&self.surface_entry(&surface, &package));
+                seen.push(surface);
+            }
         }
         // A surface that does not export keeps the crate's own package listed.
         for (name, package) in &self.crates {
@@ -108,6 +124,44 @@ impl WrapperWorld {
         spec.push_str("---\n");
         let root = self.root();
         fs::write(root.join("SPEC.md"), spec).expect("a SPEC");
+    }
+
+    fn surface_entry(&self, surface: &str, target: &str) -> String {
+        let mut entry = format!("  {surface}:\n");
+        let served = self.served.get(surface);
+        if self.unserved.contains_key(surface) || served.is_some() {
+            entry.push_str("    l2_methods:\n");
+            if let Some(endpoint) = self.unserved.get(surface) {
+                entry.push_str(&format!(
+                    "      {endpoint}:\n        rust: [unserved]\n        typescript: [unserved]\n"
+                ));
+            }
+            for (endpoint, method) in served.into_iter().flatten() {
+                entry.push_str(&format!(
+                    "      {endpoint}:\n        rust: [{method}]\n        typescript: [{method}]\n"
+                ));
+            }
+        }
+        entry.push_str(&format!(
+            "    targets:\n      typescript:\n        packages: [\"{target}\"]\n"
+        ));
+        entry
+    }
+
+    fn write_exports(&mut self, name: &str) {
+        let Some(list) = self.exports.get(name).cloned() else {
+            return;
+        };
+        let source: String = list
+            .iter()
+            .map(|(ty, surface, method)| {
+                format!(
+                    "#[client(surface = \"{surface}\")]\nimpl {ty} {{\n    #[export]\n    pub async fn {method}(&self) -> Result<generated::acme::v1::Empty, Error> {{ body() }}\n}}\n"
+                )
+            })
+            .collect();
+        let path = self.root().join("crates").join(name).join("src/lib.rs");
+        fs::write(path, source).expect("a source");
     }
 
     fn write_crate(&mut self, name: &str, wasm_of: Option<&str>) {
@@ -142,6 +196,7 @@ impl WrapperWorld {
     }
 
     fn generate(&mut self, name: &str) {
+        self.write_exports(name);
         self.write_spec();
         let root = self.root();
         let descriptor = root.join("contract.fds");
@@ -228,6 +283,65 @@ fn given_foreign_wasm(world: &mut WrapperWorld, name: String, other: String) {
     world.write_crate(&name, Some(&other));
 }
 
+#[given(expr = "the crate {string} exports {string} on the Type {string} of the surface {string}")]
+fn given_export(
+    world: &mut WrapperWorld,
+    name: String,
+    method: String,
+    ty: String,
+    surface: String,
+) {
+    world
+        .exports
+        .entry(name)
+        .or_default()
+        .push((ty, surface, method));
+}
+
+#[given(expr = "the surface {string} serves the endpoint {string} through {string}")]
+fn given_served(world: &mut WrapperWorld, surface: String, endpoint: String, method: String) {
+    world
+        .served
+        .entry(surface)
+        .or_default()
+        .push((endpoint, method));
+}
+
+/// A complete snapshot document, as a JSON value, for the crate `name`.
+fn snapshot(world: &WrapperWorld, name: &str, schema: &str) -> serde_json::Value {
+    serde_json::json!({
+        "schema": schema,
+        "service": "acme",
+        "crate": name,
+        "package": world.crates[name],
+        "methods": [{
+            "export": "acme__Device__authorize",
+            "type": "Device",
+            "rust": "authorize",
+            "typescript": "authorize",
+            "surface": "s-device",
+            "kind": "unary",
+            "endpoints": ["acme.v1.Device/Authorize"]
+        }]
+    })
+}
+
+#[given(expr = "the crate {string} tracks an l2-methods.json of the schema {string}")]
+fn given_snapshot_schema(world: &mut WrapperWorld, name: String, schema: String) {
+    let text = snapshot(world, &name, &schema).to_string();
+    fs::write(world.out(&name).join("l2-methods.json"), text).expect("a snapshot");
+}
+
+#[given(expr = "the crate {string} tracks an l2-methods.json without the field {string}")]
+fn given_snapshot_without(world: &mut WrapperWorld, name: String, field: String) {
+    let mut value = snapshot(world, &name, "api-bones.l2-methods/v1");
+    value["methods"][0]
+        .as_object_mut()
+        .expect("an object")
+        .remove(&field);
+    fs::write(world.out(&name).join("l2-methods.json"), value.to_string()).expect("a snapshot");
+}
+
 #[when("the wrapper is generated for every crate")]
 fn when_every(world: &mut WrapperWorld) {
     let names: Vec<String> = world.crates.keys().cloned().collect();
@@ -263,6 +377,29 @@ fn then_package(world: &mut WrapperWorld, name: String, package: String) {
         serde_json::from_str(&fs::read_to_string(out.join("package.json")).expect("a manifest"))
             .expect("json");
     assert_eq!(manifest["name"], package.as_str());
+}
+
+#[then(
+    expr = "the snapshot of the crate {string} has {string} on the Type {string} serving only {string}"
+)]
+fn then_serving(
+    world: &mut WrapperWorld,
+    name: String,
+    method: String,
+    ty: String,
+    endpoint: String,
+) {
+    let out = world.out(&name);
+    let snapshot: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(out.join("l2-methods.json")).expect("a snapshot"))
+            .expect("json");
+    let found = snapshot["methods"]
+        .as_array()
+        .expect("methods")
+        .iter()
+        .find(|m| m["type"] == ty.as_str() && m["rust"] == method.as_str())
+        .unwrap_or_else(|| panic!("no `{method}` on `{ty}`: {snapshot}"));
+    assert_eq!(found["endpoints"], serde_json::json!([endpoint]));
 }
 
 #[then(expr = "the generation is refused with {string}")]

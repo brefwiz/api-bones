@@ -11,6 +11,7 @@
  */
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { setFlagsFromString } from "node:v8";
 import { runInNewContext } from "node:vm";
@@ -995,6 +996,19 @@ Then("the watch lasted longer than the call budget", function (this: SdkCallWorl
 Then("the watch was not refused", function (this: SdkCallWorld) {
   assert.equal(this.refusal, undefined, `the watch was refused: ${String(this.refusal)}`);
 });
+
+Then(
+  "the wrapper lists {string} as a {string} method of the surface {string}",
+  function (this: SdkCallWorld, method: string, kind: string, surface: string) {
+    const snapshot = JSON.parse(
+      readFileSync(new URL("../../../../api-bones-test-service-sdk-ts/l2-methods.json", import.meta.url), "utf8"),
+    ) as { methods: { rust: string; kind: string; surface: string }[] };
+    const listed = snapshot.methods.filter((m) => m.rust === method);
+    assert.equal(listed.length, 1, `${method} is listed once`);
+    assert.equal(listed[0].kind, kind);
+    assert.equal(listed[0].surface, surface);
+  },
+);
 
 Then("the watch has ended", function (this: SdkCallWorld) {
   assert.ok(this.watchOver, "the watch gave more after it ended");

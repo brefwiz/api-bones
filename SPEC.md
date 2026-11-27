@@ -551,8 +551,13 @@ internal_behavior_owners:
   # The package a generated wrapper publishes is the name in the
   # `package.json` tracked beside it; the generator refuses a crate whose
   # exports or listing surfaces disagree with that package. It is build
-  # tooling, so no SDK call can reach it.
-  - paths: [api-bones-sdk-gen/src/wrapper_package.rs, api-bones-sdk-gen/src/build_ts.rs]
+  # tooling, so no SDK call can reach it. The `l2-methods.json` it writes
+  # (per-surface endpoint resolution, refusal of an unreadable tracked
+  # snapshot) is built and read by api-bones-sdk-model.
+  - paths:
+      - api-bones-sdk-gen/src/wrapper_package.rs
+      - api-bones-sdk-gen/src/build_ts.rs
+      - api-bones-sdk-model/src/l2.rs
     feature: tests/internal-bdd/tests/features/sdk_wrapper_package.feature
 library_crates:
   - api-bones

@@ -111,10 +111,26 @@ pub(crate) fn generate(
 
 /// Writes `files` under `out`.
 ///
+/// A snapshot already in `out` must be a readable document of the current
+/// schema: a snapshot of another schema, or one missing a field, is refused
+/// before anything is written, so a stale tracked file is never silently
+/// replaced.
+///
 /// # Errors
 ///
-/// An I/O error.
+/// An I/O error, or the tracked `l2-methods.json` is not a readable snapshot.
 pub(crate) fn write(out: &Path, files: &[File]) -> anyhow::Result<()> {
+    let tracked = out.join("l2-methods.json");
+    if tracked.is_file() {
+        let text = std::fs::read_to_string(&tracked)
+            .with_context(|| format!("cannot read {}", tracked.display()))?;
+        L2Methods::from_json(&text).map_err(|error| {
+            anyhow!(
+                "the tracked {} is unreadable: {error}; remove it to regenerate",
+                tracked.display()
+            )
+        })?;
+    }
     for (path, text) in files {
         let target = out.join(path);
         if let Some(parent) = target.parent() {
@@ -1443,8 +1459,9 @@ impl Widgets {
     fn spec_of(model: &Model) -> SpecL2Methods {
         let mut spec = SpecL2Methods::default();
         spec.surfaces.insert("s".to_owned());
+        let on_s = spec.endpoints.entry("s".to_owned()).or_default();
         for export in model.clients.iter().flat_map(|c| &c.exports) {
-            spec.endpoints.insert(
+            on_s.insert(
                 format!("t.v1.W/{}", export.method),
                 vec![export.method.clone()],
             );

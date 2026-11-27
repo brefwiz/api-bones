@@ -9,7 +9,11 @@ Feature: A Layer 2 crate generates the wrapper of the package its manifest names
   missing or untracked, when no SDK surface lists its package as a TypeScript
   target, when an export belongs to a surface that does not list it, when a
   surface that lists it names an endpoint the crate does not serve, and when
-  the crate links another crate's wasm exports.
+  the crate links another crate's wasm exports. The `l2-methods.json` it
+  writes resolves the endpoints of a Rust method per surface: one name on
+  Types of different surfaces resolves to each surface's own endpoints, the
+  same name on two Types of one surface is refused, and a tracked snapshot of
+  another schema, or missing a field, is refused rather than replaced.
 
   @state:happy
   Scenario: Two crates published as two packages generate one wrapper each
@@ -62,3 +66,47 @@ Feature: A Layer 2 crate generates the wrapper of the package its manifest names
     And the crate "alpha" enables the wasm feature of the crate "beta"
     When the wrapper is generated for the crate "alpha"
     Then the generation is refused with "feature `wasm` of `alpha` enables `beta/wasm`: a wrapper links no other crate's wasm exports"
+
+  @state:happy
+  Scenario: One method name on Types of different surfaces resolves to each surface's endpoints
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the crate "alpha" exports "authorize" on the Type "Device" of the surface "s-device"
+    And the crate "alpha" exports "authorize" on the Type "Flow" of the surface "s-flow"
+    And the surface "s-device" serves the endpoint "acme.v1.Device/Authorize" through "authorize"
+    And the surface "s-flow" serves the endpoint "acme.v1.Flow/Authorize" through "authorize"
+    When the wrapper is generated for the crate "alpha"
+    Then every generation succeeded
+    And the snapshot of the crate "alpha" has "authorize" on the Type "Device" serving only "acme.v1.Device/Authorize"
+    And the snapshot of the crate "alpha" has "authorize" on the Type "Flow" serving only "acme.v1.Flow/Authorize"
+
+  @state:error
+  Scenario: One method name on two Types of one surface is refused
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the crate "alpha" exports "authorize" on the Type "Device" of the surface "s-device"
+    And the crate "alpha" exports "authorize" on the Type "Flow" of the surface "s-device"
+    And the surface "s-device" serves the endpoint "acme.v1.Device/Authorize" through "authorize"
+    When the wrapper is generated for the crate "alpha"
+    Then the generation is refused with "two client types on surface `s-device` both export `authorize`"
+
+  @state:error
+  Scenario: An endpoint a surface names is served only by an export of that surface
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the crate "alpha" exports "authorize" on the Type "Flow" of the surface "s-beta"
+    And the surface "s-beta" serves the endpoint "acme.v1.Beta/Authorize" through "authorize"
+    And the surface "s-alpha" serves the endpoint "acme.v1.Alpha/Authorize" through "authorize"
+    When the wrapper is generated for the crate "alpha"
+    Then the generation is refused with "surface `s-alpha` lists package `@acme/alpha` and names endpoint `acme.v1.Alpha/Authorize`, which no export of `alpha` serves"
+
+  @state:error
+  Scenario: A tracked snapshot of another schema is refused
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the crate "alpha" tracks an l2-methods.json of the schema "api-bones.l2-methods/v0"
+    When the wrapper is generated for the crate "alpha"
+    Then the generation is refused with "snapshot schema is `api-bones.l2-methods/v0`, expected `api-bones.l2-methods/v1`"
+
+  @state:error
+  Scenario: A tracked snapshot missing a field is refused
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the crate "alpha" tracks an l2-methods.json without the field "kind"
+    When the wrapper is generated for the crate "alpha"
+    Then the generation is refused with "missing field `kind`"

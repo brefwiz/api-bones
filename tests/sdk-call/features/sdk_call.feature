@@ -387,6 +387,7 @@ Feature: Every Layer 2 call runs through one helper
     And the watch was not refused
     And the server saw 1 request(s)
     And the request the server saw stated no call budget
+    And the wrapper lists "watch" as a "stream" method of the surface "sdk-call"
 
   @state:happy
   Scenario: A stream keeps delivering ticks after the call budget has passed
