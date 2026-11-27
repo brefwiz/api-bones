@@ -134,6 +134,18 @@ Feature: Every Layer 2 call runs through one helper
     And every request the server saw stated a call budget above 29000 ms and at most 30000 ms
 
   @state:happy
+  Scenario: A batch's call budget starts when the batch is first read
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widgets server has the widget "w2" named "Bolt"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller has opened a batch of the widgets "w1,w2" through the SDK
+    When the caller waits 1100 ms
+    And the caller reads the batch
+    Then the batch delivered the widgets "w1=Anvil,w2=Bolt" in request order
+    And the server saw 1 request(s)
+    And every request the server saw stated a call budget above 29000 ms and at most 30000 ms
+
+  @state:happy
   Scenario: A retried call keeps one deadline
     Given the widgets server has the widget "w1" named "Anvil"
     And the widgets server refuses the first 2 requests as unavailable

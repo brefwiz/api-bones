@@ -153,6 +153,8 @@ export class SdkCallWorld extends World {
   /** What each of the widget calls the caller made at once gave back. */
   concurrent: PromiseSettledResult<{ id: string; name: string }>[] = [];
   batch: Chunk | undefined;
+  /** The batch the caller opened and has not read yet. */
+  openedBatch: AsyncIterator<Chunk> | undefined;
   list: NumbersList | undefined;
   walk: AsyncIterator<NumbersPage> | undefined;
   walkSpan: Span | undefined;
@@ -546,6 +548,25 @@ When("the caller gets the widgets {string} through the SDK", async function (thi
   this.opened = sdk;
   try {
     const items = sdk.widgetsClient.batchGetWidgets(ids.split(","))[Symbol.asyncIterator]();
+    const outcome = await items.next();
+    this.batch = outcome.done ? undefined : outcome.value;
+    await items.return?.();
+  } catch (error) {
+    this.refusal = error;
+  }
+  if (this.refusal === undefined) assert.ok(this.batch, "the batch delivered no chunk");
+});
+
+Given("the caller has opened a batch of the widgets {string} through the SDK", async function (this: SdkCallWorld, ids: string) {
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  this.openedBatch = sdk.widgetsClient.batchGetWidgets(ids.split(","))[Symbol.asyncIterator]();
+});
+
+When("the caller reads the batch", async function (this: SdkCallWorld) {
+  const items = this.openedBatch;
+  assert.ok(items, "a Given opened the batch");
+  try {
     const outcome = await items.next();
     this.batch = outcome.done ? undefined : outcome.value;
     await items.return?.();

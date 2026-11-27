@@ -69,6 +69,9 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().expect("the recorder is never poisoned")
 }
 
+/// A batch the caller opened and has not read yet.
+type OpenedBatch = Arc<Handle<Vec<Result<L2Widget, Error>>>>;
+
 /// What one request carried.
 #[derive(Debug, Clone)]
 struct Seen {
@@ -597,6 +600,8 @@ struct SdkCallWorld {
     widget: Option<L2Widget>,
     /// The per-id results of the batch the caller got.
     batch: Vec<Result<L2Widget, Error>>,
+    /// The batch the caller opened and has not read yet.
+    opened_batch: Option<OpenedBatch>,
     /// The results of the widget calls the caller made at once.
     concurrent: Vec<Result<L2Widget, Error>>,
     /// The pages of numbers the caller read, in order.
@@ -1146,6 +1151,27 @@ async fn when_batch_get(world: &mut SdkCallWorld, ids: String) {
     let client = api_bones_test_service_l2::WidgetsClient::new(&base_url(world), call_env(world))
         .expect("the lane's server address is a URI");
     let batch = client.batch_get_widgets(ids);
+    match batch.next().await {
+        Ok(Some(chunk)) => world.batch = chunk,
+        Ok(None) => panic!("the batch delivered no chunk"),
+        Err(error) => world.refusal = Some(error),
+    }
+}
+
+#[given(expr = "the caller has opened a batch of the widgets {string} through the SDK")]
+fn given_batch_opened(world: &mut SdkCallWorld, ids: String) {
+    let ids: Vec<String> = ids.split(',').map(str::to_owned).collect();
+    let client = api_bones_test_service_l2::WidgetsClient::new(&base_url(world), call_env(world))
+        .expect("the lane's server address is a URI");
+    world.opened_batch = Some(Arc::new(client.batch_get_widgets(ids)));
+}
+
+#[when("the caller reads the batch")]
+async fn when_batch_read(world: &mut SdkCallWorld) {
+    let batch = world
+        .opened_batch
+        .clone()
+        .expect("a Given opened the batch");
     match batch.next().await {
         Ok(Some(chunk)) => world.batch = chunk,
         Ok(None) => panic!("the batch delivered no chunk"),

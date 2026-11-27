@@ -8,7 +8,9 @@
 //!   no policy field and no caller knob. The deadline is computed once, when
 //!   the call starts, and that one instant feeds the [`Deadline`] a request
 //!   carries, the [`rt::timeout`] around the whole call, and the `deadline` of
-//!   the retry loop. A unary call and a batch own the whole budget. A list
+//!   the retry loop. A unary call owns the whole budget. A batch owns it too,
+//!   but its deadline is fixed when its work starts, at the first read of its
+//!   handle, not when the call is built. A list
 //!   owns one budget per page fetch, not one for the walk. A server stream
 //!   owns it only until its response head arrives; its lifetime afterwards
 //!   belongs to the stream, never to a timeout.
@@ -195,7 +197,9 @@ impl CallEnv {
     /// `"acme.v1.Widgets"` and `"GetWidget"`).
     ///
     /// The caller's trace context is read now, from [`CallCtx::current`], and
-    /// the call's deadline is fixed now: the budget starts counting here.
+    /// the call's deadline is fixed now: the budget starts counting here for
+    /// a unary call and a stream. A list starts one budget per page, and a
+    /// batch starts its budget at the first read of its handle.
     #[must_use]
     pub fn call(&self, service: &'static str, method: &'static str) -> Call {
         Call {
@@ -308,8 +312,8 @@ impl Call {
     /// A batch: the whole call, retries included, runs inside one budget and
     /// is delivered as one chunk of per-item results in request order.
     ///
-    /// The budget counts from [`CallEnv::call`]; the work itself starts at the
-    /// first `next()` on the handle. A changed identity refuses the chunk with
+    /// The budget starts at the first `next()` on the handle, when the work
+    /// starts, so a handle left unread spends none of it. A changed identity refuses the chunk with
     /// `BATCH_IDENTITY_CHANGED`.
     #[must_use]
     pub fn batch<T, F, Fut>(self, idempotency: Idempotency, run: F) -> Batch<T>
@@ -324,14 +328,11 @@ impl Call {
         let ctx = walk.ctx();
         let record = walk.recorded_traceparent().is_some();
         let Self {
-            env,
-            route,
-            deadline,
-            abort,
-            ..
+            env, route, abort, ..
         } = self;
         let retries = retries_for(idempotency);
         let chunk = async move {
+            let deadline = api_bones_rt::Instant::now() + CALL_BUDGET;
             Plan {
                 env: &env,
                 route,

@@ -580,6 +580,28 @@ async fn a_batch_runs_inside_the_whole_call_budget() {
     assert_eq!(refusal.code, CALL_BUDGET_ELAPSED);
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_batch_budget_starts_at_its_first_read() {
+    let handle = steady().call(SERVICE, "BatchGetWidgets").batch(
+        Idempotency::NoSideEffects,
+        |attempt| async move {
+            let left = attempt
+                .deadline()
+                .expect("a batch states its budget")
+                .remaining()
+                .expect("time left");
+            assert!(
+                left > CALL_BUDGET.saturating_sub(Duration::from_secs(1)) && left <= CALL_BUDGET,
+                "{left:?}"
+            );
+            Ok::<_, ConnectError>(vec![Ok(1_u32)])
+        },
+    );
+    tokio::time::sleep(CALL_BUDGET + Duration::from_secs(5)).await;
+    let chunk = handle.next().await.expect("a chunk").expect("not ended");
+    assert_eq!(chunk.len(), 1);
+}
+
 #[derive(Clone)]
 struct PageReq {
     cursor: String,
