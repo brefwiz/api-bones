@@ -59,7 +59,7 @@ fn read(out: &Path, path: &str) -> String {
 #[test]
 fn the_client_written_is_the_golden_one() {
     let out = generate("client");
-    assert_eq!(read(&out, "src/generated-l2/client.ts"), GOLDEN_CLIENT);
+    assert_eq!(read(&out, "src/generated/client.ts"), GOLDEN_CLIENT);
     fs::remove_dir_all(&out).expect("cleaned");
 }
 
@@ -148,11 +148,21 @@ fn the_support_files_written_are_the_golden_ones() {
         ("init.ts", GOLDEN_INIT),
     ] {
         assert_eq!(
-            read(&out, &format!("src/generated-l2/{file}")),
+            read(&out, &format!("src/generated/{file}")),
             golden,
             "{file}"
         );
     }
+    fs::remove_dir_all(&out).expect("cleaned");
+}
+
+#[test]
+fn the_generated_version_is_the_placeholder_never_the_crate_version() {
+    let out = generate("version");
+    let manifest: serde_json::Value =
+        serde_json::from_str(&read(&out, "package.json")).expect("a manifest");
+    assert_eq!(manifest["version"], "0.0.0");
+    assert!(read(&out, "src/generated/init.ts").contains("version: \"0.0.0\""));
     fs::remove_dir_all(&out).expect("cleaned");
 }
 

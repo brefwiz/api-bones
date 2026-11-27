@@ -107,7 +107,6 @@ pub(crate) fn package_of(
         service,
         crate_name: found.name,
         name,
-        version: found.version,
         license: found.license,
         private: found.private,
         runtime,
@@ -121,7 +120,6 @@ pub(crate) fn package_of(
 #[derive(Debug, PartialEq, Eq)]
 struct CrateMetadata {
     name: String,
-    version: String,
     license: String,
     /// The crate says `publish = false`.
     private: bool,
@@ -146,7 +144,6 @@ fn crate_metadata(json: &str, manifest: &Path) -> anyhow::Result<CrateMetadata> 
     let text = |key: &str| package[key].as_str().map(str::to_owned);
     Ok(CrateMetadata {
         name: text("name").ok_or_else(|| anyhow!("the manifest names no crate"))?,
-        version: text("version").ok_or_else(|| anyhow!("the manifest declares no version"))?,
         license: text("license")
             .ok_or_else(|| anyhow!("the manifest of {} declares no license", manifest.display()))?,
         private: package["publish"]
@@ -155,9 +152,15 @@ fn crate_metadata(json: &str, manifest: &Path) -> anyhow::Result<CrateMetadata> 
     })
 }
 
+/// The version every generated wrapper carries in its `package.json`,
+/// provenance and `sdkBuildInfo`. It is constant so a crate release never
+/// changes the generated output; the package lane stamps the tag version into
+/// `package.json` at pack time.
+pub(crate) const WRAPPER_PLACEHOLDER_VERSION: &str = "0.0.0";
+
 /// The directory of the generated sources inside the package; the manifest's
 /// entry fields point at its `dist` twin.
-pub(crate) const SOURCE_DIR: &str = "src/generated-l2";
+pub(crate) const SOURCE_DIR: &str = "src/generated";
 
 /// The declaration surface of the generated clients: the one source file the
 /// package tracks, at the package root.
@@ -171,8 +174,6 @@ pub(crate) struct Package {
     pub(crate) crate_name: String,
     /// The npm package name.
     pub(crate) name: String,
-    /// The Layer 2 crate's version.
-    pub(crate) version: String,
     /// The Layer 2 crate's SPDX license, published with the package.
     pub(crate) license: String,
     /// Private when the Layer 2 crate does not publish.
@@ -328,7 +329,7 @@ fn manifest(package: &Package, glue: &str, runtime: &str) -> String {
     let types = "./dist/generated-l2/index.d.ts";
     let mut document = serde_json::json!({
         "name": package.name,
-        "version": package.version,
+        "version": WRAPPER_PLACEHOLDER_VERSION,
         "license": package.license,
         "type": "module",
         "main": entry,
@@ -648,7 +649,7 @@ fn init_ts(package: &Package, glue: &str) -> String {
         &INIT_TS
             .replace("@GLUE@", glue)
             .replace("@CRATE@", &package.crate_name)
-            .replace("@VERSION@", &package.version),
+            .replace("@VERSION@", WRAPPER_PLACEHOLDER_VERSION),
     );
     out
 }
@@ -915,7 +916,6 @@ mod tests {
         let package =
             package_in("inherit", INHERITING, Some(REGISTRY_RUNTIME_JSON)).expect("package");
         assert_eq!(package.crate_name, "c");
-        assert_eq!(package.version, "1.2.3");
         assert_eq!(package.license, "Apache-2.0");
         assert!(!package.private);
         assert_eq!(package.registry.as_deref(), Some(TEST_REGISTRY));
@@ -941,7 +941,6 @@ mod tests {
             "[package]\nname = \"c\"\nversion = \"4.5.6\"\nedition = \"2024\"\nlicense = \"MIT\"\npublish = false\n",
         )
         .expect("package");
-        assert_eq!(package.version, "4.5.6");
         assert_eq!(package.license, "MIT");
         assert!(package.private);
         assert_eq!(package.runtime, format!(">={RUNTIME_FLOOR}"));
@@ -977,7 +976,6 @@ mod tests {
             found,
             CrateMetadata {
                 name: "n".to_owned(),
-                version: "1.0.0".to_owned(),
                 license: "MIT".to_owned(),
                 private: false,
             }
@@ -1014,14 +1012,13 @@ mod tests {
     }
 
     #[test]
-    fn a_package_without_a_name_a_version_or_a_license_is_refused() {
+    fn a_package_without_a_name_or_a_license_is_refused() {
         let at = "\"manifest_path\":\"/w/Cargo.toml\"";
         for (fields, message) in [
             (
                 "\"version\":\"1.0.0\",\"license\":\"MIT\"",
                 "names no crate",
             ),
-            ("\"name\":\"n\",\"license\":\"MIT\"", "declares no version"),
             (
                 "\"name\":\"n\",\"version\":\"1.0.0\",\"license\":null",
                 "declares no license",
@@ -1040,7 +1037,6 @@ mod tests {
             service: "svc".to_owned(),
             crate_name: "c".to_owned(),
             name: "@x/y".to_owned(),
-            version: "1.2.3".to_owned(),
             license: "MIT".to_owned(),
             private,
             runtime: format!(">={RUNTIME_FLOOR}"),
@@ -1066,7 +1062,7 @@ mod tests {
                 serde_json::json!({ "registry": TEST_REGISTRY, "access": "public" }),
                 "{runtime}"
             );
-            assert_eq!(published["version"], "1.2.3");
+            assert_eq!(published["version"], WRAPPER_PLACEHOLDER_VERSION);
         }
     }
 
@@ -1383,7 +1379,7 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("import type { BatchItem, CallOptions, ClientOptions, Color, Widget } from \"./src/generated-l2/types.js\";"),
+            text.contains("import type { BatchItem, CallOptions, ClientOptions, Color, Widget } from \"./src/generated/types.js\";"),
             "{text}"
         );
         assert!(
