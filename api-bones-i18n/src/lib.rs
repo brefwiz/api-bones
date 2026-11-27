@@ -6,9 +6,13 @@ mod args;
 pub mod build;
 mod catalog;
 mod check;
+#[cfg(feature = "descriptor")]
+pub mod emitters;
 mod format;
 mod locale;
 mod localize;
+#[cfg(test)]
+mod test_support;
 
 pub use args::{
     ArgError, ArgRule, ArgValue, Args, MAX_ARGS, MAX_KEY_LEN, MAX_STRING_BYTES, error_args,
@@ -43,5 +47,34 @@ macro_rules! error_catalogs {
                 catalogs: include!(concat!(env!("OUT_DIR"), "/error_catalogs.rs")),
             }
         }
+    };
+}
+
+/// The `(emitter, locale, json)` table `emitters::embed_and_check_error_catalogs`
+/// (feature `descriptor`) wrote, as an expression of type `&[(&str, &str, &str)]`:
+///
+/// ```ignore
+/// pub const ERROR_CATALOGS: &[(&str, &str, &str)] =
+///     api_bones_i18n::emitter_error_catalogs!();
+/// ```
+#[macro_export]
+macro_rules! emitter_error_catalogs {
+    () => {
+        include!(concat!(
+            env!("OUT_DIR"),
+            "/",
+            $crate::__emitter_table_file!()
+        ))
+    };
+}
+
+/// The file under `OUT_DIR` that holds the table: written by
+/// `emitters::embed_and_check_error_catalogs`, read by
+/// [`emitter_error_catalogs!`]. A macro, so `concat!` can take it.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __emitter_table_file {
+    () => {
+        "emitter_error_catalogs.rs"
     };
 }

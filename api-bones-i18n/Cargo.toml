@@ -19,7 +19,15 @@ workspace = true
 [lib]
 path = "src/lib.rs"
 
+[features]
+## The build helper that embeds and checks the catalogs of the emitters a
+## compiled descriptor set declares (`emitters`). Build scripts enable it; a
+## runtime dependent leaves it off and pulls in no proto crate.
+descriptor = ["dep:api-bones-protos", "dep:prost-reflect"]
+
 [dependencies]
+api-bones-protos = { path = "../api-bones-protos", version = "^0.9.2", registry = "brefwiz", optional = true }
+prost-reflect = { version = "0.16", optional = true }
 icu_datetime = "2.4"
 icu_decimal = { version = "2.4", features = ["alloc"] }
 icu_locale = "2.4"
@@ -33,3 +41,4 @@ serde_json = "1"
 
 [dev-dependencies]
 serde_json = "1"
+protox = "0.9"

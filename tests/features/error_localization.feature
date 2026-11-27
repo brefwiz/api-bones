@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: MIT
+
 @library @connect
 Feature: Errors render in the viewer's locale from the owner's catalog
 
@@ -443,6 +444,23 @@ Feature: Errors render in the viewer's locale from the owner's catalog
       | failed_precondition | ARCHIVED           | acme        | This workspace is archived. |
       | not_found           | RESOURCE_NOT_FOUND | bones       | Not found                   |
       | not_found           | NOT_DECLARED       | billing     | Not found                   |
+
+  # tests/emitter-catalogs/catalogs is the source both build helpers embed: the
+  # Rust crate's `embed_and_check_error_catalogs` and the TypeScript package's
+  # `embed-error-catalogs` bin. Every emitter that owns keys in the directory
+  # renders from it in every locale the directory holds.
+  Scenario Outline: A catalog embedded by the build helper renders under each emitter that owns keys in it
+    Given the catalogs the build helper embeds are registered
+    And a Connect error "<connect_code>" whose ErrorInfo has code "<code>", emitter "<emitter>" and args "<args>"
+    When the error is localized for "<locale>"
+    Then the localized text is "<text>"
+
+    Examples:
+      | locale | connect_code       | code   | emitter     | args             | text                |
+      | en     | resource_exhausted | LIMIT  | acme-origin | limit=int64:1234 | Limit 1,234 reached |
+      | fr     | resource_exhausted | LIMIT  | acme-origin | limit=int64:3    | Limite 3 atteinte   |
+      | en     | permission_denied  | DENIED | acme-edge   | seat=string:A1   | No seat A1          |
+      | fr     | permission_denied  | DENIED | acme-edge   | seat=string:A1   | Pas de place A1     |
 
   Scenario: The platform locales and aliases are core-ui's
     Given the platform locale registry from fixture "platform_locales.json"

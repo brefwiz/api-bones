@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+#
+# Proves the error-catalog build helper end to end: its build script calls
+# `api_bones_i18n::emitters::embed_and_check_error_catalogs` the way an
+# emitting crate's does, and the crate includes the table with
+# `emitter_error_catalogs!`.
+[package]
+name = "api-bones-emitter-catalogs-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT"
+
+[lints]
+workspace = true
+
+[dependencies]
+api-bones-i18n = { path = "../../api-bones-i18n" }
+
+[build-dependencies]
+api-bones-i18n = { path = "../../api-bones-i18n", features = ["descriptor"] }
+api-bones-protos = { path = "../../api-bones-protos" }
+protox = "0.9"

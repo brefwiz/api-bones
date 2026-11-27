@@ -451,16 +451,7 @@ mod tests {
     }
 
     fn catalog_dir(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
-        let dir = env::temp_dir().join(format!(
-            "api-bones-i18n-check-{name}-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        for (file, body) in files {
-            fs::write(dir.join(file), body).unwrap();
-        }
-        dir
+        crate::test_support::scratch_dir("check", name, files)
     }
 
     #[test]

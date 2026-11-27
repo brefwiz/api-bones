@@ -10,7 +10,11 @@
  */
 
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { Given, Then, When, World } from "@cucumber/cucumber";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -200,6 +204,30 @@ Given(
     registerErrorCatalogs(emitter, catalogsOf(fixture));
   },
 );
+
+type EmbeddedCatalog = { default: Readonly<Record<string, string>> };
+type EmbeddedLoaders = {
+  LOADERS: Readonly<Record<string, Readonly<Record<string, () => Promise<EmbeddedCatalog>>>>>;
+};
+
+Given("the catalogs the build helper embeds are registered", async function () {
+  const bin = fileURLToPath(new URL("../../../api-bones-connect-ts/bin/embed-error-catalogs.mjs", import.meta.url));
+  const source = fileURLToPath(new URL("../../emitter-catalogs/catalogs/", import.meta.url));
+  const out = mkdtempSync(join(tmpdir(), "embedded-error-catalogs-"));
+  execFileSync(process.execPath, [bin, "--source", source, "--out", out, "--spdx", "MIT"], { stdio: "pipe" });
+  // The loader table names the locales of each emitter; the locale modules
+  // hold the data. The table's own dynamic imports name `.js` files that
+  // exist only after a build, so each locale module is read by its path.
+  const { LOADERS } = (await import(pathToFileURL(join(out, "loaders.generated.ts")).href)) as EmbeddedLoaders;
+  for (const [emitter, locales] of Object.entries(LOADERS)) {
+    const catalogs: Record<string, Readonly<Record<string, string>>> = {};
+    for (const locale of Object.keys(locales)) {
+      const module = (await import(pathToFileURL(join(out, `${locale}.generated.ts`)).href)) as EmbeddedCatalog;
+      catalogs[locale] = module.default;
+    }
+    registerErrorCatalogs(emitter, catalogs);
+  }
+});
 
 Given(
   "a Connect error {string} whose ErrorInfo has code {string}, emitter {string} and args {string}",

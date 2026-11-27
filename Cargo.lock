@@ -208,6 +208,7 @@ dependencies = [
  "api-bones-automation",
  "api-bones-batch",
  "api-bones-connect",
+ "api-bones-emitter-catalogs-fixture",
  "api-bones-fields",
  "api-bones-i18n",
  "api-bones-page",
@@ -246,6 +247,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "api-bones-emitter-catalogs-fixture"
+version = "0.0.0"
+dependencies = [
+ "api-bones-i18n",
+ "api-bones-protos",
+ "protox",
+]
+
+[[package]]
 name = "api-bones-fields"
 version = "0.2.16"
 dependencies = [
@@ -264,6 +274,7 @@ dependencies = [
 name = "api-bones-i18n"
 version = "0.1.2"
 dependencies = [
+ "api-bones-protos",
  "fixed_decimal",
  "icu_calendar",
  "icu_datetime",
@@ -273,6 +284,8 @@ dependencies = [
  "icu_time",
  "inventory",
  "jiff",
+ "prost-reflect",
+ "protox",
  "serde_json",
 ]
 

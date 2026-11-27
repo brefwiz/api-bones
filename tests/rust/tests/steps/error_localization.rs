@@ -172,6 +172,13 @@ fn given_catalogs(_world: &mut LocalizationWorld, emitter: String, fixture: Stri
     }
 }
 
+#[given("the catalogs the build helper embeds are registered")]
+fn given_embedded_catalogs(_world: &mut LocalizationWorld) {
+    for (emitter, locale, json) in api_bones_emitter_catalogs_fixture::ERROR_CATALOGS {
+        api_bones_i18n::register_catalog(emitter, locale, json);
+    }
+}
+
 #[given(
     expr = "a Connect error {string} whose ErrorInfo has code {string}, emitter {string} and args {string}"
 )]
