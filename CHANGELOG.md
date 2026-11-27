@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [22.4.0] - 2026-11-27
+
+### Added
+
+- *(connect)* retry-after refusal primitive and client reader
+
 ## [22.3.0] - 2026-11-27
 
 ### Added
