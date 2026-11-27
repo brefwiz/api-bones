@@ -274,6 +274,24 @@ fn given_generated(world: &mut WrapperWorld, name: String, relative: String) {
     );
 }
 
+#[given(expr = "the crate {string} is licensed {string} and publishes to a registry")]
+fn given_published(world: &mut WrapperWorld, name: String, license: String) {
+    let root = world.root();
+    let cargo = root.join("crates").join(&name).join("Cargo.toml");
+    let text = fs::read_to_string(&cargo).expect("a crate manifest");
+    let text = text
+        .replace("license = \"MIT\"", &format!("license = \"{license}\""))
+        .replace("publish = false\n", "");
+    fs::write(&cargo, text).expect("a crate manifest");
+    let runtime = root.join("api-bones-sdk-runtime-ts");
+    fs::create_dir_all(&runtime).expect("a runtime directory");
+    fs::write(
+        runtime.join("package.json"),
+        "{\"name\":\"@brefwiz/api-bones-sdk-runtime\",\"publishConfig\":{\"registry\":\"https://registry.acme.test/npm/\"}}",
+    )
+    .expect("a runtime manifest");
+}
+
 #[given(expr = "the SPEC lists only the package {string}")]
 fn given_spec_lists_only(world: &mut WrapperWorld, package: String) {
     world.spec_packages = Some(vec![package]);
@@ -424,6 +442,27 @@ fn then_serving(
         .find(|m| m["type"] == ty.as_str() && m["rust"] == method.as_str())
         .unwrap_or_else(|| panic!("no `{method}` on `{ty}`: {snapshot}"));
     assert_eq!(found["endpoints"], serde_json::json!([endpoint]));
+}
+
+fn written_manifest(world: &mut WrapperWorld, name: &str) -> serde_json::Value {
+    let text = fs::read_to_string(world.out(name).join("package.json")).expect("a manifest");
+    serde_json::from_str(&text).expect("json")
+}
+
+#[then(expr = "the manifest of the crate {string} publishes with the access {string}")]
+fn then_access(world: &mut WrapperWorld, name: String, access: String) {
+    let manifest = written_manifest(world, &name);
+    assert_eq!(manifest["publishConfig"]["access"], access.as_str());
+    assert_eq!(
+        manifest["publishConfig"]["registry"],
+        "https://registry.acme.test/npm/"
+    );
+}
+
+#[then(expr = "the manifest of the crate {string} ships exactly {string}")]
+fn then_files(world: &mut WrapperWorld, name: String, directory: String) {
+    let manifest = written_manifest(world, &name);
+    assert_eq!(manifest["files"], serde_json::json!([directory]));
 }
 
 #[then(expr = "the generation is refused with {string}")]

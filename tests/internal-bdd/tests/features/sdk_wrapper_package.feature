@@ -17,6 +17,11 @@ Feature: A Layer 2 crate generates the wrapper of the package its manifest names
   tracked snapshot of another schema, or missing a field, is refused rather
   than replaced.
 
+  The `package.json` the generator writes derives its registry access and its
+  published files from the package: a published crate whose license is
+  OSI-approved publishes with `public` access, any other license publishes
+  `restricted`, and the files are the directories the exports reach.
+
   @state:happy
   Scenario: Two crates published as two packages generate one wrapper each
     Given a service with the crate "alpha" published as "@acme/alpha"
@@ -131,3 +136,26 @@ Feature: A Layer 2 crate generates the wrapper of the package its manifest names
     When the wrapper is generated for every crate
     Then every generation succeeded
     And the wrapper of the crate "alpha" is the package "@acme/alpha"
+
+  @state:happy
+  Scenario: An Apache-2.0 package publishes public and ships its dist directory
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the crate "alpha" is licensed "Apache-2.0" and publishes to a registry
+    When the wrapper is generated for the crate "alpha"
+    Then every generation succeeded
+    And the manifest of the crate "alpha" publishes with the access "public"
+    And the manifest of the crate "alpha" ships exactly "dist"
+
+  @state:happy
+  Scenario Outline: A package under a license that is not OSI-approved publishes restricted
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the crate "alpha" is licensed "<license>" and publishes to a registry
+    When the wrapper is generated for the crate "alpha"
+    Then every generation succeeded
+    And the manifest of the crate "alpha" publishes with the access "restricted"
+    And the manifest of the crate "alpha" ships exactly "dist"
+
+    Examples:
+      | license                |
+      | Elastic-2.0            |
+      | LicenseRef-Proprietary |

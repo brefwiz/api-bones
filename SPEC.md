@@ -564,8 +564,11 @@ internal_behavior_owners:
   # tooling, so no SDK call can reach it. The `l2-methods.json` it writes
   # (per-surface endpoint resolution, refusal of an unreadable tracked
   # snapshot) is built and read by api-bones-sdk-model.
+  # The manifest it writes derives its registry access from the package
+  # license and its files from the exports.
   - paths:
       - api-bones-sdk-gen/src/wrapper_package.rs
+      - api-bones-sdk-gen/src/wrapper_ts.rs
       - api-bones-sdk-gen/src/build_ts.rs
       - api-bones-sdk-model/src/l2.rs
     feature: tests/internal-bdd/tests/features/sdk_wrapper_package.feature

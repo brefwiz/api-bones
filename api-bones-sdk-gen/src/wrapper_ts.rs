@@ -206,21 +206,92 @@ fn relative(from: &Path, to: &Path) -> PathBuf {
 /// The protobuf-es runtime the generated messages and the codec run on.
 pub(crate) const PROTOBUF_ES_RANGE: &str = "^2.2.0";
 
+/// The build tools every wrapper compiles with, as `(package, range)`. This is
+/// the one table of toolchain ranges; it is versioned with the runtime package,
+/// so a range moves only when the emitted code needs a newer tool. A
+/// `@brefwiz/*` entry would use the single-minimum `>=X.Y.Z` form.
+const TOOLCHAIN: [(&str, &str); 4] = [
+    ("@bufbuild/buf", "^1.50.0"),
+    ("@bufbuild/protoc-gen-es", "^2.16.0"),
+    ("@types/node", "^22.20.1"),
+    ("typescript", "^5.0.0"),
+];
+
+/// The third-party packages the emitted code imports at run time, as
+/// `(package, range)`. Versioned with the runtime package like [`TOOLCHAIN`].
+const RUNTIME_DEPENDENCIES: [(&str, &str); 2] = [
+    ("@bufbuild/protobuf", PROTOBUF_ES_RANGE),
+    ("@opentelemetry/api", ">=1.9.0 <1.10.0"),
+];
+
+/// The SPDX identifiers of the OSI-approved licenses a package may be
+/// published openly under.
+const OPEN_LICENSES: [&str; 7] = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MPL-2.0",
+    "0BSD",
+];
+
+/// The registry access of a published package: `public` exactly when every
+/// identifier of the SPDX `license` expression is OSI-approved, `restricted`
+/// for anything else (ELv2, proprietary, unknown). The access is the package's
+/// own declaration; the registry's visibility still governs who can read it.
+fn access(license: &str) -> &'static str {
+    let mut identifiers = license
+        .split(|c: char| c.is_whitespace() || c == '(' || c == ')')
+        .filter(|word| !word.is_empty() && !matches!(*word, "OR" | "AND"))
+        .peekable();
+    let open = identifiers.peek().is_some() && identifiers.all(|id| OPEN_LICENSES.contains(&id));
+    if open { "public" } else { "restricted" }
+}
+
+/// The `files` of the package: the top-level directory of every path the
+/// `exports` point at, which is everything the build emits.
+fn published_files(exports: &serde_json::Value) -> Vec<String> {
+    fn leaves(value: &serde_json::Value, out: &mut std::collections::BTreeSet<String>) {
+        match value {
+            serde_json::Value::String(path) => {
+                if let Some(top) = path.trim_start_matches("./").split('/').next() {
+                    out.insert(top.to_owned());
+                }
+            }
+            serde_json::Value::Object(map) => map.values().for_each(|v| leaves(v, out)),
+            serde_json::Value::Array(items) => items.iter().for_each(|v| leaves(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    leaves(exports, &mut out);
+    debug_assert!(
+        out.iter().all(|entry| !entry.starts_with('.')),
+        "a files entry cannot start with a dot: {out:?}"
+    );
+    out.into_iter().collect()
+}
+
 /// The manifest of the package. The runtime is a peer dependency, so the app
 /// and the wrapper share one runtime instance. Built inside the api-bones tree
 /// (`runtime` is a `file:` link) the link is a dev dependency and the peer range
 /// is the floor release. Private exactly when the Layer 2 crate does not
-/// publish; a published package publishes to the registry its runtime does.
+/// publish; a published package publishes to the registry its runtime does,
+/// with the access its license allows (see `access`).
 fn manifest(package: &Package, glue: &str, runtime: &str) -> String {
     let in_tree = runtime.starts_with("file:").then_some(runtime);
     let mut dev = serde_json::Map::new();
     if let Some(link) = in_tree {
         dev.insert(RUNTIME_PACKAGE.to_owned(), link.into());
     }
-    dev.insert("@bufbuild/buf".to_owned(), "^1.50.0".into());
-    dev.insert("@bufbuild/protoc-gen-es".to_owned(), "^2.16.0".into());
-    dev.insert("@types/node".to_owned(), "^22.20.1".into());
-    dev.insert("typescript".to_owned(), "^5.0.0".into());
+    for (tool, range) in TOOLCHAIN {
+        dev.insert(tool.to_owned(), range.into());
+    }
+    let dependencies: serde_json::Map<String, serde_json::Value> = RUNTIME_DEPENDENCIES
+        .iter()
+        .map(|(name, range)| ((*name).to_owned(), (*range).into()))
+        .collect();
     let peer = if in_tree.is_some() {
         format!(">={RUNTIME_FLOOR}")
     } else {
@@ -228,6 +299,7 @@ fn manifest(package: &Package, glue: &str, runtime: &str) -> String {
     };
     let entry = "./dist/generated-l2/index.js";
     let types = "./dist/generated-l2/index.d.ts";
+    let exports = serde_json::json!({ ".": { "types": types, "import": entry } });
     let mut document = serde_json::json!({
         "name": package.name,
         "version": WRAPPER_PLACEHOLDER_VERSION,
@@ -235,17 +307,18 @@ fn manifest(package: &Package, glue: &str, runtime: &str) -> String {
         "type": "module",
         "main": entry,
         "types": types,
-        "exports": { ".": { "types": types, "import": entry } },
-        "files": ["dist"],
+        "files": published_files(&exports),
+        "exports": exports,
         "scripts": { "build": format!("tsc -p tsconfig.json && node -e \"const fs=require('fs');for (const f of ['{glue}.js','{glue}_bg.wasm']) fs.copyFileSync('{SOURCE_DIR}/'+f,'dist/generated-l2/'+f)\"") },
-        "dependencies": { "@bufbuild/protobuf": PROTOBUF_ES_RANGE, "@opentelemetry/api": ">=1.9.0 <1.10.0" },
+        "dependencies": dependencies,
         "peerDependencies": { (RUNTIME_PACKAGE): peer },
         "devDependencies": dev
     });
     if package.private {
         document["private"] = serde_json::Value::Bool(true);
     } else if let Some(registry) = &package.registry {
-        document["publishConfig"] = serde_json::json!({ "registry": registry, "access": "public" });
+        document["publishConfig"] =
+            serde_json::json!({ "registry": registry, "access": access(&package.license) });
     }
     let mut text = serde_json::to_string_pretty(&document).expect("json serialises");
     text.push('\n');
@@ -1418,6 +1491,93 @@ mod tests {
             );
             assert_eq!(published["version"], WRAPPER_PLACEHOLDER_VERSION);
         }
+    }
+
+    #[test]
+    fn access_is_public_only_for_osi_licenses() {
+        for open in ["Apache-2.0", "MIT", "MIT OR Apache-2.0", "(MIT AND ISC)"] {
+            assert_eq!(access(open), "public", "{open}");
+        }
+        for closed in [
+            "Elastic-2.0",
+            "LicenseRef-Proprietary",
+            "MIT AND Elastic-2.0",
+            "",
+            "UNLICENSED",
+        ] {
+            assert_eq!(access(closed), "restricted", "{closed}");
+        }
+    }
+
+    #[test]
+    fn an_apache_package_publishes_public_with_dist_files() {
+        let mut package = package_for(false);
+        package.license = "Apache-2.0".to_owned();
+        let document = read_manifest(&package, ">=0.2.0");
+        assert_eq!(document["publishConfig"]["access"], "public");
+        assert_eq!(document["files"], serde_json::json!(["dist"]));
+    }
+
+    /// The manifest the engine writes for `license` and `registry`, spelled out.
+    fn expected_manifest(license: &str, access: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": "@x/y",
+            "version": WRAPPER_PLACEHOLDER_VERSION,
+            "license": license,
+            "type": "module",
+            "main": "./dist/generated-l2/index.js",
+            "types": "./dist/generated-l2/index.d.ts",
+            "exports": { ".": {
+                "types": "./dist/generated-l2/index.d.ts",
+                "import": "./dist/generated-l2/index.js"
+            } },
+            "files": ["dist"],
+            "scripts": { "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');for (const f of ['c.js','c_bg.wasm']) fs.copyFileSync('src/generated/'+f,'dist/generated-l2/'+f)\"" },
+            "dependencies": {
+                "@bufbuild/protobuf": PROTOBUF_ES_RANGE,
+                "@opentelemetry/api": ">=1.9.0 <1.10.0"
+            },
+            "peerDependencies": { (RUNTIME_PACKAGE): ">=0.2.0" },
+            "devDependencies": {
+                "@bufbuild/buf": "^1.50.0",
+                "@bufbuild/protoc-gen-es": "^2.16.0",
+                "@types/node": "^22.20.1",
+                "typescript": "^5.0.0"
+            },
+            "publishConfig": { "registry": TEST_REGISTRY, "access": access }
+        })
+    }
+
+    #[test]
+    fn an_apache_package_manifest_is_the_whole_public_document() {
+        let mut package = package_for(false);
+        package.license = "Apache-2.0".to_owned();
+        assert_eq!(
+            read_manifest(&package, ">=0.2.0"),
+            expected_manifest("Apache-2.0", "public")
+        );
+    }
+
+    #[test]
+    fn an_elv2_or_proprietary_private_registry_manifest_is_the_whole_restricted_document() {
+        for license in ["Elastic-2.0", "LicenseRef-Proprietary"] {
+            let mut package = package_for(false);
+            package.license = license.to_owned();
+            assert_eq!(
+                read_manifest(&package, ">=0.2.0"),
+                expected_manifest(license, "restricted"),
+                "{license}"
+            );
+        }
+    }
+
+    #[test]
+    fn files_cover_every_top_level_directory_the_exports_reach() {
+        let exports = serde_json::json!({
+            ".": { "types": "./dist/a.d.ts", "import": "./dist/a.js" },
+            "./x": ["./lib/x.js", "./dist/x.js"]
+        });
+        assert_eq!(published_files(&exports), ["dist", "lib"]);
     }
 
     #[test]
