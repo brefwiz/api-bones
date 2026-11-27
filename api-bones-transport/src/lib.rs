@@ -28,7 +28,7 @@
 //! counts only when it reached the request's own stream. A request that may
 //! have run (an error-coded GOAWAY, an I/O error, a keepalive timeout, a
 //! reset after the request was taken, a streaming request body) goes back to
-//! the caller unchanged. See [`never_ran`].
+//! the caller unchanged. See [`never_ran`] and [`reach_of`].
 //!
 //! **Connections are driven by one process runtime.** The transport starts a
 //! runtime of its own on first construction and never drops it; connection
@@ -102,7 +102,7 @@ use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
 pub use body::ResponseBody;
 #[cfg(not(target_arch = "wasm32"))]
-pub use classify::{NeverRan, failed_to_connect, never_ran};
+pub use classify::{NeverRan, failed_to_connect, never_ran, reach_of};
 pub use deadline::Deadline;
 #[cfg(target_arch = "wasm32")]
 pub use fetch::{FetchBody, HttpTransport};

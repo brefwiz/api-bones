@@ -944,6 +944,48 @@ impl std::fmt::Debug for FleetConnectBoundWorld {
     }
 }
 
+/// Serves HTTP/2 on `listener` and cuts each connection once its request has
+/// arrived, without answering.
+pub fn spawn_resetting_peer(listener: tokio::net::TcpListener) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = listener.accept().await {
+            let arrived = Arc::new(tokio::sync::Notify::new());
+            let signal = Arc::clone(&arrived);
+            let connection = tokio::spawn(async move {
+                let service = hyper::service::service_fn(move |_request| {
+                    signal.notify_one();
+                    std::future::pending::<
+                        Result<
+                            Response<http_body_util::Empty<bytes::Bytes>>,
+                            std::convert::Infallible,
+                        >,
+                    >()
+                });
+                let _ =
+                    hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+                        .serve_connection(hyper_util::rt::TokioIo::new(tcp), service)
+                        .await;
+            });
+            arrived.notified().await;
+            connection.abort();
+        }
+    })
+}
+
+/// The peer a fleet client dials and how far the failed call got.
+#[derive(Default, cucumber::World)]
+pub struct FailureReachWorld {
+    pub port: u16,
+    pub peer: Option<tokio::task::JoinHandle<()>>,
+    pub reach: Option<api_bones::Reach>,
+}
+
+impl std::fmt::Debug for FailureReachWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FailureReachWorld").finish_non_exhaustive()
+    }
+}
+
 /// The root certificate file an operator names and what the root store read
 /// from it.
 #[derive(Default, cucumber::World)]

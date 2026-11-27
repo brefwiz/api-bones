@@ -317,6 +317,15 @@ sdk_surfaces:
       rust:
         delivery: package
         packages: [api-bones]
+  # How far a failed call got, and the rule that only a call proven never to
+  # have reached the server is replayed. TypeScript has no fleet transport to
+  # classify from, so this surface is Rust alone.
+  connect-failure-reach:
+    contract: tests/features/connect_failure_reach.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones, api-bones-transport]
   # A batch read through a generated client on the fleet transport. TypeScript
   # has no fleet client, so this surface is Rust alone.
   connect-batch-fleet-transport:

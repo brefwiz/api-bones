@@ -20,6 +20,7 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 
+use api_bones::Reach;
 use connectrpc::ErrorCode;
 
 /// Why a failed request provably never ran, so sending it again cannot run it
@@ -212,6 +213,44 @@ pub fn failed_to_connect(error: &(dyn Error + 'static)) -> bool {
     false
 }
 
+/// How far a failed call got, for the replay rule (see [`Reach`]).
+///
+/// The first transport failure in the chain decides: [`Reach::Unreached`] when
+/// it is a connect-phase failure or carries a never-ran verdict, because only
+/// the transport records those where the failure arose; an error shape any
+/// caller can build (such as an `Unavailable` caused by a timeout) proves
+/// nothing. [`Reach::Unanswered`] for any other transport failure.
+/// Without one, [`Reach::Answered`] when the chain holds a server-coded
+/// `ConnectError`: one whose code is not one a client synthesizes for itself
+/// (`Unavailable`, `DeadlineExceeded`, `Canceled`). Everything else is
+/// [`Reach::Unanswered`], because only a proof may make a call replayable.
+#[must_use]
+pub fn reach_of(error: &(dyn Error + 'static)) -> Reach {
+    let mut server_coded = false;
+    let mut current: Option<&(dyn Error + 'static)> = Some(error);
+    while let Some(link) = current {
+        if let Some(transport) = link.downcast_ref::<TransportError>() {
+            return if transport.kind == Kind::Connect || transport.never_ran.is_some() {
+                Reach::Unreached
+            } else {
+                Reach::Unanswered
+            };
+        }
+        if let Some(e) = link.downcast_ref::<connectrpc::ConnectError>() {
+            server_coded |= !matches!(
+                e.code,
+                ErrorCode::Unavailable | ErrorCode::DeadlineExceeded | ErrorCode::Canceled
+            );
+        }
+        current = link.source();
+    }
+    if server_coded {
+        Reach::Answered
+    } else {
+        Reach::Unanswered
+    }
+}
+
 fn has_elapsed_source(error: &(dyn Error + 'static)) -> bool {
     let mut current = error.source();
     while let Some(link) = current {
@@ -338,5 +377,83 @@ mod tests {
         let wrapped = connectrpc::ConnectError::unavailable_from_transport("failed", error);
         assert!(failed_to_connect(&wrapped));
         assert_eq!(never_ran(&wrapped), None);
+    }
+
+    #[test]
+    fn a_dial_failure_is_unreached() {
+        let error = TransportError::connect(io::Error::other("refused"));
+        let wrapped = connectrpc::ConnectError::unavailable_from_transport("failed", error);
+        assert_eq!(reach_of(&wrapped), Reach::Unreached);
+    }
+
+    #[test]
+    fn a_timeout_shape_anyone_can_build_is_unanswered() {
+        let forged = connectrpc::ConnectError::unavailable("call timed out").with_source(elapsed());
+        assert_eq!(reach_of(&forged), Reach::Unanswered);
+    }
+
+    #[test]
+    fn a_request_failure_with_a_timeout_source_is_unanswered() {
+        let error = TransportError::new(Kind::Request, None, elapsed());
+        let wrapped = connectrpc::ConnectError::unavailable("failed").with_source(error);
+        assert_eq!(reach_of(&wrapped), Reach::Unanswered);
+    }
+
+    #[test]
+    fn a_proven_never_ran_is_unreached() {
+        let wrapped = connectrpc::ConnectError::unavailable_from_transport(
+            "failed",
+            TransportError::closed(),
+        );
+        assert_eq!(reach_of(&wrapped), Reach::Unreached);
+    }
+
+    #[test]
+    fn a_failure_after_the_request_was_sent_is_unanswered() {
+        let local: h2::Error = h2::Reason::NO_ERROR.into();
+        let error = TransportError::request(Origin::OwnStream, local);
+        let wrapped = connectrpc::ConnectError::unavailable_from_transport("failed", error);
+        assert_eq!(reach_of(&wrapped), Reach::Unanswered);
+        assert_eq!(reach_of(&io::Error::other("reset")), Reach::Unanswered);
+    }
+
+    #[test]
+    fn a_client_synthesized_code_is_unanswered() {
+        for error in [
+            connectrpc::ConnectError::unavailable("x"),
+            connectrpc::ConnectError::deadline_exceeded("x"),
+            connectrpc::ConnectError::canceled("x"),
+        ] {
+            assert_eq!(reach_of(&error), Reach::Unanswered, "{error:?}");
+        }
+    }
+
+    #[test]
+    fn a_server_coded_error_is_answered() {
+        for error in [
+            connectrpc::ConnectError::internal("boom"),
+            connectrpc::ConnectError::not_found("gone"),
+            connectrpc::ConnectError::invalid_argument("bad"),
+        ] {
+            assert_eq!(reach_of(&error), Reach::Answered, "{error:?}");
+        }
+    }
+
+    #[test]
+    fn a_transport_error_is_unanswered_even_under_a_server_code() {
+        let local: h2::Error = h2::Reason::NO_ERROR.into();
+        let bare = TransportError::request(Origin::OwnStream, local);
+        assert_eq!(reach_of(&bare), Reach::Unanswered);
+        let local: h2::Error = h2::Reason::NO_ERROR.into();
+        let coded = connectrpc::ConnectError::internal("x")
+            .with_source(TransportError::request(Origin::OwnStream, local));
+        assert_eq!(reach_of(&coded), Reach::Unanswered);
+    }
+
+    #[test]
+    fn a_server_code_anywhere_in_the_chain_is_answered() {
+        let chain = connectrpc::ConnectError::internal("x")
+            .with_source(connectrpc::ConnectError::unavailable("y"));
+        assert_eq!(reach_of(&chain), Reach::Answered);
     }
 }

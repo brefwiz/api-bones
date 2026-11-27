@@ -10,6 +10,7 @@ mod delegation_templates;
 mod error_catalog_declarations;
 mod error_info;
 mod error_localization;
+mod failure_reach;
 mod field_labels;
 mod fleet_connect_bound;
 #[path = "../../../shared/keyed_write_contract.rs"]
