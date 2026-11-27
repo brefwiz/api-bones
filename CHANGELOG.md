@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [22.2.1] - 2026-11-27
+
+### Fixed
+
+- *(sdk-gen)* generate the wrapper into src/generated where the package lane looks
+
 ## [22.2.0] - 2026-11-27
 
 ### Added

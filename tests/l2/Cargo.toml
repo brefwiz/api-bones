@@ -6,7 +6,7 @@
 # must build for wasm32, which tests/rust (testcontainers, tokio net) cannot.
 [package]
 name = "api-bones-test-service-l2"
-version = "0.1.0"
+version = "0.1.1"
 publish = ["brefwiz"]
 edition = "2024"
 authors = ["Gregoire Salingue"]
@@ -36,11 +36,11 @@ wasm = ["api-bones-sdk/wasm"]
 # api-bones-sdk-gen features: end
 
 [dependencies]
-api-bones = { version = "^22.2.0", path = "../..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
-api-bones-page = { version = "0.8.2", path = "../../api-bones-page", registry = "brefwiz" }
+api-bones = { version = "^22.2.1", path = "../..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
+api-bones-page = { version = "0.8.3", path = "../../api-bones-page", registry = "brefwiz" }
 api-bones-rt = { version = "0.1.0", path = "../../api-bones-rt", registry = "brefwiz" }
-api-bones-sdk = { version = "0.3.2", path = "../../api-bones-sdk", registry = "brefwiz" }
-api-bones-sdk-macros = { version = "0.3.2", path = "../../api-bones-sdk-macros", registry = "brefwiz" }
+api-bones-sdk = { version = "0.3.3", path = "../../api-bones-sdk", registry = "brefwiz" }
+api-bones-sdk-macros = { version = "0.3.3", path = "../../api-bones-sdk-macros", registry = "brefwiz" }
 api-bones-transport = { version = "0.3.0", path = "../../api-bones-transport", registry = "brefwiz" }
 connectrpc = { version = "0.9.1", default-features = false }
 buffa = { version = "0.9", features = ["json"] }

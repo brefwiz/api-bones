@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [5.2.1] - 2026-11-27
+
+### Fixed
+
+- *(sdk-gen)* generate the wrapper into src/generated where the package lane looks
+
 ## [5.2.0] - 2026-11-27
 
 ### Added
