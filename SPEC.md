@@ -343,6 +343,18 @@ sdk_surfaces:
       rust:
         delivery: package
         packages: [api-bones]
+  # The roots a library crate trusts: the bundled webpki set unless
+  # `SSL_CERT_FILE` names others, never the operating system store (a binary
+  # that wants it enables `api-bones/connect`). Its lane builds with the
+  # library feature set, which the `connect-root-store` lane cannot, so it is
+  # a surface of its own. TypeScript leaves root trust to its runtime, so this
+  # surface is Rust alone.
+  connect-library-root-store:
+    contract: tests/library-roots/features/connect_library_root_store.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones, api-bones-page, api-bones-batch]
   # How far a failed call got, and the rule that only a call proven never to
   # have reached the server is replayed. TypeScript has no fleet transport to
   # classify from, so this surface is Rust alone.

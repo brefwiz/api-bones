@@ -34,6 +34,9 @@ members = [
     # feature directory stays its own corpus root, distinct from the
     # dual-language one above.
     "tests/internal-bdd",
+    # The library-default root-store scenario, built with the feature set a
+    # library consumer gets (no `api-bones/connect`).
+    "tests/library-roots/rust",
     # Calls the api-bones-i18n error-catalog build helper from a real build
     # script and evaluates `emitter_error_catalogs!` over what it wrote.
     "tests/emitter-catalogs",

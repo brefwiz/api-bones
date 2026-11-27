@@ -308,6 +308,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "api-bones-library-roots"
+version = "0.0.0"
+dependencies = [
+ "api-bones",
+ "api-bones-batch",
+ "api-bones-page",
+ "brefwiz-cucumber-steps",
+ "cucumber",
+ "rcgen",
+ "rustls",
+ "tokio",
+ "webpki-roots 1.0.10",
+]
+
+[[package]]
 name = "api-bones-page"
 version = "0.10.0"
 dependencies = [
