@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
+#
+# The Rust step lane of the `connect-library-root-store` surface. The lane of a
+# surface is the directory above its contract's `features` directory, so the
+# contract (`../features/connect_library_root_store.feature`) resolves its Rust
+# lane here. A lane of its own because it must build with exactly the feature
+# set a library consumer gets from api-bones-page and api-bones-batch, which
+# excludes `api-bones/connect` and so the operating system store `tests/rust`
+# links.
+[package]
+name = "api-bones-library-roots"
+version = "0.0.0"
+edition = "2024"
+publish = false
+# Unpublished; depends on proprietary brefwiz-cucumber-steps.
+license = "LicenseRef-Brefwiz-Proprietary"
+
+[dev-dependencies]
+# The feature set api-bones-page and api-bones-batch enable, declared here as
+# well so the lane's own dependency states the roots the library crates get:
+# bundled webpki roots and no `connect` (operating system store).
+api-bones = { path = "../../..", default-features = false, features = ["tls-webpki-roots"] }
+api-bones-batch = { path = "../../../api-bones-batch" }
+api-bones-page = { path = "../../../api-bones-page" }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+webpki-roots = "1.0.10"
+rustls = { version = "0.23", default-features = false }
+rcgen = "0.13"
+cucumber = "0.23"
+# The platform BDD runner.
+brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }
+
+[[test]]
+name = "connect_root_store"
+harness = false

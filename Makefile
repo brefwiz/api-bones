@@ -3,7 +3,7 @@
 .PHONY: help fmt ci-format ci-lint ci-no-std ci-wasm ci-wasm-test ci-test ci-e2e-rust ci-coverage \
 	ci-sdk-publish-rust-dry-run ci-sdk-publish-typescript-dry-run ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
-	ci-build-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
+	ci-build-check library-darwin-tree-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
 	lockfile ci-lockfile-diff ci-sdk-api-surface-generate sdk-api-surface
 
 .DEFAULT_GOAL := help
@@ -24,7 +24,7 @@ include build/brefwiz-codegen.mk
 # never edited here; ci-workflows revendor-build-fragments.py refreshes them.
 # The two cucumber lanes are harness = false, which nextest cannot enumerate,
 # so they stay out of the archive and ci-e2e-rust runs them in gate-e2e-rust.
-COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-sdk-call-contract-rust api-bones-internal-bdd api-bones-wasm-test-server api-bones-test-service-l2
+COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-sdk-call-contract-rust api-bones-internal-bdd api-bones-library-roots api-bones-wasm-test-server api-bones-test-service-l2
 COVERAGE_ALL_FEATURES := true
 COVERAGE_FAIL_UNDER_LINES := 96
 COVERAGE_FAIL_UNDER_FUNCTIONS := 96
@@ -41,11 +41,14 @@ fmt: ## Format code
 ci-format: ## Check formatting (CI)
 	cargo fmt --all -- --check
 
-ci-lint: ci-no-std ci-wasm ## Run Clippy (CI — zero warnings), and build every no_std feature set and the wasm32 crates
+ci-lint: ci-no-std ci-wasm library-darwin-tree-check ## Run Clippy (CI — zero warnings), build every no_std feature set and the wasm32 crates, and gate the macOS dependency trees
 	# Clippy runs with --all-features, which turns std on: a no_std-only break
 	# never reaches it. ci-no-std builds those feature sets, and nothing else in
 	# CI does. The same holds for wasm32: clippy runs on the host target, so
 	# ci-wasm is what compiles the crates for the browser.
+	# Without --all-features, where tls-native-roots would win, so the bundled
+	# webpki root source compiles in each library crate.
+	cargo check --locked -p api-bones-sdk -p api-bones-batch -p api-bones-page
 	cargo clippy --locked --workspace --all-targets --all-features --no-deps -- -D warnings
 
 ci-doc: ## Check documentation builds with no broken intra-doc links (CI)
@@ -95,7 +98,7 @@ ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the cove
 	# and nextest enumerates targets with `--list`, which such a binary does
 	# not accept. ci-e2e-rust runs them. The wasm test server is the wasm32
 	# suite's harness, run by ci-wasm-test, not product code.
-	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-sdk-call-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --profile ci
+	cargo nextest run --locked --no-fail-fast --workspace --exclude api-bones-contract-rust --exclude api-bones-sdk-call-contract-rust --exclude api-bones-internal-bdd --exclude api-bones-library-roots --exclude api-bones-wasm-test-server --exclude api-bones-test-service-l2 --all-features --profile ci
 
 # Debuginfo off: this lane links every contract and internal-bdd test binary
 # (each carries the localization crate's CLDR data), and the CI worker's target
@@ -138,6 +141,7 @@ ci-e2e-rust: ci-sdk-autogenerate ## Run what nextest cannot carry: the Gherkin c
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_stream_keepalive
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_fleet_connect_bound
 	cargo test --locked --no-fail-fast -p api-bones-contract-rust --test connect_root_store
+	cargo test --locked --no-fail-fast -p api-bones-library-roots --test connect_root_store
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pagination --locked
 	cargo test --locked --no-fail-fast -p api-bones-sdk-call-contract-rust --test sdk_call
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch --locked
@@ -245,6 +249,40 @@ ci-build-check: ## Compile-check all feature combinations
 	cargo check --locked --workspace --all-targets --all-features
 	cargo check --locked --no-default-features
 	cargo check --locked --no-default-features --features tls-webpki-roots
+
+# A binary linking a client library cross-links to macOS from a Linux host, so
+# the library crates' dependency trees carry no Apple framework, platform
+# certificate verifier or timezone lookup: they select the bundled webpki roots,
+# and a final binary that wants the operating system store enables
+# `api-bones/connect` itself. A tree missing the package or
+# `webpki-roots` fails as loudly as a match.
+LIBRARY_DARWIN_TARGETS ?= aarch64-apple-darwin x86_64-apple-darwin
+LIBRARY_DARWIN_PACKAGES ?= api-bones-sdk api-bones-batch api-bones-page
+LIBRARY_FORBIDDEN_CRATES := security-framework|security-framework-sys|core-foundation|core-foundation-sys|iana-time-zone|rustls-platform-verifier|rustls-native-certs|system-configuration|system-configuration-sys
+
+.PHONY: library-darwin-tree-check
+library-darwin-tree-check: ## Assert the api-bones-sdk, -batch and -page dependency trees hold no Apple-framework, platform-verifier or timezone crate for the macOS targets
+	@set -eu; \
+	failed=""; \
+	for package in $(LIBRARY_DARWIN_PACKAGES); do \
+	for target in $(LIBRARY_DARWIN_TARGETS); do \
+		if ! tree=$$(cargo tree --locked -p "$$package" --target "$$target" -e normal,build --prefix none --format '{p}'); then \
+			echo "ERROR: cargo tree failed for $$package on $$target"; failed="$$failed $$package/$$target(tree)"; continue; \
+		fi; \
+		if ! printf '%s\n' "$$tree" | grep -qE "^$$package " || ! printf '%s\n' "$$tree" | grep -qE '^webpki-roots '; then \
+			echo "ERROR: tree for $$package on $$target lacks $$package or webpki-roots"; failed="$$failed $$package/$$target(tree)"; continue; \
+		fi; \
+		found=$$(printf '%s\n' "$$tree" | grep -E '^($(LIBRARY_FORBIDDEN_CRATES)) ' | sort -u || true); \
+		if [ -n "$$found" ]; then \
+			echo "ERROR: $$package on $$target carries crates a cross-linked binary cannot hold:"; \
+			echo "$$found"; \
+			failed="$$failed $$package/$$target(tree)"; \
+		else \
+			echo "==> $$package on $$target: dependency tree clean"; \
+		fi; \
+	done; \
+	done; \
+	if [ -n "$$failed" ]; then echo "library-darwin-tree-check failed:$$failed"; exit 1; fi
 
 .PHONY: sdk-e2e-check
 sdk-e2e-check: ## No SDK E2E targets for this library crate
