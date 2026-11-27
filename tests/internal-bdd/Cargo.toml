@@ -63,6 +63,10 @@ name = "sdk_wrapper_package"
 harness = false
 
 [[test]]
+name = "sdk_wrapper_swift"
+harness = false
+
+[[test]]
 name = "automation_manifest"
 harness = false
 

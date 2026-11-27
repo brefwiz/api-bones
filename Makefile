@@ -158,6 +158,7 @@ ci-e2e-rust: ci-sdk-autogenerate ## Run what nextest cannot carry: the Gherkin c
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_get_reads
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test proto_vocabulary
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_wrapper_package
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_wrapper_swift
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test automation_manifest
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_wasm_integrity
 

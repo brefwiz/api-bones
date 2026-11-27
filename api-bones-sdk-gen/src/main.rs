@@ -3,6 +3,7 @@ mod build_ts;
 mod features;
 mod size;
 mod wrapper_package;
+mod wrapper_swift;
 mod wrapper_ts;
 
 use anyhow::Context;
@@ -115,6 +116,10 @@ struct WrapperArgs {
     /// fails the command
     #[arg(long)]
     descriptor: PathBuf,
+    /// The directory the uniffi bindgen wrote; `wrapper swift` copies it into
+    /// the package's FFI target as it is
+    #[arg(long)]
+    bindings: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -128,6 +133,9 @@ enum Wrapper {
         #[arg(long)]
         wasm_sha256: String,
     },
+    /// Write the Swift package: its wrapper sources, manifest and
+    /// `l2-methods.json`, and the uniffi bindings copied as they are
+    Swift(WrapperArgs),
     /// Build the wasm, bind it and compile the package
     BuildTs {
         #[command(flatten)]
@@ -206,6 +214,13 @@ fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
                 &wrapper_ts::generate(&model, &package, &contract)?,
             )
         }
+        Wrapper::Swift(args) => wrapper_swift::run(
+            &args.krate,
+            &args.spec,
+            &args.out,
+            &args.descriptor,
+            args.bindings,
+        ),
         Wrapper::BuildTs { args, target_dir } => build_ts::run_build(
             &args.spec,
             &args.krate,

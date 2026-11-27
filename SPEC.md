@@ -572,6 +572,11 @@ internal_behavior_owners:
       - api-bones-sdk-gen/src/build_ts.rs
       - api-bones-sdk-model/src/l2.rs
     feature: tests/internal-bdd/tests/features/sdk_wrapper_package.feature
+  # build tooling; no SDK call reaches it; Swift targets are declared by
+  # consumer repos.
+  - paths:
+      - api-bones-sdk-gen/src/wrapper_swift.rs
+    feature: tests/internal-bdd/tests/features/sdk_wrapper_swift.feature
 library_crates:
   - api-bones
   - api-bones-automation
