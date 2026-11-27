@@ -8,9 +8,16 @@ syntax = "proto3";
 
 package contract.sdk.v1;
 
+// The kind of a widget part.
+enum WidgetPartKind {
+  WIDGET_PART_KIND_UNSPECIFIED = 0;
+  WIDGET_PART_KIND_FRAME = 1;
+}
+
 // One part of a widget.
 message WidgetPart {
   string name = 1;
+  WidgetPartKind kind = 2;
 }
 
 // The parameters of `WidgetsClient::get_widget`.

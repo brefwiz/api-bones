@@ -160,6 +160,8 @@ export class SdkCallWorld extends World {
   pagesRead: number[][] = [];
   pagesCached: boolean[] = [];
   partPages: string[][] = [];
+  /** The parts of those pages as the SDK returned them. */
+  receivedParts: Array<{ $typeName: string; kind: number }> = [];
   /** The pages of the walk that filled the revision cache, while the caller still holds them. */
   held: unknown[] = [];
   walkOver = false;
@@ -553,33 +555,35 @@ Given("the widget {string} has the parts {string}", async function (this: SdkCal
   await this.provider.configure({ parts: { [id]: pages.split("|").map((page) => page.split(",").filter((part) => part !== "")) } });
 });
 
-/** Walks the parts of a widget by pages until the list ends or is refused. */
-When("the caller lists the parts of the widget {string} through the SDK", async function (this: SdkCallWorld, id: string) {
-  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
-  this.opened = sdk;
+type PartPage = { fromCache: boolean; items: Array<{ name: string; $typeName: string; kind: number }> };
+
+/** Walks the pages to the end or the first refusal, returning what arrived. */
+async function walkParts(pages: AsyncIterable<PartPage>) {
+  const walked = { cached: [] as boolean[], names: [] as string[][], parts: [] as PartPage["items"], refusal: undefined as unknown };
   try {
-    for await (const page of sdk.widgetsClient.listWidgetParts(id).pages()) {
-      this.pagesCached = [...this.pagesCached, page.fromCache];
-      this.partPages = [...this.partPages, page.items.map((part) => part.name)];
+    for await (const page of pages) {
+      walked.cached.push(page.fromCache);
+      walked.names.push(page.items.map((part) => part.name));
+      walked.parts.push(...page.items);
     }
   } catch (error) {
-    this.refusal = error;
+    walked.refusal = error;
   }
-});
+  return walked;
+}
 
+/** Walks the parts of a widget by pages until the list ends or is refused. */
 When(
-  "the caller lists the parts of the widget {string} with the page size {int} through the SDK",
-  async function (this: SdkCallWorld, id: string, size: number) {
+  /^the caller lists the parts of the widget "([^"]*)"(?: with the page size (\d+))? through the SDK$/,
+  async function (this: SdkCallWorld, id: string, size?: string) {
     const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
     this.opened = sdk;
-    try {
-      for await (const page of sdk.widgetsClient.listWidgetParts(id, { pageSize: size }).pages()) {
-        this.pagesCached = [...this.pagesCached, page.fromCache];
-        this.partPages = [...this.partPages, page.items.map((part) => part.name)];
-      }
-    } catch (error) {
-      this.refusal = error;
-    }
+    const pages = sdk.widgetsClient.listWidgetParts(id, size === undefined ? undefined : { pageSize: Number(size) }).pages();
+    const walked = await walkParts(pages);
+    this.pagesCached = [...this.pagesCached, ...walked.cached];
+    this.partPages = [...this.partPages, ...walked.names];
+    this.receivedParts = [...this.receivedParts, ...walked.parts];
+    this.refusal = walked.refusal ?? this.refusal;
   },
 );
 

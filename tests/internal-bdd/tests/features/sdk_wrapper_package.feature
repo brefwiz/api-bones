@@ -8,12 +8,14 @@ Feature: A Layer 2 crate generates the wrapper of the package its manifest names
   wrapper per package. Generation is refused when the tracked manifest is
   missing or untracked, when no SDK surface lists its package as a TypeScript
   target, when an export belongs to a surface that does not list it, when a
-  surface that lists it names an endpoint the crate does not serve, and when
-  the crate links another crate's wasm exports. The `l2-methods.json` it
-  writes resolves the endpoints of a Rust method per surface: one name on
-  Types of different surfaces resolves to each surface's own endpoints, the
-  same name on two Types of one surface is refused, and a tracked snapshot of
-  another schema, or missing a field, is refused rather than replaced.
+  surface that lists it names an endpoint the crate does not serve, when the
+  crate links another crate's wasm exports, and when the output directory
+  tracks an `api-surface.d.ts` or a `src/` file the generator did not write.
+  The `l2-methods.json` it writes resolves the endpoints of a Rust method per
+  surface: one name on Types of different surfaces resolves to each surface's
+  own endpoints, the same name on two Types of one surface is refused, and a
+  tracked snapshot of another schema, or missing a field, is refused rather
+  than replaced.
 
   @state:happy
   Scenario: Two crates published as two packages generate one wrapper each
@@ -110,3 +112,22 @@ Feature: A Layer 2 crate generates the wrapper of the package its manifest names
     And the crate "alpha" tracks an l2-methods.json without the field "kind"
     When the wrapper is generated for the crate "alpha"
     Then the generation is refused with "missing field `kind`"
+
+  @state:error
+  Scenario: An output directory that tracks hand-written source is refused, each file named
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the output of the crate "alpha" tracks the hand-written file "api-surface.d.ts"
+    And the output of the crate "alpha" tracks the hand-written file "src/index.ts"
+    When the wrapper is generated for the crate "alpha"
+    Then the generation is refused with "tracks files the generator does not own"
+    And the refusal names "api-surface.d.ts"
+    And the refusal names "src/index.ts"
+    And the refusal does not name "package.json"
+
+  @state:happy
+  Scenario: An output directory that tracks a generated snapshot is regenerated
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the output of the crate "alpha" tracks the generated file "api-surface.d.ts"
+    When the wrapper is generated for every crate
+    Then every generation succeeded
+    And the wrapper of the crate "alpha" is the package "@acme/alpha"

@@ -331,6 +331,10 @@ struct Imports {
     named: BTreeMap<String, Imported>,
     /// The names taken, and by which full name.
     taken: BTreeMap<String, String>,
+    /// The messages whose fields were walked for enums.
+    walked: BTreeSet<String>,
+    /// A name two different protobuf types would both be imported as.
+    ambiguous: Vec<String>,
 }
 
 struct Imported {
@@ -338,11 +342,22 @@ struct Imported {
     es: String,
     alias: String,
     is_message: bool,
+    /// A signature names it, so the client imports it. An enum only reached
+    /// through the fields of a message is re-exported alone.
+    in_signature: bool,
 }
 
 impl Imports {
-    fn add(&mut self, full: &str, package: &str, file: &str, is_message: bool) -> String {
-        if let Some(seen) = self.named.get(full) {
+    fn add(
+        &mut self,
+        full: &str,
+        package: &str,
+        file: &str,
+        is_message: bool,
+        in_signature: bool,
+    ) -> String {
+        if let Some(seen) = self.named.get_mut(full) {
+            seen.in_signature |= in_signature;
             return seen.alias.clone();
         }
         let local = full.strip_prefix(package).unwrap_or(full);
@@ -353,7 +368,10 @@ impl Imports {
         } else {
             es.clone()
         };
-        self.taken.insert(alias.clone(), full.to_owned());
+        if let Some(other) = self.taken.insert(alias.clone(), full.to_owned()) {
+            self.ambiguous
+                .push(format!("`{full}` and `{other}` are both named `{alias}`"));
+        }
         self.named.insert(
             full.to_owned(),
             Imported {
@@ -361,19 +379,24 @@ impl Imports {
                 es,
                 alias: alias.clone(),
                 is_message,
+                in_signature,
             },
         );
         alias
     }
 
-    /// The name `message` is imported as.
+    /// The name `message` is imported as. The enums its fields reach, however
+    /// deep, are re-exported with it, so a caller can set and read them.
     fn message(&mut self, message: &MessageDescriptor) -> String {
-        self.add(
+        let alias = self.add(
             message.full_name(),
             message.package_name(),
             message.parent_file().name(),
             true,
-        )
+            true,
+        );
+        self.reach(message);
+        alias
     }
 
     fn enumeration(&mut self, value: &prost_reflect::EnumDescriptor) -> String {
@@ -382,7 +405,44 @@ impl Imports {
             value.package_name(),
             value.parent_file().name(),
             false,
+            true,
         )
+    }
+
+    /// Records every enum the fields of `message` reach: directly, through a
+    /// repeated or map field, or through a message field. The well-known
+    /// messages are not walked.
+    fn reach(&mut self, message: &MessageDescriptor) {
+        if message.parent_file().name().starts_with("google/protobuf/")
+            || !self.walked.insert(message.full_name().to_owned())
+        {
+            return;
+        }
+        for field in message.fields() {
+            match field.kind() {
+                Kind::Enum(value) => {
+                    self.add(
+                        value.full_name(),
+                        value.package_name(),
+                        value.parent_file().name(),
+                        false,
+                        false,
+                    );
+                }
+                Kind::Message(inner) => self.reach(&inner),
+                _ => {}
+            }
+        }
+    }
+
+    /// Two protobuf types imported under one name are refused.
+    fn unambiguous(&self) -> anyhow::Result<()> {
+        ensure!(
+            self.ambiguous.is_empty(),
+            "the signatures name types that would share an import name: {}",
+            self.ambiguous.join("; ")
+        );
+        Ok(())
     }
 
     /// The import lines: one per file, in file order. `base` is the directory
@@ -390,7 +450,7 @@ impl Imports {
     /// module; a `type_only` import is for a declaration file.
     fn lines(&self, base: &str, type_only: bool) -> String {
         let mut files: BTreeMap<&str, Vec<String>> = BTreeMap::new();
-        for imported in self.named.values() {
+        for imported in self.named.values().filter(|i| i.in_signature) {
             let entry = files.entry(imported.file.as_str()).or_default();
             let prefix = if type_only { "" } else { "type " };
             entry.push(format!("{prefix}{}", spell(&imported.es, &imported.alias)));
@@ -415,25 +475,36 @@ impl Imports {
         out
     }
 
-    /// The names the package re-exports so a caller can spell the types of
-    /// its signatures, as `export type { .. } from` lines.
+    /// What the package re-exports so a caller can spell and build the values
+    /// of its signatures, per file: each message as a type and its schema as
+    /// a value (`create` needs it), each enum as a value, which is also its
+    /// type.
     fn reexports(&self) -> String {
-        let mut files: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+        let mut files: BTreeMap<&str, (Vec<String>, Vec<String>)> = BTreeMap::new();
         for imported in self.named.values() {
-            files
-                .entry(imported.file.as_str())
-                .or_default()
-                .push(spell(&imported.es, &imported.alias));
+            let (types, values) = files.entry(imported.file.as_str()).or_default();
+            if imported.is_message {
+                types.push(spell(&imported.es, &imported.alias));
+                values.push(spell(
+                    &format!("{}Schema", imported.es),
+                    &format!("{}Schema", imported.alias),
+                ));
+            } else {
+                values.push(spell(&imported.es, &imported.alias));
+            }
         }
         let mut out = String::new();
-        for (file, mut names) in files {
-            names.sort();
-            let _ = writeln!(
-                out,
-                "export type {{ {} }} from \"{}\";",
-                names.join(", "),
-                proto_specifier(file, "./")
-            );
+        for (file, (mut types, mut values)) in files {
+            let specifier = proto_specifier(file, "./");
+            let lines = [("export type", &mut types), ("export", &mut values)];
+            for (keyword, names) in lines.into_iter().filter(|(_, names)| !names.is_empty()) {
+                names.sort();
+                let _ = writeln!(
+                    out,
+                    "{keyword} {{ {} }} from \"{specifier}\";",
+                    names.join(", ")
+                );
+            }
         }
         out
     }
@@ -897,8 +968,8 @@ fn wasm_class(package: &Package, client: &Client) -> anyhow::Result<String> {
 ///
 /// # Errors
 ///
-/// As [`method_ts`] and [`client_options`], and an async export `l2-methods`
-/// does not list.
+/// As [`method_ts`] and [`client_options`], an async export `l2-methods` does
+/// not list, and two protobuf types that would share an import name.
 fn client_ts(
     model: &Model,
     package: &Package,
@@ -1002,6 +1073,7 @@ fn client_ts(
     client.push_str(&entry_fn);
     declared.push(options_ty.clone());
     declared.push(sdk.clone());
+    imports.unambiguous()?;
     let surface = format!(
         "{declarations}{options_decl}\n{sdk_decl}{surface_classes}\nexport declare function {entry}(session: SdkSession, opts?: {options_ty}): Promise<{sdk}>;\n"
     );
@@ -1632,6 +1704,105 @@ impl Widgets {
         assert!(index.contains("Number as t_v1_Number"));
         assert!(index.contains("from \"@bufbuild/protobuf/wkt\";"));
         assert!(index.contains("export { init, sdkBuildInfo } from \"./init.js\";"));
+    }
+
+    const REACHING_PROTO: &str = r#"syntax = "proto3";
+package t.v1;
+import "google/protobuf/struct.proto";
+enum Direct { DIRECT_UNSPECIFIED = 0; }
+enum ViaList { VIA_LIST_UNSPECIFIED = 0; }
+enum ViaMap { VIA_MAP_UNSPECIFIED = 0; }
+enum Deep { DEEP_UNSPECIFIED = 0; }
+message Leaf {
+  enum Kind { KIND_UNSPECIFIED = 0; }
+  Kind kind = 1;
+  Leaf next = 2;
+}
+message Mid { Deep deep = 1; Leaf leaf = 2; }
+message Item {
+  repeated ViaList lists = 1;
+  map<string, ViaMap> by_name = 2;
+  Mid mid = 3;
+  google.protobuf.Struct extra = 4;
+}
+message GetItemArgs { Direct direct = 1; }
+"#;
+
+    const REACHING: &str = r#"
+#[client(surface = "s", proto = generated::t::v1)]
+impl Items {
+    #[export]
+    pub async fn get_item(&self, direct: Direct) -> Result<generated::t::v1::Item, Error> { body() }
+}
+"#;
+
+    #[test]
+    fn every_enum_a_signature_reaches_is_re_exported_as_a_value() {
+        let files = generated(REACHING, REACHING_PROTO).expect("generated");
+        let index = &files["src/generated/index.ts"];
+        assert!(
+            index.contains(
+                "export type { GetItemArgs, Item } from \"./proto/t/v1/t_pb.js\";\nexport { Deep, Direct, GetItemArgsSchema, ItemSchema, Leaf_Kind, ViaList, ViaMap } from \"./proto/t/v1/t_pb.js\";\n"
+            ),
+            "{index}"
+        );
+    }
+
+    #[test]
+    fn an_enum_only_reached_through_a_message_is_not_imported_by_the_client() {
+        let files = generated(REACHING, REACHING_PROTO).expect("generated");
+        let client = &files["src/generated/client.ts"];
+        assert!(client.contains("type Direct"), "{client}");
+        for reached in ["Deep", "ViaList", "ViaMap", "Leaf_Kind"] {
+            assert!(!client.contains(reached), "{reached} in {client}");
+        }
+        assert!(!files["api-surface.d.ts"].contains("Deep"));
+    }
+
+    #[test]
+    fn the_well_known_messages_are_not_walked_for_enums() {
+        let files = generated(REACHING, REACHING_PROTO).expect("generated");
+        assert!(!files["src/generated/index.ts"].contains("NullValue"));
+    }
+
+    #[test]
+    fn a_message_is_a_type_and_its_schema_is_a_value() {
+        let files = generated(WIDGETS, PROTO).expect("generated");
+        let index = &files["src/generated/index.ts"];
+        assert!(index.contains("export type { "), "{index}");
+        assert!(index.contains("export { "), "{index}");
+        let types = index
+            .lines()
+            .find(|line| line.starts_with("export type {") && line.contains("_pb.js"))
+            .expect("the types line");
+        assert!(
+            types.contains("Widget") && !types.contains("Schema"),
+            "{types}"
+        );
+        let values = index
+            .lines()
+            .find(|line| line.starts_with("export {") && line.contains("_pb.js"))
+            .expect("the values line");
+        assert!(
+            values.contains("WidgetSchema") && values.contains("Color"),
+            "{values}"
+        );
+    }
+
+    #[test]
+    fn two_protobuf_types_that_would_share_an_import_name_are_refused() {
+        let mut imports = Imports::default();
+        imports.add("p.Foo", "p", "a.proto", false, true);
+        imports.add("p.q.Foo", "p.q", "b.proto", false, true);
+        imports.unambiguous().expect("two names");
+        imports.add("p_q.Foo", "p_q", "c.proto", false, true);
+        let error = imports.unambiguous().expect_err("a shared name");
+        assert!(
+            error
+                .to_string()
+                .contains("`p_q.Foo` and `p.q.Foo` are both named `p_q_Foo`"),
+            "{error}"
+        );
     }
 
     #[test]

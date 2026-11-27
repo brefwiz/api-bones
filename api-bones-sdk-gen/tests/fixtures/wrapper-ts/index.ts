@@ -4,9 +4,14 @@ export { NumbersClient, WidgetsClient, EventsClient, apiBonesSdk } from "./clien
 export type { ApiBonesSdkOptions, ApiBonesSdk } from "./client.js";
 export type { BatchItem, CallOptions, CredentialSource, ListOptions, SdkSession } from "./types.js";
 export type { WatchArgs } from "./proto/contract/sdk/v1/events_pb.js";
+export { WatchArgsSchema } from "./proto/contract/sdk/v1/events_pb.js";
 export type { ListNumbersArgs, Number as contract_sdk_v1_Number, NumbersOptions } from "./proto/contract/sdk/v1/numbers_pb.js";
+export { ListNumbersArgsSchema, NumberSchema as contract_sdk_v1_NumberSchema, NumbersOptionsSchema } from "./proto/contract/sdk/v1/numbers_pb.js";
 export type { BatchGetWidgetsArgs, GetWidgetArgs, ListWidgetPartsArgs, WidgetPart } from "./proto/contract/sdk/v1/widgets_pb.js";
+export { BatchGetWidgetsArgsSchema, GetWidgetArgsSchema, ListWidgetPartsArgsSchema, WidgetPartKind, WidgetPartSchema } from "./proto/contract/sdk/v1/widgets_pb.js";
 export type { Tick } from "./proto/contract/v1/events_pb.js";
+export { TickSchema } from "./proto/contract/v1/events_pb.js";
 export type { Widget } from "./proto/contract/v1/widgets_pb.js";
+export { WidgetSchema } from "./proto/contract/v1/widgets_pb.js";
 export * from "./errors.js";
 export { init, sdkBuildInfo } from "./init.js";
