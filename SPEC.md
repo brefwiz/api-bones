@@ -562,9 +562,11 @@ It publishes on two ecosystems, and they release on separate lineages:
   manifest: `private` follows the Layer 2 crate's `publish` setting, the sdk
   runtime is a peer dependency (`>=` the runtime floor) with the in-tree `file:`
   link as a dev dependency, and a published manifest names the registry
-  its sdk runtime publishes to. Its `src/generated-l2` is gitignored and built by
+  its sdk runtime publishes to. Its `src/generated` is gitignored and built by
   `ci-sdk-autogenerate`; only `package.json`, `package-lock.json`,
-  `l2-methods.json`, `api-surface.d.ts` and `LICENSE` are tracked.
+  `l2-methods.json`, `api-surface.d.ts` and `LICENSE` are tracked. Its version is
+  the fixed placeholder `0.0.0`; the package lane stamps the tag version into
+  `package.json` at pack time.
 
 ## Coverage
 
