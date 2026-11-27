@@ -13,7 +13,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Component, Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context, anyhow, ensure};
 use api_bones_sdk_model::{
@@ -21,146 +20,6 @@ use api_bones_sdk_model::{
     export_name, l2_methods, typescript_name,
 };
 use prost_reflect::{DescriptorPool, FieldDescriptor, Kind, MessageDescriptor};
-
-/// What the SPEC front matter and the crate's manifest say about the package.
-/// The manifest is resolved by `cargo metadata`, so workspace-inherited fields
-/// carry their value. `out` is the directory the package is written to; the
-/// runtime dependency link is relative to it.
-///
-/// # Errors
-///
-/// A SPEC without front matter, without the surface, or without a TypeScript
-/// package for it; a manifest `cargo metadata` rejects or that declares no
-/// license; an `out` path that cannot be resolved.
-pub(crate) fn package_of(
-    spec: &Path,
-    krate: &Path,
-    surface: &str,
-    out: &Path,
-) -> anyhow::Result<Package> {
-    let text =
-        std::fs::read_to_string(spec).with_context(|| format!("cannot read {}", spec.display()))?;
-    let front = text
-        .strip_prefix("---\n")
-        .and_then(|rest| rest.split("\n---").next())
-        .ok_or_else(|| anyhow!("{} has no front matter", spec.display()))?;
-    let document: serde_yaml::Value = serde_yaml::from_str(front)?;
-    let service = document["service"]
-        .as_str()
-        .ok_or_else(|| anyhow!("the SPEC names no service"))?
-        .to_owned();
-    let surfaces = document["sdk_surfaces"]
-        .as_mapping()
-        .ok_or_else(|| anyhow!("the SPEC lists no sdk_surfaces"))?;
-    let mut spec_l2 = SpecL2Methods::default();
-    for (id, _) in surfaces {
-        spec_l2
-            .surfaces
-            .insert(id.as_str().unwrap_or_default().to_owned());
-    }
-    let entry = &document["sdk_surfaces"][surface];
-    if let Some(endpoints) = entry["l2_methods"].as_mapping() {
-        for (endpoint, languages) in endpoints {
-            let rust = languages["rust"]
-                .as_sequence()
-                .into_iter()
-                .flatten()
-                .filter_map(|m| m.as_str().map(str::to_owned))
-                .collect();
-            spec_l2
-                .endpoints
-                .insert(endpoint.as_str().unwrap_or_default().to_owned(), rust);
-        }
-    }
-    let name = entry["targets"]["typescript"]["packages"][0]
-        .as_str()
-        .ok_or_else(|| anyhow!("surface `{surface}` names no TypeScript package"))?
-        .to_owned();
-    let manifest_path = krate.join("Cargo.toml");
-    let output = Command::new("cargo")
-        .args([
-            "metadata",
-            "--no-deps",
-            "--format-version",
-            "1",
-            "--manifest-path",
-        ])
-        .arg(&manifest_path)
-        .output()
-        .context("cannot start `cargo metadata`")?;
-    if !output.status.success() {
-        return Err(anyhow!(
-            "`cargo metadata` failed for {}: {}",
-            manifest_path.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
-    let manifest_path = manifest_path
-        .canonicalize()
-        .with_context(|| format!("cannot read the manifest of {}", krate.display()))?;
-    let found = crate_metadata(&String::from_utf8_lossy(&output.stdout), &manifest_path)?;
-    let (runtime, registry) = runtime_dependency(spec.parent().unwrap_or(Path::new("")), out)?;
-    if !found.private && registry.is_none() {
-        return Err(anyhow!(
-            "a published wrapper publishes to its runtime's registry; the in-tree runtime package.json names no publishConfig.registry"
-        ));
-    }
-    Ok(Package {
-        service,
-        crate_name: found.name,
-        name,
-        license: found.license,
-        private: found.private,
-        runtime,
-        registry,
-        spec: spec_l2,
-        wasm_sha256: String::new(),
-    })
-}
-
-/// What the Layer 2 crate's manifest resolves to, workspace inheritance
-/// included.
-#[derive(Debug, PartialEq, Eq)]
-struct CrateMetadata {
-    name: String,
-    license: String,
-    /// The crate says `publish = false`.
-    private: bool,
-}
-
-/// The package of `manifest` in the `cargo metadata --no-deps` document
-/// `json`.
-fn crate_metadata(json: &str, manifest: &Path) -> anyhow::Result<CrateMetadata> {
-    let document: serde_json::Value =
-        serde_json::from_str(json).context("`cargo metadata` did not answer JSON")?;
-    let package = document["packages"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|package| {
-            package["manifest_path"].as_str().is_some_and(|listed| {
-                // Cargo lists the path as spelled to it; the caller's is
-                // resolved, so a symlinked directory still matches.
-                let listed = Path::new(listed);
-                listed == manifest || listed.canonicalize().is_ok_and(|real| real == manifest)
-            })
-        })
-        .ok_or_else(|| {
-            anyhow!(
-                "`cargo metadata` lists no package for {}",
-                manifest.display()
-            )
-        })?;
-    let text = |key: &str| package[key].as_str().map(str::to_owned);
-    Ok(CrateMetadata {
-        name: text("name").ok_or_else(|| anyhow!("the manifest names no crate"))?,
-        license: text("license")
-            .ok_or_else(|| anyhow!("the manifest of {} declares no license", manifest.display()))?,
-        private: package["publish"]
-            .as_array()
-            .is_some_and(std::vec::Vec::is_empty),
-    })
-}
 
 /// The version every generated wrapper carries in its `package.json`,
 /// provenance and `sdkBuildInfo`. It is constant so a crate release never
@@ -197,6 +56,9 @@ pub(crate) struct Package {
     pub(crate) registry: Option<String>,
     /// The `sdk_surfaces` the exports name, and each endpoint's Rust methods.
     pub(crate) spec: SpecL2Methods,
+    /// The surfaces whose typescript targets list the package, each with the
+    /// endpoints its `l2_methods` names.
+    pub(crate) listed: BTreeMap<String, Vec<String>>,
     /// The SHA-256 of the optimised wasm module, which `init.ts` states: the
     /// build stamps it, so a wrapper written without a module carries none.
     pub(crate) wasm_sha256: String,
@@ -275,7 +137,10 @@ pub(crate) const RUNTIME_FLOOR: &str = "0.3.0";
 /// the runtime package next to the SPEC when `spec_dir` holds it, the floor
 /// release otherwise. The second value is the `publishConfig.registry` of that
 /// in-tree runtime package, when it names one.
-fn runtime_dependency(spec_dir: &Path, out: &Path) -> anyhow::Result<(String, Option<String>)> {
+pub(crate) fn runtime_dependency(
+    spec_dir: &Path,
+    out: &Path,
+) -> anyhow::Result<(String, Option<String>)> {
     let home = spec_dir.join("api-bones-sdk-runtime-ts");
     let in_tree = std::fs::read_to_string(home.join("package.json"))
         .ok()
@@ -1295,163 +1160,8 @@ fn init_ts(package: &Package, glue: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::testkit::{REGISTRY_RUNTIME_JSON, RUNTIME_JSON, TEST_REGISTRY, runtime_at, scratch};
     use super::*;
-
-    const SPEC: &str = "---\nservice: svc\nsdk_surfaces:\n  s:\n    targets:\n      typescript:\n        packages: [\"@x/y\"]\n---\n";
-
-    fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("wrapper-ts-{}-{tag}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("dir");
-        dir
-    }
-
-    /// A workspace whose one member `c` holds `member` as its manifest.
-    fn package_with(tag: &str, member: &str) -> anyhow::Result<Package> {
-        package_in(tag, member, None)
-    }
-
-    fn package_in(tag: &str, member: &str, runtime: Option<&str>) -> anyhow::Result<Package> {
-        let dir = scratch(tag);
-        if let Some(json) = runtime {
-            runtime_at(&dir, json);
-        }
-        std::fs::write(dir.join("SPEC.md"), SPEC).expect("spec");
-        std::fs::write(
-            dir.join("Cargo.toml"),
-            "[workspace]\nmembers = [\"c\"]\nresolver = \"3\"\n[workspace.package]\nversion = \"1.2.3\"\nlicense = \"Apache-2.0\"\n",
-        )
-        .expect("workspace");
-        std::fs::create_dir_all(dir.join("c/src")).expect("member");
-        std::fs::write(dir.join("c/src/lib.rs"), "").expect("source");
-        std::fs::write(dir.join("c/Cargo.toml"), member).expect("manifest");
-        let result = package_of(&dir.join("SPEC.md"), &dir.join("c"), "s", &dir.join("out"));
-        std::fs::remove_dir_all(&dir).expect("cleaned");
-        result
-    }
-
-    const INHERITING: &str = "[package]\nname = \"c\"\nversion.workspace = true\nedition = \"2024\"\nlicense.workspace = true\n";
-
-    #[test]
-    fn the_workspace_inherited_fields_resolve_to_their_values() {
-        let package =
-            package_in("inherit", INHERITING, Some(REGISTRY_RUNTIME_JSON)).expect("package");
-        assert_eq!(package.crate_name, "c");
-        assert_eq!(package.license, "Apache-2.0");
-        assert!(!package.private);
-        assert_eq!(package.registry.as_deref(), Some(TEST_REGISTRY));
-    }
-
-    #[test]
-    fn a_published_wrapper_without_a_runtime_registry_is_refused() {
-        for runtime in [None, Some(RUNTIME_JSON)] {
-            let error = package_in("no-registry", INHERITING, runtime)
-                .err()
-                .expect("refused");
-            assert!(
-                error.to_string().contains("publishConfig.registry"),
-                "{error}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_literal_manifest_resolves_and_publish_false_makes_the_package_private() {
-        let package = package_with(
-            "literal",
-            "[package]\nname = \"c\"\nversion = \"4.5.6\"\nedition = \"2024\"\nlicense = \"MIT\"\npublish = false\n",
-        )
-        .expect("package");
-        assert_eq!(package.license, "MIT");
-        assert!(package.private);
-        assert_eq!(package.runtime, format!(">={RUNTIME_FLOOR}"));
-    }
-
-    #[test]
-    fn a_manifest_cargo_rejects_is_refused_with_its_message() {
-        let error = package_with("broken", "[package\n").err().expect("refused");
-        assert!(
-            error.to_string().contains("`cargo metadata` failed"),
-            "{error}"
-        );
-    }
-
-    fn metadata(packages: &str) -> String {
-        format!("{{\"packages\":[{packages}],\"workspace_members\":[]}}")
-    }
-
-    fn entry(manifest: &str, extra: &str) -> String {
-        format!(
-            "{{\"name\":\"n\",\"version\":\"1.0.0\",\"license\":\"MIT\",\"manifest_path\":\"{manifest}\"{extra}}}"
-        )
-    }
-
-    #[test]
-    fn the_package_of_the_manifest_is_picked_among_the_workspace_members() {
-        let json = metadata(&format!(
-            "{{\"name\":\"other\",\"version\":\"9.9.9\",\"license\":\"GPL-3.0\",\"manifest_path\":\"/w/o/Cargo.toml\",\"publish\":null}},{}",
-            entry("/w/c/Cargo.toml", ",\"publish\":null")
-        ));
-        let found = crate_metadata(&json, Path::new("/w/c/Cargo.toml")).expect("found");
-        assert_eq!(
-            found,
-            CrateMetadata {
-                name: "n".to_owned(),
-                license: "MIT".to_owned(),
-                private: false,
-            }
-        );
-    }
-
-    #[test]
-    fn only_an_empty_publish_list_makes_the_package_private() {
-        for (publish, private) in [
-            (",\"publish\":[]", true),
-            (",\"publish\":null", false),
-            (",\"publish\":[\"crates-io\"]", false),
-            ("", false),
-        ] {
-            let json = metadata(&entry("/w/Cargo.toml", publish));
-            let found = crate_metadata(&json, Path::new("/w/Cargo.toml")).expect("found");
-            assert_eq!(found.private, private, "{publish}");
-        }
-    }
-
-    #[test]
-    fn a_document_that_lists_no_package_for_the_manifest_is_refused() {
-        let json = metadata(&entry("/w/o/Cargo.toml", ""));
-        let error = crate_metadata(&json, Path::new("/w/c/Cargo.toml")).expect_err("absent");
-        assert!(error.to_string().contains("lists no package"), "{error}");
-        let error = crate_metadata("{}", Path::new("/w/c/Cargo.toml")).expect_err("no packages");
-        assert!(error.to_string().contains("lists no package"), "{error}");
-    }
-
-    #[test]
-    fn a_document_that_is_not_json_is_refused() {
-        let error = crate_metadata("not json", Path::new("/w/Cargo.toml")).expect_err("refused");
-        assert!(error.to_string().contains("did not answer JSON"), "{error}");
-    }
-
-    #[test]
-    fn a_package_without_a_name_or_a_license_is_refused() {
-        let at = "\"manifest_path\":\"/w/Cargo.toml\"";
-        for (fields, message) in [
-            (
-                "\"version\":\"1.0.0\",\"license\":\"MIT\"",
-                "names no crate",
-            ),
-            (
-                "\"name\":\"n\",\"version\":\"1.0.0\",\"license\":null",
-                "declares no license",
-            ),
-        ] {
-            let json = metadata(&format!("{{{fields},{at}}}"));
-            let error = crate_metadata(&json, Path::new("/w/Cargo.toml")).expect_err(message);
-            assert!(error.to_string().contains(message), "{error}");
-        }
-    }
-
-    const TEST_REGISTRY: &str = "https://registry.example.test/npm/";
 
     fn package_for(private: bool) -> Package {
         Package {
@@ -1463,6 +1173,7 @@ mod tests {
             runtime: format!(">={RUNTIME_FLOOR}"),
             registry: Some(TEST_REGISTRY.to_owned()),
             spec: SpecL2Methods::default(),
+            listed: BTreeMap::new(),
             wasm_sha256: String::new(),
         }
     }
@@ -1506,15 +1217,6 @@ mod tests {
         assert!(document["devDependencies"].get(RUNTIME_PACKAGE).is_none());
         assert!(document["dependencies"].get(RUNTIME_PACKAGE).is_none());
     }
-
-    fn runtime_at(spec_dir: &Path, package_json: &str) {
-        let home = spec_dir.join("api-bones-sdk-runtime-ts");
-        std::fs::create_dir_all(&home).expect("home");
-        std::fs::write(home.join("package.json"), package_json).expect("package.json");
-    }
-
-    const RUNTIME_JSON: &str = "{\"name\":\"@brefwiz/api-bones-sdk-runtime\"}";
-    const REGISTRY_RUNTIME_JSON: &str = "{\"name\":\"@brefwiz/api-bones-sdk-runtime\",\"publishConfig\":{\"registry\":\"https://registry.example.test/npm/\"}}";
 
     #[test]
     fn a_runtime_package_next_to_the_spec_is_linked_relative_to_the_output() {
@@ -2300,7 +2002,19 @@ pub(crate) mod testkit {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    fn scratch(tag: &str) -> PathBuf {
+    pub(crate) const TEST_REGISTRY: &str = "https://registry.example.test/npm/";
+
+    /// A runtime package beside the SPEC in `spec_dir`, with `package_json`.
+    pub(crate) fn runtime_at(spec_dir: &Path, package_json: &str) {
+        let home = spec_dir.join("api-bones-sdk-runtime-ts");
+        std::fs::create_dir_all(&home).expect("home");
+        std::fs::write(home.join("package.json"), package_json).expect("package.json");
+    }
+
+    pub(crate) const RUNTIME_JSON: &str = "{\"name\":\"@brefwiz/api-bones-sdk-runtime\"}";
+    pub(crate) const REGISTRY_RUNTIME_JSON: &str = "{\"name\":\"@brefwiz/api-bones-sdk-runtime\",\"publishConfig\":{\"registry\":\"https://registry.example.test/npm/\"}}";
+
+    pub(crate) fn scratch(tag: &str) -> PathBuf {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!(
             "wrapper-ts-kit-{}-{tag}-{}",

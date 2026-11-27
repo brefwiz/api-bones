@@ -24,8 +24,6 @@ crate-type = ["cdylib", "rlib"]
 # The gates `api-bones-sdk-gen features` derives from the exports below.
 # api-bones-sdk-gen features: begin
 sdk-all = []
-sdk-connect-batch = []
-sdk-connect-pagination = []
 sdk-m-batch_get_widgets = []
 sdk-m-get_widget = []
 sdk-m-list = []

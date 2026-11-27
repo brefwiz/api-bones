@@ -2,6 +2,7 @@
 mod build_ts;
 mod features;
 mod size;
+mod wrapper_package;
 mod wrapper_ts;
 
 use anyhow::Context;
@@ -105,10 +106,8 @@ struct WrapperArgs {
     /// The SPEC whose front matter lists `sdk_surfaces`
     #[arg(long, default_value = "SPEC.md")]
     spec: PathBuf,
-    /// The `sdk_surfaces` id that owns the wrapper's `l2_methods`
-    #[arg(long)]
-    surface: String,
-    /// The package directory
+    /// The package directory; the wrapper's package is the `name` of the
+    /// `package.json` tracked in it
     #[arg(long)]
     out: PathBuf,
     /// The file descriptor set that declares every message the exports cross
@@ -198,8 +197,7 @@ fn main() -> anyhow::Result<()> {
 fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
     match command {
         Wrapper::Typescript { args, wasm_sha256 } => {
-            let mut package =
-                wrapper_ts::package_of(&args.spec, &args.krate, &args.surface, &args.out)?;
+            let mut package = wrapper_package::package_of(&args.spec, &args.krate, &args.out)?;
             package.wasm_sha256 = wasm_sha256;
             let model = features::read_model(&args.krate)?;
             let contract = wrapper_ts::Contract::read(&args.descriptor)?;
@@ -211,7 +209,6 @@ fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
         Wrapper::BuildTs { args, target_dir } => build_ts::run_build(
             &args.spec,
             &args.krate,
-            &args.surface,
             &args.out,
             &target_dir,
             &args.descriptor,
