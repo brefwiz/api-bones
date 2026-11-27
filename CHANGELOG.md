@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [23.1.0] - 2026-11-27
+
+### Added
+
+- *(sdk-gen)* publish the generated test-service wrapper with a runtime peer range
+
 ## [23.0.0] - 2026-11-27
 
 ### Added

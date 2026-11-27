@@ -3,6 +3,12 @@
 All notable changes to `api-bones-sdk-gen` are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [6.1.0] - 2026-11-27
+
+### Added
+
+- *(sdk-gen)* publish the generated test-service wrapper with a runtime peer range
+
 ## [6.0.0] - 2026-11-27
 
 ### Added

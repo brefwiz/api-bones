@@ -105,7 +105,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "api-bones"
-version = "23.0.0"
+version = "23.1.0"
 dependencies = [
  "api-bones-i18n",
  "api-bones-rt",
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-batch"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "api-bones",
  "api-bones-page",
@@ -309,7 +309,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-page"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "api-bones",
  "api-bones-rt",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-reqwest"
-version = "19.0.0"
+version = "19.0.1"
 dependencies = [
  "api-bones",
  "mockito",
@@ -380,7 +380,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-sdk"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "api-bones",
  "api-bones-batch",
@@ -427,7 +427,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-sdk-gen"
-version = "6.0.0"
+version = "6.1.0"
 dependencies = [
  "anyhow",
  "api-bones-progenitor",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-sdk-macros"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "api-bones-sdk",
  "api-bones-sdk-model",
@@ -482,7 +482,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-test"
-version = "20.0.0"
+version = "20.0.1"
 dependencies = [
  "api-bones",
  "async-nats",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-test-service-l2"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "api-bones",
  "api-bones-page",
@@ -525,7 +525,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-tower"
-version = "10.0.0"
+version = "10.0.1"
 dependencies = [
  "api-bones",
  "http",
@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "api-bones-transport"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "api-bones",
  "api-bones-rt",
