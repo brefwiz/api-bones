@@ -13,7 +13,9 @@ use tracing::Instrument as _;
 use crate::admit::Admission;
 use crate::chunk::{self, element_bytes};
 use crate::item_error;
-use crate::key::{CallHeaders, Credential, CredentialGuard, CredentialSource, QueueKey};
+use crate::key::{
+    CallHeaders, Credential, CredentialAsk, CredentialGuard, CredentialSource, QueueKey,
+};
 use crate::span::{self, BatchRecord, Observer, Outcome};
 
 /// A boxed future: sendable natively, not `Send` on `wasm32`.
@@ -99,13 +101,19 @@ impl Wire {
     }
 
     /// The current credential, when its captured identity and required headers remain valid.
-    pub(crate) fn verify(&self, guard: &CredentialGuard) -> Result<Credential, ConnectError> {
-        let credential = self
-            .credentials
-            .current()
-            .map_err(|_| item_error::identity_changed())?;
+    pub(crate) async fn verify(&self, guard: &CredentialGuard) -> Result<Credential, ConnectError> {
+        let credential = self.read().await?;
         guard.verify(&credential)?;
         Ok(credential)
+    }
+
+    /// The credential the source holds now. A source that cannot answer reads
+    /// as a changed identity.
+    pub(crate) async fn read(&self) -> Result<Credential, ConnectError> {
+        self.credentials
+            .current(CredentialAsk::default())
+            .await
+            .map_err(|_| item_error::identity_changed())
     }
 
     /// Send one batch request under a wire slot. The credential is re-read and
@@ -122,7 +130,7 @@ impl Wire {
         headers: &CallHeaders,
     ) -> Result<Vec<Result<R, ConnectError>>, ConnectError> {
         let _slot = self.admission.acquire(call.queue).await?;
-        let credential = self.verify(call.guard)?;
+        let credential = self.verify(call.guard).await?;
         headers.validate(&credential.headers)?;
         let begun = record(call, ids.len(), 0, Outcome::Ok);
         let span = span::open(&begun);
@@ -140,19 +148,20 @@ impl Wire {
             .and_then(|timeout| Instant::now().checked_add(timeout));
         let answer = fetch_with_retry(
             move || {
-                let options = self
-                    .verify(call.guard)
-                    .and_then(|credential| headers.call_options(&credential.headers));
                 let template = template.clone();
                 let ids = retry_ids.clone();
-                async move { batch(template, ids, options?).await }
+                async move {
+                    let credential = self.verify(call.guard).await?;
+                    let options = headers.call_options(&credential.headers)?;
+                    batch(template, ids, options).await
+                }
             },
             retries_for(Idempotency::NoSideEffects),
             deadline,
         )
         .instrument(span.clone())
         .await;
-        if self.verify(call.guard).is_err() {
+        if self.verify(call.guard).await.is_err() {
             completion.finish(0, Outcome::Error);
             return Err(item_error::identity_changed());
         }
@@ -196,7 +205,7 @@ impl Wire {
             return (Vec::new(), None);
         }
         let (distinct, positions) = chunk::dedup(ids);
-        let Ok(credential) = self.credentials.current() else {
+        let Ok(credential) = self.read().await else {
             return (
                 ids.iter()
                     .map(|_| Err(item_error::identity_changed()))
@@ -360,7 +369,10 @@ mod tests {
         let current = Arc::new(Mutex::new(Credential::default()));
         let source = current.clone();
         let wire = Wire::new(
-            Arc::new(move || Ok(source.lock().expect("credential").clone())),
+            Arc::new(move |_: CredentialAsk| {
+                let held = source.lock().expect("credential").clone();
+                async move { Ok(held) }
+            }),
             None,
         );
         let attempts = Arc::new(AtomicUsize::new(0));

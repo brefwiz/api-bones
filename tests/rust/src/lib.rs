@@ -3,8 +3,8 @@
 //! has something to hang them on. It owns the generated stream response types
 //! the rotation steps use: `WatchEvent`, declared with `stream_controlled!`,
 //! and `PlainEvent`, which carries no stream control. It also owns the generated
-//! `Numbers` list service the pagination steps serve and call over the wire,
-//! and the `Widgets` service whose batch glue the batch steps drive.
+//! `NumbersService` list service the pagination steps serve and call over the wire,
+//! and the `WidgetsService` service whose batch glue the batch steps drive.
 
 pub mod batch_descriptor;
 #[cfg(test)]
@@ -35,17 +35,29 @@ pub use generated::bones::v1::PageResponse;
 pub use generated::bones::v1::{ErrorInfo as WireErrorInfo, ItemError, ValidationFailure};
 pub use generated::contract::v1::{
     BatchGetWidgetsRequest, BatchGetWidgetsResponse, BatchListWidgetPartsRequest,
-    BatchListWidgetPartsResponse, GetWidgetRequest, ListNumbersRequest, ListNumbersResponse,
-    ListWidgetPartsRequest, ListWidgetPartsResponse, Numbers, NumbersClient, NumbersExt,
-    PlainEvent, UpdateWidgetPartsRequest, WatchEvent, Widget, WidgetPartsGroup, WidgetResult,
-    Widgets, WidgetsClient, WidgetsExt, watch_event, widget_result,
+    BatchListWidgetPartsResponse, GetWidgetRequest, GetWidgetResponse, ListIdempotentRequest,
+    ListIdempotentResponse, ListNoSideEffectsRequest, ListNoSideEffectsResponse, ListRequest,
+    ListResponse, ListWidgetPartsIdempotentRequest, ListWidgetPartsIdempotentResponse,
+    ListWidgetPartsRequest, ListWidgetPartsResponse, ListWidgetPartsUnspecifiedRequest,
+    ListWidgetPartsUnspecifiedResponse, NumbersService, NumbersServiceClient, NumbersServiceExt,
+    PlainEvent, UpdateWidgetPartsRequest, UpdateWidgetPartsResponse, WatchEvent, Widget,
+    WidgetPartsGroup, WidgetResult, WidgetsService, WidgetsServiceClient, WidgetsServiceExt,
+    watch_event, widget_result,
 };
-pub use generated::contract::v1::{Events, EventsExt, Tick, WatchTicksRequest};
 pub use generated::contract::v1::{
-    Fields, FieldsClient, FieldsExt, ValidateFieldRequest, ValidateFieldResponse,
+    EventsService, EventsServiceExt, Tick, WatchRequest, WatchResponse,
+};
+pub use generated::contract::v1::{
+    FieldsService, FieldsServiceClient, FieldsServiceExt, ValidateRequest, ValidateResponse,
 };
 
-include!(concat!(env!("OUT_DIR"), "/paged.rs"));
+/// Generated list glue. It lives in its own module so the root scope binds no
+/// name the opaque generated file could shadow; only the list traits are
+/// re-exported, by name.
+mod paged {
+    include!(concat!(env!("OUT_DIR"), "/paged.rs"));
+}
+pub use paged::{NumbersServiceLists, WidgetsServiceLists};
 
 impl From<&GetWidgetRequest> for BatchGetWidgetsRequest {
     fn from(request: &GetWidgetRequest) -> Self {
@@ -70,30 +82,30 @@ impl api_bones_batch::ListRequestFor<BatchListWidgetPartsRequest> for ListWidget
 pub const CONTRACT_DESCRIPTOR: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/watch.fds"));
 
 api_bones_batch::batch_client! {
-    client: NumbersClient<api_bones_transport::HttpTransport>,
-    service: "contract.v1.Numbers",
+    client: NumbersServiceClient<api_bones_transport::HttpTransport>,
+    service: "contract.v1.NumbersService",
     descriptor: CONTRACT_DESCRIPTOR,
 }
 
 api_bones_batch::batch_client! {
-    client: WidgetsClient<api_bones_transport::HttpTransport>,
-    service: "contract.v1.Widgets",
+    client: WidgetsServiceClient<api_bones_transport::HttpTransport>,
+    service: "contract.v1.WidgetsService",
     descriptor: CONTRACT_DESCRIPTOR,
 }
 
 api_bones_batch::batch_method! {
     ext: WidgetGets,
-    client: WidgetsClient<api_bones_transport::HttpTransport>,
+    client: WidgetsServiceClient<api_bones_transport::HttpTransport>,
     get: {
-        method: "contract.v1.Widgets/GetWidget",
+        method: "contract.v1.WidgetsService/GetWidget",
         name: get_widget,
         with_options: get_widget_with_options,
         request: GetWidgetRequest,
         id: id,
-        item: Widget,
+        item: GetWidgetResponse,
     },
     batch: {
-        method: "contract.v1.Widgets/BatchGetWidgets",
+        method: "contract.v1.WidgetsService/BatchGetWidgets",
         name: batch_get_widgets,
         with_options: batch_get_widgets_with_options,
         template: BatchGetWidgetsRequest,
@@ -106,15 +118,15 @@ api_bones_batch::batch_method! {
 
 api_bones_batch::batch_method! {
     ext: WidgetPartLists,
-    client: WidgetsClient<api_bones_transport::HttpTransport>,
+    client: WidgetsServiceClient<api_bones_transport::HttpTransport>,
     list: {
-        method: "contract.v1.Widgets/ListWidgetParts",
+        method: "contract.v1.WidgetsService/ListWidgetParts",
         with_options: list_widget_parts_with_options,
         request: ListWidgetPartsRequest,
         response: ListWidgetPartsResponse,
     },
     batch: {
-        method: "contract.v1.Widgets/BatchListWidgetParts",
+        method: "contract.v1.WidgetsService/BatchListWidgetParts",
         name: batch_list_widget_parts,
         with_options: batch_list_widget_parts_with_options,
         template: BatchListWidgetPartsRequest,
@@ -126,8 +138,8 @@ api_bones_batch::batch_method! {
 }
 
 api_bones_batch::batch_client! {
-    client: FieldsClient<api_bones_transport::HttpTransport>,
-    service: "contract.v1.Fields",
+    client: FieldsServiceClient<api_bones_transport::HttpTransport>,
+    service: "contract.v1.FieldsService",
     descriptor: CONTRACT_DESCRIPTOR,
 }
 

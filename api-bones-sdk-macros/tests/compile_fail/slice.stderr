@@ -1,26 +1,57 @@
-error: parameter `x`: tuples, arrays and slices are not allowed; allowed: bool, i32, u32, f64, String, i64, u64, Vec<u8>, SystemTime, Duration, Option<T>, Vec<T>, BTreeMap<String, T> (T itself allowed), or a type that carries #[record] or #[enumeration]
-  --> tests/compile_fail/slice.rs:10:30
+error: the return type: tuples, arrays and slices are not allowed; allowed: a generated message written with its module path (`generated::pkg::v1::Message`), bool, i32, u32, i64, u64, f64, String, Vec<u8>, SystemTime or Duration (each crosses as its google.protobuf wrapper), or () (google.protobuf.Empty)
+  --> tests/compile_fail/slice.rs:10:37
    |
-10 |     pub async fn f(&self, x: [u32]) -> Result<(), Error> {
-   |                              ^^^^^
+10 |     pub async fn f(&self) -> Result<[u32], Error> {
+   |                                     ^^^^^
+
+error[E0277]: the size for values of type `[u32]` cannot be known at compilation time
+  --> tests/compile_fail/slice.rs:11:9
+   |
+11 |         std::future::pending().await
+   |         ^^^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `[u32]`
+note: required by an implicit `Sized` bound in `Result`
+  --> $RUST/core/src/result.rs
+   |
+   | pub enum Result<T, E> {
+   |                 ^ required by the implicit `Sized` requirement on this type parameter in `Result`
+
+error[E0277]: the size for values of type `[u32]` cannot be known at compilation time
+  --> tests/compile_fail/slice.rs:11:9
+   |
+11 |         std::future::pending().await
+   |         ^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `[u32]`
+note: required by an implicit `Sized` bound in `Result`
+  --> $RUST/core/src/result.rs
+   |
+   | pub enum Result<T, E> {
+   |                 ^ required by the implicit `Sized` requirement on this type parameter in `Result`
+
+error[E0277]: the size for values of type `[u32]` cannot be known at compilation time
+  --> tests/compile_fail/slice.rs:11:32
+   |
+11 |         std::future::pending().await
+   |                                ^^^^^ doesn't have a size known at compile-time
+   |
+   = help: the trait `Sized` is not implemented for `[u32]`
+note: required by an implicit `Sized` bound in `Result`
+  --> $RUST/core/src/result.rs
+   |
+   | pub enum Result<T, E> {
+   |                 ^ required by the implicit `Sized` requirement on this type parameter in `Result`
 
 error[E0277]: the size for values of type `[u32]` cannot be known at compilation time
   --> tests/compile_fail/slice.rs:10:30
    |
-10 |     pub async fn f(&self, x: [u32]) -> Result<(), Error> {
-   |                              ^^^^^ doesn't have a size known at compile-time
+10 |     pub async fn f(&self) -> Result<[u32], Error> {
+   |                              ^^^^^^^^^^^^^^^^^^^^ doesn't have a size known at compile-time
    |
    = help: the trait `Sized` is not implemented for `[u32]`
-help: function arguments must have a statically known size, borrowed slices always have a known size
+note: required by an implicit `Sized` bound in `Result`
+  --> $RUST/core/src/result.rs
    |
-10 |     pub async fn f(&self, x: &[u32]) -> Result<(), Error> {
-   |                              +
-
-error[E0277]: the size for values of type `[u32]` cannot be known at compilation time
-  --> tests/compile_fail/slice.rs:10:27
-   |
-10 |     pub async fn f(&self, x: [u32]) -> Result<(), Error> {
-   |                           ^ doesn't have a size known at compile-time
-   |
-   = help: the trait `Sized` is not implemented for `[u32]`
-   = note: all local variables must have a statically known size
+   | pub enum Result<T, E> {
+   |                 ^ required by the implicit `Sized` requirement on this type parameter in `Result`

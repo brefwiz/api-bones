@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "서비스를 사용할 수 없어요",
   "bones.errors.SERVICE_UNAVAILABLE.description": "서비스를 일시적으로 사용할 수 없어요. 잠시 후 다시 시도해 주세요.",
   "bones.errors.GATEWAY_TIMEOUT.title": "게이트웨이 시간이 초과되었어요",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK 버전이 일치하지 않아요",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "이 앱의 일부가 서로 맞지 않아요. 페이지를 새로고침한 뒤 다시 시도해 주세요.",
   "bones.validation.min.title": "{min, number} 이상이어야 해요.",
   "bones.validation.max.title": "{max, number} 이하여야 해요.",
   "bones.validation.range.title": "값이 범위를 벗어났어요.",

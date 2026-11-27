@@ -19,6 +19,7 @@ api-bones-protos = { path = "../../api-bones-protos" }
 api-bones-automation = { path = "../../api-bones-automation" }
 prost-reflect = "0.16"
 protox = "0.9"
+serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]
@@ -59,4 +60,8 @@ harness = false
 
 [[test]]
 name = "automation_manifest"
+harness = false
+
+[[test]]
+name = "sdk_wasm_integrity"
 harness = false

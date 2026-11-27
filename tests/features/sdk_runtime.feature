@@ -3,31 +3,32 @@
 Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
 
   Every generated TypeScript SDK wrapper imports one runtime package. The Rust
-  core reports a failed call as `api-bones.error/v1` JSON and a list as a
-  handle that yields one JSON document at a time; the runtime revives the
-  error into `BonesError` or `PageError`, formats it from a registered catalog,
-  opens the core's spans live in OpenTelemetry and walks a list handle as async
-  iterables. The runtime makes no network call and decides nothing. The list
-  walk is proven in the runtime's unit tests and through the generated wrapper
-  over the real core, never through a hand-written handle.
+  core reports a failed call as `bones.sdk.v1.CallError` protobuf bytes and a
+  list as a handle that yields one `bones.sdk.v1.Page` at a time; the runtime
+  revives the error into `BonesError` or `PageError`, formats it from a
+  registered catalog, opens the core's spans live in OpenTelemetry from
+  `SpanStart` and `SpanEnd` bytes and walks a list handle as async iterables.
+  The runtime makes no network call and decides nothing. The list walk is
+  proven in the runtime's unit tests and through the generated wrapper over
+  the real core, never through a hand-written handle.
 
   Rust callers use `api-bones-sdk` directly; the runtime is the TypeScript face
   alone, so the surface is TypeScript only.
 
   The catalog scenarios run in order, in one module instance: the first
   proves the package ships no catalog of its own, and the later ones register
-  catalogs. An error's arguments are the wire form the Rust core reports, so a
-  count, a number and a timestamp reach the formatter as the runtime revives
-  them.
+  catalogs. An error's arguments are the typed `bones.v1.ErrorArg` values the
+  Rust core reports (string, int64, double, timestamp), so a count, a number
+  and a timestamp reach the formatter as the runtime revives them.
 
   Scenario: The package ships no error catalog of its own
-    Given an error "SERVICE_UNAVAILABLE" from emitter "bones" of platform "SERVICE_UNAVAILABLE" with the wire arguments '{}'
+    Given an error "SERVICE_UNAVAILABLE" from emitter "bones" of platform "SERVICE_UNAVAILABLE" with the typed arguments '{}'
     When the error is formatted for locale "en"
     Then the formatted text is ""
 
   Scenario Outline: A registered catalog formats the message of the error's emitter
     Given the error catalog for locale "en" is registered from recorded file "catalogs/emitters"
-    And an error "GRANT_MISSING" from emitter "<emitter>" of platform "FORBIDDEN" with the wire arguments '{"label":{"kind":"string","value":"Team"}}'
+    And an error "GRANT_MISSING" from emitter "<emitter>" of platform "FORBIDDEN" with the typed arguments '{"label":{"kind":"string","value":"Team"}}'
     When the error is formatted for locale "en"
     Then the formatted text is "<text>"
 
@@ -38,13 +39,13 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
 
   Scenario: A locale without an entry falls back to the English text of the emitter
     Given the error catalog for locale "en" is registered from recorded file "catalogs/emitters"
-    And an error "GRANT_MISSING" from emitter "example" of platform "FORBIDDEN" with the wire arguments '{"label":{"kind":"string","value":"Team"}}'
+    And an error "GRANT_MISSING" from emitter "example" of platform "FORBIDDEN" with the typed arguments '{"label":{"kind":"string","value":"Team"}}'
     When the error is formatted for locale "fr"
     Then the formatted text is "Access to Team is missing"
 
   Scenario Outline: An emitter without an entry formats the platform text of its locale
     Given the platform catalog for locale "<locale>" is registered
-    And an error "GRANT_MISSING" from emitter "absent" of platform "FORBIDDEN" with the wire arguments '{"label":{"kind":"string","value":"Team"}}'
+    And an error "GRANT_MISSING" from emitter "absent" of platform "FORBIDDEN" with the typed arguments '{"label":{"kind":"string","value":"Team"}}'
     When the error is formatted for locale "<locale>"
     Then the formatted text is the platform text of the error in the catalog of locale "<locale>"
 
@@ -82,7 +83,7 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
 
   Scenario Outline: A corpus message formats in every platform locale
     Given the corpus catalog for locale "<locale>" is registered
-    And an error "<code>" from emitter "corpus" of platform "FORBIDDEN" with the wire arguments '<args>'
+    And an error "<code>" from emitter "corpus" of platform "FORBIDDEN" with the typed arguments '<args>'
     When the error is formatted for locale "<locale>"
     Then the formatted text is "<text>"
 
@@ -322,7 +323,7 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
 
   Scenario Outline: A corpus date formats in the requested time zone
     Given the corpus catalog for locale "<locale>" is registered
-    And an error "SINCE" from emitter "corpus" of platform "FORBIDDEN" with the wire arguments '{"at":{"kind":"timestamp","value":"1970-01-01T20:00:00Z"}}'
+    And an error "SINCE" from emitter "corpus" of platform "FORBIDDEN" with the typed arguments '{"at":{"kind":"timestamp","value":"1970-01-01T20:00:00Z"}}'
     When the error is formatted for locale "<locale>" in the time zone "<timeZone>"
     Then the formatted text is "<text>"
 
@@ -362,7 +363,7 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
 
   Scenario: A time zone the runtime does not know is refused
     Given the corpus catalog for locale "en" is registered
-    And an error "SINCE" from emitter "corpus" of platform "FORBIDDEN" with the wire arguments '{"at":{"kind":"timestamp","value":"1970-01-01T20:00:00Z"}}'
+    And an error "SINCE" from emitter "corpus" of platform "FORBIDDEN" with the typed arguments '{"at":{"kind":"timestamp","value":"1970-01-01T20:00:00Z"}}'
     When the error is formatted for locale "en" in the unknown time zone "Mars/Olympus"
     Then the time zone is refused as "FormatErrorOptionError" with rule "unknown_time_zone" and message "option refused: unknown_time_zone"
 
@@ -371,7 +372,7 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
     And the locales of the corpus files
     And the locales of the platform catalog files
     And the corpus catalog for locale "en" is registered
-    And an error "ITEMS_LEFT" from emitter "corpus" of platform "FORBIDDEN" with the wire arguments '{"count":{"kind":"double","value":2}}'
+    And an error "ITEMS_LEFT" from emitter "corpus" of platform "FORBIDDEN" with the typed arguments '{"count":{"kind":"double","value":2}}'
     When the error is formatted for locale "en"
     Then the formatted text is "2 items left"
     And the locales of the examples, the corpus files and the platform catalog files are the same set
@@ -381,24 +382,53 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
     And the locales of the corpus files
     And the locales of the platform catalog files
     And the corpus catalog for locale "en" is registered
-    And an error "SINCE" from emitter "corpus" of platform "FORBIDDEN" with the wire arguments '{"at":{"kind":"timestamp","value":"1970-01-01T20:00:00Z"}}'
+    And an error "SINCE" from emitter "corpus" of platform "FORBIDDEN" with the typed arguments '{"at":{"kind":"timestamp","value":"1970-01-01T20:00:00Z"}}'
     When the error is formatted for locale "en" in the time zone "UTC"
     Then the formatted text is "Locked since 1/1/1970"
     And the locales of the examples, the corpus files and the platform catalog files are the same set
 
-  Scenario: A wire error without page detail becomes a BonesError
-    Given the wire error recorded as "errors/arguments"
-    When the wire error is parsed
+  Scenario: A call error without page detail becomes a BonesError
+    Given a call error with code "GRANT_MISSING" from emitter "example" of platform "FORBIDDEN", connect code "permission_denied" and message "grant missing"
+    When the call error is revived
     Then the result is a BonesError that is not a PageError, with code "GRANT_MISSING", emitter "example", platform "FORBIDDEN", connect code "permission_denied" and message "grant missing"
 
-  Scenario: A wire error with page detail becomes a PageError
-    Given the wire error recorded as "errors/cursor_expired"
-    When the wire error is parsed
+  Scenario Outline: A call error naming a retry-after carries it in milliseconds
+    Given a call error with code "RATE_LIMITED" from emitter "example" of platform "RATE_LIMITED", connect code "resource_exhausted" and message "the server is throttling"
+    And the call error names a wait of <millis> ms
+    When the call error is revived
+    Then the result is a BonesError that is not a PageError, with code "RATE_LIMITED", emitter "example", platform "RATE_LIMITED", connect code "resource_exhausted" and message "the server is throttling"
+    And the error names a wait of <millis> ms
+
+    Examples:
+      | millis |
+      | 6000   |
+      | 1500   |
+      | 250    |
+
+  Scenario: A call error naming no retry-after carries no wait
+    Given a call error with code "GRANT_MISSING" from emitter "example" of platform "FORBIDDEN", connect code "permission_denied" and message "grant missing"
+    When the call error is revived
+    Then the error names no wait
+
+  Scenario: A call error with a list failure becomes a PageError
+    Given a call error with code "CURSOR_EXPIRED" from emitter "example" of platform "PRECONDITION_FAILED", connect code "failed_precondition" and message "the cursor expired"
+    And the call error names a list failure of kind "cursor_expired" after 2 pages and 4 items
+    When the call error is revived
     Then the result is a PageError of kind "cursor_expired" after 2 pages and 4 items
 
-  Scenario Outline: Each tagged argument revives to its plain type
-    Given the wire error recorded as "errors/arguments"
-    When the wire error is parsed
+  Scenario Outline: Each typed argument revives to its plain type
+    Given a call error with code "GRANT_MISSING" from emitter "example" of platform "FORBIDDEN", connect code "permission_denied" and message "grant missing"
+    And the call error carries the arguments:
+      | name    | kind      | value                          |
+      | seats   | int64     | 9007199254740993               |
+      | since   | timestamp | 2026-03-01T10:20:30.123456789Z |
+      | share   | double    | 0.5                            |
+      | ratio   | double    | NaN                            |
+      | ceiling | double    | Infinity                       |
+      | floor   | double    | -Infinity                      |
+      | label   | string    | Team                           |
+      | mystery | unset     |                                |
+    When the call error is revived
     Then argument "<name>" is revived as "<revived>"
 
     Examples:
@@ -413,8 +443,9 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
       | mystery | dropped                       |
 
   Scenario Outline: A cursor refusal is told apart from a failed call
-    Given a wire list failure of kind "<kind>"
-    When the wire error is parsed
+    Given a call error with code "CURSOR_REJECTED" from emitter "example" of platform "PRECONDITION_FAILED", connect code "failed_precondition" and message "the list position was refused"
+    And the call error names a list failure of kind "<kind>" after 0 pages and 0 items
+    When the call error is revived
     Then the cursor rejection check answers "<answer>"
 
     Examples:
@@ -424,10 +455,15 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
       | cursor_query_mismatch | true   |
       | rpc                   | false  |
 
+  Scenario: A host rejection that is not CallError bytes is given back unchanged
+    Given the host rejected a call with an Error saying "the host is offline"
+    When the host rejection is mapped
+    Then the mapped value is the very Error the host rejected with, and no BonesError
+
   Scenario: Starting a span returns the traceparent of the open span
     Given spans are recorded by an OpenTelemetry tracer
     When the core starts the client span "example.List"
-    Then the start returned the traceparent of a span that is still open
+    Then the start answered the traceparent of a span that is still open
 
   Scenario: The call context carries the active trace and the caller's abort signal
     Given a remote span with trace id "4bf92f3577b34da6a3ce929d0e0e4736" and span id "00f067aa0ba902b7" is active
@@ -466,7 +502,7 @@ Feature: The TypeScript SDK runtime revives errors, formats them and walks lists
   Scenario: A span that is not recording gives no traceparent
     Given spans are sampled out
     When the core starts the client span "example.List"
-    Then the start returned no traceparent
+    Then the start answered that the span is not recording
 
   Scenario Outline: Ending a span sets its status and ends it
     Given spans are recorded by an OpenTelemetry tracer

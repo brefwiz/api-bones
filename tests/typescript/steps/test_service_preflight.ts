@@ -54,7 +54,7 @@ Given("the test service is running", { timeout: 30_000 }, async function () {
 });
 
 When("a page at {string} asks to call it with the headers {string}", async function (origin: string, headers: string) {
-  answer = await fetch(`${url}/contract.v1.Widgets/GetWidget`, {
+  answer = await fetch(`${url}/contract.v1.WidgetsService/GetWidget`, {
     method: "OPTIONS",
     headers: { origin, "access-control-request-method": "POST", "access-control-request-headers": headers },
   });
@@ -114,7 +114,7 @@ Then("the control port answers with status {int}", function (status: number) {
 });
 
 Then("the service answers a request for the widget {string} with status {int}", async function (id: string, status: number) {
-  const response = await fetch(`${url}/contract.v1.Widgets/GetWidget`, {
+  const response = await fetch(`${url}/contract.v1.WidgetsService/GetWidget`, {
     method: "POST",
     headers: { "content-type": "application/json", "connect-protocol-version": "1" },
     body: JSON.stringify({ id }),

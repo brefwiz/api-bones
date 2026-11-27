@@ -7,15 +7,19 @@
 //!
 //! The trace context a call sends is always the core's own: the `traceparent`
 //! the sink returned from `start`, or one the core mints when it has no sink
-//! or the sink is not recording.
+//! or the sink answered with one the core cannot read.
+//!
+//! A sink answers `start` with a [`SpanStarted`]. When it says the span is not
+//! recording, the core still sends the span's `traceparent` and still ends the
+//! span the sink started, but reports nothing for the spans nested under it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::UNIX_EPOCH;
 
 use api_bones_rt::{MaybeSend, MaybeSync, fill_random, system_now};
-use serde_json::{Map, Value, json};
+use serde_json::Value;
 
 use crate::ctx::CallCtx;
 use crate::error::Error;
@@ -25,7 +29,7 @@ pub type Attributes = BTreeMap<String, Value>;
 
 /// The W3C `traceparent` of a span: version `00`, a trace id, a span id and
 /// the trace flags.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Traceparent {
     trace_id: [u8; 16],
     span_id: [u8; 8],
@@ -140,17 +144,6 @@ pub enum SpanKind {
     Internal,
 }
 
-impl SpanKind {
-    /// The `kind` of the span's JSON.
-    #[must_use]
-    pub fn wire_name(self) -> &'static str {
-        match self {
-            Self::Client => "client",
-            Self::Internal => "internal",
-        }
-    }
-}
-
 /// How a span ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpanStatus {
@@ -160,18 +153,6 @@ pub enum SpanStatus {
     Error,
     /// The work was abandoned or its outcome is not known.
     Unset,
-}
-
-impl SpanStatus {
-    /// The `status` of the span's JSON.
-    #[must_use]
-    pub fn wire_name(self) -> &'static str {
-        match self {
-            Self::Ok => "ok",
-            Self::Error => "error",
-            Self::Unset => "unset",
-        }
-    }
 }
 
 /// What the core reports when it opens a span.
@@ -191,36 +172,6 @@ pub struct SpanStart {
     pub attributes: Attributes,
 }
 
-fn with_attributes(mut wire: Value, attributes: &Attributes) -> Value {
-    if !attributes.is_empty() {
-        let members: Map<String, Value> = attributes
-            .iter()
-            .map(|(name, value)| (name.clone(), value.clone()))
-            .collect();
-        wire["attributes"] = Value::Object(members);
-    }
-    wire
-}
-
-impl SpanStart {
-    /// The JSON the host's `start` receives.
-    #[must_use]
-    pub fn to_value(&self) -> Value {
-        let mut wire = json!({
-            "name": self.name,
-            "startTime": self.start_time_ms,
-            "kind": self.kind.wire_name(),
-        });
-        if let Some(parent) = &self.parent {
-            wire["parent"] = json!(parent);
-        }
-        if let Some(tracestate) = &self.tracestate {
-            wire["tracestate"] = json!(tracestate);
-        }
-        with_attributes(wire, &self.attributes)
-    }
-}
-
 /// What the core reports when it ends a span the sink started.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpanEnd {
@@ -236,27 +187,46 @@ pub struct SpanEnd {
     pub attributes: Attributes,
 }
 
-impl SpanEnd {
-    /// The JSON the host's `end` receives.
+/// What a sink answers when a span starts: the span's `traceparent`, and
+/// whether the sink records it.
+///
+/// The default is the answer of a sink that gave nothing readable: no
+/// `traceparent` and not recording.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SpanStarted {
+    /// The new span's `traceparent`; empty when the sink named none.
+    pub traceparent: String,
+    /// False when the span is not recording: the core makes no `start` or
+    /// `end` crossing for the spans nested under it.
+    pub recording: bool,
+}
+
+impl SpanStarted {
+    /// A recorded span with `traceparent`.
     #[must_use]
-    pub fn to_value(&self) -> Value {
-        let mut wire = json!({
-            "traceparent": self.traceparent,
-            "endTime": self.end_time_ms,
-            "status": self.status.wire_name(),
-        });
-        if let Some(error) = &self.error {
-            wire["error"] = json!(error);
+    pub fn recording(traceparent: impl Into<String>) -> Self {
+        Self {
+            traceparent: traceparent.into(),
+            recording: true,
         }
-        with_attributes(wire, &self.attributes)
+    }
+
+    /// A span the sink does not record, with `traceparent`.
+    #[must_use]
+    pub fn not_recording(traceparent: impl Into<String>) -> Self {
+        Self {
+            traceparent: traceparent.into(),
+            recording: false,
+        }
     }
 }
 
 /// The host that records the core's spans, live.
 pub trait SpanSink: MaybeSend + MaybeSync {
-    /// A span began. Returns the new span's `traceparent`, or `None` when the
-    /// span is not recording; then `end` is never called for it.
-    fn start(&self, span: &SpanStart) -> Option<String>;
+    /// A span began. Returns the new span's `traceparent` and whether it is
+    /// recording. `end` is called for every span the sink started, recording
+    /// or not.
+    fn start(&self, span: &SpanStart) -> SpanStarted;
 
     /// A span the sink started ended.
     fn end(&self, end: &SpanEnd);
@@ -269,17 +239,54 @@ fn now_ms() -> f64 {
         .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
 }
 
+/// The traceparents whose spans are quiet, each with the number of open spans
+/// that hold it quiet.
+type Quiet = Arc<Mutex<HashMap<Traceparent, usize>>>;
+
+/// Keeps a traceparent quiet while it lives.
+struct Hush {
+    quiet: Quiet,
+    traceparent: Traceparent,
+}
+
+impl Hush {
+    fn new(quiet: &Quiet, traceparent: Traceparent) -> Self {
+        *quiet
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(traceparent)
+            .or_default() += 1;
+        Self {
+            quiet: Arc::clone(quiet),
+            traceparent,
+        }
+    }
+}
+
+impl Drop for Hush {
+    fn drop(&mut self) {
+        let mut quiet = self.quiet.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(holders) = quiet.get_mut(&self.traceparent) {
+            *holders -= 1;
+            if *holders == 0 {
+                quiet.remove(&self.traceparent);
+            }
+        }
+    }
+}
+
 /// Opens spans against an optional sink.
 #[derive(Clone, Default)]
 pub struct Tracer {
     sink: Option<Arc<dyn SpanSink>>,
+    quiet: Quiet,
 }
 
 impl fmt::Debug for Tracer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Tracer")
             .field("sink", &self.sink.is_some())
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -287,11 +294,26 @@ impl Tracer {
     /// A tracer that reports to `sink`.
     #[must_use]
     pub fn new(sink: Arc<dyn SpanSink>) -> Self {
-        Self { sink: Some(sink) }
+        Self {
+            sink: Some(sink),
+            quiet: Quiet::default(),
+        }
+    }
+
+    fn is_quiet(&self, traceparent: &Traceparent) -> bool {
+        self.quiet
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(traceparent)
     }
 
     /// Opens a span under `parent`: the call's caller or an enclosing span.
     /// The `tracestate` follows only a readable parent.
+    ///
+    /// With a sink, the span is reported unless its parent is quiet. A span the
+    /// sink answers as not recording, and every span opened under a quiet
+    /// span, is quiet: it opens no span at the sink. A span the sink started is
+    /// ended at the sink even when it is not recording.
     #[must_use]
     pub fn start(
         &self,
@@ -302,7 +324,10 @@ impl Tracer {
     ) -> ActiveSpan {
         let parent_id = parent.traceparent.as_deref().and_then(Traceparent::parse);
         let tracestate = parent_id.and(parent.tracestate.clone());
-        let recorded = self.sink.as_ref().and_then(|sink| {
+        let started = self.sink.as_ref().and_then(|sink| {
+            if parent_id.as_ref().is_some_and(|id| self.is_quiet(id)) {
+                return None;
+            }
             let begin = SpanStart {
                 name: name.to_owned(),
                 start_time_ms: now_ms(),
@@ -311,16 +336,20 @@ impl Tracer {
                 tracestate: tracestate.clone(),
                 attributes,
             };
-            sink.start(&begin).map(|host| (Arc::clone(sink), host))
+            Some((Arc::clone(sink), sink.start(&begin)))
         });
-        let traceparent = recorded
+        let traceparent = started
             .as_ref()
-            .and_then(|(_, host)| Traceparent::parse(host))
+            .and_then(|(_, answer)| Traceparent::parse(&answer.traceparent))
             .unwrap_or_else(|| Traceparent::mint(parent_id.as_ref()));
+        let recording = started.as_ref().is_some_and(|(_, answer)| answer.recording);
+        let hush = (self.sink.is_some() && !recording).then(|| Hush::new(&self.quiet, traceparent));
         ActiveSpan {
             traceparent,
             tracestate,
-            recorded,
+            recorded: started.map(|(sink, answer)| (sink, answer.traceparent)),
+            recording,
+            _hush: hush,
             ended: false,
         }
     }
@@ -332,6 +361,8 @@ pub struct ActiveSpan {
     traceparent: Traceparent,
     tracestate: Option<String>,
     recorded: Option<(Arc<dyn SpanSink>, String)>,
+    recording: bool,
+    _hush: Option<Hush>,
     ended: bool,
 }
 
@@ -341,8 +372,9 @@ impl fmt::Debug for ActiveSpan {
             .field("traceparent", &self.traceparent.to_string())
             .field("tracestate", &self.tracestate)
             .field("recorded", &self.recorded.is_some())
+            .field("recording", &self.recording)
             .field("ended", &self.ended)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
@@ -365,14 +397,27 @@ impl ActiveSpan {
         CallCtx {
             traceparent: Some(self.traceparent()),
             tracestate: self.tracestate.clone(),
+            prefetch: None,
+            first_only: false,
         }
     }
 
-    /// The `traceparent` the host's sink gave this span; `None` when the span
-    /// is not recording.
+    /// The `traceparent` the host's sink gave this span; `None` when the sink
+    /// did not start the span or named none.
     #[must_use]
     pub fn recorded_traceparent(&self) -> Option<String> {
-        self.recorded.as_ref().map(|(_, host)| host.clone())
+        self.recorded
+            .as_ref()
+            .map(|(_, host)| host)
+            .filter(|host| !host.is_empty())
+            .cloned()
+    }
+
+    /// Whether the host's sink records this span. False without a sink, when
+    /// the sink answered not recording, and under a quiet span.
+    #[must_use]
+    pub fn is_recording(&self) -> bool {
+        self.recording
     }
 
     /// Ends the span with `status`.
@@ -417,8 +462,10 @@ impl Drop for ActiveSpan {
     }
 }
 
-/// The sink of a browser host: an object with `start(json)`, returning a
-/// `traceparent` string or nothing, and `end(json)`.
+/// The sink of a browser host: an object with `start(bytes)`, returning the
+/// `bones.sdk.v1.SpanStarted` bytes, and `end(bytes)`. Both take the
+/// `bones.sdk.v1.SpanStart` and `bones.sdk.v1.SpanEnd` bytes as a
+/// `Uint8Array`.
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 pub struct JsSink {
     host: wasm_bindgen::JsValue,
@@ -432,36 +479,37 @@ impl JsSink {
         Self { host }
     }
 
-    fn call(&self, method: &str, json: &Value) -> Option<wasm_bindgen::JsValue> {
+    fn call(&self, method: &str, message: &[u8]) -> Option<wasm_bindgen::JsValue> {
         use wasm_bindgen::JsCast as _;
         let function = js_sys::Reflect::get(&self.host, &wasm_bindgen::JsValue::from_str(method))
             .ok()?
             .dyn_into::<js_sys::Function>()
             .ok()?;
         function
-            .call1(
-                &self.host,
-                &wasm_bindgen::JsValue::from_str(&json.to_string()),
-            )
+            .call1(&self.host, &js_sys::Uint8Array::from(message))
             .ok()
     }
 }
 
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 impl SpanSink for JsSink {
-    fn start(&self, span: &SpanStart) -> Option<String> {
-        self.call("start", &span.to_value())?.as_string()
+    fn start(&self, span: &SpanStart) -> SpanStarted {
+        use wasm_bindgen::JsCast as _;
+        self.call("start", &crate::boundary::span_start(span))
+            .and_then(|answer| answer.dyn_into::<js_sys::Uint8Array>().ok())
+            .and_then(|answer| crate::boundary::span_started(&answer.to_vec()))
+            .unwrap_or_default()
     }
 
     fn end(&self, end: &SpanEnd) {
-        self.call("end", &end.to_value());
+        self.call("end", &crate::boundary::span_end(end));
     }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use serde_json::json;
 
     const PARENT: &str = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
@@ -469,11 +517,11 @@ mod tests {
     struct Recorder {
         starts: Mutex<Vec<SpanStart>>,
         ends: Mutex<Vec<SpanEnd>>,
-        answer: Option<String>,
+        answer: SpanStarted,
     }
 
     impl SpanSink for Recorder {
-        fn start(&self, span: &SpanStart) -> Option<String> {
+        fn start(&self, span: &SpanStart) -> SpanStarted {
             self.starts.lock().unwrap().push(span.clone());
             self.answer.clone()
         }
@@ -483,17 +531,34 @@ mod tests {
         }
     }
 
-    fn recorder(answer: Option<&str>) -> Arc<Recorder> {
+    const HOST: &str = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01";
+
+    fn recorder(answer: SpanStarted) -> Arc<Recorder> {
         Arc::new(Recorder {
-            answer: answer.map(str::to_owned),
+            answer,
             ..Recorder::default()
         })
+    }
+
+    fn start_in(tracer: &Tracer, name: &str, parent: &CallCtx) -> ActiveSpan {
+        tracer.start(name, SpanKind::Client, parent, Attributes::new())
+    }
+
+    fn start_names(sink: &Recorder) -> Vec<String> {
+        sink.starts
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|start| start.name.clone())
+            .collect()
     }
 
     fn call_ctx(traceparent: Option<&str>, tracestate: Option<&str>) -> CallCtx {
         CallCtx {
             traceparent: traceparent.map(str::to_owned),
             tracestate: tracestate.map(str::to_owned),
+            prefetch: None,
+            first_only: false,
         }
     }
 
@@ -567,78 +632,6 @@ mod tests {
     }
 
     #[test]
-    fn a_span_serialises_to_the_host_json() {
-        let mut attributes = Attributes::new();
-        attributes.insert("rpc.system".to_owned(), json!("connect_rpc"));
-        let begin = SpanStart {
-            name: "pkg.Svc/Get".to_owned(),
-            start_time_ms: 1500.5,
-            kind: SpanKind::Client,
-            parent: Some(PARENT.to_owned()),
-            tracestate: Some("k=v".to_owned()),
-            attributes,
-        };
-        assert_eq!(
-            begin.to_value(),
-            json!({
-                "name": "pkg.Svc/Get",
-                "startTime": 1500.5,
-                "kind": "client",
-                "parent": PARENT,
-                "tracestate": "k=v",
-                "attributes": {"rpc.system": "connect_rpc"},
-            })
-        );
-        let root = SpanStart {
-            name: "walk".to_owned(),
-            start_time_ms: 1.0,
-            kind: SpanKind::Internal,
-            parent: None,
-            tracestate: None,
-            attributes: Attributes::new(),
-        };
-        assert_eq!(
-            root.to_value(),
-            json!({"name": "walk", "startTime": 1.0, "kind": "internal"})
-        );
-    }
-
-    #[test]
-    fn a_span_end_serialises_to_the_host_json() {
-        let mut attributes = Attributes::new();
-        attributes.insert("pages".to_owned(), json!(3));
-        let failed = SpanEnd {
-            traceparent: PARENT.to_owned(),
-            end_time_ms: 2000.0,
-            status: SpanStatus::Error,
-            error: Some("unavailable SERVICE_UNAVAILABLE".to_owned()),
-            attributes,
-        };
-        assert_eq!(
-            failed.to_value(),
-            json!({
-                "traceparent": PARENT,
-                "endTime": 2000.0,
-                "status": "error",
-                "error": "unavailable SERVICE_UNAVAILABLE",
-                "attributes": {"pages": 3},
-            })
-        );
-        let unset = SpanEnd {
-            traceparent: PARENT.to_owned(),
-            end_time_ms: 1.0,
-            status: SpanStatus::Unset,
-            error: None,
-            attributes: Attributes::new(),
-        };
-        assert_eq!(
-            unset.to_value(),
-            json!({"traceparent": PARENT, "endTime": 1.0, "status": "unset"})
-        );
-        assert_eq!(SpanStatus::Ok.wire_name(), "ok");
-    }
-
-    #[test]
     fn without_a_sink_the_core_mints_ids_and_reports_nothing() {
         let span = Tracer::default().start(
             "pkg.Svc/Get",
@@ -654,7 +647,10 @@ mod tests {
         );
         assert_eq!(span.recorded_traceparent(), None);
         span.end(SpanStatus::Ok);
-        assert_eq!(format!("{:?}", Tracer::default()), "Tracer { sink: false }");
+        assert_eq!(
+            format!("{:?}", Tracer::default()),
+            "Tracer { sink: false, .. }"
+        );
     }
 
     #[test]
@@ -674,11 +670,9 @@ mod tests {
 
     #[test]
     fn a_recording_sink_sees_start_and_end_and_names_the_traceparent() {
-        let sink = recorder(Some(
-            "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
-        ));
+        let sink = recorder(SpanStarted::recording(HOST));
         let tracer = Tracer::new(sink.clone());
-        assert_eq!(format!("{tracer:?}"), "Tracer { sink: true }");
+        assert_eq!(format!("{tracer:?}"), "Tracer { sink: true, .. }");
         let mut attributes = Attributes::new();
         attributes.insert("rpc.service".to_owned(), json!("pkg.Svc"));
         let span = tracer.start(
@@ -687,14 +681,8 @@ mod tests {
             &call_ctx(Some(PARENT), Some("k=v")),
             attributes,
         );
-        assert_eq!(
-            span.traceparent(),
-            "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"
-        );
-        assert_eq!(
-            span.recorded_traceparent().as_deref(),
-            Some("00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01")
-        );
+        assert_eq!(span.traceparent(), HOST);
+        assert_eq!(span.recorded_traceparent().as_deref(), Some(HOST));
         assert!(
             sink.ends.lock().unwrap().is_empty(),
             "end waits for the settle"
@@ -710,10 +698,7 @@ mod tests {
         assert!(starts[0].start_time_ms > 1.7e12);
         let ends = sink.ends.lock().unwrap();
         assert_eq!(ends.len(), 1);
-        assert_eq!(
-            ends[0].traceparent,
-            "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01"
-        );
+        assert_eq!(ends[0].traceparent, HOST);
         assert_eq!(ends[0].status, SpanStatus::Error);
         assert_eq!(
             ends[0].error.as_deref(),
@@ -724,7 +709,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_parent_makes_a_root_span() {
-        let sink = recorder(None);
+        let sink = recorder(SpanStarted::default());
         let tracer = Tracer::new(sink.clone());
         let span = tracer.start(
             "x",
@@ -740,23 +725,139 @@ mod tests {
     }
 
     #[test]
-    fn a_sink_that_is_not_recording_never_gets_an_end() {
-        let sink = recorder(None);
-        let span = Tracer::new(sink.clone()).start(
-            "x",
-            SpanKind::Internal,
-            &CallCtx::default(),
-            Attributes::new(),
-        );
+    fn a_span_the_sink_does_not_record_is_still_ended_and_sends_a_root_traceparent() {
+        let sink = recorder(SpanStarted::not_recording(HOST));
+        let span = start_in(&Tracer::new(sink.clone()), "x", &CallCtx::default());
+        assert!(!span.is_recording());
+        assert_eq!(span.traceparent(), HOST);
+        assert_eq!(span.recorded_traceparent().as_deref(), Some(HOST));
+        span.end(SpanStatus::Ok);
+        let ends = sink.ends.lock().unwrap();
+        assert_eq!(ends.len(), 1);
+        assert_eq!(ends[0].traceparent, HOST);
+    }
+
+    #[test]
+    fn a_sink_that_answers_nothing_readable_starts_a_quiet_span_with_a_minted_traceparent() {
+        let sink = recorder(SpanStarted::default());
+        let span = start_in(&Tracer::new(sink.clone()), "x", &CallCtx::default());
+        assert!(!span.is_recording());
         assert_eq!(span.recorded_traceparent(), None);
         assert!(Traceparent::parse(&span.traceparent()).is_some());
         span.end(SpanStatus::Ok);
-        assert!(sink.ends.lock().unwrap().is_empty());
+        assert_eq!(sink.ends.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_recording_span_is_recording() {
+        let sink = recorder(SpanStarted::recording(HOST));
+        let span = start_in(&Tracer::new(sink), "x", &CallCtx::default());
+        assert!(span.is_recording());
+        assert!(!start_in(&Tracer::default(), "x", &CallCtx::default()).is_recording());
+    }
+
+    #[test]
+    fn a_recording_span_with_no_traceparent_names_none() {
+        let sink = recorder(SpanStarted::recording(""));
+        let span = start_in(&Tracer::new(sink.clone()), "x", &CallCtx::default());
+        assert!(span.is_recording());
+        assert_eq!(span.recorded_traceparent(), None);
+        assert!(Traceparent::parse(&span.traceparent()).is_some());
+        span.end(SpanStatus::Ok);
+        assert_eq!(sink.ends.lock().unwrap()[0].traceparent, "");
+    }
+
+    #[test]
+    fn nothing_nests_under_a_span_the_sink_does_not_record() {
+        let sink = recorder(SpanStarted::not_recording(HOST));
+        let tracer = Tracer::new(sink.clone());
+        let root = start_in(&tracer, "root", &CallCtx::default());
+        let child = start_in(&tracer, "child", &root.ctx());
+        let grandchild = start_in(&tracer, "grandchild", &child.ctx());
+        assert!(!child.is_recording());
+        assert!(!grandchild.is_recording());
+        assert_eq!(child.recorded_traceparent(), None);
+        assert_eq!(
+            Traceparent::parse(&child.traceparent()).unwrap().trace_id(),
+            Traceparent::parse(&root.traceparent()).unwrap().trace_id(),
+            "a quiet child still continues the trace it was sent in"
+        );
+        grandchild.end(SpanStatus::Ok);
+        child.end(SpanStatus::Ok);
+        root.end(SpanStatus::Ok);
+        assert_eq!(start_names(&sink), ["root"]);
+        assert_eq!(sink.ends.lock().unwrap().len(), 1, "only the root ends");
+    }
+
+    #[test]
+    fn a_span_stays_quiet_until_the_last_span_holding_it_quiet_closes() {
+        let sink = recorder(SpanStarted::not_recording(HOST));
+        let tracer = Tracer::new(sink);
+        let host = Traceparent::parse(HOST).unwrap();
+        let first = start_in(&tracer, "first", &CallCtx::default());
+        let second = start_in(&tracer, "second", &CallCtx::default());
+        assert_eq!(first.traceparent(), second.traceparent());
+        assert!(tracer.is_quiet(&host));
+        drop(first);
+        assert!(tracer.is_quiet(&host));
+        drop(second);
+        assert!(!tracer.is_quiet(&host));
+    }
+
+    #[test]
+    fn a_span_in_another_trace_is_not_quiet() {
+        let sink = recorder(SpanStarted::not_recording(HOST));
+        let tracer = Tracer::new(sink.clone());
+        let root = start_in(&tracer, "root", &CallCtx::default());
+        let elsewhere = start_in(&tracer, "elsewhere", &call_ctx(Some(PARENT), None));
+        assert_eq!(start_names(&sink), ["root", "elsewhere"]);
+        drop((root, elsewhere));
+    }
+
+    #[test]
+    fn the_children_of_a_recording_span_are_reported() {
+        let sink = recorder(SpanStarted::recording(HOST));
+        let tracer = Tracer::new(sink.clone());
+        let root = start_in(&tracer, "root", &CallCtx::default());
+        let child = start_in(&tracer, "child", &root.ctx());
+        assert!(child.is_recording());
+        drop((child, root));
+        assert_eq!(start_names(&sink), ["root", "child"]);
+        assert_eq!(sink.ends.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_cloned_tracer_shares_the_quiet_set() {
+        let sink = recorder(SpanStarted::not_recording(HOST));
+        let tracer = Tracer::new(sink.clone());
+        let root = start_in(&tracer, "root", &CallCtx::default());
+        let child = start_in(&tracer.clone(), "child", &root.ctx());
+        assert!(!child.is_recording());
+        assert_eq!(start_names(&sink), ["root"]);
+    }
+
+    #[test]
+    fn a_span_started_is_made_from_its_traceparent() {
+        assert_eq!(
+            SpanStarted::recording("tp"),
+            SpanStarted {
+                traceparent: "tp".to_owned(),
+                recording: true
+            }
+        );
+        assert_eq!(
+            SpanStarted::not_recording("tp"),
+            SpanStarted {
+                traceparent: "tp".to_owned(),
+                recording: false
+            }
+        );
+        assert_eq!(SpanStarted::default(), SpanStarted::not_recording(""));
     }
 
     #[test]
     fn a_host_traceparent_the_core_cannot_read_is_ended_as_given_and_replaced_for_sending() {
-        let sink = recorder(Some("opaque-host-id"));
+        let sink = recorder(SpanStarted::recording("opaque-host-id"));
         let span = Tracer::new(sink.clone()).start(
             "x",
             SpanKind::Client,
@@ -775,9 +876,7 @@ mod tests {
 
     #[test]
     fn a_span_dropped_before_it_ends_ends_with_status_unset() {
-        let sink = recorder(Some(
-            "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
-        ));
+        let sink = recorder(SpanStarted::recording(HOST));
         let span = Tracer::new(sink.clone()).start(
             "walk",
             SpanKind::Internal,
@@ -794,9 +893,7 @@ mod tests {
 
     #[test]
     fn a_span_ends_once() {
-        let sink = recorder(Some(
-            "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
-        ));
+        let sink = recorder(SpanStarted::recording(HOST));
         let span = Tracer::new(sink.clone()).start(
             "x",
             SpanKind::Client,

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
-//! What the lanes' loopback `Widgets` servers have in common: the answer of
+//! What the lanes' loopback `WidgetsService` servers have in common: the answer of
 //! `BatchGetWidgets` and the methods no lane serves, and the loopback server
 //! every lane spawns.
 
 use std::net::SocketAddr;
 
 use api_bones_contract_rust::{
-    BatchGetWidgetsResponse, ItemError, Widget, WidgetResult, widget_result,
+    BatchGetWidgetsResponse, GetWidgetResponse, ItemError, Widget, WidgetResult, widget_result,
 };
 
 /// Serves `router` on an ephemeral loopback port: the task running the server
@@ -39,7 +39,10 @@ pub fn batch_response(
         .map(|id| WidgetResult {
             id: id.clone(),
             outcome: Some(match found(id) {
-                Some(widget) => widget_result::Outcome::Item(Box::new(widget)),
+                Some(widget) => widget_result::Outcome::Item(Box::new(GetWidgetResponse {
+                    widget: widget.into(),
+                    ..Default::default()
+                })),
                 None => widget_result::Outcome::Error(Box::new(ItemError {
                     code: "not_found".to_owned(),
                     message: "no such widget".to_owned(),
@@ -55,9 +58,9 @@ pub fn batch_response(
     }
 }
 
-/// The `Widgets` methods no lane calls, each answered `unimplemented` with
+/// The `WidgetsService` methods no lane calls, each answered `unimplemented` with
 /// `$why`, except `list_widget_parts` when the block says it is
-/// `serving` it. Expands inside an `impl Widgets for ...` block.
+/// `serving` it. Expands inside an `impl WidgetsService for ...` block.
 macro_rules! unserved_widget_methods {
     (@method $name:ident, $request:ident, $response:ident, $why:literal) => {
         async fn $name<'a>(
@@ -73,9 +76,9 @@ macro_rules! unserved_widget_methods {
         }
     };
     (@others $why:literal) => {
-        unserved_widget_methods!(@method list_widget_parts_idempotent, ListWidgetPartsRequest, ListWidgetPartsResponse, $why);
-        unserved_widget_methods!(@method list_widget_parts_unspecified, ListWidgetPartsRequest, ListWidgetPartsResponse, $why);
-        unserved_widget_methods!(@method update_widget_parts, UpdateWidgetPartsRequest, ListWidgetPartsResponse, $why);
+        unserved_widget_methods!(@method list_widget_parts_idempotent, ListWidgetPartsIdempotentRequest, ListWidgetPartsIdempotentResponse, $why);
+        unserved_widget_methods!(@method list_widget_parts_unspecified, ListWidgetPartsUnspecifiedRequest, ListWidgetPartsUnspecifiedResponse, $why);
+        unserved_widget_methods!(@method update_widget_parts, UpdateWidgetPartsRequest, UpdateWidgetPartsResponse, $why);
         unserved_widget_methods!(@method batch_list_widget_parts, BatchListWidgetPartsRequest, BatchListWidgetPartsResponse, $why);
     };
     ($why:literal, serving list_widget_parts) => {

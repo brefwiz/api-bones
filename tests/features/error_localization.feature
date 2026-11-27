@@ -56,6 +56,38 @@ Feature: Errors render in the viewer's locale from the owner's catalog
       | en     | aborted            | PRECONDITION_FAILED | acme    | Out of date       | The resource has changed since you loaded it. Please refresh and try again. |
       | en     | permission_denied  | RATE_LIMITED        |         | Too many requests | You're going too fast. Please slow down and try again.                      |
 
+    Examples: the SDK boundary mismatch code in every platform locale
+      | locale  | connect_code        | code                  | emitter | text                                     | hint                                                                                                     |
+      | ar      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | إصدارات SDK غير متطابقة                  | أجزاء من هذا التطبيق غير متزامنة. أعد تحميل الصفحة وحاول مرة أخرى.                                       |
+      | bg      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Версиите на SDK не съвпадат              | Части от това приложение не са синхронизирани. Презаредете страницата и опитайте отново.                 |
+      | cs      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Verze SDK si neodpovídají                | Části této aplikace nejsou ve shodě. Načtěte stránku znovu a zkuste to znovu.                            |
+      | da      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK-versionerne passer ikke sammen       | Dele af denne app er ikke synkroniserede. Genindlæs siden, og prøv igen.                                 |
+      | de      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK-Versionen passen nicht zusammen      | Teile dieser App sind nicht aufeinander abgestimmt. Laden Sie die Seite neu und versuchen Sie es erneut. |
+      | el      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Οι εκδόσεις του SDK δεν ταιριάζουν       | Τμήματα αυτής της εφαρμογής δεν είναι συγχρονισμένα. Φορτώστε ξανά τη σελίδα και δοκιμάστε ξανά.         |
+      | en      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK versions do not match                | Parts of this app are out of step. Reload the page and try again.                                        |
+      | es      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Las versiones del SDK no coinciden       | Algunas partes de esta aplicación no están sincronizadas. Recarga la página e inténtalo de nuevo.        |
+      | et      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK versioonid ei ühti                   | Selle rakenduse osad ei ole sünkroonis. Laadige leht uuesti ja proovige uuesti.                          |
+      | fi      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK-versiot eivät täsmää                 | Tämän sovelluksen osat eivät ole synkronoituja. Lataa sivu uudelleen ja yritä uudelleen.                 |
+      | fr      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Les versions du SDK ne correspondent pas | Des parties de cette application ne sont pas synchronisées. Rechargez la page et réessayez.              |
+      | he      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | גרסאות ה-SDK אינן תואמות                 | חלקים מהאפליקציה הזו אינם מסונכרנים. טען את הדף מחדש ונסה שוב.                                           |
+      | hr      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Verzije SDK-a se ne podudaraju           | Dijelovi ove aplikacije nisu usklađeni. Ponovno učitajte stranicu i pokušajte ponovno.                   |
+      | hu      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Az SDK-verziók nem egyeznek              | Az alkalmazás egyes részei nincsenek összhangban. Töltse újra az oldalt, és próbálja újra.               |
+      | it      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Le versioni dell'SDK non corrispondono   | Alcune parti di questa app non sono sincronizzate. Ricarica la pagina e riprova.                         |
+      | ja      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDKのバージョンが一致しません                         | このアプリの一部が同期していません。ページを再読み込みして、もう一度お試しください。                                                               |
+      | ko      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK 버전이 일치하지 않아요                         | 이 앱의 일부가 서로 맞지 않아요. 페이지를 새로고침한 뒤 다시 시도해 주세요.                                                             |
+      | lt      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK versijos nesutampa                   | Kai kurios šios programos dalys nesinchronizuotos. Iš naujo įkelkite puslapį ir bandykite dar kartą.     |
+      | lv      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK versijas nesakrīt                    | Dažas šīs lietotnes daļas nav sinhronizētas. Pārlādējiet lapu un mēģiniet vēlreiz.                       |
+      | nb      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK-versjonene samsvarer ikke            | Deler av denne appen er ikke synkronisert. Last inn siden på nytt og prøv igjen.                         |
+      | nl      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK-versies komen niet overeen           | Onderdelen van deze app lopen niet gelijk. Laad de pagina opnieuw en probeer het opnieuw.                |
+      | pl      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Wersje SDK nie pasują do siebie          | Części tej aplikacji nie są zsynchronizowane. Odśwież stronę i spróbuj ponownie.                         |
+      | pt-BR   | failed_precondition | SDK_BOUNDARY_MISMATCH |         | As versões do SDK não correspondem       | Partes deste app estão dessincronizadas. Recarregue a página e tente novamente.                          |
+      | ro      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Versiunile SDK nu se potrivesc           | Părți ale acestei aplicații nu sunt sincronizate. Reîncărcați pagina și încercați din nou.               |
+      | sk      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Verzie SDK sa nezhodujú                  | Časti tejto aplikácie nie sú zosúladené. Načítajte stránku znova a skúste to znova.                      |
+      | sl      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | Različice SDK se ne ujemajo              | Deli te aplikacije niso usklajeni. Ponovno naložite stran in poskusite znova.                            |
+      | sv      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK-versionerna matchar inte             | Delar av den här appen är inte synkade. Ladda om sidan och försök igen.                                  |
+      | tr      | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK sürümleri uyuşmuyor                  | Bu uygulamanın bazı parçaları eşzamanlı değil. Sayfayı yeniden yükleyin ve tekrar deneyin.               |
+      | zh-Hans | failed_precondition | SDK_BOUNDARY_MISMATCH |         | SDK 版本不匹配                                | 此应用的部分组件不同步。请重新加载页面后重试。                                                                                  |
+
     Examples: the platform code of the Connect code
       | locale | connect_code      | code         | emitter | text          | hint                                                                     |
       | en     | permission_denied | NOT_DECLARED | acme    | Access denied | You don't have permission to perform this action.                        |

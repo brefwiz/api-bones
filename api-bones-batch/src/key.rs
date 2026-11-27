@@ -7,14 +7,15 @@
 
 use std::time::Duration;
 
-use api_bones_rt::{MaybeSend, MaybeSync};
+use api_bones_page::CacheIdentity;
+use api_bones_rt::{BoxFuture, MaybeSend, MaybeSync};
 use sha2::{Digest as _, Sha256};
 
 /// Header carrying the per-call deadline, in milliseconds.
 pub const TIMEOUT_HEADER: &str = "connect-timeout-ms";
 
 /// Headers that carry the caller's credential.
-const CREDENTIAL_HEADERS: [&str; 2] = ["authorization", "brefwiz-relayed-credential"];
+pub const CREDENTIAL_HEADERS: [&str; 2] = ["authorization", "brefwiz-relayed-credential"];
 
 /// Reject ambiguous credentials before canonical hashing or wire dispatch.
 pub(crate) fn validate_credentials(pairs: &[HeaderPair]) -> Result<(), connectrpc::ConnectError> {
@@ -68,14 +69,53 @@ fn validate_source_headers(pairs: &[HeaderPair]) -> Result<(), connectrpc::Conne
     Ok(())
 }
 
+/// The name a credential's cached chains are held under: its subject, its
+/// organization and the lower-cased, sorted, de-duplicated names of every
+/// header it carries (never a value, so a renewed token keeps its chains),
+/// each length-prefixed so no two credentials share an encoding.
+pub(crate) fn cache_identity(credential: &Credential) -> Option<CacheIdentity> {
+    let mut names: Vec<String> = credential
+        .headers
+        .iter()
+        .map(|(name, _)| name.to_ascii_lowercase())
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    let mut encoded = String::new();
+    push_part(&mut encoded, &credential.identity.subject);
+    push_part(&mut encoded, &credential.identity.org);
+    encoded.push_str(&names.len().to_string());
+    encoded.push(':');
+    for name in &names {
+        push_part(&mut encoded, name);
+    }
+    CacheIdentity::new(encoded)
+}
+
+fn push_part(encoded: &mut String, part: &str) {
+    encoded.push_str(&part.len().to_string());
+    encoded.push(':');
+    encoded.push_str(part);
+}
+
+/// The identity a call started as and the credential headers it started
+/// with. A renewed token of the same identity is accepted; another subject or
+/// organization, or a credential header that went missing, is an identity
+/// change.
 #[derive(Clone)]
-pub(crate) struct CredentialGuard {
+pub struct CredentialGuard {
     identity: Identity,
     required: [bool; 2],
+    cache: Option<CacheIdentity>,
 }
 
 impl CredentialGuard {
-    pub(crate) fn capture(credential: &Credential) -> Result<Self, connectrpc::ConnectError> {
+    /// Capture the identity and credential headers of `credential`.
+    ///
+    /// # Errors
+    /// `invalid_argument` when a credential header is duplicated; the batch
+    /// identity-changed refusal when a credential header is malformed.
+    pub fn capture(credential: &Credential) -> Result<Self, connectrpc::ConnectError> {
         validate_credentials(&credential.headers)?;
         validate_source_headers(&credential.headers)
             .map_err(|_| crate::item_error::identity_changed())?;
@@ -87,10 +127,23 @@ impl CredentialGuard {
                     .iter()
                     .any(|(present, _)| present.eq_ignore_ascii_case(name))
             }),
+            cache: cache_identity(credential),
         })
     }
 
-    pub(crate) fn verify(&self, credential: &Credential) -> Result<(), connectrpc::ConnectError> {
+    /// The name the captured credential's cached chains are held under.
+    #[must_use]
+    pub fn cache_identity(&self) -> Option<CacheIdentity> {
+        self.cache.clone()
+    }
+
+    /// Whether `credential` is still the one the call started as.
+    ///
+    /// # Errors
+    /// `invalid_argument` when a credential header is duplicated; the batch
+    /// identity-changed refusal when the identity differs, a credential header
+    /// the call started with is gone, or one is malformed.
+    pub fn verify(&self, credential: &Credential) -> Result<(), connectrpc::ConnectError> {
         validate_credentials(&credential.headers)?;
         if credential.identity != self.identity {
             return Err(crate::item_error::identity_changed());
@@ -124,12 +177,53 @@ pub struct Identity {
 pub type HeaderPair = (String, Vec<u8>);
 
 /// The credential a token source holds right now.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct Credential {
     /// Who the credential speaks for.
     pub identity: Identity,
     /// The headers that carry it: `authorization`, `brefwiz-relayed-credential`.
     pub headers: Vec<HeaderPair>,
+}
+
+impl Credential {
+    /// The headers ordered by lower-cased name, then value.
+    fn sorted_headers(&self) -> Vec<(String, &[u8])> {
+        let mut sorted: Vec<_> = self
+            .headers
+            .iter()
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.as_slice()))
+            .collect();
+        sorted.sort_unstable();
+        sorted
+    }
+}
+
+/// Equal when subject, organization and every header (by lower-cased name and
+/// exact value bytes) are equal, whatever the header order.
+impl PartialEq for Credential {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity == other.identity && self.sorted_headers() == other.sorted_headers()
+    }
+}
+
+impl Eq for Credential {}
+
+/// Prints the identity and the header names, never a header value: a
+/// credential must not reach a log through `{:?}`.
+impl std::fmt::Debug for Credential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credential")
+            .field("identity", &self.identity)
+            .field(
+                "headers",
+                &self
+                    .headers
+                    .iter()
+                    .map(|(name, _)| name.as_str())
+                    .collect::<Vec<_>>(),
+            )
+            .finish()
+    }
 }
 
 /// Per-call headers and deadline, as the caller gave them.
@@ -227,22 +321,35 @@ impl CallHeaders {
     }
 }
 
-/// Supplies the caller's credential, re-read before every send.
-pub trait CredentialSource: MaybeSend + MaybeSync + 'static {
-    /// The credential right now.
-    ///
-    /// # Errors
-    /// When the source cannot answer. The batch runtime fails closed: nothing
-    /// is sent.
-    fn current(&self) -> Result<Credential, connectrpc::ConnectError>;
+/// What the core asks of a credential source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CredentialAsk {
+    /// The server refused the credential last read: the source renews it
+    /// before answering, instead of answering what it holds.
+    pub refresh: bool,
 }
 
-impl<F> CredentialSource for F
+/// What a credential read resolves to: sendable natively, not `Send` on
+/// `wasm32`.
+pub type CredentialFuture<'a> = BoxFuture<'a, Result<Credential, connectrpc::ConnectError>>;
+
+/// Supplies the caller's credential, re-read before every send.
+pub trait CredentialSource: MaybeSend + MaybeSync + 'static {
+    /// The credential right now, renewed first when `ask` says the last one
+    /// was refused.
+    ///
+    /// # Errors
+    /// When the source cannot answer. The call fails closed: nothing is sent.
+    fn current(&self, ask: CredentialAsk) -> CredentialFuture<'_>;
+}
+
+impl<F, Fut> CredentialSource for F
 where
-    F: Fn() -> Result<Credential, connectrpc::ConnectError> + MaybeSend + MaybeSync + 'static,
+    F: Fn(CredentialAsk) -> Fut + MaybeSend + MaybeSync + 'static,
+    Fut: Future<Output = Result<Credential, connectrpc::ConnectError>> + MaybeSend + 'static,
 {
-    fn current(&self) -> Result<Credential, connectrpc::ConnectError> {
-        self()
+    fn current(&self, ask: CredentialAsk) -> CredentialFuture<'_> {
+        Box::pin(self(ask))
     }
 }
 
@@ -251,8 +358,8 @@ where
 pub struct Anonymous;
 
 impl CredentialSource for Anonymous {
-    fn current(&self) -> Result<Credential, connectrpc::ConnectError> {
-        Ok(Credential::default())
+    fn current(&self, _ask: CredentialAsk) -> CredentialFuture<'_> {
+        Box::pin(std::future::ready(Ok(Credential::default())))
     }
 }
 
@@ -332,6 +439,112 @@ mod tests {
 
     fn pair(name: &str, value: &str) -> HeaderPair {
         (name.to_owned(), value.as_bytes().to_vec())
+    }
+
+    fn who(subject: &str) -> Credential {
+        Credential {
+            identity: Identity {
+                subject: subject.to_owned(),
+                org: String::new(),
+            },
+            headers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_header_name_outside_the_credential_headers_splits_the_cache_identity() {
+        let with = |extra: &[&str]| {
+            let mut credential = who("alice");
+            credential.identity.org = "org".to_owned();
+            credential.headers = std::iter::once("authorization")
+                .chain(extra.iter().copied())
+                .map(|name| pair(name, "Bearer 1"))
+                .collect();
+            credential
+        };
+        let plain = cache_identity(&with(&[])).expect("a name");
+        let extra = cache_identity(&with(&["x-session"])).expect("a name");
+        assert_ne!(plain, extra);
+        // Case, order and duplicates of a name do not split it.
+        assert_eq!(
+            extra,
+            cache_identity(&with(&["X-Session", "x-session"])).expect("a name")
+        );
+        let guard = CredentialGuard::capture(&with(&["x-session"])).expect("captured");
+        assert_eq!(guard.cache_identity(), Some(extra));
+    }
+
+    #[tokio::test]
+    async fn a_closure_is_a_credential_source_and_sees_what_it_was_asked() {
+        let source = |ask: CredentialAsk| async move {
+            Ok(who(if ask.refresh { "renewed" } else { "held" }))
+        };
+        let held = source.current(CredentialAsk::default()).await.unwrap();
+        assert_eq!(held.identity.subject, "held");
+        let renewed = source.current(CredentialAsk { refresh: true }).await;
+        assert_eq!(renewed.unwrap().identity.subject, "renewed");
+    }
+
+    #[tokio::test]
+    async fn a_source_that_cannot_answer_says_why() {
+        let source = |_: CredentialAsk| async {
+            Err::<Credential, _>(connectrpc::ConnectError::unavailable("no token"))
+        };
+        let error = source.current(CredentialAsk::default()).await.unwrap_err();
+        assert_eq!(error.code, connectrpc::ErrorCode::Unavailable);
+    }
+
+    #[tokio::test]
+    async fn anonymous_answers_the_empty_identity_whether_or_not_asked_to_refresh() {
+        for refresh in [false, true] {
+            let credential = Anonymous.current(CredentialAsk { refresh }).await.unwrap();
+            assert_eq!(credential.identity, Identity::default());
+            assert_eq!(credential.headers.len(), 0);
+        }
+    }
+
+    #[test]
+    fn credentials_compare_by_identity_and_headers_in_any_order_and_name_case() {
+        let a = Credential {
+            identity: who("u").identity,
+            headers: vec![pair("authorization", "Bearer 1"), pair("x-b", "2")],
+        };
+        let reordered = Credential {
+            identity: who("u").identity,
+            headers: vec![pair("X-B", "2"), pair("Authorization", "Bearer 1")],
+        };
+        assert_eq!(a, reordered);
+        let other_value = Credential {
+            identity: who("u").identity,
+            headers: vec![pair("authorization", "Bearer 2"), pair("x-b", "2")],
+        };
+        assert_ne!(a, other_value);
+        let other_subject = Credential {
+            identity: who("v").identity,
+            headers: a.headers.clone(),
+        };
+        assert_ne!(a, other_subject);
+        let fewer = Credential {
+            identity: who("u").identity,
+            headers: vec![pair("authorization", "Bearer 1")],
+        };
+        assert_ne!(a, fewer);
+    }
+
+    #[test]
+    fn a_credential_prints_header_names_and_never_values() {
+        let credential = Credential {
+            identity: who("u").identity,
+            headers: vec![
+                pair("authorization", "Bearer secret-token"),
+                pair("brefwiz-relayed-credential", "relayed-secret"),
+            ],
+        };
+        let printed = format!("{credential:?}");
+        assert!(printed.contains("authorization"));
+        assert!(printed.contains("brefwiz-relayed-credential"));
+        assert!(!printed.contains("secret-token"));
+        assert!(!printed.contains("relayed-secret"));
     }
 
     #[test]

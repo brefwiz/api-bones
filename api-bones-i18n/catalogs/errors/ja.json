@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "サービスを利用できません",
   "bones.errors.SERVICE_UNAVAILABLE.description": "サービスは一時的に利用できません。しばらくしてから、もう一度お試しください。",
   "bones.errors.GATEWAY_TIMEOUT.title": "ゲートウェイがタイムアウトしました",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDKのバージョンが一致しません",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "このアプリの一部が同期していません。ページを再読み込みして、もう一度お試しください。",
   "bones.validation.min.title": "{min, number}以上にしてください。",
   "bones.validation.max.title": "{max, number}以下にしてください。",
   "bones.validation.range.title": "値が範囲外です。",

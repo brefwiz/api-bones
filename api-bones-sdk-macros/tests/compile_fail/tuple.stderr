@@ -1,5 +1,5 @@
-error: parameter `x`: tuples, arrays and slices are not allowed; allowed: bool, i32, u32, f64, String, i64, u64, Vec<u8>, SystemTime, Duration, Option<T>, Vec<T>, BTreeMap<String, T> (T itself allowed), or a type that carries #[record] or #[enumeration]
-  --> tests/compile_fail/tuple.rs:10:30
+error: the return type: tuples, arrays and slices are not allowed; allowed: a generated message written with its module path (`generated::pkg::v1::Message`), bool, i32, u32, i64, u64, f64, String, Vec<u8>, SystemTime or Duration (each crosses as its google.protobuf wrapper), or () (google.protobuf.Empty)
+  --> tests/compile_fail/tuple.rs:10:37
    |
-10 |     pub async fn f(&self, x: (u32, u32)) -> Result<(), Error> {
-   |                              ^^^^^^^^^^
+10 |     pub async fn f(&self) -> Result<(u32, u32), Error> {
+   |                                     ^^^^^^^^^^

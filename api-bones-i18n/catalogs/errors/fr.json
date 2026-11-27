@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Service indisponible",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Le service est temporairement indisponible. Veuillez réessayer ultérieurement.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Délai de la passerelle dépassé",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Les versions du SDK ne correspondent pas",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Des parties de cette application ne sont pas synchronisées. Rechargez la page et réessayez.",
   "bones.validation.min.title": "Doit être au moins {min, number}.",
   "bones.validation.max.title": "Doit être au plus {max, number}.",
   "bones.validation.range.title": "La valeur est hors limites.",

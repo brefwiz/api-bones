@@ -43,8 +43,9 @@ pub use item_error::{
     ItemErrorParts, is_never_retried, item_error_to_connect,
 };
 pub use key::{
-    Anonymous, CallHeaders, CoalesceKey, Credential, CredentialSource, HeaderPair, Identity,
-    QueueKey, TIMEOUT_HEADER, digest, header_hash,
+    Anonymous, CREDENTIAL_HEADERS, CallHeaders, CoalesceKey, Credential, CredentialAsk,
+    CredentialFuture, CredentialGuard, CredentialSource, HeaderPair, Identity, QueueKey,
+    TIMEOUT_HEADER, digest, header_hash,
 };
 pub use paged::{BONES_LIST_CACHE, BONES_NOT_MODIFIED, ListFn, not_modified};
 pub use results::{BatchResults, ItemResult};
@@ -89,6 +90,7 @@ macro_rules! batch_client {
 #[doc(hidden)]
 pub mod __private {
     pub use crate::macros::{tag_len, template_bytes};
+    pub use crate::paged::item_len;
     pub use api_bones::connect::{ErrorInfo, Idempotency, ValidationFailureDetail};
     pub use api_bones_page::{
         CanonicalPagedRequest, ListCall, ListResponse, PageInfo, PagedRequest, PagedResponse,
@@ -318,13 +320,20 @@ mod tests {
         assert_eq!(*runtime(5_u8).raw(), 5);
     }
 
-    #[test]
-    fn observed_keeps_the_credential_source() {
+    #[tokio::test]
+    async fn observed_keeps_the_credential_source() {
         let seen = Arc::new(Mutex::new(0_usize));
         let sink = Arc::clone(&seen);
         let observer: Observer = Arc::new(move |_| *sink.lock().expect("sink") += 1);
         let batched = runtime(()).observed(observer);
         assert!(batched.__wire().observer.is_some());
-        assert!(batched.__wire().credentials.current().is_ok());
+        assert!(
+            batched
+                .__wire()
+                .credentials
+                .current(crate::CredentialAsk::default())
+                .await
+                .is_ok()
+        );
     }
 }

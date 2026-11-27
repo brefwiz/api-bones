@@ -8,6 +8,11 @@
 # wasm-bindgen that is not the one Cargo.lock pins, a missing tool, a failed
 # build, or an empty variant set. Installs nothing: the tools are the ci-rust
 # image's.
+#
+# Every variant builds under the profile and runs the wasm-opt flags that
+# `api-bones-sdk-gen wrapper build-ts` uses for a shipped package (WASM_PROFILE
+# and WASM_OPT_FEATURES in api-bones-sdk-gen/src/build_ts.rs); a test there
+# pins the two together, so the module probed is the module that ships.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -37,6 +42,19 @@ binaryen="$(wasm-opt --version)"
 rm -rf "$work"
 mkdir -p "$variants"
 
+# The profile of a shipped package, as `--config` values; the workspace
+# declares no wasm profile of its own.
+profile_config=(
+  --config 'profile.api-bones-wasm.inherits="release"'
+  --config 'profile.api-bones-wasm.opt-level="z"'
+  --config 'profile.api-bones-wasm.lto="fat"'
+  --config 'profile.api-bones-wasm.codegen-units=1'
+  --config 'profile.api-bones-wasm.panic="abort"'
+  --config 'profile.api-bones-wasm.strip=true'
+  --config 'profile.api-bones-wasm-s.inherits="api-bones-wasm"'
+  --config 'profile.api-bones-wasm-s.opt-level="s"'
+)
+
 # The feature set rustc's wasm32-unknown-unknown output uses; wasm-opt rejects
 # the module at validation without it. The validator stays on.
 opt_features=(
@@ -51,26 +69,27 @@ opt_features=(
 
 # name|profile|features|wasm-opt
 spec=(
-  "floor|wasm-size|floor|true"
-  "floor-no-opt|wasm-size|floor|false"
-  "floor-s|wasm-size-s|floor|true"
-  "page|wasm-size|page|true"
-  "batch|wasm-size|batch|true"
-  "stream|wasm-size|stream|true"
-  "retry|wasm-size|retry|true"
-  "gzip|wasm-size|gzip|true"
-  "methods-10|wasm-size|methods-10|true"
-  "methods-50|wasm-size|methods-50|true"
-  "second-service|wasm-size|second-service|true"
-  "all|wasm-size|all|true"
-  "all-s|wasm-size-s|all|true"
+  "floor|api-bones-wasm|floor|true"
+  "floor-no-opt|api-bones-wasm|floor|false"
+  "floor-s|api-bones-wasm-s|floor|true"
+  "page|api-bones-wasm|page|true"
+  "batch|api-bones-wasm|batch|true"
+  "stream|api-bones-wasm|stream|true"
+  "retry|api-bones-wasm|retry|true"
+  "gzip|api-bones-wasm|gzip|true"
+  "methods-10|api-bones-wasm|methods-10|true"
+  "methods-50|api-bones-wasm|methods-50|true"
+  "second-service|api-bones-wasm|second-service|true"
+  "all|api-bones-wasm|all|true"
+  "all-s|api-bones-wasm-s|all|true"
 )
 
 for entry in "${spec[@]}"; do
   IFS='|' read -r name profile features opt <<<"$entry"
   out="$variants/$name"
   mkdir -p "$out/bindgen"
-  cargo build --locked -p "$package" --lib --target wasm32-unknown-unknown \
+  cargo build --locked "${profile_config[@]}" -p "$package" --lib \
+    --target wasm32-unknown-unknown \
     --profile "$profile" --no-default-features --features "$features"
   wasm-bindgen --target web --out-dir "$out/bindgen" \
     "$target/wasm32-unknown-unknown/$profile/$module.wasm"

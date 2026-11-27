@@ -111,6 +111,11 @@ struct WrapperArgs {
     /// The package directory
     #[arg(long)]
     out: PathBuf,
+    /// The file descriptor set that declares every message the exports cross
+    /// as; a message it lacks, or whose fields differ from the parameters,
+    /// fails the command
+    #[arg(long)]
+    descriptor: PathBuf,
 }
 
 #[derive(Subcommand)]
@@ -119,6 +124,10 @@ enum Wrapper {
     Typescript {
         #[command(flatten)]
         args: WrapperArgs,
+        /// The SHA-256 (64 lowercase hex digits) of the wasm module the
+        /// package loads; `build-ts` stamps the digest of the module it built
+        #[arg(long)]
+        wasm_sha256: String,
     },
     /// Build the wasm, bind it and compile the package
     BuildTs {
@@ -128,11 +137,17 @@ enum Wrapper {
         #[arg(long, default_value = "target")]
         target_dir: PathBuf,
     },
-    /// Print the `api-bones.wasm-size/v1` document of a wasm module
+    /// Print the `api-bones.sdk-size/v1` document of a built SDK package
     Size {
-        /// The module
+        /// The module, as the package ships it
         #[arg(long)]
         wasm: PathBuf,
+        /// The wasm-bindgen glue
+        #[arg(long)]
+        glue: PathBuf,
+        /// The directory of the generated TypeScript
+        #[arg(long = "typescript")]
+        typescript: PathBuf,
         /// The crate it was built from
         #[arg(long = "crate-name")]
         crate_name: String,
@@ -182,11 +197,16 @@ fn main() -> anyhow::Result<()> {
 
 fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
     match command {
-        Wrapper::Typescript { args } => {
-            let package =
+        Wrapper::Typescript { args, wasm_sha256 } => {
+            let mut package =
                 wrapper_ts::package_of(&args.spec, &args.krate, &args.surface, &args.out)?;
+            package.wasm_sha256 = wasm_sha256;
             let model = features::read_model(&args.krate)?;
-            wrapper_ts::write(&args.out, &wrapper_ts::generate(&model, &package)?)
+            let contract = wrapper_ts::Contract::read(&args.descriptor)?;
+            wrapper_ts::write(
+                &args.out,
+                &wrapper_ts::generate(&model, &package, &contract)?,
+            )
         }
         Wrapper::BuildTs { args, target_dir } => build_ts::run_build(
             &args.spec,
@@ -194,9 +214,18 @@ fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
             &args.surface,
             &args.out,
             &target_dir,
+            &args.descriptor,
         ),
-        Wrapper::Size { wasm, crate_name } => {
-            print!("{}", size::document(&wasm, &crate_name)?);
+        Wrapper::Size {
+            wasm,
+            glue,
+            typescript,
+            crate_name,
+        } => {
+            print!(
+                "{}",
+                size::document(&wasm, &glue, &typescript, &crate_name)?
+            );
             Ok(())
         }
     }

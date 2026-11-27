@@ -1,5 +1,0 @@
-error: parameter `x`: generics and trait types are not allowed; allowed: bool, i32, u32, f64, String, i64, u64, Vec<u8>, SystemTime, Duration, Option<T>, Vec<T>, BTreeMap<String, T> (T itself allowed), or a type that carries #[record] or #[enumeration]
-  --> tests/compile_fail/closure.rs:10:30
-   |
-10 |     pub async fn f(&self, x: impl Fn(u32)) -> Result<(), Error> {
-   |                              ^^^^^^^^^^^^

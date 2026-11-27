@@ -62,7 +62,7 @@ When("the caller constructs two composed platform clients from discovery", async
 Then("the composed client batch-gets widgets {string}", async function (this: PaginationConstructionWorld, ids: string) {
   assert.ok(this.composedClient);
   const results = await this.composedClient.batchGetWidgets(split(ids));
-  assert.deepEqual(results.map(result => { assert.ok(result.ok); return result.value.id; }), split(ids));
+  assert.deepEqual(results.map(result => { assert.ok(result.ok); return result.value.widget.id; }), split(ids));
   assert.equal(state(this).requests.filter(request => request.rpc === "BatchGetWidgets").length, 1);
 });
 async function pages(client: ComposedClient): Promise<Page<string>[]> {

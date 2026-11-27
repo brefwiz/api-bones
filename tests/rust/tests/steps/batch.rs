@@ -2,7 +2,7 @@
 //! The Rust half of `../../../features/connect_batch.feature` and
 //! `../../../features/connect_batch_identity_guard.feature`.
 //!
-//! The steps serve the contract's `Widgets` service from multi-organization
+//! The steps serve the contract's `WidgetsService` from multi-organization
 //! data with a real connectrpc server on loopback and call it only through the
 //! generated SDK and batch runtime's `Batched` client. The server reads the
 //! caller's organization from the bearer token each request arrives with and
@@ -19,14 +19,18 @@ use crate::world::{
     BatchWorld, FailRule, Gate, GroupRead, WidgetPartsCall, WidgetRequest, WidgetsData,
     WidgetsServed, token_credential,
 };
-use api_bones_batch::{BatchRecord, BatchResults, Batched, CallHeaders, Credential, Observer};
+use api_bones_batch::{
+    BatchRecord, BatchResults, Batched, CallHeaders, Credential, CredentialAsk, Observer,
+};
 use api_bones_connect::{ErrorInfo, error_info, with_error_info};
 use api_bones_contract_rust::{
     BatchGetWidgetsRequest, BatchGetWidgetsResponse, BatchListWidgetPartsRequest,
-    BatchListWidgetPartsResponse, GetWidgetRequest, ItemError, ListWidgetPartsRequest,
-    ListWidgetPartsResponse, PageResponse, UpdateWidgetPartsRequest, ValidationFailure, Widget,
-    WidgetGets, WidgetPartLists, WidgetPartsGroup, WidgetResult, Widgets, WidgetsClient,
-    WidgetsExt, WireErrorInfo, widget_result,
+    BatchListWidgetPartsResponse, GetWidgetRequest, GetWidgetResponse, ItemError,
+    ListWidgetPartsIdempotentRequest, ListWidgetPartsIdempotentResponse, ListWidgetPartsRequest,
+    ListWidgetPartsResponse, ListWidgetPartsUnspecifiedRequest, ListWidgetPartsUnspecifiedResponse,
+    PageResponse, UpdateWidgetPartsRequest, UpdateWidgetPartsResponse, ValidationFailure, Widget,
+    WidgetGets, WidgetPartLists, WidgetPartsGroup, WidgetResult, WidgetsService,
+    WidgetsServiceClient, WidgetsServiceExt, WireErrorInfo, widget_result,
 };
 use api_bones_transport::HttpTransport;
 use connectrpc::client::{CallOptions, ClientConfig};
@@ -121,8 +125,8 @@ pub(super) fn reset_telemetry() {
 const EMITTER: &str = "widgets";
 const MIB: usize = 1_048_576;
 
-type WidgetsBatched = Batched<WidgetsClient<HttpTransport>>;
-type Outcome = Result<Widget, ConnectError>;
+type WidgetsBatched = Batched<WidgetsServiceClient<HttpTransport>>;
+type Outcome = Result<GetWidgetResponse, ConnectError>;
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
@@ -422,15 +426,40 @@ fn widget(id: &str, name: String, kind: &str) -> Widget {
     }
 }
 
+/// The answer of a parts list, before it is encoded as the response message of
+/// the list RPC that was called.
+struct Listed {
+    items: Vec<String>,
+    page: PageResponse,
+    not_modified: bool,
+}
+
+/// The response message `$response` of a parts list RPC carrying `$listed`; a
+/// list the server confirmed unchanged carries no body and the confirmation
+/// header.
+macro_rules! listed_response {
+    ($response:ident, $listed:expr) => {{
+        let listed = $listed?;
+        if listed.not_modified {
+            Ok(Response::new($response::default()).with_header("bones-not-modified", "1"))
+        } else {
+            Response::ok($response {
+                items: listed.items,
+                page: buffa::MessageField::some(listed.page),
+                ..Default::default()
+            })
+        }
+    }};
+}
+
 impl WidgetService {
     async fn list_parts(
         &self,
         ctx: RequestContext,
-        request: ServiceRequest<'_, ListWidgetPartsRequest>,
+        encoded_len: usize,
+        asked: ListWidgetPartsRequest,
         rpc: &'static str,
-    ) -> ServiceResult<ListWidgetPartsResponse> {
-        let encoded_len = request.bytes().len();
-        let asked = request.to_owned_message();
+    ) -> Result<Listed, ConnectError> {
         let (cursor, size) = asked
             .page
             .as_option()
@@ -460,17 +489,20 @@ impl WidgetService {
                     && header(&ctx, "bones-list-cache") == "1"
                     && header(&ctx, "if-none-match") == format!("\"{revision}\"")
                 {
-                    return Ok(Response::new(ListWidgetPartsResponse::default())
-                        .with_header("bones-not-modified", "1"));
+                    return Ok(Listed {
+                        items: Vec::new(),
+                        page: PageResponse::default(),
+                        not_modified: true,
+                    });
                 }
-                Response::ok(ListWidgetPartsResponse {
+                Ok(Listed {
                     items,
-                    page: buffa::MessageField::some(PageResponse {
+                    page: PageResponse {
                         next_cursor,
                         revision,
                         ..Default::default()
-                    }),
-                    ..Default::default()
+                    },
+                    not_modified: false,
                 })
             }
             Err(refusal) => Err(refusal.single()),
@@ -478,12 +510,12 @@ impl WidgetService {
     }
 }
 
-impl Widgets for WidgetService {
+impl WidgetsService for WidgetService {
     async fn get_widget<'a>(
         &'a self,
         ctx: RequestContext,
         request: ServiceRequest<'_, GetWidgetRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<Widget> + Send + use<'a>> {
+    ) -> ServiceResult<impl connectrpc::Encodable<GetWidgetResponse> + Send + use<'a>> {
         let asked = request.to_owned_message();
         let org = self.record(
             &ctx,
@@ -498,7 +530,10 @@ impl Widgets for WidgetService {
         match named {
             Ok((name, owner)) => {
                 authorize_widget(claim(&ctx).principal(), owner.as_deref())?;
-                Response::ok(widget(&asked.id, name, &asked.kind))
+                Response::ok(GetWidgetResponse {
+                    widget: buffa::MessageField::some(widget(&asked.id, name, &asked.kind)),
+                    ..Default::default()
+                })
             }
             Err(refusal) => Err(refusal.single()),
         }
@@ -550,7 +585,10 @@ impl Widgets for WidgetService {
             .map(|(id, outcome)| WidgetResult {
                 id: id.clone(),
                 outcome: Some(match outcome {
-                    Ok((item, _)) => widget_result::Outcome::Item(Box::new(item)),
+                    Ok((item, _)) => widget_result::Outcome::Item(Box::new(GetWidgetResponse {
+                        widget: buffa::MessageField::some(item),
+                        ..Default::default()
+                    })),
                     Err(error) => widget_result::Outcome::Error(Box::new(item_error(&error))),
                 }),
                 ..Default::default()
@@ -573,32 +611,61 @@ impl Widgets for WidgetService {
         ctx: RequestContext,
         request: ServiceRequest<'_, ListWidgetPartsRequest>,
     ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
-        self.list_parts(ctx, request, "ListWidgetParts").await
+        let encoded_len = request.bytes().len();
+        let asked = request.to_owned_message();
+        listed_response!(
+            ListWidgetPartsResponse,
+            self.list_parts(ctx, encoded_len, asked, "ListWidgetParts")
+                .await
+        )
     }
 
     async fn list_widget_parts_idempotent<'a>(
         &'a self,
         ctx: RequestContext,
-        request: ServiceRequest<'_, ListWidgetPartsRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
-        self.list_parts(ctx, request, "ListWidgetPartsIdempotent")
-            .await
+        request: ServiceRequest<'_, ListWidgetPartsIdempotentRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsIdempotentResponse> + Send + use<'a>>
+    {
+        let encoded_len = request.bytes().len();
+        let asked = request.to_owned_message();
+        let asked = ListWidgetPartsRequest {
+            widget_id: asked.widget_id,
+            page: asked.page,
+            ..Default::default()
+        };
+        listed_response!(
+            ListWidgetPartsIdempotentResponse,
+            self.list_parts(ctx, encoded_len, asked, "ListWidgetPartsIdempotent")
+                .await
+        )
     }
 
     async fn list_widget_parts_unspecified<'a>(
         &'a self,
         ctx: RequestContext,
-        request: ServiceRequest<'_, ListWidgetPartsRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
-        self.list_parts(ctx, request, "ListWidgetPartsUnspecified")
-            .await
+        request: ServiceRequest<'_, ListWidgetPartsUnspecifiedRequest>,
+    ) -> ServiceResult<
+        impl connectrpc::Encodable<ListWidgetPartsUnspecifiedResponse> + Send + use<'a>,
+    > {
+        let encoded_len = request.bytes().len();
+        let asked = request.to_owned_message();
+        let asked = ListWidgetPartsRequest {
+            widget_id: asked.widget_id,
+            page: asked.page,
+            ..Default::default()
+        };
+        listed_response!(
+            ListWidgetPartsUnspecifiedResponse,
+            self.list_parts(ctx, encoded_len, asked, "ListWidgetPartsUnspecified")
+                .await
+        )
     }
 
     async fn update_widget_parts<'a>(
         &'a self,
         ctx: RequestContext,
         request: ServiceRequest<'_, UpdateWidgetPartsRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListWidgetPartsResponse> + Send + use<'a>> {
+    ) -> ServiceResult<impl connectrpc::Encodable<UpdateWidgetPartsResponse> + Send + use<'a>> {
         if !claim(&ctx).effective().permits("widgets:write") {
             return Err(with_error_info(
                 ConnectError::permission_denied("widget write authority required"),
@@ -632,7 +699,7 @@ impl Widgets for WidgetService {
             )
             .await?
             .ok_or_else(|| Refusal::NotFound.single())?;
-        Response::ok(ListWidgetPartsResponse {
+        Response::ok(UpdateWidgetPartsResponse {
             items,
             page: buffa::MessageField::some(PageResponse {
                 revision,
@@ -751,7 +818,7 @@ pub(super) async fn client(world: &mut BatchWorld) -> WidgetsBatched {
     let issuers = world.issuers.clone();
     let start: Arc<dyn Fn(connectrpc::BoundServer) -> tokio::task::JoinHandle<()> + Send + Sync> =
         Arc::new(move |bound| {
-            let router = WidgetsExt::register(Arc::new(service.clone()), Router::new());
+            let router = WidgetsServiceExt::register(Arc::new(service.clone()), Router::new());
             let issuers = issuers.clone();
             let service = connectrpc::ConnectRpcService::new(router).with_interceptor(
                 connectrpc::unary_interceptor(move |mut request, next| {
@@ -828,13 +895,14 @@ pub(super) async fn client(world: &mut BatchWorld) -> WidgetsBatched {
     });
     let config = ClientConfig::new(format!("http://{addr}").parse().expect("a loopback uri"));
     let batched = Batched::new(
-        WidgetsClient::new(HttpTransport::h2c(), config),
-        move || -> Result<Credential, ConnectError> {
-            if source_failed.load(std::sync::atomic::Ordering::SeqCst) {
+        WidgetsServiceClient::new(HttpTransport::h2c(), config),
+        move |_: CredentialAsk| {
+            let answer = if source_failed.load(std::sync::atomic::Ordering::SeqCst) {
                 Err(ConnectError::unauthenticated("session source unavailable"))
             } else {
                 Ok(lock(&source).clone())
-            }
+            };
+            async move { answer }
         },
     )
     .expect("producer binds the credential-neutral client")
@@ -1227,12 +1295,15 @@ fn when_unbound_client(world: &mut BatchWorld) {
         .find(|(name, _)| name == "authorization")
         .map(|(_, value)| String::from_utf8(value.clone()).expect("bearer header"))
         .expect("the caller has a credential");
-    let client = WidgetsClient::new(
+    let client = WidgetsServiceClient::new(
         HttpTransport::h2c(),
         ClientConfig::new("http://127.0.0.1:1".parse().expect("loopback URI"))
             .with_default_header("authorization", authorization),
     );
-    let built = Batched::new(client, move || Ok(credential.clone()));
+    let built = Batched::new(client, move |_: CredentialAsk| {
+        let answer = Ok(credential.clone());
+        async move { answer }
+    });
     world.construction_refusal = built.err();
 }
 
@@ -2032,10 +2103,20 @@ fn outcome(world: &BatchWorld, position: usize) -> &Outcome {
         .unwrap_or_else(|| panic!("the caller got no result at position {position}"))
 }
 
+/// The widget a get response carries.
+fn widget_of(response: &GetWidgetResponse) -> &Widget {
+    response
+        .widget
+        .as_option()
+        .expect("the response carries the widget")
+}
+
 fn widget_at(world: &BatchWorld, position: usize) -> &Widget {
-    outcome(world, position)
-        .as_ref()
-        .unwrap_or_else(|error| panic!("position {position} failed: {error:?}"))
+    widget_of(
+        outcome(world, position)
+            .as_ref()
+            .unwrap_or_else(|error| panic!("position {position} failed: {error:?}")),
+    )
 }
 
 fn failure_at(world: &BatchWorld, position: usize) -> &ConnectError {
@@ -2079,13 +2160,7 @@ fn then_no_results(world: &mut BatchWorld) {
 
 #[then(expr = "position {int} is the widget {string}")]
 fn then_position_widget(world: &mut BatchWorld, position: usize, id: String) {
-    assert_eq!(
-        world.results[position - 1]
-            .as_ref()
-            .expect("the position was served")
-            .id,
-        id
-    );
+    assert_eq!(widget_at(world, position).id, id);
 }
 
 #[then(expr = "position {int} fails with {string}")]
@@ -2293,13 +2368,7 @@ fn then_identity_before_continuation(world: &mut BatchWorld, code: String, info:
 
 #[then(expr = "the widget at position {int} echoes the kind {string}")]
 fn then_kind(world: &mut BatchWorld, position: usize, kind: String) {
-    assert_eq!(
-        world.results[position - 1]
-            .as_ref()
-            .expect("the position was served")
-            .kind,
-        kind
-    );
+    assert_eq!(widget_at(world, position).kind, kind);
 }
 
 #[then(expr = "exactly {int} calls of the first token fail with {string}")]
@@ -2323,7 +2392,7 @@ fn then_first_token_fails(world: &mut BatchWorld, exactly: usize, code: String) 
 #[then(expr = "every other call of the first token is the widget {string}")]
 fn then_first_token_served(world: &mut BatchWorld, id: String) {
     for served in world.results[..world.first_token_calls].iter().flatten() {
-        assert_eq!(served.id, id);
+        assert_eq!(widget_of(served).id, id);
     }
 }
 
@@ -2333,10 +2402,7 @@ fn then_second_token_served(world: &mut BatchWorld, id: String) {
     assert!(!second.is_empty());
     for result in second {
         assert_eq!(
-            result
-                .as_ref()
-                .expect("the second token's call is served")
-                .id,
+            widget_of(result.as_ref().expect("the second token's call is served")).id,
             id
         );
     }
@@ -2346,7 +2412,10 @@ fn then_second_token_served(world: &mut BatchWorld, id: String) {
 fn then_every_call(world: &mut BatchWorld, id: String) {
     assert!(!world.results.is_empty());
     for result in &world.results {
-        assert_eq!(result.as_ref().expect("the call is served").id, id);
+        assert_eq!(
+            widget_of(result.as_ref().expect("the call is served")).id,
+            id
+        );
     }
 }
 
@@ -2777,8 +2846,10 @@ fn then_telemetry(world: &mut BatchWorld, outcomes: String) {
         assert!(span["bones.batch.calls"].as_u64().expect("calls") >= 1);
         assert!(span["bones.batch.chunk_index"].as_u64() < span["bones.batch.chunks"].as_u64());
         let single = match span["rpc.method"].as_str().expect("RPC method") {
-            "contract.v1.Widgets/BatchGetWidgets" => "contract.v1.Widgets/GetWidget",
-            "contract.v1.Widgets/BatchListWidgetParts" => "contract.v1.Widgets/ListWidgetParts",
+            "contract.v1.WidgetsService/BatchGetWidgets" => "contract.v1.WidgetsService/GetWidget",
+            "contract.v1.WidgetsService/BatchListWidgetParts" => {
+                "contract.v1.WidgetsService/ListWidgetParts"
+            }
             method => panic!("unexpected batch method {method}"),
         };
         assert_eq!(span["bones.batch.single_method"], single);

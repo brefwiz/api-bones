@@ -5,7 +5,7 @@ import { createClient } from "@connectrpc/connect";
 import { describe, expect, it, vi } from "vitest";
 import { batchedClient } from "./batch.js";
 import { list_stream_of } from "./generated/bones/v1/annotations_pb.js";
-import { pagedClient, PagingPolicyError, type ListCall, type Page } from "./page.js";
+import { listCall, pagedClient, PagingPolicyError, type ListCall, type Page } from "./page.js";
 import { anonymousSession, createPlatformClient, preparedTransport } from "./platform-client.js";
 import type { GeneratedMethodPolicy, GeneratedMethodPolicyDocument } from "./policy.js";
 import { RevisionCache } from "./revision-cache.js";
@@ -111,6 +111,38 @@ describe("generated paging discovery", () => {
     const raw = createPlatformClient(service, wire);
     await expect(call(pagedClient(raw, policy).listWidgets)({}).firstPage()).resolves.toMatchObject({ revision: "r1" });
     expect(() => batchedClient(raw, policy)).toThrow("batching requires a producer-owned session binding");
+  });
+});
+
+describe("list prefetch choice", () => {
+  const twoPages = () => {
+    const fetchPage = vi.fn(async (request: Record<string, unknown>) => {
+      const cursor = String((request.page as { cursor: string }).cursor);
+      return { widgets: [{ id: cursor || "first" }], page: { revision: "r1", nextCursor: cursor === "" ? "c2" : "" } };
+    });
+    return { fetchPage };
+  };
+  const walk = async (call: ListCall<{ id: string }>) => (await collect(call.pages())).flatMap(page => page.items.map(item => item.id));
+
+  it.each([[0, 1], [1, 2]] as const)("withPrefetch(%s) reads %s fetch(es) by the first page and wins over the call's prefetch", async (chosen, fetched) => {
+    const { fetchPage } = twoPages();
+    const list = listCall(fetchPage, { page: {} }, { method: "/paging.v1.Widgets/ListWidgets", paging }, { prefetch: chosen === 0 ? 1 : 0 });
+    const reading = list.withPrefetch(chosen);
+    expect(reading).not.toBe(list);
+    const iterator = reading.pages()[Symbol.asyncIterator]();
+    await iterator.next();
+    expect(fetchPage).toHaveBeenCalledTimes(fetched);
+    await iterator.return?.();
+    expect(await walk(reading)).toEqual(["first", "c2"]);
+  });
+
+  it("clamps a prefetch above 1 to one page ahead", async () => {
+    const { fetchPage } = twoPages();
+    const reading = listCall(fetchPage, { page: {} }, { method: "/paging.v1.Widgets/ListWidgets", paging }).withPrefetch(5 as never);
+    const iterator = reading.pages()[Symbol.asyncIterator]();
+    await iterator.next();
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+    await iterator.return?.();
   });
 });
 

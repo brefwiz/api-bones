@@ -4,50 +4,55 @@
 //! [`Model::from_files`] is the one walk of the annotated items: the macros'
 //! expansion tests and the generator both read a crate through it, so a
 //! refusal is worded and located once.
+//!
+//! # The contract the generator reads
+//!
+//! Every value that crosses the wasm boundary is a message declared in proto:
+//!
+//! - [`Export::args`] is the message the export's parameters arrive as:
+//!   [`Wire::Empty`] when the export has no parameter and no `args = ...`;
+//!   otherwise [`Wire::Message`] of the `args = <message path>` override of
+//!   `#[export]`, else of `<proto>::<PascalMethod>Args`, where `proto` is the
+//!   module path of `#[client(proto = ...)]`. The message's fields are the
+//!   parameters, by name.
+//! - [`Export::ret`] is a [`Return`] whose success value or handle item is a
+//!   [`Wire`].
+//! - [`Client::options`] is the options message of the impl's `from_host`, the
+//!   one parameter after `base_url` and `host`.
+//! - A [`Param`] is the Rust name and the type as written (`ty`), and whether
+//!   the type is a reference (`by_ref`). The type is not classified: the
+//!   expansion names it, so the compiler checks it, and the generator takes
+//!   the field types from the proto message.
 
 use std::collections::BTreeSet;
 
-use syn::{
-    Attribute, Fields, FnArg, ImplItem, ImplItemFn, Item, ItemEnum, ItemImpl, ItemStruct, Pat, Type,
+use heck::ToUpperCamelCase;
+use quote::ToTokens;
+use syn::{Attribute, Fields, FnArg, ImplItem, ImplItemFn, Item, ItemEnum, ItemImpl, Pat, Type};
+
+use crate::attrs::{ClientArgs, ErrorArgs, ErrorVariantArgs, ExportArgs, find, tokens};
+use crate::names::json_name;
+use crate::ty::{
+    Env, ProtoRef, Return, Wire, classify_return, classify_wire, last_ident, proto_ref,
 };
 
-use crate::attrs::{self, ClientArgs, ErrorArgs, ErrorVariantArgs, ExportArgs, find, tokens};
-use crate::names::{enum_value, json_name};
-use crate::ty::{Env, Return, WireType, classify, classify_return, last_ident};
-
-/// A named parameter or record field and its type.
+/// A named parameter of an export and its type as written.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {
     /// The Rust name.
     pub name: String,
-    /// The classified type.
-    pub ty: WireType,
+    /// The type, as the tokens print it (`Option < SystemTime >`).
+    pub ty: String,
+    /// The type is a reference, so the expansion passes `&field`.
+    pub by_ref: bool,
 }
 
 impl Param {
-    /// The key this parameter or field has in the JSON.
+    /// The key this parameter has in the JSON.
     #[must_use]
     pub fn json_name(&self) -> String {
         json_name(&self.name)
     }
-}
-
-/// A `#[record]` struct.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Record {
-    /// The type name.
-    pub name: String,
-    /// The fields, in declaration order.
-    pub fields: Vec<Param>,
-}
-
-/// An `#[enumeration]` enum.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Enumeration {
-    /// The type name.
-    pub name: String,
-    /// The snake case strings the variants cross as, in declaration order.
-    pub values: Vec<String>,
 }
 
 /// The kind of an argument of the error JSON.
@@ -75,7 +80,10 @@ impl ArgKind {
         }
     }
 
-    fn of(ty: &Type) -> Option<Self> {
+    /// The kind a field type states, `None` for a type an error argument
+    /// cannot be.
+    #[must_use]
+    pub fn of(ty: &Type) -> Option<Self> {
         match last_ident(ty)?.as_str() {
             "String" => Some(Self::String),
             "i64" => Some(Self::Int64),
@@ -130,6 +138,8 @@ pub struct Export {
     pub surface: String,
     /// The parameters after `&self`.
     pub params: Vec<Param>,
+    /// The message the parameters arrive as; see the module docs.
+    pub args: Wire,
     /// The classified return type.
     pub ret: Return,
 }
@@ -141,21 +151,20 @@ pub struct Client {
     pub ty: String,
     /// The default surface of its exports.
     pub surface: String,
+    /// The Rust module path of the impl's `<Method>Args` messages, from
+    /// `#[client(proto = ...)]`.
+    pub proto: Option<String>,
     /// The exports, in declaration order.
     pub exports: Vec<Export>,
-    /// The options the impl's own `from_host` takes after `base_url` and
-    /// `host`, in declaration order; empty when the impl has no `from_host`.
-    /// Each is an `Option` of a wire type.
-    pub options: Vec<Param>,
+    /// The options message of the impl's own `from_host`, the one parameter
+    /// after `base_url` and `host`; `None` when the impl has no `from_host` or
+    /// it takes no options.
+    pub options: Option<ProtoRef>,
 }
 
 /// Everything a Layer 2 crate annotates.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Model {
-    /// The `#[record]` structs.
-    pub records: Vec<Record>,
-    /// The `#[enumeration]` enums.
-    pub enumerations: Vec<Enumeration>,
     /// The `#[error]` enums.
     pub errors: Vec<ErrorType>,
     /// The `#[client]` impls.
@@ -180,24 +189,23 @@ impl Model {
     /// # Errors
     ///
     /// A [`syn::Error`] for the first item that breaks a rule: a type outside
-    /// the allowed set, a missing or misplaced argument, an export outside a
-    /// `#[client]` impl, an async mismatch, or a receiver other than `&self`.
+    /// the allowed set, a missing or misplaced argument, parameters with no
+    /// message to arrive as, an export outside a `#[client]` impl, an async
+    /// mismatch, or a receiver other than `&self`.
     pub fn from_files<'a>(files: impl IntoIterator<Item = &'a syn::File>) -> syn::Result<Self> {
         let mut items = Vec::new();
         for file in files {
             flatten(&file.items, &mut items);
         }
-        let (named, errors) = declared(&items);
-        let env = Env::strict(named, errors);
+        let env = Env::strict(declared(&items));
         let mut model = Self::default();
         for item in items {
             match item {
-                Item::Struct(item) => {
-                    if let Some(attr) = find(&item.attrs, "record") {
-                        model.records.push(record(item, attr, &env)?);
+                Item::Enum(item) => {
+                    if let Some(attr) = find(&item.attrs, "error") {
+                        model.errors.push(error_type(item, attr)?);
                     }
                 }
-                Item::Enum(item) => model.enum_item(item)?,
                 Item::Impl(item) => {
                     if let Some(client) = client(item, &env)? {
                         model.clients.push(client);
@@ -210,24 +218,6 @@ impl Model {
             }
         }
         Ok(model)
-    }
-
-    fn enum_item(&mut self, item: &ItemEnum) -> syn::Result<()> {
-        match (find(&item.attrs, "enumeration"), find(&item.attrs, "error")) {
-            (Some(_), Some(_)) => Err(syn::Error::new_spanned(
-                &item.ident,
-                "an enum is either `#[enumeration]` or `#[error]`, not both",
-            )),
-            (Some(attr), None) => {
-                self.enumerations.push(enumeration(item, attr)?);
-                Ok(())
-            }
-            (None, Some(attr)) => {
-                self.errors.push(error_type(item, attr)?);
-                Ok(())
-            }
-            (None, None) => Ok(()),
-        }
     }
 }
 
@@ -245,27 +235,17 @@ fn flatten<'a>(items: &'a [Item], out: &mut Vec<&'a Item>) {
     }
 }
 
-/// The names of the records and enumerations, and of the error types.
-fn declared(items: &[&Item]) -> (BTreeSet<String>, BTreeSet<String>) {
-    let mut named = BTreeSet::new();
-    let mut errors = BTreeSet::new();
-    for item in items {
-        match item {
-            Item::Struct(item) if find(&item.attrs, "record").is_some() => {
-                named.insert(item.ident.to_string());
+/// The names of the error types.
+fn declared(items: &[&Item]) -> BTreeSet<String> {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Enum(item) if find(&item.attrs, "error").is_some() => {
+                Some(item.ident.to_string())
             }
-            Item::Enum(item) => {
-                if find(&item.attrs, "enumeration").is_some() {
-                    named.insert(item.ident.to_string());
-                }
-                if find(&item.attrs, "error").is_some() {
-                    errors.insert(item.ident.to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-    (named, errors)
+            _ => None,
+        })
+        .collect()
 }
 
 fn outside(span: proc_macro2::Span) -> syn::Error {
@@ -273,58 +253,6 @@ fn outside(span: proc_macro2::Span) -> syn::Error {
         span,
         "`#[export]` belongs on a method of an impl that carries `#[client]`",
     )
-}
-
-fn record(item: &ItemStruct, attr: &Attribute, env: &Env) -> syn::Result<Record> {
-    attrs::no_args("record", tokens(attr)?)?;
-    let Fields::Named(fields) = &item.fields else {
-        return Err(syn::Error::new_spanned(
-            &item.ident,
-            "a `#[record]` has named fields",
-        ));
-    };
-    let mut parsed = Vec::new();
-    for field in &fields.named {
-        let name = field
-            .ident
-            .as_ref()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        let ty = classify(&field.ty, env, &format!("field `{name}`"))?;
-        parsed.push(Param { name, ty });
-    }
-    Ok(Record {
-        name: item.ident.to_string(),
-        fields: parsed,
-    })
-}
-
-fn enumeration(item: &ItemEnum, attr: &Attribute) -> syn::Result<Enumeration> {
-    attrs::no_args("enumeration", tokens(attr)?)?;
-    Ok(Enumeration {
-        name: item.ident.to_string(),
-        values: enumeration_values(item)?,
-    })
-}
-
-/// The wire string of each variant of an `#[enumeration]` enum, in order.
-///
-/// # Errors
-/// A variant carries fields.
-pub fn enumeration_values(item: &ItemEnum) -> syn::Result<Vec<String>> {
-    item.variants
-        .iter()
-        .map(|variant| {
-            if matches!(variant.fields, Fields::Unit) {
-                Ok(enum_value(&variant.ident.to_string()))
-            } else {
-                Err(syn::Error::new_spanned(
-                    variant,
-                    "an `#[enumeration]` has only unit variants",
-                ))
-            }
-        })
-        .collect()
 }
 
 fn error_type(item: &ItemEnum, attr: &Attribute) -> syn::Result<ErrorType> {
@@ -410,27 +338,29 @@ fn client(item: &ItemImpl, env: &Env) -> syn::Result<Option<Client>> {
     })?;
     let mut exports = Vec::new();
     for (function, attr) in item.items.iter().filter_map(exported) {
-        exports.push(export(function, attr, &args.surface, env)?);
+        exports.push(export(function, attr, &args, env)?);
     }
     Ok(Some(Client {
         ty,
         surface: args.surface,
+        proto: args.proto,
         exports,
-        options: options(item, env)?,
+        options: options(item)?,
     }))
 }
 
-/// The parameters of the impl's `from_host` after `base_url` and `host`.
+/// The options message of the impl's `from_host`.
 ///
 /// The constructor is detected, not required: an impl without one has no
-/// options. Each option is optional on the wire, so a host that sets none
-/// builds the same client.
-fn options(item: &ItemImpl, env: &Env) -> syn::Result<Vec<Param>> {
+/// options. The options are at most one parameter after `base_url` and `host`,
+/// the options message of the client, which crosses as the protobuf bytes of
+/// that message; a host that sets none sends the empty message.
+fn options(item: &ItemImpl) -> syn::Result<Option<ProtoRef>> {
     let Some(function) = item.items.iter().find_map(|member| match member {
         ImplItem::Fn(function) if function.sig.ident == "from_host" => Some(function),
         _ => None,
     }) else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let inputs: Vec<&syn::PatType> = function
         .sig
@@ -447,31 +377,70 @@ fn options(item: &ItemImpl, env: &Env) -> syn::Result<Vec<Param>> {
             "`from_host` takes `base_url` and `host`, then its options",
         ));
     }
-    let mut parsed = Vec::new();
-    for typed in &inputs[2..] {
-        let Pat::Ident(ident) = &*typed.pat else {
-            return Err(syn::Error::new_spanned(
-                &typed.pat,
-                "a parameter is a plain name",
-            ));
+    let [typed] = &inputs[2..] else {
+        return if inputs.len() == 2 {
+            Ok(None)
+        } else {
+            Err(syn::Error::new_spanned(
+                &function.sig,
+                "`from_host` takes one options message after `base_url` and `host`",
+            ))
         };
-        let name = ident.ident.to_string();
-        let ty = classify(&typed.ty, env, &format!("option `{name}`"))?;
-        if !matches!(ty, WireType::Option(_)) {
-            return Err(syn::Error::new_spanned(
-                &typed.ty,
-                format!("option `{name}` of `from_host` is an `Option` of a wire type"),
-            ));
-        }
-        parsed.push(Param { name, ty });
+    };
+    let name = plain_name(&typed.pat)?;
+    match classify_wire(&typed.ty, &format!("option `{name}`"))? {
+        Wire::Message(message) => Ok(Some(message)),
+        Wire::Empty | Wire::Wrapper(_) => Err(syn::Error::new_spanned(
+            &typed.ty,
+            format!("option `{name}` of `from_host` is the options message of the client"),
+        )),
     }
-    Ok(parsed)
+}
+
+fn plain_name(pat: &Pat) -> syn::Result<String> {
+    match pat {
+        Pat::Ident(ident) => Ok(ident.ident.to_string()),
+        _ => Err(syn::Error::new_spanned(pat, "a parameter is a plain name")),
+    }
+}
+
+/// The message an export's parameters arrive as.
+///
+/// An `args = ...` override names it; else, with parameters, it is
+/// `<proto>::<PascalMethod>Args`; an export with neither takes nothing.
+fn args_message(
+    function: &ImplItemFn,
+    method: &str,
+    args: &ExportArgs,
+    client: &ClientArgs,
+    has_params: bool,
+) -> syn::Result<Wire> {
+    let ident = &function.sig.ident;
+    let message = |path: &str| {
+        proto_ref(path).map(Wire::Message).map_err(|reason| {
+            syn::Error::new_spanned(ident, format!("export `{method}`: {reason}"))
+        })
+    };
+    match (&args.args, &client.proto, has_params) {
+        (Some(path), _, _) => message(path),
+        (None, Some(proto), true) => {
+            message(&format!("{proto}::{}Args", method.to_upper_camel_case()))
+        }
+        (None, None, true) => Err(syn::Error::new_spanned(
+            ident,
+            format!(
+                "export `{method}` has parameters but no message to arrive as: give \
+                 `#[client(proto = <module path>)]` or `#[export(args = <message path>)]`"
+            ),
+        )),
+        (None, _, false) => Ok(Wire::Empty),
+    }
 }
 
 fn export(
     function: &ImplItemFn,
     attr: &Attribute,
-    default_surface: &str,
+    client: &ClientArgs,
     env: &Env,
 ) -> syn::Result<Export> {
     let args = ExportArgs::parse(tokens(attr)?)?;
@@ -512,37 +481,29 @@ fn export(
         let FnArg::Typed(typed) = input else {
             continue;
         };
-        let Pat::Ident(ident) = &*typed.pat else {
-            return Err(syn::Error::new_spanned(
-                &typed.pat,
-                "a parameter is a plain name",
-            ));
-        };
-        let name = ident.ident.to_string();
-        let ty = classify(&typed.ty, env, &format!("parameter `{name}`"))?;
-        params.push(Param { name, ty });
+        params.push(Param {
+            name: plain_name(&typed.pat)?,
+            ty: typed.ty.to_token_stream().to_string(),
+            by_ref: matches!(*typed.ty, Type::Reference(_)),
+        });
     }
+    let method = sig.ident.to_string();
     Ok(Export {
-        method: sig.ident.to_string(),
+        args: args_message(function, &method, &args, client, !params.is_empty())?,
         sync: args.sync,
-        surface: args.surface.unwrap_or_else(|| default_surface.to_owned()),
+        surface: args.surface.unwrap_or_else(|| client.surface.clone()),
         params,
         ret: classify_return(&sig.output, args.sync, env)?,
+        method,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ty::{ErrorRef, HandleKind};
+    use crate::ty::{ErrorRef, HandleKind, Wrapper};
 
     const SAMPLE: &str = r#"
-        #[record]
-        pub struct Number { pub value: i64, pub label: Option<String>, pub page_size: u32 }
-
-        #[enumeration]
-        pub enum Kind { Exact, LowerBound }
-
         #[error(emitter = "widgets")]
         pub enum WidgetError {
             #[error(code = "WIDGET_GONE", platform = "NOT_FOUND")]
@@ -552,20 +513,29 @@ mod tests {
         }
 
         mod inner {
-            #[record]
-            pub struct Nested { pub n: Vec<u8> }
+            #[error(emitter = "inner")]
+            pub enum InnerError {
+                #[error(code = "INNER", platform = "INTERNAL")]
+                Broken,
+            }
         }
 
-        #[client(surface = "connect-pagination")]
+        #[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
         impl NumbersClient {
             #[export]
-            pub async fn list(&self, limit: u32, since: Option<SystemTime>) -> ListCall<Number> {
-                body()
-            }
+            pub async fn list_numbers(
+                &self, limit: u32, since: Option<SystemTime>,
+            ) -> ListCall<generated::contract::sdk::v1::Number> { body() }
             #[export(sync)]
-            pub fn label(&self, kind: Kind) -> String { body() }
+            pub fn label(&self, kind: &str) -> String { body() }
             #[export(surface = "other")]
-            pub async fn get_number(&self, id: String) -> Result<Number, WidgetError> { body() }
+            pub async fn get_number(
+                &self, id: String,
+            ) -> Result<generated::contract::v1::Widget, WidgetError> { body() }
+            #[export(args = generated::contract::v1::WatchRequest)]
+            pub async fn watch(&self, from: String) -> Stream<generated::contract::v1::Tick> { body() }
+            #[export]
+            pub async fn ping(&self) -> Result<(), Error> { body() }
             pub fn not_exported(&self) {}
             const ID: u32 = 1;
         }
@@ -580,39 +550,19 @@ mod tests {
         Model::from_source(text).expect_err("refused").to_string()
     }
 
-    #[test]
-    fn a_crate_is_read_into_its_records_enumerations_errors_and_clients() {
-        let model = Model::from_source(SAMPLE).expect("ok");
-        let names: Vec<_> = model.records.iter().map(|r| r.name.as_str()).collect();
-        assert_eq!(names, ["Number", "Nested"]);
-        assert_eq!(
-            model.records[0].fields,
-            [
-                Param {
-                    name: "value".to_owned(),
-                    ty: WireType::I64
-                },
-                Param {
-                    name: "label".to_owned(),
-                    ty: WireType::Option(Box::new(WireType::String))
-                },
-                Param {
-                    name: "page_size".to_owned(),
-                    ty: WireType::U32
-                },
-            ]
-        );
-        assert_eq!(model.records[0].fields[2].json_name(), "pageSize");
-        assert_eq!(model.records[1].fields[0].ty, WireType::Bytes);
-        assert_eq!(model.enumerations.len(), 1);
-        assert_eq!(model.enumerations[0].values, ["exact", "lower_bound"]);
+    fn message(path: &str, full_name: &str) -> Wire {
+        Wire::Message(ProtoRef {
+            path: path.to_owned(),
+            full_name: full_name.to_owned(),
+        })
     }
 
     #[test]
     fn an_error_type_carries_its_emitter_variants_and_argument_kinds() {
         let model = Model::from_source(SAMPLE).expect("ok");
+        let names: Vec<_> = model.errors.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["WidgetError", "InnerError"]);
         let error = &model.errors[0];
-        assert_eq!(error.name, "WidgetError");
         assert_eq!(error.emitter, "widgets");
         assert_eq!(error.variants[0].code, "WIDGET_GONE");
         assert_eq!(error.variants[0].platform, "NOT_FOUND");
@@ -634,53 +584,137 @@ mod tests {
     }
 
     #[test]
-    fn a_client_carries_its_exports_with_their_surface_params_and_return() {
+    fn a_client_carries_its_proto_module_surface_and_exports_in_order() {
         let model = Model::from_source(SAMPLE).expect("ok");
         assert_eq!(model.clients.len(), 1);
         let client = &model.clients[0];
         assert_eq!(client.ty, "NumbersClient");
         assert_eq!(client.surface, "connect-pagination");
+        assert_eq!(
+            client.proto.as_deref(),
+            Some("generated::contract::sdk::v1")
+        );
+        assert_eq!(client.options, None);
         let methods: Vec<_> = client.exports.iter().map(|e| e.method.as_str()).collect();
-        assert_eq!(methods, ["list", "label", "get_number"]);
-        let list = &client.exports[0];
+        assert_eq!(
+            methods,
+            ["list_numbers", "label", "get_number", "watch", "ping"]
+        );
+    }
+
+    #[test]
+    fn parameters_arrive_as_the_args_message_of_the_client_module() {
+        let model = Model::from_source(SAMPLE).expect("ok");
+        let list = &model.clients[0].exports[0];
         assert!(!list.sync);
         assert_eq!(list.surface, "connect-pagination");
-        assert_eq!(list.params.len(), 2);
-        assert_eq!(list.params[0].name, "limit");
+        assert_eq!(
+            list.args,
+            message(
+                "generated::contract::sdk::v1::ListNumbersArgs",
+                "contract.sdk.v1.ListNumbersArgs"
+            )
+        );
+        let names: Vec<_> = list.params.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["limit", "since"]);
+        assert_eq!(list.params[0].ty, "u32");
+        assert!(!list.params[0].by_ref);
+        assert_eq!(list.params[1].ty.replace(' ', ""), "Option<SystemTime>");
+        assert_eq!(list.params[1].json_name(), "since");
         assert_eq!(
             list.ret,
             Return::Handle {
                 kind: HandleKind::List,
-                item: "Number".to_owned()
-            }
-        );
-        let label = &client.exports[1];
-        assert!(label.sync);
-        assert_eq!(label.params[0].ty, WireType::Named("Kind".to_owned()));
-        assert_eq!(label.ret, Return::Value(WireType::String));
-        let get = &client.exports[2];
-        assert_eq!(get.surface, "other");
-        assert_eq!(
-            get.ret,
-            Return::Result {
-                ok: Some(WireType::Named("Number".to_owned())),
-                error: ErrorRef::Named("WidgetError".to_owned())
+                item: message(
+                    "generated::contract::sdk::v1::Number",
+                    "contract.sdk.v1.Number"
+                )
             }
         );
     }
 
     #[test]
+    fn a_reference_parameter_is_passed_by_reference_and_a_sync_export_returns_a_value() {
+        let model = Model::from_source(SAMPLE).expect("ok");
+        let label = &model.clients[0].exports[1];
+        assert!(label.sync);
+        assert!(label.params[0].by_ref);
+        assert_eq!(label.params[0].ty.replace(' ', ""), "&str");
+        assert_eq!(label.ret, Return::Value(Wire::Wrapper(Wrapper::String)));
+        assert_eq!(
+            label.args,
+            message(
+                "generated::contract::sdk::v1::LabelArgs",
+                "contract.sdk.v1.LabelArgs"
+            )
+        );
+    }
+
+    #[test]
+    fn an_export_carries_its_own_surface_and_its_result_and_error() {
+        let model = Model::from_source(SAMPLE).expect("ok");
+        let get = &model.clients[0].exports[2];
+        assert_eq!(get.surface, "other");
+        assert_eq!(
+            get.ret,
+            Return::Result {
+                ok: message("generated::contract::v1::Widget", "contract.v1.Widget"),
+                error: ErrorRef::Named("WidgetError".to_owned())
+            }
+        );
+        let ping = &model.clients[0].exports[4];
+        assert_eq!(
+            ping.ret,
+            Return::Result {
+                ok: Wire::Empty,
+                error: ErrorRef::Sdk
+            }
+        );
+    }
+
+    #[test]
+    fn an_args_override_names_the_request_message_and_no_params_take_nothing() {
+        let model = Model::from_source(SAMPLE).expect("ok");
+        let watch = &model.clients[0].exports[3];
+        assert_eq!(
+            watch.args,
+            message(
+                "generated::contract::v1::WatchRequest",
+                "contract.v1.WatchRequest"
+            )
+        );
+        assert_eq!(model.clients[0].exports[4].args, Wire::Empty);
+    }
+
+    #[test]
+    fn an_export_without_parameters_needs_no_proto_module() {
+        let text = "#[client(surface = \"s\")] impl C { \
+            #[export] async fn go(&self) -> Result<(), Error> { body() } }";
+        let model = Model::from_source(text).expect("ok");
+        assert_eq!(model.clients[0].proto, None);
+        assert_eq!(model.clients[0].exports[0].args, Wire::Empty);
+    }
+
+    #[test]
     fn several_files_form_one_model() {
-        let one: syn::File = syn::parse_str("#[record] pub struct A { pub x: i32 }").expect("a");
+        let one: syn::File = syn::parse_str(
+            "#[error(emitter = \"e\")] enum E { #[error(code = \"A\", platform = \"P\")] A }",
+        )
+        .expect("a");
         let two: syn::File = syn::parse_str(
-            "#[client(surface = \"s\")] impl C { #[export] async fn go(&self, a: A) -> Result<A, Error> { body() } }",
+            "#[client(surface = \"s\", proto = generated::p::v1)] impl C { \
+             #[export] async fn go(&self, a: String) -> Result<generated::p::v1::R, E> { body() } }",
         )
         .expect("b");
         let model = Model::from_files([&one, &two]).expect("ok");
-        assert_eq!(model.records.len(), 1);
+        assert_eq!(model.errors.len(), 1);
+        assert_eq!(model.clients[0].exports[0].params[0].ty, "String");
         assert_eq!(
-            model.clients[0].exports[0].params[0].ty,
-            WireType::Named("A".to_owned())
+            model.clients[0].exports[0].ret,
+            Return::Result {
+                ok: message("generated::p::v1::R", "p.v1.R"),
+                error: ErrorRef::Named("E".to_owned())
+            }
         );
     }
 
@@ -690,25 +724,32 @@ mod tests {
     }
 
     #[test]
-    fn a_record_needs_named_fields_from_the_allowed_set_and_no_arguments() {
-        assert!(refused("#[record] struct A(i32);").contains("named fields"));
-        assert!(refused("#[record] struct A;").contains("named fields"));
-        assert!(refused("#[record] struct A { x: usize }").contains("field `x`"));
-        assert!(refused("#[record(camel)] struct A { x: i32 }").contains("takes no arguments"));
-        assert!(refused("#[record = 1] struct A { x: i32 }").contains("in parentheses"));
+    fn parameters_need_a_message_to_arrive_as() {
+        let message = refused(
+            "#[client(surface = \"s\")] impl C { \
+             #[export] async fn go(&self, a: String) -> Result<(), Error> { body() } }",
+        );
+        assert!(
+            message.contains("`go`") && message.contains("`#[client(proto = <module path>)]`"),
+            "{message}"
+        );
     }
 
     #[test]
-    fn an_enumeration_has_only_unit_variants_and_no_arguments() {
-        assert!(refused("#[enumeration] enum E { A(i32) }").contains("only unit variants"));
-        assert!(refused("#[enumeration] enum E { A { x: i32 } }").contains("only unit variants"));
-        assert!(refused("#[enumeration(x)] enum E { A }").contains("takes no arguments"));
-    }
-
-    #[test]
-    fn an_enum_is_not_both_an_enumeration_and_an_error() {
-        let text = "#[enumeration] #[error(emitter = \"e\")] enum E { A }";
-        assert!(refused(text).contains("not both"));
+    fn a_proto_module_or_args_override_that_names_no_package_is_refused() {
+        let message = refused(
+            "#[client(surface = \"s\", proto = generated)] impl C { \
+             #[export] async fn go(&self, a: String) -> Result<(), Error> { body() } }",
+        );
+        assert!(
+            message.contains("export `go`") && message.contains("package and a message"),
+            "{message}"
+        );
+        let message = refused(
+            "#[client(surface = \"s\")] impl C { \
+             #[export(args = Request)] async fn go(&self) -> Result<(), Error> { body() } }",
+        );
+        assert!(message.contains("package and a message"), "{message}");
     }
 
     #[test]
@@ -748,7 +789,9 @@ mod tests {
     }
 
     fn export_refused(method: &str) -> String {
-        refused(&format!("#[client(surface = \"s\")] impl C {{ {method} }}"))
+        refused(&format!(
+            "#[client(surface = \"s\", proto = generated::p::v1)] impl C {{ {method} }}"
+        ))
     }
 
     #[test]
@@ -776,72 +819,80 @@ mod tests {
         assert!(message.contains("takes `&self`"), "{message}");
         let message = export_refused("#[export(sync)] fn go(&self, (a, b): (i32, i32)) {}");
         assert!(message.contains("a parameter is a plain name"), "{message}");
-        let message = export_refused("#[export(sync)] fn go(&self, a: &str) {}");
-        assert!(message.contains("parameter `a`"), "{message}");
         let message = export_refused("#[export] async fn go(&self) -> Plain { body() }");
         assert!(message.contains("the return type"), "{message}");
         let message = export_refused("#[export(bad)] fn go(&self) {}");
         assert!(message.contains("unknown argument"), "{message}");
     }
 
-    fn options_of(constructor: &str) -> syn::Result<Vec<Param>> {
-        let text = format!(
-            "#[enumeration] enum Kind {{ A }} #[client(surface = \"s\")] impl C {{ {constructor} }}"
-        );
+    fn options_of(constructor: &str) -> syn::Result<Option<ProtoRef>> {
+        let text = format!("#[client(surface = \"s\")] impl C {{ {constructor} }}");
         Model::from_source(&text).map(|model| model.clients[0].options.clone())
     }
 
     #[test]
     fn a_client_without_from_host_has_no_options() {
         let model = Model::from_source(SAMPLE).expect("ok");
-        assert_eq!(model.clients[0].options, Vec::<Param>::new());
+        assert_eq!(model.clients[0].options, None);
     }
 
     #[test]
-    fn the_options_of_from_host_follow_base_url_and_host() {
+    fn the_options_of_from_host_are_one_message_after_base_url_and_host() {
         let options = options_of(
-            "pub fn from_host(base_url: String, host: JsValue, default_page_size: Option<u32>, \
-             transport: Option<Kind>) -> Result<Self, Error> { body() }",
+            "pub fn from_host(base_url: String, host: JsValue, \
+             options: generated::contract::v1::ClientOptions) -> Result<Self, Error> { body() }",
         )
         .expect("ok");
         assert_eq!(
             options,
-            [
-                Param {
-                    name: "default_page_size".to_owned(),
-                    ty: WireType::Option(Box::new(WireType::U32))
-                },
-                Param {
-                    name: "transport".to_owned(),
-                    ty: WireType::Option(Box::new(WireType::Named("Kind".to_owned())))
-                },
-            ]
+            Some(ProtoRef {
+                path: "generated::contract::v1::ClientOptions".to_owned(),
+                full_name: "contract.v1.ClientOptions".to_owned()
+            })
         );
-        assert_eq!(options[0].json_name(), "defaultPageSize");
         let none = options_of(
             "pub fn from_host(base_url: String, host: JsValue) -> Result<Self, Error> { body() }",
         )
         .expect("ok");
-        assert_eq!(none, Vec::<Param>::new());
+        assert_eq!(none, None);
     }
 
     #[test]
-    fn an_option_of_from_host_is_an_optional_plain_wire_parameter() {
+    fn the_options_of_from_host_are_not_more_than_one_message() {
         let message = options_of(
-            "pub fn from_host(base_url: String, host: JsValue, size: u32) -> Result<Self, Error> { body() }",
+            "pub fn from_host(base_url: String, host: JsValue, \
+             a: generated::p::v1::A, b: generated::p::v1::B) -> Result<Self, Error> { body() }",
         )
         .expect_err("refused")
         .to_string();
-        assert!(
-            message.contains("option `size`") && message.contains("`Option`"),
-            "{message}"
-        );
+        assert!(message.contains("one options message"), "{message}");
+    }
+
+    #[test]
+    fn an_option_of_from_host_is_a_message_not_a_scalar() {
+        for (ty, what) in [("u32", "options message"), ("()", "options message")] {
+            let message = options_of(&format!(
+                "pub fn from_host(base_url: String, host: JsValue, size: {ty}) -> Result<Self, Error> {{ body() }}"
+            ))
+            .expect_err("refused")
+            .to_string();
+            assert!(
+                message.contains("option `size`") && message.contains(what),
+                "{message}"
+            );
+        }
         let message = options_of(
             "pub fn from_host(base_url: String, host: JsValue, size: Option<usize>) -> Result<Self, Error> { body() }",
         )
         .expect_err("refused")
         .to_string();
         assert!(message.contains("option `size`"), "{message}");
+        let message = options_of(
+            "pub fn from_host(base_url: String, host: JsValue, size: Kind) -> Result<Self, Error> { body() }",
+        )
+        .expect_err("refused")
+        .to_string();
+        assert!(message.contains("bare name"), "{message}");
         let message = options_of(
             "pub fn from_host(base_url: String, host: JsValue, (a, b): (i32, i32)) -> Result<Self, Error> { body() }",
         )

@@ -836,3 +836,39 @@ async fn two_instances_share_the_csrf_slot() {
     assert_eq!(first.len(), 1, "the shared token needs no replay");
     assert_eq!(first[0].csrf.as_deref(), Some(learned.as_str()));
 }
+
+// ---------------------------------------------------------------------------
+// Headers the host's inflation invalidates
+// ---------------------------------------------------------------------------
+
+/// Answers every fetch with the real server's reply re-labelled the way a
+/// host labels a body it has already inflated: still naming its gzip
+/// encoding, with a length that is not the body's.
+const RELABELLED: &str = r#"
+const original = globalThis.fetch;
+globalThis.fetch = async function (input, init) {
+  const real = await original.call(globalThis, input, init);
+  const body = await real.arrayBuffer();
+  const headers = new Headers(real.headers);
+  headers.set("content-encoding", "gzip");
+  headers.set("content-length", "1");
+  return new Response(body, { status: real.status, headers });
+};
+return { restore() { globalThis.fetch = original; } };
+"#;
+
+#[wasm_bindgen_test]
+async fn an_inflated_body_is_not_decoded_again() {
+    // The relabeller exposes the same `restore` as the recorder, so the
+    // recorder's drop puts the real `fetch` back even when the call panics.
+    let _restore = Recorder {
+        handle: Function::new_with_args("", RELABELLED)
+            .call0(&JsValue::NULL)
+            .expect("the relabelling fetch installs"),
+    };
+    let outcome = unary(&Probe::new(), &server(), READ, text("inflated")).await;
+    assert_eq!(
+        outcome.expect("the stale encoding label is not acted on"),
+        "inflated"
+    );
+}

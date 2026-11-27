@@ -1,24 +1,23 @@
 // SPDX-License-Identifier: MIT
-//! The error of a Layer 2 call, in the wire form `api-bones.error/v1`.
+//! The error of a Layer 2 call.
 //!
-//! The Rust core sorts every failure into one [`Error`]; a host revives its
-//! JSON into its own error class. The fields are `code`, `emitter`,
-//! `platform`, `connectCode`, `message`, `args` and, for a list that failed
-//! part-way, `page`.
+//! The Rust core sorts every failure into one [`Error`]; a host revives the
+//! `bones.sdk.v1.CallError` message it crosses as into its own error class.
+//! The fields are `code`, `emitter`, `platform`, the Connect code, `message`,
+//! `args` and, when present, the page detail (a list that failed part-way) and
+//! the wait a refusal named.
 //!
 //! A refusal the Layer 2 core makes itself carries the emitter `bones` and no
 //! catalog key of its own, so a host renders the text of its platform code.
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use api_bones::connect::{ConnectCode, ErrorArg, error_info};
 use api_bones_page::{PageError, PageErrorKind, reason};
+use buffa_types::google::protobuf::Timestamp;
 use connectrpc::ConnectError;
-use serde_json::{Map, Value, json};
-
-use crate::wire::{BadValue, double_value, format_rfc3339, system_time_parts};
 
 /// The emitter of a refusal the Layer 2 core makes itself.
 pub const EMITTER: &str = "bones";
@@ -30,6 +29,9 @@ pub const IDENTITY_CHANGED: &str = "IDENTITY_CHANGED";
 pub const CALL_BUDGET_ELAPSED: &str = "CALL_BUDGET_ELAPSED";
 /// The caller cancelled, aborted or dropped the call.
 pub const CANCELED: &str = "CANCELED";
+/// A wrapper or runtime stamped for another boundary version tried to open a
+/// client of this core.
+pub const SDK_BOUNDARY_MISMATCH: &str = "SDK_BOUNDARY_MISMATCH";
 
 /// Every Connect code, the code that maps to `INTERNAL_SERVER_ERROR` first so
 /// that mapping a platform code back lands on it.
@@ -68,34 +70,17 @@ fn connect_of_platform(platform: &str) -> ConnectCode {
 pub enum Arg {
     /// A text value.
     String(String),
-    /// A whole number, which crosses as a decimal string.
+    /// A whole number.
     Int64(i64),
-    /// A real number, which crosses as a number or as `"NaN"`, `"Infinity"`,
-    /// `"-Infinity"`.
+    /// A real number.
     Double(f64),
-    /// An instant, as RFC 3339 UTC text.
-    Timestamp(String),
-}
-
-impl Arg {
-    /// The `{kind, value}` object of the error JSON.
-    #[must_use]
-    pub fn to_value(&self) -> Value {
-        match self {
-            Self::String(text) => json!({"kind": "string", "value": text}),
-            Self::Int64(n) => json!({"kind": "int64", "value": n.to_string()}),
-            Self::Double(x) => json!({"kind": "double", "value": double_value(*x)}),
-            Self::Timestamp(text) => json!({"kind": "timestamp", "value": text}),
-        }
-    }
-}
-
-/// A timestamp argument; an instant RFC 3339 cannot write stays as text.
-fn timestamp_arg(seconds: i64, nanos: u32) -> Arg {
-    format_rfc3339(seconds, nanos).map_or_else(
-        |_| Arg::String(format!("{seconds}.{nanos:09}")),
-        Arg::Timestamp,
-    )
+    /// An instant, as `google.protobuf.Timestamp` carries it.
+    Timestamp {
+        /// Seconds since the Unix epoch.
+        seconds: i64,
+        /// Nanoseconds within the second, `0..1_000_000_000`.
+        nanos: i32,
+    },
 }
 
 impl From<String> for Arg {
@@ -124,8 +109,8 @@ impl From<f64> for Arg {
 
 impl From<SystemTime> for Arg {
     fn from(time: SystemTime) -> Self {
-        let (seconds, nanos) = system_time_parts(time);
-        timestamp_arg(seconds, nanos)
+        let Timestamp { seconds, nanos, .. } = Timestamp::from(time);
+        Self::Timestamp { seconds, nanos }
     }
 }
 
@@ -135,9 +120,7 @@ impl From<ErrorArg> for Arg {
             ErrorArg::String(text) => Self::String(text),
             ErrorArg::Int64(n) => Self::Int64(n),
             ErrorArg::Double(x) => Self::Double(x),
-            ErrorArg::Timestamp { seconds, nanos } => {
-                timestamp_arg(seconds, u32::try_from(nanos).unwrap_or(u32::MAX))
-            }
+            ErrorArg::Timestamp { seconds, nanos } => Self::Timestamp { seconds, nanos },
         }
     }
 }
@@ -153,19 +136,6 @@ pub enum PageKind {
     CursorQueryMismatch,
     /// Any other failure of the call.
     Rpc,
-}
-
-impl PageKind {
-    /// The `kind` of the error JSON's `page` member.
-    #[must_use]
-    pub fn wire_name(self) -> &'static str {
-        match self {
-            Self::CursorInvalid => "cursor_invalid",
-            Self::CursorExpired => "cursor_expired",
-            Self::CursorQueryMismatch => "cursor_query_mismatch",
-            Self::Rpc => "rpc",
-        }
-    }
 }
 
 /// What a list had delivered when it failed, and why it stopped.
@@ -193,11 +163,22 @@ pub struct Error {
     pub connect_code: ConnectCode,
     /// The diagnostic text, for logs.
     pub message: String,
-    /// The message arguments, keyed by placeholder name. Boxed, like `page`,
-    /// so a `Result` carrying an `Error` stays small.
+    /// The message arguments, keyed by placeholder name. Boxed, like
+    /// `details`, so a `Result` carrying an `Error` stays small.
     pub args: Box<BTreeMap<String, Arg>>,
+    /// The rarely present members, read through [`Error::page`] and
+    /// [`Error::retry_after`]; one box keeps a `Result` carrying an `Error`
+    /// small.
+    details: Option<Box<Details>>,
+}
+
+/// The members a failure carries only sometimes.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Details {
     /// Present only when a list failed.
-    pub page: Option<Box<PageDetail>>,
+    page: Option<PageDetail>,
+    /// The wait a `resource_exhausted` refusal named in its `retry-after`.
+    retry_after: Option<Duration>,
 }
 
 impl Error {
@@ -216,7 +197,7 @@ impl Error {
             connect_code,
             message: message.into(),
             args: Box::default(),
-            page: None,
+            details: None,
         }
     }
 
@@ -238,7 +219,7 @@ impl Error {
             connect_code: connect_of_platform(platform),
             message: message.into(),
             args: Box::new(args),
-            page: None,
+            details: None,
         }
     }
 
@@ -279,6 +260,26 @@ impl Error {
         )
     }
 
+    /// A wrapper or runtime speaks another boundary version than the core: the
+    /// client is refused before it is built. The arguments name the three
+    /// versions, so a message can show which side is stale.
+    #[must_use]
+    pub fn boundary_mismatch(core: u32, wrapper: u32, runtime: u32) -> Self {
+        let mut error = Self::local_mapped(
+            ConnectCode::FailedPrecondition,
+            SDK_BOUNDARY_MISMATCH,
+            format!(
+                "the SDK boundary versions do not match: core {core}, wrapper {wrapper}, runtime {runtime}"
+            ),
+        );
+        for (name, version) in [("core", core), ("wrapper", wrapper), ("runtime", runtime)] {
+            error
+                .args
+                .insert(name.to_owned(), Arg::Int64(i64::from(version)));
+        }
+        error
+    }
+
     /// A value the caller passed does not fit its wire form.
     #[must_use]
     pub fn invalid_argument(message: impl Into<String>) -> Self {
@@ -312,12 +313,29 @@ impl Error {
     /// pages and `items` items.
     #[must_use]
     pub fn on_page(mut self, kind: PageKind, pages: u32, items: u64) -> Self {
-        self.page = Some(Box::new(PageDetail {
+        self.details.get_or_insert_with(Box::default).page = Some(PageDetail {
             kind,
             delivered_pages: pages,
             delivered_items: items,
-        }));
+        });
         self
+    }
+
+    /// What a list had delivered when it failed; present only when a list
+    /// failed.
+    #[must_use]
+    pub fn page(&self) -> Option<PageDetail> {
+        self.details.as_ref().and_then(|details| details.page)
+    }
+
+    /// The wait a `resource_exhausted` refusal named in its `retry-after`,
+    /// whether the call handed it back because the wait was too long to sit
+    /// out or because its attempts were spent.
+    #[must_use]
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.details
+            .as_ref()
+            .and_then(|details| details.retry_after)
     }
 
     /// The `error` of a span that ended in this failure: `<connectCode> <code>`.
@@ -325,38 +343,15 @@ impl Error {
     pub fn span_error(&self) -> String {
         format!("{} {}", self.connect_code.as_wire(), self.code)
     }
+}
 
-    /// The `api-bones.error/v1` JSON value.
-    #[must_use]
-    pub fn to_value(&self) -> Value {
-        let args: Map<String, Value> = self
-            .args
-            .iter()
-            .map(|(name, arg)| (name.clone(), arg.to_value()))
-            .collect();
-        let mut wire = json!({
-            "code": self.code,
-            "emitter": self.emitter,
-            "platform": self.platform,
-            "connectCode": self.connect_code.as_wire(),
-            "message": self.message,
-            "args": args,
-        });
-        if let Some(page) = &self.page {
-            wire["page"] = json!({
-                "kind": page.kind.wire_name(),
-                "deliveredPages": page.delivered_pages,
-                "deliveredItems": page.delivered_items,
-            });
-        }
-        wire
+/// The wait a throttle named, read by the shared `retry_after` reader; any
+/// other refusal names none.
+fn named_wait(error: &ConnectError) -> Option<Duration> {
+    if error.code != connectrpc::ErrorCode::ResourceExhausted {
+        return None;
     }
-
-    /// The `api-bones.error/v1` JSON text.
-    #[must_use]
-    pub fn to_json(&self) -> String {
-        self.to_value().to_string()
-    }
+    api_bones::connect::retry_after(error)
 }
 
 impl fmt::Display for Error {
@@ -367,17 +362,11 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-/// An argument the caller passed that does not fit its wire form.
-impl From<BadValue> for Error {
-    fn from(bad: BadValue) -> Self {
-        Self::invalid_argument(bad.message())
-    }
-}
-
 impl From<ConnectError> for Error {
     fn from(error: ConnectError) -> Self {
         let connect_code = ConnectCode::from(error.code);
         let platform = platform_of_connect(connect_code);
+        let retry_after = named_wait(&error);
         let (code, emitter, args) = match error_info(&error) {
             Some(info) => (
                 if info.code.is_empty() {
@@ -400,7 +389,12 @@ impl From<ConnectError> for Error {
             connect_code,
             message: error.message.unwrap_or_default(),
             args: Box::new(args),
-            page: None,
+            details: retry_after.map(|wait| {
+                Box::new(Details {
+                    page: None,
+                    retry_after: Some(wait),
+                })
+            }),
         }
     }
 }
@@ -438,6 +432,54 @@ mod tests {
     use super::*;
     use api_bones::connect::{ErrorInfo, with_error_info};
     use std::time::{Duration, UNIX_EPOCH};
+
+    fn throttle(retry_after: &str) -> ConnectError {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::RETRY_AFTER,
+            http::HeaderValue::from_str(retry_after).unwrap(),
+        );
+        ConnectError::resource_exhausted("limit reached").with_headers(headers)
+    }
+
+    #[test]
+    fn a_throttle_with_a_seconds_retry_after_carries_the_wait_it_names() {
+        let error = Error::from(throttle("7"));
+        assert_eq!(error.retry_after(), Some(Duration::from_secs(7)));
+    }
+
+    #[tokio::test]
+    async fn a_throttle_with_an_http_date_retry_after_carries_the_wait_it_names() {
+        use api_bones::connect::fetch_with_retry;
+        // Far enough ahead to be handed back unwaited; the loop rewrites the
+        // date as whole seconds.
+        let handed_back = fetch_with_retry(
+            || async { Err::<(), _>(throttle("Fri, 01 Jan 2100 00:00:00 GMT")) },
+            0,
+            None,
+        )
+        .await
+        .unwrap_err();
+        let error = Error::from(handed_back);
+        let wait = error.retry_after().expect("the wait the date names");
+        assert!(wait > Duration::from_secs(2_000_000_000), "{wait:?}");
+    }
+
+    #[test]
+    fn a_refusal_that_is_no_throttle_has_no_retry_after() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(
+            http::header::RETRY_AFTER,
+            http::HeaderValue::from_static("7"),
+        );
+        // A retry-after on another code is not a throttle.
+        let other = ConnectError::unavailable("down").with_headers(headers);
+        assert_eq!(Error::from(other).retry_after(), None);
+        // A throttle that names no wait, or an unreadable one.
+        let bare = Error::from(ConnectError::resource_exhausted("limit reached"));
+        assert_eq!(bare.retry_after(), None);
+        assert_eq!(Error::from(throttle("soon")).retry_after(), None);
+    }
 
     #[test]
     fn every_connect_code_maps_to_its_platform_code() {
@@ -489,49 +531,28 @@ mod tests {
     }
 
     #[test]
-    fn an_argument_crosses_tagged_by_its_kind() {
-        assert_eq!(
-            Arg::from("x").to_value(),
-            json!({"kind": "string", "value": "x"})
-        );
+    fn an_argument_is_made_from_its_value() {
+        assert_eq!(Arg::from("x"), Arg::String("x".to_owned()));
         assert_eq!(Arg::from("x".to_owned()), Arg::String("x".to_owned()));
+        assert_eq!(Arg::from(i64::MAX), Arg::Int64(i64::MAX));
+        assert_eq!(Arg::from(1.5), Arg::Double(1.5));
         assert_eq!(
-            Arg::from(i64::MAX).to_value(),
-            json!({"kind": "int64", "value": "9223372036854775807"})
-        );
-        assert_eq!(
-            Arg::from(1.5).to_value(),
-            json!({"kind": "double", "value": 1.5})
-        );
-        for (x, word) in [
-            (f64::NAN, "NaN"),
-            (f64::INFINITY, "Infinity"),
-            (f64::NEG_INFINITY, "-Infinity"),
-        ] {
-            assert_eq!(
-                Arg::Double(x).to_value(),
-                json!({"kind": "double", "value": word})
-            );
-        }
-        assert_eq!(
-            Arg::from(UNIX_EPOCH + Duration::new(1_000_000_000, 500_000_000)).to_value(),
-            json!({"kind": "timestamp", "value": "2001-09-09T01:46:40.5Z"})
+            Arg::from(UNIX_EPOCH + Duration::new(1_000_000_000, 500_000_000)),
+            Arg::Timestamp {
+                seconds: 1_000_000_000,
+                nanos: 500_000_000
+            }
         );
     }
 
     #[test]
-    fn a_timestamp_outside_the_rfc_3339_range_stays_as_text() {
-        let far = UNIX_EPOCH + Duration::from_secs(300_000_000_000);
+    fn an_instant_before_the_epoch_has_a_negative_second_and_a_positive_fraction() {
         assert_eq!(
-            Arg::from(far),
-            Arg::String("300000000000.000000000".to_owned())
-        );
-        assert_eq!(
-            Arg::from(ErrorArg::Timestamp {
-                seconds: 0,
-                nanos: -1
-            }),
-            Arg::String(format!("0.{:09}", u32::MAX))
+            Arg::from(UNIX_EPOCH - Duration::new(1, 500_000_000)),
+            Arg::Timestamp {
+                seconds: -2,
+                nanos: 500_000_000
+            }
         );
     }
 
@@ -545,7 +566,10 @@ mod tests {
                 seconds: 86_400,
                 nanos: 0
             }),
-            Arg::Timestamp("1970-01-02T00:00:00Z".to_owned())
+            Arg::Timestamp {
+                seconds: 86_400,
+                nanos: 0
+            }
         );
     }
 
@@ -577,6 +601,12 @@ mod tests {
                 "UNAUTHORIZED",
             ),
             (
+                Error::boundary_mismatch(1, 2, 3),
+                "failed_precondition",
+                SDK_BOUNDARY_MISMATCH,
+                "PRECONDITION_FAILED",
+            ),
+            (
                 Error::invalid_argument("bad"),
                 "invalid_argument",
                 "VALIDATION_FAILED",
@@ -590,28 +620,27 @@ mod tests {
             ),
         ];
         for (error, connect, code, platform) in rows {
-            let wire = error.to_value();
-            assert_eq!(wire["connectCode"], connect);
-            assert_eq!(wire["code"], code);
-            assert_eq!(wire["platform"], platform);
-            assert_eq!(wire["emitter"], "bones");
-            assert_eq!(wire["args"], json!({}));
-            assert!(wire.get("page").is_none());
+            assert_eq!(error.connect_code.as_wire(), connect);
+            assert_eq!(error.code, code);
+            assert_eq!(error.platform, platform);
+            assert_eq!(error.emitter, "bones");
+            assert!(error.page().is_none());
+            assert!(error.retry_after().is_none());
         }
     }
 
     #[test]
-    fn a_value_that_does_not_fit_its_wire_form_is_an_invalid_argument() {
-        let error = Error::from(BadValue::new("id: expected a string, found null"));
-        assert_eq!(error.connect_code, ConnectCode::InvalidArgument);
-        assert_eq!(error.message, "id: expected a string, found null");
+    fn a_boundary_mismatch_names_the_three_versions() {
+        let error = Error::boundary_mismatch(1, 2, 3);
+        assert_eq!(error.args.get("core"), Some(&Arg::Int64(1)));
+        assert_eq!(error.args.get("wrapper"), Some(&Arg::Int64(2)));
+        assert_eq!(error.args.get("runtime"), Some(&Arg::Int64(3)));
+        assert!(error.message.contains("core 1, wrapper 2, runtime 3"));
     }
 
     #[test]
-    fn the_json_text_carries_the_wire_fields_and_the_diagnostic() {
+    fn the_text_of_an_error_names_its_connect_code_its_code_and_the_diagnostic() {
         let error = Error::invalid_argument("id: expected a string, found null");
-        let wire: Value = serde_json::from_str(&error.to_json()).unwrap();
-        assert_eq!(wire["message"], "id: expected a string, found null");
         assert_eq!(
             error.to_string(),
             "invalid_argument VALIDATION_FAILED: id: expected a string, found null"
@@ -628,20 +657,13 @@ mod tests {
         args.insert("who".to_owned(), Arg::from("ann"));
         let error = Error::emitted("pay", "GRANT_MISSING", "FORBIDDEN", "no grant", args);
         assert_eq!(error.connect_code, ConnectCode::PermissionDenied);
-        assert_eq!(
-            error.to_value(),
-            json!({
-                "code": "GRANT_MISSING",
-                "emitter": "pay",
-                "platform": "FORBIDDEN",
-                "connectCode": "permission_denied",
-                "message": "no grant",
-                "args": {
-                    "limit": {"kind": "int64", "value": "3"},
-                    "who": {"kind": "string", "value": "ann"},
-                },
-            })
-        );
+        assert_eq!(error.code, "GRANT_MISSING");
+        assert_eq!(error.emitter, "pay");
+        assert_eq!(error.platform, "FORBIDDEN");
+        assert_eq!(error.message, "no grant");
+        assert_eq!(error.args.len(), 2);
+        assert_eq!(error.args["limit"], Arg::Int64(3));
+        assert_eq!(error.args["who"], Arg::from("ann"));
     }
 
     #[test]
@@ -653,7 +675,7 @@ mod tests {
         assert_eq!(error.connect_code, ConnectCode::PermissionDenied);
         assert_eq!(error.message, "no");
         assert!(error.args.is_empty());
-        assert!(error.page.is_none());
+        assert!(error.page().is_none());
         assert_eq!(
             Error::from(ConnectError::new(connectrpc::ErrorCode::Unavailable, "x")).message,
             "x"
@@ -702,24 +724,21 @@ mod tests {
 
     #[test]
     fn a_cursor_refusal_names_its_page_kind_and_what_was_delivered() {
-        for (kind, page_kind, code, wire_kind) in [
+        for (kind, page_kind, code) in [
             (
                 PageErrorKind::CursorInvalid,
                 PageKind::CursorInvalid,
                 "CURSOR_INVALID",
-                "cursor_invalid",
             ),
             (
                 PageErrorKind::CursorExpired,
                 PageKind::CursorExpired,
                 "CURSOR_EXPIRED",
-                "cursor_expired",
             ),
             (
                 PageErrorKind::CursorQueryMismatch,
                 PageKind::CursorQueryMismatch,
                 "CURSOR_QUERY_MISMATCH",
-                "cursor_query_mismatch",
             ),
         ] {
             let error = Error::from(page_error(kind));
@@ -727,16 +746,12 @@ mod tests {
             assert_eq!(error.emitter, "bones");
             assert_eq!(error.connect_code, ConnectCode::InvalidArgument);
             assert_eq!(
-                error.page,
-                Some(Box::new(PageDetail {
+                error.page(),
+                Some(PageDetail {
                     kind: page_kind,
                     delivered_pages: 2,
                     delivered_items: 25
-                }))
-            );
-            assert_eq!(
-                error.to_value()["page"],
-                json!({"kind": wire_kind, "deliveredPages": 2, "deliveredItems": 25})
+                })
             );
         }
     }
@@ -749,7 +764,6 @@ mod tests {
         let error = Error::from(page_error(PageErrorKind::Rpc(rpc)));
         assert_eq!(error.code, "GRANT_MISSING");
         assert_eq!(error.platform, "FORBIDDEN");
-        assert_eq!(error.page.as_ref().map(|p| p.kind), Some(PageKind::Rpc));
-        assert_eq!(error.to_value()["page"]["kind"], "rpc");
+        assert_eq!(error.page().map(|p| p.kind), Some(PageKind::Rpc));
     }
 }

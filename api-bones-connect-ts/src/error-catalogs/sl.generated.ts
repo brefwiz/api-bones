@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "Storitev ni na voljo",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Storitev je začasno nedosegljiva. Poskusite znova pozneje.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Časovna omejitev prehoda je potekla",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Različice SDK se ne ujemajo",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Deli te aplikacije niso usklajeni. Ponovno naložite stran in poskusite znova.",
   "bones.validation.min.title": "Biti mora vsaj {min, number}.",
   "bones.validation.max.title": "Biti mora največ {max, number}.",
   "bones.validation.range.title": "Vrednost je izven obsega.",

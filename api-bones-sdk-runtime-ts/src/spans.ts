@@ -2,6 +2,16 @@
 import { injectTraceContext } from "@brefwiz/api-bones-otel";
 import { propagation, ROOT_CONTEXT, trace, SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { Attributes, Span, Tracer } from "@opentelemetry/api";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { timestampMs } from "@bufbuild/protobuf/wkt";
+import {
+  SpanEnd_Status,
+  SpanEndSchema,
+  SpanStart_Kind,
+  SpanStartSchema,
+  SpanStartedSchema,
+  type AttributeValue,
+} from "./generated/bones/sdk/v1/boundary_pb.js";
 
 /** The per-call inputs the host hands the Rust core. */
 export interface CallCtx {
@@ -25,26 +35,15 @@ export function callCtx(signal?: AbortSignal): CallCtx {
   return ctx;
 }
 
-/** What the Rust core reports when it opens a span. Times are epoch milliseconds. */
-export interface SpanStart {
-  readonly name: string;
-  readonly startTime: number;
-  readonly kind: "client" | "internal";
-  /** The parent's W3C `traceparent`; absent for a new root. */
-  readonly parent?: string;
-  readonly tracestate?: string;
-  readonly attributes?: Attributes;
-}
-
-/** What the Rust core reports when it ends a span it opened. */
-export interface SpanEnd {
-  /** The value `start` returned. */
-  readonly traceparent: string;
-  readonly endTime: number;
-  readonly status: "ok" | "error" | "unset";
-  /** `<connectCode> <code>`, set when `status` is `error`. */
-  readonly error?: string;
-  readonly attributes?: Attributes;
+/** The OpenTelemetry attributes of a span's attribute map; a value that names no member of its oneof is dropped. */
+function attributesOf(map: { readonly [name: string]: AttributeValue }): Attributes {
+  const attributes: Attributes = {};
+  for (const [name, attribute] of Object.entries(map)) {
+    const { value } = attribute;
+    if (value.case === undefined) continue;
+    attributes[name] = value.case === "int64" ? Number(value.value) : value.value;
+  }
+  return attributes;
 }
 
 /** The live JavaScript OpenTelemetry spans of the Rust core's spans. */
@@ -62,12 +61,13 @@ export class JsSpanSink {
   }
 
   /**
-   * Opens a span from a `SpanStart` JSON document and returns its
-   * `traceparent`. A span that is not recording is ended at once and gives
-   * `undefined`, so the core mints its own ids.
+   * Opens a span from the bytes of a `bones.sdk.v1.SpanStart` and answers the
+   * bytes of a `SpanStarted`: the span's `traceparent`. A span that is not
+   * recording is ended at once and answers `recording: false` with no
+   * `traceparent`, so the core mints its own ids.
    */
-  start(json: string): string | undefined {
-    const begin = JSON.parse(json) as SpanStart;
+  start(bytes: Uint8Array): Uint8Array {
+    const begin = fromBinary(SpanStartSchema, bytes);
     const parent =
       begin.parent === undefined
         ? ROOT_CONTEXT
@@ -76,32 +76,32 @@ export class JsSpanSink {
     const span = tracer.startSpan(
       begin.name,
       {
-        startTime: begin.startTime,
-        kind: begin.kind === "client" ? SpanKind.CLIENT : SpanKind.INTERNAL,
-        attributes: begin.attributes,
+        ...(begin.startTime === undefined ? {} : { startTime: timestampMs(begin.startTime) }),
+        kind: begin.kind === SpanStart_Kind.CLIENT ? SpanKind.CLIENT : SpanKind.INTERNAL,
+        attributes: attributesOf(begin.attributes),
       },
       parent,
     );
     if (!span.isRecording()) {
       span.end();
-      return undefined;
+      return toBinary(SpanStartedSchema, create(SpanStartedSchema, { traceparent: "", recording: false }));
     }
     const { traceId, spanId, traceFlags } = span.spanContext();
     const traceparent = `00-${traceId}-${spanId}-${traceFlags.toString(16).padStart(2, "0")}`;
     this.#open.set(traceparent, span);
-    return traceparent;
+    return toBinary(SpanStartedSchema, create(SpanStartedSchema, { traceparent, recording: true }));
   }
 
-  /** Ends the span `start` returned, from a `SpanEnd` JSON document. An unknown `traceparent` is ignored. */
-  end(json: string): void {
-    const finish = JSON.parse(json) as SpanEnd;
+  /** Ends the span `start` returned, from the bytes of a `bones.sdk.v1.SpanEnd`. An unknown `traceparent` is ignored. */
+  end(bytes: Uint8Array): void {
+    const finish = fromBinary(SpanEndSchema, bytes);
     const span = this.#open.get(finish.traceparent);
     if (span === undefined) return;
     this.#open.delete(finish.traceparent);
-    if (finish.attributes !== undefined) span.setAttributes(finish.attributes);
-    if (finish.status === "error") span.setStatus({ code: SpanStatusCode.ERROR, message: finish.error });
-    else if (finish.status === "ok") span.setStatus({ code: SpanStatusCode.OK });
-    span.end(finish.endTime);
+    span.setAttributes(attributesOf(finish.attributes));
+    if (finish.status === SpanEnd_Status.ERROR) span.setStatus({ code: SpanStatusCode.ERROR, message: finish.error });
+    else if (finish.status === SpanEnd_Status.OK) span.setStatus({ code: SpanStatusCode.OK });
+    span.end(finish.endTime === undefined ? undefined : timestampMs(finish.endTime));
   }
 
   /** The open span for `traceparent`, if the core has not ended it. */

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use heck::{ToLowerCamelCase, ToSnakeCase};
+use heck::ToLowerCamelCase;
 
 /// A part of an export name that cannot be spelled.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,17 +73,11 @@ pub fn typescript_name(method: &str) -> String {
     method.to_lower_camel_case()
 }
 
-/// The key of a parameter or record field in the JSON a call carries: lower
-/// camel case.
+/// The camel case a parameter name has as a protobuf field's JSON name and as
+/// a TypeScript parameter: lower camel case.
 #[must_use]
 pub fn json_name(field: &str) -> String {
     field.to_lower_camel_case()
-}
-
-/// The string an enumeration value crosses as: snake case.
-#[must_use]
-pub fn enum_value(variant: &str) -> String {
-    variant.to_snake_case()
 }
 
 #[cfg(test)]
@@ -125,6 +119,5 @@ mod tests {
         assert_eq!(typescript_name("batch_get_widgets"), "batchGetWidgets");
         assert_eq!(typescript_name("list"), "list");
         assert_eq!(json_name("page_size"), "pageSize");
-        assert_eq!(enum_value("CursorExpired"), "cursor_expired");
     }
 }

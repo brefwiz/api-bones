@@ -4,14 +4,14 @@
 use api_bones_sdk_model::{Client, Model, Return};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
-use syn::{FnArg, ImplItem, ImplItemFn, Item, ItemImpl, ReturnType, Type, parse_quote};
+use syn::{ImplItem, ImplItemFn, Item, ItemImpl, ReturnType, Type, parse_quote};
 
-use crate::common::{finish, head, is_unit, without};
+use crate::common::{finish, head, without};
 use crate::{service, wasm};
 
 /// The impl, kept as written but for the `#[export]` attributes, the
-/// compile-time checks that every type crossing is a `Wire` and every error an
-/// `Into<api_bones_sdk::Error>`, and the wasm exports.
+/// compile-time check that every error is an `Into<api_bones_sdk::Error>`, and
+/// the wasm exports.
 pub(crate) fn expand(args: TokenStream, item: TokenStream) -> TokenStream {
     expand_for(service::resolve(), args, item)
 }
@@ -56,9 +56,10 @@ fn generate(service: &str, args: TokenStream, item: &ItemImpl) -> syn::Result<To
 /// The model of this one impl.
 ///
 /// A macro sees one item, so the other types of the crate are unknown to it.
-/// Each name the impl mentions is declared as both a record and an error type
-/// of a stand-in file, which makes the model's own checks pass for names and
-/// leaves every other rule to the model. That the names really are records or
+/// Each name the impl mentions is declared as an error type of a stand-in
+/// file, which makes the model's own check of the error type pass for names
+/// and leaves every other rule to the model. Messages are named by their full
+/// path, which the model reads without declarations. That the names really are
 /// errors is asserted by [`checks`].
 fn read(args: TokenStream, item: &ItemImpl) -> syn::Result<Client> {
     let mut marked = item.clone();
@@ -78,9 +79,6 @@ fn read(args: TokenStream, item: &ItemImpl) -> syn::Result<Client> {
     names.dedup();
     let mut items: Vec<Item> = Vec::new();
     for name in &names {
-        if let Ok(stand_in) = syn::parse2::<Item>(quote!(#[record] struct #name {})) {
-            items.push(stand_in);
-        }
         if let Ok(stand_in) =
             syn::parse2::<Item>(quote!(#[error(emitter = "stand-in")] enum #name {}))
         {
@@ -112,40 +110,26 @@ fn names_in(tokens: TokenStream, out: &mut Vec<syn::Ident>) {
     }
 }
 
-/// A constant that does not compile unless every type that crosses is a
-/// `Wire` and every error converts into the SDK's error.
+/// A constant that does not compile unless every error converts into the SDK's
+/// error. What crosses is a generated message or a scalar in its wrapper; the
+/// exports' own `decode_strict`, `encode_*` and name guards assert that on
+/// wasm32.
 fn checks(client: &Client, functions: &[&ImplItemFn]) -> TokenStream {
-    let mut wire: Vec<Type> = Vec::new();
     let mut error: Vec<Type> = Vec::new();
     for (export, function) in client.exports.iter().zip(functions) {
-        for input in &function.sig.inputs {
-            if let FnArg::Typed(typed) = input {
-                wire.push((*typed.ty).clone());
-            }
-        }
         let ReturnType::Type(_, ty) = &function.sig.output else {
             continue;
         };
-        let (_, args) = head(ty);
-        match &export.ret {
-            Return::Unit => {}
-            Return::Value(_) => wire.push((**ty).clone()),
-            Return::Handle { .. } => wire.extend(args.into_iter().next()),
-            Return::Result { .. } => {
-                let mut args = args.into_iter();
-                wire.extend(args.next().filter(|ok| !is_unit(ok)));
-                error.extend(args.next());
-            }
+        if let Return::Result { .. } = &export.ret {
+            error.extend(head(ty).1.into_iter().nth(1));
         }
     }
-    if wire.is_empty() && error.is_empty() {
+    if error.is_empty() {
         return TokenStream::new();
     }
     quote! {
         const _: fn() = || {
-            fn wire<T: ::api_bones_sdk::Wire>() {}
             fn error<E: ::core::convert::Into<::api_bones_sdk::Error>>() {}
-            #( wire::<#wire>(); )*
             #( error::<#error>(); )*
         };
     }
@@ -159,13 +143,13 @@ mod tests {
     const IMPL: &str = r"
         impl NumbersClient {
             #[export(sync)]
-            pub fn label(&self, n: Number) -> String { body() }
+            pub fn label(&self, n: u32) -> String { body() }
             #[export]
-            pub async fn list(&self, limit: u32) -> ListCall<Number> { body() }
+            pub async fn list(&self, limit: u32) -> ListCall<generated::contract::sdk::v1::Number> { body() }
             #[export(sync)]
             pub fn reset(&self) { body() }
             #[export]
-            pub async fn get(&self, id: String) -> Result<Number, NumbersError> { body() }
+            pub async fn get(&self, id: String) -> Result<generated::contract::sdk::v1::Number, NumbersError> { body() }
             pub fn plain(&self) {}
             #[export]
             pub async fn clear(&self) -> Result<(), Error> { body() }
@@ -177,7 +161,10 @@ mod tests {
     }
 
     fn sample() -> TokenStream {
-        run(quote!(surface = "numbers"), IMPL)
+        run(
+            quote!(surface = "numbers", proto = generated::contract::sdk::v1),
+            IMPL,
+        )
     }
 
     #[test]
@@ -185,7 +172,7 @@ mod tests {
         let text = flat(&sample());
         assert!(text.starts_with("implNumbersClient{"), "{text}");
         assert!(
-            text.contains("pubasyncfnlist(&self,limit:u32)->ListCall<Number>{body()}"),
+            text.contains("pubasyncfnlist(&self,limit:u32)->ListCall<generated::contract::sdk::v1::Number>{body()}"),
             "{text}"
         );
         assert!(text.contains("pubfnplain(&self){}"), "{text}");
@@ -198,37 +185,26 @@ mod tests {
     }
 
     #[test]
-    fn every_crossing_type_must_be_a_wire_and_every_error_must_convert() {
+    fn every_error_must_convert_into_the_sdk_error() {
         let text = flat(&sample());
-        for ty in ["u32", "Number", "String"] {
-            assert!(text.contains(&format!("wire::<{ty}>();")), "{ty} {text}");
-        }
         assert!(text.contains("error::<NumbersError>();"), "{text}");
         assert!(text.contains("error::<Error>();"), "{text}");
-        assert!(
-            text.contains("fnwire<T:::api_bones_sdk::Wire>(){}"),
-            "{text}"
-        );
         assert!(
             text.contains("fnerror<E:::core::convert::Into<::api_bones_sdk::Error>>(){}"),
             "{text}"
         );
+        assert!(!text.contains("Wire"), "{text}");
     }
 
     #[test]
-    fn a_unit_ok_type_and_a_unit_return_are_not_checked() {
+    fn an_impl_without_a_result_export_has_no_checks() {
         let text = flat(&run(
             quote!(surface = "s"),
-            "impl C { #[export] async fn a(&self) -> Result<(), Error> { body() } #[export(sync)] fn b(&self) {} }",
+            "impl C { #[export(sync)] fn b(&self) {} #[export] async fn l(&self) -> ListCall<generated::contract::v1::Number> { body() } }",
         ));
-        assert!(!text.contains("wire::<"), "{text}");
-        assert!(text.contains("error::<Error>();"), "{text}");
-    }
-
-    #[test]
-    fn an_impl_without_crossing_types_has_no_checks() {
+        assert!(!text.contains("fnerror"), "{text}");
         let text = flat(&run(quote!(surface = "s"), "impl C {}"));
-        assert!(!text.contains("fnwire"), "{text}");
+        assert!(!text.contains("fnerror"), "{text}");
     }
 
     #[test]
@@ -264,7 +240,7 @@ mod tests {
             quote!(surface = "s"),
             "impl C { #[export] async fn a(&self, n: u8) -> Result<(), Error> { body() } }",
         ));
-        assert!(text.contains("parameter`n`"), "{text}");
+        assert!(text.contains("nomessagetoarriveas"), "{text}");
         let text = flat(&run(
             quote!(surface = "s"),
             "impl C { #[export] async fn a(&mut self) -> Result<(), Error> { body() } }",
@@ -273,33 +249,42 @@ mod tests {
     }
 
     #[test]
-    fn a_from_host_in_the_impl_is_kept_and_its_options_reach_the_constructor() {
+    fn a_from_host_in_the_impl_is_kept_and_its_options_message_reaches_the_constructor() {
         let text = flat(&run(
             quote!(surface = "s"),
-            "impl C { pub fn from_host(base_url: String, host: JsValue, size: Option<u32>) -> Result<Self, Error> { body() } }",
+            "impl C { pub fn from_host(base_url: String, host: JsValue, options: generated::contract::v1::COptions) -> Result<Self, Error> { body() } }",
         ));
         assert!(
-            text.contains("pubfnfrom_host(base_url:String,host:JsValue,size:Option<u32>)"),
+            text.contains("pubfnfrom_host(base_url:String,host:JsValue,options:generated::contract::v1::COptions)"),
             "{text}"
         );
-        assert!(text.contains("&[\"size\"]"), "{text}");
         assert!(
             text.contains(
-                "<C>::from_host(base_url,host,::api_bones_sdk::field(&__options,\"size\")?)"
+                "<C>::from_host(base_url,host,::api_bones_sdk::__private::decode_options(&__options)?)"
             ),
             "{text}"
         );
     }
 
     #[test]
-    fn an_option_of_from_host_that_is_not_optional_is_refused() {
+    fn an_option_of_from_host_that_is_not_a_message_is_refused() {
         let text = flat(&run(
             quote!(surface = "s"),
             "impl C { pub fn from_host(base_url: String, host: JsValue, size: u32) -> Result<Self, Error> { body() } }",
         ));
         assert!(text.starts_with("::core::compile_error!"), "{text}");
         assert!(text.contains("option`size`"), "{text}");
-        assert!(text.contains("`Option`"), "{text}");
+        assert!(text.contains("optionsmessage"), "{text}");
+    }
+
+    #[test]
+    fn more_than_one_option_is_refused() {
+        let text = flat(&run(
+            quote!(surface = "s"),
+            "impl C { pub fn from_host(base_url: String, host: JsValue, a: A, b: B) -> Result<Self, Error> { body() } }",
+        ));
+        assert!(text.starts_with("::core::compile_error!"), "{text}");
+        assert!(text.contains("oneoptionsmessage"), "{text}");
     }
 
     #[test]

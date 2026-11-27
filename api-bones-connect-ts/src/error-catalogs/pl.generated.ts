@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "Usługa niedostępna",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Usługa jest tymczasowo niedostępna. Spróbuj ponownie później.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Przekroczono limit czasu bramy",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Wersje SDK nie pasują do siebie",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Części tej aplikacji nie są zsynchronizowane. Odśwież stronę i spróbuj ponownie.",
   "bones.validation.min.title": "Wartość musi wynosić co najmniej {min, number}.",
   "bones.validation.max.title": "Wartość może wynosić co najwyżej {max, number}.",
   "bones.validation.range.title": "Wartość jest poza zakresem.",

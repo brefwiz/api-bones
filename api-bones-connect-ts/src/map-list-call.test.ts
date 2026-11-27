@@ -7,7 +7,7 @@ const page = (items: number[], hasNext: boolean): Page<number> => ({
   items, revision: "r1", fromCache: false, hasNext, total: { value: 5n, kind: "exact" },
 });
 
-function source(pagesOut: Page<number>[], fail?: Error): ListCall<number> & { pulled: number } {
+function source(pagesOut: Page<number>[], fail?: Error, chosen?: (pages: 0 | 1) => void): ListCall<number> & { pulled: number } {
   const state = { pulled: 0 };
   async function* gen() {
     for (const p of pagesOut) { state.pulled++; yield p; }
@@ -19,6 +19,7 @@ function source(pagesOut: Page<number>[], fail?: Error): ListCall<number> & { pu
     pages: () => gen(),
     items: async function* () { for await (const p of gen()) yield* p.items; },
     firstPage: async () => pagesOut[0]!,
+    withPrefetch(pages) { chosen?.(pages); return this; },
   };
 }
 
@@ -46,6 +47,13 @@ describe("mapListCall", () => {
     const out: number[] = [];
     for await (const v of mapped.items()) out.push(v);
     expect(out).toEqual([]);
+  });
+
+  it("hands the prefetch choice to the source list and maps its pages", async () => {
+    const chosen: (0 | 1)[] = [];
+    const mapped = mapListCall(source([page([1], false)], undefined, (pages) => chosen.push(pages)), (n) => `v${n}`).withPrefetch(0);
+    expect(chosen).toEqual([0]);
+    expect((await mapped.firstPage()).items).toEqual(["v1"]);
   });
 
   it("is lazy and does not buffer", async () => {

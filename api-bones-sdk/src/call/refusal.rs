@@ -70,7 +70,7 @@ mod tests {
             (identity_changed(false), Error::identity_changed()),
         ];
         for (refusal, expected) in cases {
-            assert_eq!(Error::from(refusal).to_value(), expected.to_value());
+            assert_eq!(Error::from(refusal), expected);
         }
     }
 

@@ -44,12 +44,30 @@ pub type MetadataFetch<Req, Resp> = Arc<
 pub type MetadataFetch<Req, Resp> =
     Arc<dyn Fn(Req, ListMetadata) -> BoxFuture<'static, Result<ListResponse<Resp>, ConnectError>>>;
 
-/// Names the identity a cached chain belongs to.
-#[cfg(not(target_arch = "wasm32"))]
-type Identity = Arc<dyn Fn() -> String + Send + Sync>;
-/// Names the identity a cached chain belongs to.
-#[cfg(target_arch = "wasm32")]
-type Identity = Arc<dyn Fn() -> String>;
+/// The identity a cached chain belongs to: never empty, so no cache method
+/// is ever keyed on an unnamed caller.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CacheIdentity(Arc<str>);
+
+impl CacheIdentity {
+    /// The identity named `name`; `None` when `name` is empty.
+    #[must_use]
+    pub fn new(name: impl Into<Arc<str>>) -> Option<Self> {
+        let name = name.into();
+        (!name.is_empty()).then_some(Self(name))
+    }
+
+    /// The identity's name.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Resolves the identity a cached chain belongs to, when a walk first needs
+/// it and again at every page boundary. A failure ends the walk: it is never
+/// continued uncached.
+pub type IdentityFn = SharedFn<(), BoxFuture<'static, Result<CacheIdentity, ConnectError>>>;
 
 /// Whether to consult and rebuild a revision chain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -63,7 +81,7 @@ pub enum CacheMode {
 
 struct CacheBinding {
     cache: crate::RevisionCache,
-    identity: Identity,
+    identity: IdentityFn,
     key: [u8; 32],
 }
 
@@ -117,6 +135,10 @@ pub trait PagedResponse: MaybeSend + 'static {
 
     /// Take the items and the page info out of the response.
     fn split(self) -> (Vec<Self::Item>, PageInfo);
+
+    /// The protobuf-encoded length of one item, the measure the revision
+    /// cache holds chains by.
+    fn encoded_len(item: &Self::Item) -> usize;
 }
 
 /// Per-iteration options.
@@ -126,7 +148,8 @@ pub struct PageOptions {
     pub cache: CacheMode,
     /// Page-size hint; the server clamps it. `None` or zero = server default.
     pub page_size: Option<u32>,
-    /// Pages fetched ahead of the consumer: 0 or 1.
+    /// Pages fetched ahead of the consumer: 0 reads none, any larger value
+    /// reads one ahead.
     pub prefetch: u8,
 }
 
@@ -204,7 +227,7 @@ impl<Req: PagedRequest, Resp: PagedResponse> ListCall<Req, Resp> {
         fetch: MetadataFetch<Req, Resp>,
         request: Req,
         cache: crate::RevisionCache,
-        identity: Identity,
+        identity: IdentityFn,
         canonical_request: &[u8],
     ) -> Self {
         let plain = fetch.clone();
@@ -282,6 +305,14 @@ impl<Req: PagedRequest, Resp: PagedResponse> ListCall<Req, Resp> {
         self
     }
 
+    /// The pages fetched ahead of the consumer: 0 reads only the pages asked
+    /// for, any larger value reads one ahead.
+    #[must_use]
+    pub fn prefetch(mut self, pages: u8) -> Self {
+        self.options.prefetch = pages.min(1);
+        self
+    }
+
     /// One call, no following of `next_cursor`.
     ///
     /// # Errors
@@ -333,21 +364,6 @@ impl<Req: PagedRequest, Resp: PagedResponse> ListCall<Req, Resp> {
             digest.update(self.options.page_size.unwrap_or_default().to_le_bytes());
             binding.key = digest.finalize().into();
         }
-        let identity = cache.as_ref().map(|binding| (binding.identity)());
-        if let (Some(binding), Some(identity)) = (&cache, &identity) {
-            binding.cache.identity(identity);
-        }
-        let replay = cache
-            .as_ref()
-            .zip(identity.as_deref())
-            .filter(|_| cache_enabled)
-            .and_then(|(binding, identity)| {
-                binding.cache.replay(identity, self.method, binding.key)
-            });
-        let generation = cache
-            .as_ref()
-            .zip(identity.as_deref())
-            .and_then(|(binding, identity)| binding.cache.generation(identity));
         let retries = retries_for(self.idempotency);
         let state = Walk {
             cache_enabled,
@@ -365,11 +381,11 @@ impl<Req: PagedRequest, Resp: PagedResponse> ListCall<Req, Resp> {
             method: self.method,
             metadata_fetch: self.metadata_fetch,
             cache,
-            identity,
-            replay,
+            identity: None,
+            replay: None,
             replaying: false,
-            chain: Vec::new(),
-            generation,
+            chain: crate::cache::ChainBuilder::default(),
+            generation: None,
         };
         futures_util::stream::unfold(state, |mut walk| async move {
             let result = walk.advance().await?;
@@ -387,10 +403,12 @@ struct Walk<Req, Resp: PagedResponse> {
     method: &'static str,
     metadata_fetch: Option<MetadataFetch<Req, Resp>>,
     cache: Option<CacheBinding>,
-    identity: Option<String>,
+    /// The identity the walk started as; `None` until the first page boundary
+    /// resolves it.
+    identity: Option<CacheIdentity>,
     replay: Option<Vec<Page<Resp::Item>>>,
     replaying: bool,
-    chain: Vec<crate::cache::Cached<Resp::Item>>,
+    chain: crate::cache::ChainBuilder<Resp::Item>,
     measurement: crate::span::Measurement,
     fetch: Fetch<Req, Resp>,
     request: Req,
@@ -411,7 +429,7 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
         if self.cursor.is_none() && !self.replaying {
             return None;
         }
-        if let Some(error) = self.guard() {
+        if let Some(error) = self.guard().await {
             return Some(Err(error));
         }
         if self.replaying {
@@ -467,7 +485,7 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
                         // A failed answer keeps its own code; only an answer
                         // that would be delivered is checked.
                         if response.is_ok() {
-                            if let Some(error) = self.guard() {
+                            if let Some(error) = self.guard().await {
                                 return Some(Err(error));
                             }
                         }
@@ -503,7 +521,7 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
             outcome.map(PagedResponse::split)
         };
         if delivered.is_ok() {
-            if let Some(error) = self.guard() {
+            if let Some(error) = self.guard().await {
                 return Some(Err(error));
             }
         }
@@ -534,11 +552,16 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
                 }
                 let complete = info.next_cursor.is_empty();
                 let page = page_of(items, info);
-                self.chain.push(crate::cache::Cached::of(&page));
+                if self.cache_enabled {
+                    let bytes = page.items.iter().fold(0_usize, |sum, item| {
+                        sum.saturating_add(Resp::encoded_len(item))
+                    });
+                    self.chain.push(&page, bytes);
+                }
                 if self.cursor.is_none() && complete && self.cache_enabled {
                     if let (Some(binding), Some(identity)) = (&self.cache, &self.identity) {
                         binding.cache.store(
-                            identity,
+                            identity.as_str(),
                             self.generation,
                             self.method,
                             binding.key,
@@ -551,7 +574,7 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
             Err(error) => {
                 if error.code == connectrpc::ErrorCode::Unauthenticated {
                     if let (Some(binding), Some(identity)) = (&self.cache, &self.identity) {
-                        binding.cache.clear_identity(identity);
+                        binding.cache.clear_identity(identity.as_str());
                     }
                 }
                 self.measurement.finish(false, false);
@@ -564,32 +587,53 @@ impl<Req: PagedRequest, Resp: PagedResponse> Walk<Req, Resp> {
         page_request(&self.request, cursor, self.options.page_size)
     }
 
-    fn guard(&mut self) -> Option<PageError> {
+    /// Resolves the caller's identity at a page boundary. The first boundary
+    /// adopts it, with its replayable chain and generation; later ones refuse
+    /// the walk when the identity or the cache generation moved, or when the
+    /// identity can no longer be resolved.
+    async fn guard(&mut self) -> Option<PageError> {
+        let resolving = (self.cache.as_ref()?.identity)(());
+        let Ok(current) = resolving.await else {
+            return Some(self.refuse(true));
+        };
         let binding = self.cache.as_ref()?;
-        let identity = (binding.identity)();
-        binding.cache.identity(&identity);
-        if self.identity.as_deref() == Some(identity.as_str())
-            && self.generation == binding.cache.generation(&identity)
-        {
+        binding.cache.identity(current.as_str());
+        let Some(started_as) = self.identity.clone() else {
+            self.replay = if self.cache_enabled {
+                binding
+                    .cache
+                    .replay(current.as_str(), self.method, binding.key)
+            } else {
+                None
+            };
+            self.generation = binding.cache.generation(current.as_str());
+            self.identity = Some(current);
+            return None;
+        };
+        let moved = started_as != current;
+        if !moved && self.generation == binding.cache.generation(current.as_str()) {
             return None;
         }
-        // A walk that outlives its caller drops the chains of the identity it
-        // started as, and of no other.
-        if let Some(started_as) = self.identity.as_deref()
-            && started_as != identity
+        Some(self.refuse(moved))
+    }
+
+    /// Ends the walk as unauthenticated. A walk that outlives its caller drops
+    /// the chains of the identity it started as, and of no other.
+    fn refuse(&mut self, drop_started_as: bool) -> PageError {
+        if drop_started_as && let (Some(binding), Some(started_as)) = (&self.cache, &self.identity)
         {
-            binding.cache.clear_identity(started_as);
+            binding.cache.clear_identity(started_as.as_str());
         }
         self.cursor = None;
         self.replaying = false;
         self.replay = None;
         self.pending = None;
         self.measurement.finish(false, false);
-        Some(PageError::from_connect(
+        PageError::from_connect(
             ConnectError::unauthenticated("list cache identity or session changed"),
             self.pages,
             self.items,
-        ))
+        )
     }
 }
 
@@ -625,6 +669,13 @@ mod tests {
     use super::*;
     use crate::PageErrorKind;
 
+    /// An identity hook that always answers `who`.
+    fn named(who: &'static str) -> IdentityFn {
+        Arc::new(move |()| {
+            Box::pin(async move { Ok(CacheIdentity::new(who).expect("a non-empty identity")) })
+        })
+    }
+
     #[derive(Clone)]
     struct Request;
 
@@ -643,6 +694,28 @@ mod tests {
         fn split(self) -> (Vec<Self::Item>, PageInfo) {
             (vec![1], PageInfo::default())
         }
+
+        fn encoded_len(_: &Self::Item) -> usize {
+            1
+        }
+    }
+
+    #[test]
+    fn the_prefetch_setter_reads_none_or_one_page_ahead() {
+        let call = || {
+            let fetch: Fetch<Request, Response> = Arc::new(|_| Box::pin(async { Ok(Response) }));
+            ListCall::new(
+                "/contract.v1.Numbers/List",
+                Idempotency::NoSideEffects,
+                fetch,
+                Request,
+            )
+        };
+        assert_eq!(call().options.prefetch, 1);
+        assert_eq!(call().prefetch(0).options.prefetch, 0);
+        assert_eq!(call().prefetch(1).options.prefetch, 1);
+        assert_eq!(call().prefetch(9).options.prefetch, 1);
+        assert_eq!(call().prefetch(0).prefetch(1).options.prefetch, 1);
     }
 
     #[tokio::test]
@@ -722,7 +795,7 @@ mod tests {
                 fetch,
                 Request,
                 crate::RevisionCache::default(),
-                Arc::new(|| "principal".to_owned()),
+                named("principal"),
                 &[],
             )
             .first_page()
@@ -759,7 +832,7 @@ mod tests {
             fetch,
             Request,
             cache,
-            Arc::new(|| "principal".to_owned()),
+            named("principal"),
             &[],
         )
         .first_page()
@@ -803,6 +876,25 @@ mod tests {
                 },
             )
         }
+
+        fn encoded_len(_: &Self::Item) -> usize {
+            1
+        }
+    }
+
+    /// `TwoPages` whose every item encodes to the whole per-chain budget.
+    struct BigPages(TwoPages);
+
+    impl PagedResponse for BigPages {
+        type Item = u32;
+
+        fn split(self) -> (Vec<Self::Item>, PageInfo) {
+            self.0.split()
+        }
+
+        fn encoded_len(_: &Self::Item) -> usize {
+            crate::cache::HOLD_CHAIN_BYTES
+        }
     }
 
     fn walk_as(
@@ -823,10 +915,42 @@ mod tests {
             fetch,
             Cursor(String::new()),
             cache.clone(),
-            Arc::new(move || who.to_owned()),
+            named(who),
             &[],
         )
         .pages()
+    }
+
+    #[tokio::test]
+    async fn a_walk_over_the_chain_budget_finishes_without_caching() {
+        let cache = crate::RevisionCache::default();
+        let fetch: MetadataFetch<Cursor, BigPages> = Arc::new(|request, _| {
+            Box::pin(async move {
+                Ok(ListResponse {
+                    body: BigPages(TwoPages(request.0)),
+                    not_modified: false,
+                })
+            })
+        });
+        let mut walk = Box::pin(
+            ListCall::generated(
+                "/contract.v1.Numbers/List",
+                Idempotency::NoSideEffects,
+                fetch,
+                Cursor(String::new()),
+                cache.clone(),
+                named("alice"),
+                &[],
+            )
+            .pages(),
+        );
+        let mut delivered = 0;
+        while let Some(page) = walk.next().await {
+            page.expect("delivered");
+            delivered += 1;
+        }
+        assert_eq!(delivered, 2);
+        assert!(cache.is_empty());
     }
 
     #[tokio::test]
@@ -834,15 +958,17 @@ mod tests {
         let cache = crate::RevisionCache::default();
         let mut anonymous = Box::pin(walk_as(&cache, "anonymous"));
         let mut signed_in = Box::pin(walk_as(&cache, "signed-in"));
+        assert!(cache.generation("anonymous").is_none());
+        let mut delivered = Vec::new();
+        for walk in [&mut anonymous, &mut signed_in] {
+            delivered.push(walk.next().await.expect("a page").expect("delivered"));
+        }
         let anonymous_slot = cache.generation("anonymous");
         let signed_in_slot = cache.generation("signed-in");
         assert!(anonymous_slot.is_some() && signed_in_slot.is_some());
         assert_ne!(anonymous_slot, signed_in_slot);
-        let mut delivered = Vec::new();
-        for _ in 0..2 {
-            for walk in [&mut anonymous, &mut signed_in] {
-                delivered.push(walk.next().await.expect("a page").expect("delivered"));
-            }
+        for walk in [&mut anonymous, &mut signed_in] {
+            delivered.push(walk.next().await.expect("a page").expect("delivered"));
         }
         assert_eq!(delivered.len(), 4);
         assert!(anonymous.next().await.is_none());
@@ -901,7 +1027,10 @@ mod tests {
                 fetch,
                 Cursor(String::new()),
                 cache.clone(),
-                Arc::new(move || source.lock().expect("caller").clone()),
+                Arc::new(move |()| {
+                    let caller = source.lock().expect("caller").clone();
+                    Box::pin(async move { Ok(CacheIdentity::new(caller).expect("a caller")) })
+                }),
                 &[],
             )
             .pages(),
@@ -928,5 +1057,123 @@ mod tests {
         assert!(cache.replay::<u32>("alice", path, key).is_none());
         assert!(cache.replay::<u32>("bob", path, key).is_some());
         drop(held);
+    }
+
+    #[test]
+    fn an_empty_identity_is_never_named() {
+        assert!(CacheIdentity::new("").is_none());
+        assert!(CacheIdentity::new(String::new()).is_none());
+        assert_eq!(
+            CacheIdentity::new("alice").expect("named").as_str(),
+            "alice"
+        );
+    }
+
+    /// A hook that answers `who` for its first `answers` calls, then fails.
+    fn failing_after(answers: usize, who: &'static str) -> (Arc<AtomicUsize>, IdentityFn) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&calls);
+        let hook: IdentityFn = Arc::new(move |()| {
+            let call = counted.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                if call < answers {
+                    Ok(CacheIdentity::new(who).expect("named"))
+                } else {
+                    Err(ConnectError::unavailable("the credential cannot be read"))
+                }
+            })
+        });
+        (calls, hook)
+    }
+
+    fn two_page_call(
+        cache: &crate::RevisionCache,
+        fetches: &Arc<AtomicUsize>,
+        identity: IdentityFn,
+    ) -> ListCall<Cursor, TwoPages> {
+        let counted = Arc::clone(fetches);
+        let fetch: MetadataFetch<Cursor, TwoPages> = Arc::new(move |request, _| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                Ok(ListResponse {
+                    body: TwoPages(request.0),
+                    not_modified: false,
+                })
+            })
+        });
+        ListCall::generated(
+            "/contract.v1.Numbers/List",
+            Idempotency::NoSideEffects,
+            fetch,
+            Cursor(String::new()),
+            cache.clone(),
+            identity,
+            &[],
+        )
+    }
+
+    #[tokio::test]
+    async fn the_identity_is_resolved_at_the_first_poll_never_at_construction() {
+        let cache = crate::RevisionCache::default();
+        let fetches = Arc::new(AtomicUsize::new(0));
+        let (calls, hook) = failing_after(usize::MAX, "alice");
+        let mut walk = Box::pin(two_page_call(&cache, &fetches, hook).pages());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(cache.generation("alice").is_none());
+        walk.next().await.expect("a page").expect("delivered");
+        assert!(calls.load(Ordering::SeqCst) >= 1);
+        assert!(cache.generation("alice").is_some());
+    }
+
+    #[tokio::test]
+    async fn an_identity_that_cannot_be_resolved_fails_the_walk_before_any_fetch() {
+        let cache = crate::RevisionCache::default();
+        let fetches = Arc::new(AtomicUsize::new(0));
+        let (_, hook) = failing_after(0, "alice");
+        let mut walk = Box::pin(two_page_call(&cache, &fetches, hook).pages());
+        let refusal = walk.next().await.expect("a refusal").expect_err("refused");
+        assert!(matches!(
+            refusal.kind,
+            PageErrorKind::Rpc(error) if error.code == connectrpc::ErrorCode::Unauthenticated
+        ));
+        assert!(walk.next().await.is_none());
+        assert_eq!(fetches.load(Ordering::SeqCst), 0);
+        assert!(cache.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_identity_lost_mid_walk_drops_the_chains_it_started_as() {
+        let cache = crate::RevisionCache::default();
+        let key = {
+            let mut digest = Sha256::new();
+            digest.update(Sha256::digest(b""));
+            digest.update(0_u32.to_le_bytes());
+            digest.finalize().into()
+        };
+        let finished = Arc::new(AtomicUsize::new(0));
+        let mut done = Box::pin(two_page_call(&cache, &finished, named("alice")).pages());
+        while let Some(page) = done.next().await {
+            page.expect("delivered");
+        }
+        assert!(
+            cache
+                .replay::<u32>("alice", "/contract.v1.Numbers/List", key)
+                .is_some()
+        );
+        let fetches = Arc::new(AtomicUsize::new(0));
+        // A page boundary resolves the identity before the fetch and once the
+        // page is in hand; the third answer carries the first page out and the
+        // next one fails.
+        let (_, hook) = failing_after(3, "alice");
+        let mut walk = Box::pin(two_page_call(&cache, &fetches, hook).pages());
+        walk.next().await.expect("a page").expect("delivered");
+        let refusal = walk.next().await.expect("a refusal").expect_err("refused");
+        assert_eq!(refusal.delivered_pages, 1);
+        assert!(
+            cache
+                .replay::<u32>("alice", "/contract.v1.Numbers/List", key)
+                .is_none()
+        );
+        assert!(walk.next().await.is_none());
     }
 }

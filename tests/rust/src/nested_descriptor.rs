@@ -54,8 +54,8 @@ fn create_and_update_children_name_the_single_child_write() {
         );
     }
     let service = pool
-        .get_service_by_name("contract.v1.WidgetAssembly")
-        .expect("WidgetAssembly service");
+        .get_service_by_name("contract.v1.WidgetAssemblyService")
+        .expect("WidgetAssemblyService service");
     assert!(
         service
             .methods()

@@ -6,7 +6,7 @@ edition = "2024"
 rust-version = "1.85"
 authors = ["Gregoire Salingue"]
 license = "MIT"
-description = "The Layer 2 vocabulary of the api-bones SDK: the wire error, the JSON codec, call context, span sink and the handles a call returns, decided once in Rust."
+description = "The Layer 2 vocabulary of the api-bones SDK: the error, the protobuf boundary, call context, span sink and the handles a call returns, decided once in Rust."
 repository = "https://github.com/brefwiz/api-bones"
 homepage = "https://github.com/brefwiz/api-bones"
 documentation = "https://docs.rs/api-bones-sdk"
@@ -30,18 +30,19 @@ api-bones-batch = { version = "0.8.5", path = "../api-bones-batch", registry = "
 api-bones-page = { version = "0.8.5", path = "../api-bones-page", registry = "brefwiz" }
 api-bones-rt = { version = "0.1.0", path = "../api-bones-rt", registry = "brefwiz" }
 api-bones-transport = { version = "0.3.2", path = "../api-bones-transport", registry = "brefwiz" }
-base64 = { version = "0.23", default-features = false, features = ["alloc"] }
+buffa = "0.9"
+buffa-types = "0.9"
 connectrpc = { version = "0.9.1", default-features = false }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4.2"
-serde.workspace = true
 serde_json = "1"
 js-sys = { version = "0.3.105", optional = true }
 wasm-bindgen = { workspace = true, optional = true }
 # The promise of the browser binding.
 wasm-bindgen-futures = { version = "0.4.78", optional = true }
-# The abort listener of the browser binding.
-web-sys = { version = "0.3.105", optional = true, features = ["AbortSignal", "EventTarget"] }
+# The abort listener and the abort a credential read runs under, in the browser
+# binding.
+web-sys = { version = "0.3.105", optional = true, features = ["AbortController", "AbortSignal", "EventTarget"] }
 
 # A native build trusts a root store; a browser build has none, because the
 # browser owns the connection.
@@ -62,3 +63,10 @@ http-body-util = "0.1"
 buffa = "0.9"
 buffa-types = { version = "0.9", features = ["json"] }
 wasm-bindgen-test = "0.3.78"
+
+# The boundary messages (`bones/v1` and `bones/sdk/v1`) are generated at build
+# time from the protos `api-bones-protos` ships.
+[build-dependencies]
+api-bones-protos = { version = "0.9.2", path = "../api-bones-protos", registry = "brefwiz" }
+connectrpc-build = { version = "0.9", default-features = false }
+protox = "0.9"

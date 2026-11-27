@@ -7,8 +7,7 @@ struct C;
 #[client(surface = "s")]
 impl C {
     #[export]
-    pub async fn f(&self, x: usize) -> Result<(), Error> {
-        let _ = x;
+    pub async fn f(&self) -> Result<usize, Error> {
         std::future::pending().await
     }
 }

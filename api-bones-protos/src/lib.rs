@@ -54,6 +54,7 @@ const DELEGATION_PROTO: &[u8] = include_bytes!("../proto/bones/v1/delegation.pro
 const BATCH_PROTO: &[u8] = include_bytes!("../proto/bones/v1/batch.proto");
 const FIELDS_PROTO: &[u8] = include_bytes!("../proto/bones/v1/fields.proto");
 const STREAM_PROTO: &[u8] = include_bytes!("../proto/bones/v1/stream.proto");
+const BOUNDARY_PROTO: &[u8] = include_bytes!("../proto/bones/sdk/v1/boundary.proto");
 const FIELD_BEHAVIOR_PROTO: &[u8] = include_bytes!("../vendor/google/api/field_behavior.proto");
 
 /// Yield `(relative_path, bytes)` pairs for every `bones/v1/*.proto`
@@ -78,6 +79,7 @@ pub fn files() -> impl Iterator<Item = (&'static str, &'static [u8])> {
         ("bones/v1/stream.proto", STREAM_PROTO),
         ("bones/v1/batch.proto", BATCH_PROTO),
         ("bones/v1/fields.proto", FIELDS_PROTO),
+        ("bones/sdk/v1/boundary.proto", BOUNDARY_PROTO),
         ("google/api/field_behavior.proto", FIELD_BEHAVIOR_PROTO),
     ]
     .into_iter()
@@ -88,9 +90,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ships_eleven_files() {
+    fn ships_twelve_files() {
         let v: Vec<_> = files().collect();
-        assert_eq!(v.len(), 11);
+        assert_eq!(v.len(), 12);
     }
 
     #[test]
@@ -106,6 +108,27 @@ mod tests {
     fn every_file_has_non_empty_bytes() {
         for (path, bytes) in files() {
             assert!(!bytes.is_empty(), "{path} embeds empty bytes");
+        }
+    }
+
+    #[test]
+    fn boundary_proto_declares_expected_messages() {
+        let body = std::str::from_utf8(BOUNDARY_PROTO).expect("utf8");
+        for msg in [
+            "message CallError",
+            "message PageFailure",
+            "message Page",
+            "message BatchChunk",
+            "message BatchResult",
+            "message Credential",
+            "message CredentialAnswer",
+            "message SpanStart",
+            "message SpanStarted",
+            "message SpanEnd",
+            "message AttributeValue",
+            "message BuildInfo",
+        ] {
+            assert!(body.contains(msg), "boundary.proto missing `{msg}`");
         }
     }
 

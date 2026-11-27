@@ -68,11 +68,6 @@ pub(crate) fn head(ty: &Type) -> (String, Vec<Type>) {
     (segment.ident.to_string(), args)
 }
 
-/// `()`.
-pub(crate) fn is_unit(ty: &Type) -> bool {
-    matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty())
-}
-
 /// The upper camel case spelling of a snake case name.
 pub(crate) fn upper_camel(name: &str) -> String {
     name.split('_')
@@ -91,12 +86,6 @@ pub(crate) fn upper_camel(name: &str) -> String {
 #[cfg(test)]
 pub(crate) fn flat(tokens: &TokenStream) -> String {
     tokens.to_string().replace(' ', "")
-}
-
-/// The flat text of `expand` run on `item` with no arguments.
-#[cfg(test)]
-pub(crate) fn expanded(expand: fn(TokenStream, TokenStream) -> TokenStream, item: &str) -> String {
-    flat(&expand(TokenStream::new(), item.parse().expect("tokens")))
 }
 
 #[cfg(test)]
@@ -173,13 +162,6 @@ mod tests {
         assert_eq!(head(&ty("(u32, u32)")), (String::new(), Vec::new()));
         assert_eq!(head(&ty("<T as Trait>::Out")), (String::new(), Vec::new()));
         assert_eq!(head(&ty("fn(u32)")), (String::new(), Vec::new()));
-    }
-
-    #[test]
-    fn only_the_empty_tuple_is_unit() {
-        assert!(is_unit(&ty("()")));
-        assert!(!is_unit(&ty("(u32,)")));
-        assert!(!is_unit(&ty("u32")));
     }
 
     #[test]

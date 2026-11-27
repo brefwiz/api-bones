@@ -1,5 +1,5 @@
-error: parameter `x`: f32 is not allowed, use f64; allowed: bool, i32, u32, f64, String, i64, u64, Vec<u8>, SystemTime, Duration, Option<T>, Vec<T>, BTreeMap<String, T> (T itself allowed), or a type that carries #[record] or #[enumeration]
-  --> tests/compile_fail/float32.rs:10:30
+error: the return type: `f32` is a bare name: write the message with its module path; allowed: a generated message written with its module path (`generated::pkg::v1::Message`), bool, i32, u32, i64, u64, f64, String, Vec<u8>, SystemTime or Duration (each crosses as its google.protobuf wrapper), or () (google.protobuf.Empty)
+  --> tests/compile_fail/float32.rs:10:37
    |
-10 |     pub async fn f(&self, x: f32) -> Result<(), Error> {
-   |                              ^^^
+10 |     pub async fn f(&self) -> Result<f32, Error> {
+   |                                     ^^^

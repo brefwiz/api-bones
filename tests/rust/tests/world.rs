@@ -564,6 +564,8 @@ pub struct PagingWorld {
     pub reported_total: Option<api_bones_contract_rust::field_wire::Total>,
     pub total_page: Option<api_bones_page::Page<u32>>,
     pub revalidation_start: usize,
+    /// The widget the list steps target; empty means the default parent.
+    pub widget: String,
     pub remembered_revisions: HashMap<String, String>,
     pub seed: Option<api_bones_page::Page<String>>,
     pub seed_cursor: String,
@@ -603,6 +605,7 @@ impl PagingWorld {
             reported_total: None,
             total_page: None,
             revalidation_start: 0,
+            widget: String::new(),
             remembered_revisions: HashMap::new(),
             seed: None,
             seed_cursor: String::new(),
@@ -799,7 +802,7 @@ impl Default for WidgetsData {
     }
 }
 
-/// A running `Widgets` server on loopback.
+/// A running `WidgetsService` server on loopback.
 pub struct WidgetsServed {
     pub task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     pub db: Arc<api_bones_contract_rust::widget_fixture::BatchDb>,
@@ -866,22 +869,25 @@ pub struct BatchWorld {
     pub served: Option<Arc<WidgetsServed>>,
     pub client: Option<
         api_bones_batch::Batched<
-            api_bones_contract_rust::WidgetsClient<api_bones_transport::HttpTransport>,
+            api_bones_contract_rust::WidgetsServiceClient<api_bones_transport::HttpTransport>,
         >,
     >,
     /// Ids a Given generated, in order.
     pub generated: Vec<String>,
-    pub results: Vec<Result<api_bones_contract_rust::Widget, ConnectError>>,
+    pub results: Vec<Result<api_bones_contract_rust::GetWidgetResponse, ConnectError>>,
     /// How many leading results belong to the first token's callers.
     pub first_token_calls: usize,
     pub batch_headers: api_bones_batch::CallHeaders,
     pub groups: Vec<GroupRead>,
     pub group_calls: Vec<Option<WidgetPartsCall>>,
-    pub pending_batches:
-        Vec<tokio::task::JoinHandle<Vec<Result<api_bones_contract_rust::Widget, ConnectError>>>>,
+    pub pending_batches: Vec<
+        tokio::task::JoinHandle<
+            Vec<Result<api_bones_contract_rust::GetWidgetResponse, ConnectError>>,
+        >,
+    >,
     pub continuation: Option<WidgetPartsCall>,
     pub continuation_identity: Option<api_bones_batch::Credential>,
-    pub unbatched_widget: Option<Result<api_bones_contract_rust::Widget, ConnectError>>,
+    pub unbatched_widget: Option<Result<api_bones_contract_rust::GetWidgetResponse, ConnectError>>,
     pub malformed_batches: Vec<Vec<ConnectError>>,
     pub construction_refusal: Option<ConnectError>,
     pub whole_batch_error: Option<ConnectError>,
@@ -1007,6 +1013,8 @@ pub struct RateLimitWorld {
     pub deadline_ms: Option<u64>,
     pub refusals: usize,
     pub retry_after: Option<String>,
+    /// Whether the server names the Retry-After in the trailers, not the headers.
+    pub retry_after_in_trailers: bool,
     pub arrivals: Arc<Mutex<Vec<std::time::Instant>>>,
     pub server: Option<tokio::task::JoinHandle<()>>,
     pub outcome: Option<Result<(), ConnectError>>,

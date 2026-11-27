@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Pakalpojums nav pieejams",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Pakalpojums īslaicīgi nav pieejams. Mēģiniet vēlreiz vēlāk.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Vārtejas noildze",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK versijas nesakrīt",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Dažas šīs lietotnes daļas nav sinhronizētas. Pārlādējiet lapu un mēģiniet vēlreiz.",
   "bones.validation.min.title": "Vērtībai jābūt vismaz {min, number}.",
   "bones.validation.max.title": "Vērtībai jābūt ne lielākai par {max, number}.",
   "bones.validation.range.title": "Vērtība ir ārpus diapazona.",

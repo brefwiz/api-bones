@@ -195,7 +195,8 @@ jobs:
 
   # The Gherkin contracts and doctests nextest cannot carry (harness = false).
   # DAG contract: requirement = every cucumber lane and the stream doctests
-  # pass; outputs = none, a gate judged by the verdict only; needs =
+  # pass and the sdk_wasm_integrity tamper proof over the built test-service
+  # wrapper holds (it needs the Gitea npm scope); outputs = none, a gate judged by the verdict only; needs =
   # rc-tree-proof, checks. It executes against Postgres, so it runs on the
   # default profile with its service, and its cargo tests compile and run
   # natively on either architecture, so it opts into the arm64 node.
@@ -236,6 +237,23 @@ jobs:
     steps:
       - id: checkout
         uses: actions/checkout
+      - id: npm-auth
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-auth@main
+        with:
+          checkout: "false"
+          npm-token: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
+          registry-url: ${{ vars.brefwiz-vars.NPM_CONFIG_REGISTRY }}
+      # The sdk_wasm_integrity proof builds the test-service wrapper, whose
+      # api-bones-connect-ts takes its client identity from
+      # @brefwiz/spiffe-client on the Gitea registry. npm-auth appends to
+      # ~/.npmrc and the last @brefwiz:registry line wins, so this must come
+      # after the step above.
+      - id: configure-brefwiz-registry
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/npm-auth@main
+        with:
+          checkout: "false"
+          npm-token: ${{ vars.brefwiz-pr-readonly.PACKAGE_READER_TOKEN }}
+          registry-url: "https://git.brefwiz.com/api/packages/brefwiz/npm/"
       # make-target embeds no target-dir cache, so this job restores and saves
       # its own snapshot beside sccache.
       - id: rust-cache-restore

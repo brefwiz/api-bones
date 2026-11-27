@@ -1,33 +1,29 @@
 // SPDX-License-Identifier: MIT
 import type { Handle } from "../src/index.js";
+import { refusal } from "./wire.js";
 
-/** A queued rejection: the handle rejects with this wire JSON string. */
+/** A queued rejection: the handle rejects with these `CallError` bytes. */
 export class Rejection {
-  constructor(readonly wire: string) {}
+  constructor(readonly wire: Uint8Array) {}
 }
 
-/** The wire JSON of a failed call, schema `api-bones.error/v1`. */
-export function wireError(emitter: string, code: string, platform: string, connectCode: string, message: string): string {
-  return JSON.stringify({ code, emitter, platform, connectCode, message, args: {} });
-}
-
-/** A Rust handle at the TypeScript unit level: yields the given documents, then ends. */
+/** A Rust handle at the TypeScript unit level: yields the given messages, then ends. */
 export class HandleDouble implements Handle {
   cancels = 0;
-  #queue: Array<string | Rejection>;
+  #queue: Array<Uint8Array | Rejection>;
   #cancelled = false;
   #pending = false;
 
   constructor(
-    documents: ReadonlyArray<string | Rejection>,
+    messages: ReadonlyArray<Uint8Array | Rejection>,
     private readonly traceparent?: string,
   ) {
-    this.#queue = [...documents];
+    this.#queue = [...messages];
   }
 
-  async next(): Promise<string | undefined> {
+  async next(): Promise<Uint8Array | undefined> {
     if (this.#pending) {
-      throw wireError("bones", "PRECONDITION_FAILED", "PRECONDITION_FAILED", "failed_precondition", "handle busy: next() called while a previous next() is pending");
+      throw refusal("bones", "PRECONDITION_FAILED", "PRECONDITION_FAILED", "failed_precondition", "handle busy: next() called while a previous next() is pending");
     }
     this.#pending = true;
     try {
@@ -52,9 +48,4 @@ export class HandleDouble implements Handle {
   span(): string | undefined {
     return this.traceparent;
   }
-}
-
-/** A page document in the shape the wrapper's decoder reads. */
-export function pageJson(items: readonly number[], hasNext: boolean): string {
-  return JSON.stringify({ items, revision: "r1", fromCache: false, hasNext });
 }

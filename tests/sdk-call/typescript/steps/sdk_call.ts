@@ -12,6 +12,8 @@
 
 import assert from "node:assert/strict";
 import { setTimeout as delay } from "node:timers/promises";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 
 import { After, AfterAll, Before, BeforeAll, Given, Then, When, World, setWorldConstructor } from "@cucumber/cucumber";
 import { ROOT_CONTEXT, SpanKind, context, propagation, trace } from "@opentelemetry/api";
@@ -20,7 +22,9 @@ import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-ho
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { BasicTracerProvider, SamplingDecision } from "@opentelemetry/sdk-trace-base";
 import type { ReadableSpan, Sampler, SpanProcessor } from "@opentelemetry/sdk-trace-base";
-import { EventsClient, NumbersClient, WidgetsClient } from "@brefwiz/api-bones-test-service-sdk";
+import type { Credential, CredentialAsk, SdkSession } from "@brefwiz/api-bones-sdk-runtime";
+import type { Patch } from "@brefwiz/api-bones-test-service";
+import { apiBonesSdk } from "@brefwiz/api-bones-test-service-sdk";
 
 import { Provider } from "./provider_process.ts";
 import type { CallerChange } from "./provider_process.ts";
@@ -63,8 +67,8 @@ AfterAll(async function () {
 
 // --- the world of one scenario ---
 
-type ClientOptions = Parameters<typeof NumbersClient.create>[1];
-type NumbersList = ReturnType<NumbersClient["list"]>;
+type Sdk = Awaited<ReturnType<typeof apiBonesSdk>>;
+type NumbersList = ReturnType<Sdk["numbersClient"]["list"]>;
 type NumbersPage = Awaited<ReturnType<NumbersList["firstPage"]>>;
 type Chunk = readonly unknown[];
 
@@ -79,15 +83,40 @@ function settle<T>(promise: Promise<T>): Promise<Settled<T>> {
 }
 
 /** A refusal as a line for an assertion message: its class, code and text. */
-const describe = (error: unknown): string =>
+export const describe = (error: unknown): string =>
   error instanceof Error ? `${error.name} ${(error as { code?: string }).code ?? ""}: ${error.message}` : String(error);
 
 const numbersIn = (list: string): number[] => list.split(",").filter((number) => number !== "").map(Number);
 
+/** What a scenario scripts on the server beyond the shared control patch. */
+type ScriptedPatch = Patch & { unauthenticatedAfterTick?: boolean };
+
+/** What the caller's credential source answers when a server refused its credential and the core asks it to refresh. */
+type OnRefresh = { kind: "renew" } | { kind: "unchanged" } | { kind: "another"; subject: string; org: string };
+
+/** Waits `millis`, unless the call that waits for the answer ended first. */
+function pause(millis: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, millis);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 const joinNumbers = (numbers: readonly number[]): string => numbers.join(",");
 
 /** Everything one scenario holds: the caller, the clients it drives and what they gave back. */
-class SdkCallWorld extends World {
+export class SdkCallWorld extends World {
   readonly provider = provider;
   /** Who the caller is, as its credential source answers. */
   caller = { subject: "", org: "", authorization: "Bearer caller" };
@@ -95,7 +124,15 @@ class SdkCallWorld extends World {
   /** The page size the numbers client asks for when a call names none. */
   defaultPageSize: number | undefined;
   sourceBroken = false;
+  /** How long the credential source takes to answer, in milliseconds. */
+  credentialDelayMs = 0;
+  /** What the credential source answers when it is asked to refresh. */
+  onRefresh: OnRefresh = { kind: "renew" };
+  /** How many times the source was read, and how many times it was asked to refresh. */
   reads = 0;
+  refreshes = 0;
+  /** The credential the source answered last. */
+  answered: Credential | undefined;
   changeBeforeSend: string | undefined;
   /** How many times the host was told a server refused the caller. */
   told = 0;
@@ -106,13 +143,14 @@ class SdkCallWorld extends World {
   /** The caller's trace, when the scenario puts it inside one. */
   trace: Context | undefined;
 
-  widgets!: WidgetsClient;
-  numbers!: NumbersClient;
-  /** A client of the numbers service at another address of the same server. */
-  other!: NumbersClient;
-  events!: EventsClient;
+  /** The SDK the scenario opened from the caller's session, once it needs one. */
+  opened: Sdk | undefined;
+  /** An SDK of the same server at another address. */
+  other: Sdk | undefined;
 
   widget: { id: string; name: string } | undefined;
+  /** What each of the widget calls the caller made at once gave back. */
+  concurrent: PromiseSettledResult<{ id: string; name: string }>[] = [];
   batch: Chunk | undefined;
   list: NumbersList | undefined;
   walk: AsyncIterator<NumbersPage> | undefined;
@@ -121,7 +159,8 @@ class SdkCallWorld extends World {
   pagesRead: number[][] = [];
   pagesCached: boolean[] = [];
   partPages: string[][] = [];
-  held: NumbersPage[] = [];
+  /** The pages of the walk that filled the revision cache, while the caller still holds them. */
+  held: unknown[] = [];
   walkOver = false;
   /** How many ticks the events server streams. */
   tickCount = 0;
@@ -138,22 +177,51 @@ class SdkCallWorld extends World {
   /** The walk the caller left, which must give nothing more. */
   left: AsyncIterator<unknown> | undefined;
 
-  /** The credential source of every client of the scenario, read before every send. */
-  options(): ClientOptions {
-    const credential = (): { subject: string; org: string; headers: Record<string, string> } => {
-      if (this.sourceBroken) throw new Error("the credential source is down");
-      const read = this.reads;
-      this.reads += 1;
-      const subject = this.changeBeforeSend !== undefined && read >= 1 ? this.changeBeforeSend : this.caller.subject;
-      return { subject, org: this.caller.org, headers: { authorization: this.caller.authorization } };
-    };
+  /** The caller's session: the credential source every client of an SDK opened from it asks, and the notice that a server refused it. */
+  session(): SdkSession {
     return {
-      credential: this.anonymous ? "anonymous" : credential,
+      credential: this.anonymous ? "anonymous" : (ask) => this.answer(ask),
       onUnauthenticated: () => {
         this.told += 1;
       },
-      defaultPageSize: this.defaultPageSize,
     };
+  }
+
+  /** What the credential source answers to one ask of the core. */
+  async answer({ refresh, signal }: CredentialAsk): Promise<Credential> {
+    if (this.credentialDelayMs > 0) await pause(this.credentialDelayMs, signal);
+    if (this.sourceBroken) throw new Error("the credential source is down");
+    if (refresh) {
+      this.refreshes += 1;
+      const same = this.answered;
+      if (this.onRefresh.kind === "unchanged" && same !== undefined) return this.answers(same.subject, same.org, same.headers.authorization!);
+      this.caller.authorization = "Bearer refreshed";
+      if (this.onRefresh.kind === "another") {
+        this.caller.subject = this.onRefresh.subject;
+        this.caller.org = this.onRefresh.org;
+      }
+      return this.answers(this.caller.subject, this.caller.org, this.caller.authorization);
+    }
+    const read = this.reads;
+    this.reads += 1;
+    const subject = this.changeBeforeSend !== undefined && read >= 1 ? this.changeBeforeSend : this.caller.subject;
+    return this.answers(subject, this.caller.org, this.caller.authorization);
+  }
+
+  /** A fresh credential object, so a host never sees one it answered before mutated in place. */
+  private answers(subject: string, org: string, authorization: string): Credential {
+    this.answered = { subject, org, headers: { authorization } };
+    return { subject, org, headers: { authorization } };
+  }
+
+  /**
+   * A caller other than the one that filled the revision cache before is
+   * another session of it: it gets an SDK of its own, so the earlier caller's
+   * slot is not the one this session drops when its credential moves on.
+   */
+  startedAnew(): void {
+    const earlier = this.cacheOwners.at(-1);
+    if (earlier !== undefined && (earlier.subject !== this.caller.subject || earlier.org !== this.caller.org)) this.opened = undefined;
   }
 
   /** Applies the change of the caller the server scripted while it handled a request. */
@@ -207,6 +275,10 @@ Given("the numbers server takes {int} ms to answer each page", async function (t
   await this.provider.configure({ pageDelayMs: millis });
 });
 
+Given("the widgets server fails the first {int} requests as internal", async function (this: SdkCallWorld, failures: number) {
+  await this.provider.configure({ failing: failures });
+});
+
 Given("the widgets server refuses the first {int} requests as unavailable", async function (this: SdkCallWorld, refusals: number) {
   await this.provider.configure({ unavailable: refusals });
 });
@@ -219,7 +291,7 @@ Given(
 );
 
 Given("the numbers server refuses the cursor of page {int} as expired", async function (this: SdkCallWorld, page: number) {
-  await this.provider.configure({ expireAtPage: page - 1 });
+  await this.provider.configure({ expireAtPage: { page: page - 1, count: 1 } });
 });
 
 Given("the numbers server answers pages that cannot be decoded", async function (this: SdkCallWorld) {
@@ -277,6 +349,37 @@ Given("the caller's credential source cannot answer", function (this: SdkCallWor
   this.sourceBroken = true;
 });
 
+/** A source that rejects and one that cannot answer are one failure to the core: it answers nothing. */
+Given("the caller's credential source rejects", function (this: SdkCallWorld) {
+  this.sourceBroken = true;
+});
+
+Given("the caller's credential source answers after {int} ms", function (this: SdkCallWorld, millis: number) {
+  this.credentialDelayMs = millis;
+});
+
+Given("the caller's credential source answers the same credential when asked to refresh", function (this: SdkCallWorld) {
+  this.onRefresh = { kind: "unchanged" };
+});
+
+Given(
+  "the caller's credential source answers {string} of organization {string} when asked to refresh",
+  function (this: SdkCallWorld, subject: string, org: string) {
+    this.onRefresh = { kind: "another", subject, org };
+  },
+);
+
+Given("the events server refuses the watch as unauthenticated after its first tick", async function (this: SdkCallWorld) {
+  const patch: ScriptedPatch = { unauthenticatedAfterTick: true };
+  await this.provider.configure(patch);
+});
+
+Given("the numbers server has {int} pages of {int} numbers each", async function (this: SdkCallWorld, pages: number, size: number) {
+  await this.provider.configure({
+    pages: Array.from({ length: pages }, (_, page) => Array.from({ length: size }, (_, at) => page * size + at + 1)),
+  });
+});
+
 Given("the tracer does not record", function () {
   recording.on = false;
 });
@@ -286,35 +389,156 @@ Given("the tracer does not record", function () {
  * the numbers list through the wrapper, its pages still held. The walk that
  * fills it is not the call under test, so what it sent and recorded is forgotten.
  */
-Given("the revision cache holds the numbers list", async function (this: SdkCallWorld) {
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
-  this.cacheOwner = { subject: this.caller.subject, org: this.caller.org };
-  this.cacheOwners = [...this.cacheOwners, this.cacheOwner];
-  for await (const page of numbers.list().pages()) this.held = [...this.held, page];
-  await this.provider.clearSeen();
+Given("the revision cache holds the numbers list", fillNumbers);
+
+/**
+ * The same walk, as the one session whose end the next steps drive: the
+ * scenario's SDK is that session.
+ */
+Given("the caller's session holds the numbers list", fillNumbers);
+
+/** Records who owns the cache the walk is about to fill. */
+function noteCacheOwner(world: SdkCallWorld): void {
+  world.cacheOwner = { subject: world.caller.subject, org: world.caller.org };
+  world.cacheOwners = [...world.cacheOwners, world.cacheOwner];
+}
+
+/** The fill is setup: the provider's request log and the read and refresh counts start clean after it. */
+async function forgetFill(world: SdkCallWorld): Promise<void> {
+  await world.provider.clearSeen();
+  world.reads = 0;
+  world.refreshes = 0;
+}
+
+/** The probe is not part of the call under test: the tracer records none of it. */
+async function probeFirstPage(sdk: Sdk) {
+  recording.on = false;
+  const first = await sdk.numbersClient.list().firstPage();
+  recording.on = true;
+  return first;
+}
+
+async function fillNumbers(this: SdkCallWorld): Promise<void> {
+  this.startedAnew();
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  noteCacheOwner(this);
+  for await (const page of sdk.numbersClient.list().pages()) this.held = [...this.held, page];
+  await forgetFill(this);
   spans.started.length = 0;
   spans.ended.length = 0;
-  this.reads = 0;
+}
+
+Given("the caller signs out", function (this: SdkCallWorld) {
+  this.sourceBroken = true;
 });
 
-// --- calls ---
+When("the caller signs in again", function (this: SdkCallWorld) {
+  this.sourceBroken = false;
+});
 
-When("the caller gets the widget {string} through the SDK", async function (this: SdkCallWorld, id: string) {
-  const widgets = this.widgets ?? (await WidgetsClient.create(this.provider.url, this.options()));
-  this.widgets = widgets;
+When("the caller reads the numbers list through the same session", async function (this: SdkCallWorld) {
   try {
-    this.widget = this.trace === undefined ? await widgets.getWidget(id) : await context.with(this.trace, () => widgets.getWidget(id));
+    const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+    this.opened = sdk;
+    await sdk.numbersClient.list().firstPage();
   } catch (error) {
     this.refusal = error;
   }
 });
 
-When("the caller gets the widgets {string} through the SDK", async function (this: SdkCallWorld, ids: string) {
-  const widgets = this.widgets ?? (await WidgetsClient.create(this.provider.url, this.options()));
-  this.widgets = widgets;
+/**
+ * One complete walk of the numbers list that is not the call under test and
+ * need not leave anything in the revision cache: what it sent, read and
+ * recorded is forgotten.
+ */
+Given("the caller has walked the numbers list through the SDK", async function (this: SdkCallWorld) {
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  for await (const page of sdk.numbersClient.list().pages()) void page;
+  await forgetFill(this);
+  spans.started.length = 0;
+  spans.ended.length = 0;
+});
+
+/** What the caller held of the walk is gone; the revision cache alone keeps the chain. */
+Given("the caller dropped every page and the host collected its garbage", async function (this: SdkCallWorld) {
+  // The lane runs under plain cucumber-js: the collector is exposed here, and
+  // a fresh context hands it over.
+  setFlagsFromString("--expose-gc");
+  const collect = runInNewContext("gc") as () => void;
+  this.held = [];
+  this.first = undefined;
+  for (let round = 0; round < 3; round += 1) {
+    collect();
+    await delay(10);
+  }
+});
+
+// --- calls ---
+
+async function getWidget(world: SdkCallWorld, id: string): Promise<void> {
+  const sdk = world.opened ?? (await apiBonesSdk(world.session(), { baseUrl: world.provider.url, defaultPageSize: world.defaultPageSize }));
+  world.opened = sdk;
   try {
-    const items = widgets.batchGetWidgets(ids.split(","))[Symbol.asyncIterator]();
+    world.widget = world.trace === undefined ? await sdk.widgetsClient.getWidget(id) : await context.with(world.trace, () => sdk.widgetsClient.getWidget(id));
+  } catch (error) {
+    world.refusal = error;
+  }
+}
+
+When("the caller gets the widget {string} through the SDK", async function (this: SdkCallWorld, id: string) {
+  await getWidget(this, id);
+});
+
+When("the caller gets the widget {string} through the SDK in {int} concurrent calls", async function (this: SdkCallWorld, id: string, calls: number) {
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  this.concurrent = await Promise.allSettled(Array.from({ length: calls }, () => sdk.widgetsClient.getWidget(id)));
+});
+
+// --- the SDK opened from the caller's session ---
+
+When("the caller opens the Api Bones SDK from the caller's session at the address of the server", async function (this: SdkCallWorld) {
+  try {
+    this.opened = await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize });
+  } catch (error) {
+    this.refusal = error;
+  }
+});
+
+When("the caller opens the Api Bones SDK from the caller's session without a base address", async function (this: SdkCallWorld) {
+  try {
+    this.opened = await apiBonesSdk(this.session(), { baseUrl: undefined, defaultPageSize: this.defaultPageSize });
+  } catch (error) {
+    this.refusal = error;
+  }
+});
+
+When("the caller gets the widget {string} through the opened SDK", async function (this: SdkCallWorld, id: string) {
+  assert.ok(this.opened, "a When opened the SDK");
+  await getWidget(this, id);
+});
+
+When("the caller lists the numbers through the opened SDK", async function (this: SdkCallWorld) {
+  assert.ok(this.opened, "a When opened the SDK");
+  try {
+    for await (const page of this.opened.numbersClient.list().pages()) this.pagesRead = [...this.pagesRead, page.items.map((number) => number.value)];
+  } catch (error) {
+    this.refusal = error;
+  }
+});
+
+Then("the refusal says {string}", function (this: SdkCallWorld, text: string) {
+  assert.ok(this.refusal, "the call was refused");
+  assert.ok(describe(this.refusal).includes(text), `refused with ${describe(this.refusal)}`);
+});
+
+When("the caller gets the widgets {string} through the SDK", async function (this: SdkCallWorld, ids: string) {
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  try {
+    const items = sdk.widgetsClient.batchGetWidgets(ids.split(","))[Symbol.asyncIterator]();
     const outcome = await items.next();
     this.batch = outcome.done ? undefined : outcome.value;
     await items.return?.();
@@ -328,19 +552,54 @@ Given("the widget {string} has the parts {string}", async function (this: SdkCal
   await this.provider.configure({ parts: { [id]: pages.split("|").map((page) => page.split(",").filter((part) => part !== "")) } });
 });
 
+/** Walks the parts of a widget by pages until the list ends or is refused. */
 When("the caller lists the parts of the widget {string} through the SDK", async function (this: SdkCallWorld, id: string) {
-  const widgets = this.widgets ?? (await WidgetsClient.create(this.provider.url, this.options()));
-  this.widgets = widgets;
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
   try {
-    for await (const page of widgets.listWidgetParts(id).pages()) {
-      this.partPages = [
-        ...this.partPages,
-        page.items.map((part) => String((part as { name?: string; key?: string }).name ?? (part as { key?: string }).key ?? part)),
-      ];
+    for await (const page of sdk.widgetsClient.listWidgetParts(id).pages()) {
+      this.pagesCached = [...this.pagesCached, page.fromCache];
+      this.partPages = [...this.partPages, page.items.map((part) => part.name)];
     }
   } catch (error) {
     this.refusal = error;
   }
+});
+
+When(
+  "the caller lists the parts of the widget {string} with the page size {int} through the SDK",
+  async function (this: SdkCallWorld, id: string, size: number) {
+    const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+    this.opened = sdk;
+    try {
+      for await (const page of sdk.widgetsClient.listWidgetParts(id, { pageSize: size }).pages()) {
+        this.pagesCached = [...this.pagesCached, page.fromCache];
+        this.partPages = [...this.partPages, page.items.map((part) => part.name)];
+      }
+    } catch (error) {
+      this.refusal = error;
+    }
+  },
+);
+
+Given("the widgets server refuses the cursor of part page {int} as expired", async function (this: SdkCallWorld, page: number) {
+  await this.provider.configure({ expireAtPage: { page: page - 1, count: 1 } });
+});
+
+/** One complete walk fills the revision cache; the walk that fills it is not the call under test. */
+Given("the revision cache holds the parts of the widget {string}", async function (this: SdkCallWorld, id: string) {
+  this.startedAnew();
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  noteCacheOwner(this);
+  for await (const page of sdk.widgetsClient.listWidgetParts(id).pages()) this.held = [...this.held, page];
+  await forgetFill(this);
+});
+
+Then("every request the server saw asked for the part page size {int}", async function (this: SdkCallWorld, size: number) {
+  const asked = (await seenRequests(this)).map((request) => request.pageSize);
+  assert.ok(asked.length > 0, "the server saw no request");
+  assert.deepEqual(asked, asked.map(() => size));
 });
 
 Then("the caller received the part pages {string}", function (this: SdkCallWorld, expected: string) {
@@ -348,9 +607,9 @@ Then("the caller received the part pages {string}", function (this: SdkCallWorld
 });
 
 Given("the caller has opened a list of the numbers at another address of the server through the SDK", async function (this: SdkCallWorld) {
-  const other = await NumbersClient.create(await this.provider.alias(), this.options());
+  const other = await apiBonesSdk(this.session(), { baseUrl: await this.provider.alias(), defaultPageSize: this.defaultPageSize });
   this.other = other;
-  const list = other.list();
+  const list = other.numbersClient.list();
   this.list = list;
   this.walk = list.pages()[Symbol.asyncIterator]();
 });
@@ -361,17 +620,42 @@ Then("no page the caller received came from the revision cache", function (this:
 });
 
 Given("the caller has opened a list of the numbers through the SDK", async function (this: SdkCallWorld) {
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
-  const list = numbers.list();
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  const list = sdk.numbersClient.list();
   this.list = list;
   this.walk = list.pages()[Symbol.asyncIterator]();
 });
 
+/** The caller chooses that no page is fetched ahead of the one it reads. */
+Given("the caller has opened a list of the numbers without fetching ahead through the SDK", async function (this: SdkCallWorld) {
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  const list = sdk.numbersClient.list({ prefetch: 0 });
+  this.list = list;
+  this.walk = list.pages()[Symbol.asyncIterator]();
+});
+
+/** The list's own choice to fetch ahead replaces what the call chose. */
+Given(
+  "the caller has opened a list of the numbers without fetching ahead and then asked it to fetch ahead through the SDK",
+  async function (this: SdkCallWorld) {
+    const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+    this.opened = sdk;
+    const list = sdk.numbersClient.list({ prefetch: 0 }).withPrefetch(1);
+    this.list = list;
+    this.walk = list.pages()[Symbol.asyncIterator]();
+  },
+);
+
+When("the caller waits {int} ms", async function (this: SdkCallWorld, millis: number) {
+  await delay(millis);
+});
+
 Given("the caller has read the first/next page of the list", async function (this: SdkCallWorld) {
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
-  this.walk ??= numbers.list().pages()[Symbol.asyncIterator]();
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  this.walk ??= sdk.numbersClient.list().pages()[Symbol.asyncIterator]();
   const step = await this.walk.next();
   if (step.done) this.walkOver = true;
   else {
@@ -383,9 +667,9 @@ Given("the caller has read the first/next page of the list", async function (thi
 
 When("the caller reads the next page of the list", async function (this: SdkCallWorld) {
   try {
-    const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-    this.numbers = numbers;
-    this.walk = this.walk ?? numbers.list().pages()[Symbol.asyncIterator]();
+    const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+    this.opened = sdk;
+    this.walk = this.walk ?? sdk.numbersClient.list().pages()[Symbol.asyncIterator]();
     const step = await this.walk.next();
     if (step.done) this.walkOver = true;
     else {
@@ -439,10 +723,10 @@ Given("the page after it has been fetched ahead", { timeout: 15_000 }, async fun
 
 /** Walks the numbers list by pages until it ends or is refused. */
 When("the caller walks the numbers list by pages through the SDK", async function (this: SdkCallWorld) {
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
   try {
-    const pages = numbers.list().pages();
+    const pages = sdk.numbersClient.list().pages();
     this.left = pages[Symbol.asyncIterator]();
     for await (const page of pages) {
       this.pagesCached = [...this.pagesCached, page.fromCache];
@@ -456,10 +740,10 @@ When("the caller walks the numbers list by pages through the SDK", async functio
 
 /** Walks the numbers list by items until it ends or is refused. */
 When("the caller walks the numbers list by items through the SDK", async function (this: SdkCallWorld) {
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
   try {
-    const items = numbers.list().items();
+    const items = sdk.numbersClient.list().items();
     this.left = items[Symbol.asyncIterator]();
     for await (const item of items) this.items = [...this.items, item.value];
   } catch (error) {
@@ -469,10 +753,10 @@ When("the caller walks the numbers list by items through the SDK", async functio
 
 /** Walks the numbers list by items and leaves once `limit` items were read. */
 When("the caller walks the numbers list by items and leaves after {int} item(s)", async function (this: SdkCallWorld, limit: number) {
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
   try {
-    const walk = numbers.list().items()[Symbol.asyncIterator]();
+    const walk = sdk.numbersClient.list().items()[Symbol.asyncIterator]();
     this.left = walk;
     while (this.items.length < limit) {
       const step = await walk.next();
@@ -485,15 +769,48 @@ When("the caller walks the numbers list by items and leaves after {int} item(s)"
   }
 });
 
-When("the caller reads the first page of the numbers list through the SDK", async function (this: SdkCallWorld) {
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
+When("the caller lists the numbers with the page size {int} through the SDK", async function (this: SdkCallWorld, size: number) {
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
   try {
-    this.first = await numbers.list().firstPage();
+    for await (const page of sdk.numbersClient.list({ pageSize: size }).pages()) this.pagesRead = [...this.pagesRead, page.items.map((number) => number.value)];
   } catch (error) {
     this.refusal = error;
   }
 });
+
+/** The read of the first page starts and waits for the caller's credential, which has not been answered: nothing has reached the server. */
+Given("a read of the first page of the list is waiting for the caller's credential", async function (this: SdkCallWorld) {
+  assert.ok(this.walk, "a Given opened the list");
+  this.pending = settle(this.walk.next());
+  await delay(200);
+  assert.equal((await this.provider.seen()).length, 0, "a request reached the server before the credential was answered");
+  this.walkSpan ??= this.list?.span;
+});
+
+When("the caller reads the first page of the numbers list through the SDK", async function (this: SdkCallWorld) {
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  try {
+    this.first = await sdk.numbersClient.list().firstPage();
+  } catch (error) {
+    this.refusal = error;
+  }
+});
+
+/** Reading one page alone wins over a choice to fetch ahead. */
+When(
+  "the caller reads the first page of the numbers list through the SDK having asked to fetch ahead",
+  async function (this: SdkCallWorld) {
+    const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+    this.opened = sdk;
+    try {
+      this.first = await sdk.numbersClient.list().withPrefetch(1).firstPage();
+    } catch (error) {
+      this.refusal = error;
+    }
+  },
+);
 
 Given("the events server streams {int} ticks", async function (this: SdkCallWorld, count: number) {
   this.tickCount = count;
@@ -505,11 +822,11 @@ Given("the events server waits {int} ms before each tick", async function (this:
 });
 
 When("the caller watches the events through the SDK", { timeout: 120_000 }, async function (this: SdkCallWorld) {
-  const events = this.events ?? (await EventsClient.create(this.provider.url, this.options()));
-  this.events = events;
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
   const started = Date.now();
   try {
-    const watch = events.watch(this.tickCount)[Symbol.asyncIterator]();
+    const watch = sdk.eventsClient.watch(this.tickCount)[Symbol.asyncIterator]();
     this.watch = watch;
     for (;;) {
       const step = await watch.next();
@@ -528,10 +845,10 @@ When(
   { timeout: 120_000 },
   async function (this: SdkCallWorld, limit: number) {
     const began = Date.now();
-    const events = this.events ?? (await EventsClient.create(this.provider.url, this.options()));
-    this.events = events;
+    const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+    this.opened = sdk;
     try {
-      const watch = events.watch(this.tickCount)[Symbol.asyncIterator]();
+      const watch = sdk.eventsClient.watch(this.tickCount)[Symbol.asyncIterator]();
       this.watch = watch;
       while (this.ticks.length < limit) {
         const step = await watch.next();
@@ -547,9 +864,9 @@ When(
 );
 
 Given("the caller has opened a watch of the events through the SDK", async function (this: SdkCallWorld) {
-  const events = this.events ?? (await EventsClient.create(this.provider.url, this.options()));
-  this.events = events;
-  this.watch = events.watch(this.tickCount)[Symbol.asyncIterator]();
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  this.watch = sdk.eventsClient.watch(this.tickCount)[Symbol.asyncIterator]();
 });
 
 Given("the caller has read the first/next tick of the watch", async function (this: SdkCallWorld) {
@@ -578,6 +895,15 @@ Then("the response is the widget {string} named {string}", function (this: SdkCa
   assert.ok(this.widget, "the call succeeded");
   assert.equal(this.widget.id, id);
   assert.equal(this.widget.name, name);
+});
+
+Then("every concurrent call answered the widget {string} named {string}", function (this: SdkCallWorld, id: string, name: string) {
+  assert.ok(this.concurrent.length > 0, "a When made the calls");
+  for (const outcome of this.concurrent) {
+    assert.equal(outcome.status, "fulfilled", "the call succeeded");
+    assert.equal(outcome.value.id, id);
+    assert.equal(outcome.value.name, name);
+  }
 });
 
 Then("the batch delivered the widgets {string} in request order", function (this: SdkCallWorld, expected: string) {
@@ -634,6 +960,11 @@ Then("the first page holds the numbers {string}", function (this: SdkCallWorld, 
   assert.equal(joinNumbers(this.first.items.map((number) => number.value)), expected);
 });
 
+Then("the list ends after its first page", async function (this: SdkCallWorld) {
+  assert.ok(this.first, "the first page was read");
+  assert.equal((await this.provider.seen()).length, 1, "the list asked for more than its first page");
+});
+
 Then("the first page says a next page follows", function (this: SdkCallWorld) {
   assert.equal(this.first?.hasNext, true);
 });
@@ -684,11 +1015,15 @@ const refusalOf = (world: SdkCallWorld): Refusal => {
 };
 
 Then("the call is refused with the code {string}", function (this: SdkCallWorld, code: string) {
-  assert.equal(refusalOf(this).code, code);
+  assert.equal(refusalOf(this).code, code, `refused with ${String(this.refusal)}`);
 });
 
 Then("the call is refused with the platform code {string}", function (this: SdkCallWorld, platform: string) {
   assert.equal(refusalOf(this).platform, platform, `refused with ${String(this.refusal)}`);
+});
+
+Then("the refusal names a wait of {int} ms", function (this: SdkCallWorld, millis: number) {
+  assert.equal((this.refusal as { retryAfterMs?: number | null }).retryAfterMs, millis, `refused with ${String(this.refusal)}`);
 });
 
 Then("the call is refused as unauthenticated", function (this: SdkCallWorld) {
@@ -770,10 +1105,9 @@ Then("the call budget the server saw shrank from each request to the next", asyn
 });
 
 Then("every request the server saw asked for the page size {int}", async function (this: SdkCallWorld, size: number) {
-  assert.ok(this.first, "the first page was read");
   const asked = (await seenRequests(this)).map((request) => request.pageSize);
   assert.deepEqual(asked, asked.map(() => size));
-  assert.equal(this.first.items.length, size);
+  if (this.first !== undefined) assert.equal(this.first.items.length, size);
 });
 
 Then("every request the server saw carried the caller's credential", async function (this: SdkCallWorld) {
@@ -813,6 +1147,17 @@ Then("the span of the walk ended once with the status {string}", function (this:
   assert.equal(statusName(ends[0]!), status);
 });
 
+Then("the credential source was asked to refresh {int} time\\(s\\)", function (this: SdkCallWorld, times: number) {
+  assert.equal(this.refreshes, times);
+});
+
+Then("the revision cache still holds the numbers list", async function (this: SdkCallWorld) {
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  const first = await probeFirstPage(sdk);
+  assert.equal(first.fromCache, true, `the revision cache lost the caller's chain; ${await seenNote(this)}`);
+});
+
 Then("the tracer started {int} client span(s) named {string}", function (count: number, name: string) {
   assert.equal(spans.started.length, count, `spans started: ${spans.started.map((span) => span.name)}`);
   for (const span of spans.started) {
@@ -849,12 +1194,9 @@ Then("the caller's revision cache is empty", async function (this: SdkCallWorld)
   assert.ok(this.cacheOwner, "a Given filled the revision cache");
   this.caller.subject = this.cacheOwner.subject;
   this.caller.org = this.cacheOwner.org;
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
-  // The probe is not part of the call under test: the tracer records none of it.
-  recording.on = false;
-  const first = await numbers.list().firstPage();
-  recording.on = true;
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  const first = await probeFirstPage(sdk);
   assert.equal(first.fromCache, false, `the cache kept a chain; ${await seenNote(this)}`);
 });
 
@@ -870,9 +1212,9 @@ Then("the revision cache no longer holds the numbers list of the caller who was 
   this.changeBeforeSend = undefined;
   this.caller.subject = replaying.subject;
   this.caller.org = replaying.org;
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
-  const first = await numbers.list().firstPage();
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  const first = await sdk.numbersClient.list().firstPage();
   assert.equal(first.fromCache, false, `the cache kept a chain of the caller whose walk was refused; ${await seenNote(this)}`);
 });
 
@@ -885,8 +1227,8 @@ Then("the revision cache still holds the numbers list of the other caller", asyn
   assert.ok(other, "a Given filled the revision cache");
   this.caller.subject = other.subject;
   this.caller.org = other.org;
-  const numbers = this.numbers ?? (await NumbersClient.create(this.provider.url, this.options()));
-  this.numbers = numbers;
-  const first = await numbers.list().firstPage();
+  const sdk = this.opened ?? (await apiBonesSdk(this.session(), { baseUrl: this.provider.url, defaultPageSize: this.defaultPageSize }));
+  this.opened = sdk;
+  const first = await sdk.numbersClient.list().firstPage();
   assert.equal(first.fromCache, true, `the refusal emptied the other caller's cache; ${await seenNote(this)}`);
 });

@@ -2,29 +2,48 @@
 //! The wasm32 exports of a `#[client]` impl.
 //!
 //! Each client becomes a wasm class named `<svc>__<Type>`. Its constructor
-//! export is `<svc>__<Type>__new(base_url, host, options_json)`, built from the
-//! type's `from_host(base_url: String, host: JsValue, ..) -> Result<Self, Error>`.
-//! A `from_host` inside the `#[client]` impl may take further parameters, each an
-//! `Option` of a wire type; they are the client's options, read from the
-//! `options_json` object by camelCase name, and a member that is not one of
-//! them is refused. The constructor throws the error JSON when that fails.
-//! Each export is a
-//! method named `<svc>__<Type>__<method>`, gated by the features `sdk-all`,
-//! `sdk-<surface>` and `sdk-m-<method>`.
+//! export is `<svc>__<Type>__new(base_url, host, options, wrapper, runtime)`,
+//! built from the type's `from_host(base_url: String, host: JsValue, ..) ->
+//! Result<Self, Error>`. `options` is a `Uint8Array` holding the options
+//! message; a `from_host` takes that message as its one further parameter, and
+//! a client without one takes an empty `options`. `wrapper` and `runtime` are
+//! the boundary versions the generated wrapper and the runtime were built for;
+//! the constructor refuses with `SDK_BOUNDARY_MISMATCH` when either is not
+//! `api_bones_sdk::BOUNDARY`. The class also has two static exports that need
+//! no instance: `__api_bones_sdk_boundary()`, the plain `u32` boundary version,
+//! readable across a mismatch, and `__api_bones_sdk_build_info()`, the
+//! `bones.sdk.v1.BuildInfo` bytes. Each export is a method named
+//! `<svc>__<Type>__<method>`, gated by the features `sdk-all`, `sdk-<surface>`
+//! and `sdk-m-<method>`.
 //!
-//! The wire is JSON text both ways, and every export is a thin shell over the
-//! Rust method:
+//! No export takes or returns JSON text. Every value that crosses is a
+//! `Uint8Array` holding the protobuf encoding of a message, and every export is
+//! a thin shell over the Rust method:
 //!
-//! - An async export takes `(args_json, traceparent, tracestate, signal)` and
+//! - The arguments are one message declared in proto, named by the model
+//!   (`#[client(proto = ..)]` gives `<proto>::<Method>Args`, and
+//!   `#[export(args = ..)]` names another). The shell decodes it strictly and
+//!   binds each parameter by the name of the message field it is, so a missing,
+//!   renamed or mistyped field fails to compile rather than crossing wrongly.
+//!   An export without parameters takes the empty message. A result is the
+//!   message itself; a scalar result is its `google.protobuf` wrapper message
+//!   and a unit result is the empty message. Each message path is checked
+//!   against the proto name the model recorded, in a constant.
+//! - An async export takes `(args, traceparent, tracestate, signal)` and
 //!   returns a `Promise`. The call runs inside `CallCtx::scope`, so the call
-//!   helper reads the caller's trace fields. The promise resolves to a JSON
-//!   string and rejects with the error JSON.
+//!   helper reads the caller's trace fields. The promise resolves to the
+//!   result bytes and rejects with `bones.sdk.v1.CallError` bytes.
 //! - An export that returns a handle returns, at once, a class with `next()`,
 //!   `cancel()` and `span()`; the call that opens the handle runs on the first
 //!   `next()`, an abort of `signal` cancels the handle, and `span()` is
-//!   undefined until the handle opened.
-//! - A sync export takes `args_json` and returns the JSON string or throws the
-//!   error JSON.
+//!   undefined until the handle opened. A list export has two more typed
+//!   parameters, `prefetch` (undefined or a count; a value above 1 reads one
+//!   ahead), which the call helper reads back from `CallCtx` as the pages the
+//!   list fetches ahead, and `firstOnly`, which makes the list deliver its
+//!   first page alone. `next()` resolves to `bones.sdk.v1.Page` bytes for a list, the item message for a stream and
+//!   `bones.sdk.v1.BatchChunk` bytes for a batch.
+//! - A sync export takes `args` and returns the result bytes or throws the
+//!   `CallError` bytes.
 //!
 //! Everything the code touches outside the crate is reached through
 //! `api_bones_sdk::__private`.
@@ -32,7 +51,7 @@
 use std::collections::BTreeSet;
 
 use api_bones_sdk_model::{
-    Client, Export, HandleKind, Param, Return, export_name, gate_features, json_name,
+    Client, Export, HandleKind, ProtoRef, Return, Wire, export_name, gate_features,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -85,25 +104,142 @@ fn impl_attr(name: &str) -> TokenStream {
     quote!(#[#private::wasm_bindgen::prelude::wasm_bindgen(js_class = #name)])
 }
 
-/// What a handle's `next()` resolves to for an item: a list page is its JSON
-/// and a hold on its items, which keeps them alive for as long as the host holds
-/// the page; a stream item and a batch chunk are the JSON alone.
-fn delivery(kind: HandleKind) -> TokenStream {
+/// A `Uint8Array` holding `bytes`, a `Vec<u8>` expression.
+fn uint8(bytes: &TokenStream) -> TokenStream {
     let private = private();
-    let js_value = quote!(#private::wasm_bindgen::JsValue);
-    match kind {
-        HandleKind::List => quote! {
-            #js_value::from(#private::js_sys::Array::of2(
-                &#js_value::from_str(&__text),
-                &#js_value::from(#private::PageHold::new(&__page)),
-            ))
-        },
-        HandleKind::Stream | HandleKind::Batch => quote!(#js_value::from_str(&__text)),
+    quote!(#private::js_sys::Uint8Array::from(#bytes.as_slice()))
+}
+
+/// The `uint8` array as a `JsValue`.
+fn js_bytes(bytes: &TokenStream) -> TokenStream {
+    let private = private();
+    let array = uint8(bytes);
+    quote!(#private::wasm_bindgen::JsValue::from(#array))
+}
+
+/// The `JsValue` an export throws or rejects with for `error`, an
+/// `&api_bones_sdk::Error` expression: the `bones.sdk.v1.CallError` bytes.
+fn rejection(error: &TokenStream) -> TokenStream {
+    let private = private();
+    js_bytes(&quote!(#private::encode_call_error(#error)))
+}
+
+/// The Rust path of a message the model recorded.
+fn message_path(message: &ProtoRef) -> syn::Result<syn::Path> {
+    syn::parse_str(&message.path).map_err(|error| named(&error))
+}
+
+/// The bytes of the value behind `value`, an expression of type `&T`, as the
+/// message `wire` names: a message as itself, a scalar in its
+/// `google.protobuf` wrapper, and no value as the empty message.
+fn encode(wire: &Wire, value: &TokenStream) -> TokenStream {
+    let private = private();
+    match wire {
+        Wire::Empty => quote!({
+            let () = *#value;
+            ::std::vec::Vec::new()
+        }),
+        Wire::Wrapper(_) => quote!(#private::encode_wrapped(#value)),
+        Wire::Message(_) => quote!(#private::encode_message(#value)),
     }
 }
 
-/// The wasm items of one client: its class, its constructor and build info,
-/// and the methods and handle classes of its exports.
+/// A constant that does not compile unless the generated type at `message`'s
+/// path is the proto message the model recorded, so the Rust side and the
+/// descriptor the generator reads cannot name different messages.
+fn guard(gate: &TokenStream, message: &ProtoRef) -> syn::Result<TokenStream> {
+    let private = private();
+    let path = message_path(message)?;
+    let name = &message.full_name;
+    Ok(quote! {
+        #gate
+        const _: () = ::core::assert!(
+            #private::same_name(<#path as #private::MessageName>::FULL_NAME, #name),
+            "the message a path names is not the one the model recorded",
+        );
+    })
+}
+
+/// The guards of every message `wires` name.
+fn guards<'a>(
+    gate: &TokenStream,
+    wires: impl IntoIterator<Item = &'a Wire>,
+) -> syn::Result<TokenStream> {
+    let mut out = TokenStream::new();
+    for wire in wires {
+        if let Wire::Message(message) = wire {
+            out.extend(guard(gate, message)?);
+        }
+    }
+    Ok(out)
+}
+
+/// The pieces of one export's shell that every kind of shell shares.
+struct Parts {
+    js: String,
+    shell: syn::Ident,
+    reads: TokenStream,
+    call: TokenStream,
+}
+
+/// The parameters of an async shell: the arguments, the trace fields, the
+/// signal, and for a list the two reads it chooses.
+fn async_params(list: bool) -> TokenStream {
+    let private = private();
+    let signal = quote!(#private::web_sys::AbortSignal);
+    let bytes = quote!(#private::js_sys::Uint8Array);
+    let list = list.then(|| {
+        quote! {
+            __prefetch: ::core::option::Option<u8>,
+            __first_only: bool,
+        }
+    });
+    quote! {
+        &self,
+        __args: #bytes,
+        __traceparent: ::core::option::Option<::std::string::String>,
+        __tracestate: ::core::option::Option<::std::string::String>,
+        __signal: ::core::option::Option<#signal>,
+        #list
+    }
+}
+
+/// The call of an async export, run under the caller's trace fields and, for a
+/// list, the reads it chose: `reads` parse the arguments, then `body` runs.
+fn scoped(list: bool, reads: &TokenStream, body: &TokenStream) -> TokenStream {
+    let (prefetch, first_only) = if list {
+        (quote!(__prefetch), quote!(__first_only))
+    } else {
+        (quote!(::core::option::Option::None), quote!(false))
+    };
+    quote! {
+        ::api_bones_sdk::CallCtx::scope(
+            ::api_bones_sdk::CallCtx {
+                traceparent: __traceparent,
+                tracestate: __tracestate,
+                prefetch: #prefetch,
+                first_only: #first_only,
+            },
+            async move {
+                #reads
+                #body
+            },
+        )
+    }
+}
+
+/// What the expansion of one export needs to know.
+struct Shell<'a> {
+    service: &'a str,
+    client: &'a Client,
+    class_ident: &'a syn::Ident,
+    class: &'a str,
+    export: &'a Export,
+    function: &'a ImplItemFn,
+}
+
+/// The wasm items of one client: its class, its constructor, boundary version
+/// and build info, and the methods and handle classes of its exports.
 ///
 /// They sit in one anonymous block that imports the `wasm_bindgen` the SDK
 /// re-exports, so the plain `wasm_bindgen::` paths the wasm-bindgen expansions
@@ -139,11 +275,31 @@ pub(crate) fn expand(
     let impl_attr = impl_attr(&class);
     let private = private();
     let method = method_attr();
-    let option_keys: Vec<String> = client.options.iter().map(Param::json_name).collect();
+    let (options, options_arg, options_guard) = match &client.options {
+        None => (
+            quote!(#private::no_options(&__options)?;),
+            TokenStream::new(),
+            TokenStream::new(),
+        ),
+        Some(message) => (
+            TokenStream::new(),
+            quote!(, #private::decode_options(&__options)?),
+            guard(&TokenStream::new(), message)?,
+        ),
+    };
+    let rejected = rejection(&quote!(&__error));
+    let build_info = uint8(&quote! {
+        #private::encode_build_info(
+            ::core::env!("CARGO_PKG_NAME"),
+            ::core::env!("CARGO_PKG_VERSION"),
+        )
+    });
     Ok(quote! {
         #class_gate
         const _: () = {
         use #private::wasm_bindgen;
+
+        #options_guard
 
         #struct_attr
         pub struct #class_ident {
@@ -156,64 +312,35 @@ pub(crate) fn expand(
             pub fn new_js(
                 base_url: ::std::string::String,
                 host: #private::wasm_bindgen::JsValue,
-                options_json: ::std::string::String,
+                options: #private::js_sys::Uint8Array,
+                wrapper: u32,
+                runtime: u32,
             ) -> ::core::result::Result<Self, #private::wasm_bindgen::JsValue> {
                 (|| -> ::core::result::Result<#self_ty, ::api_bones_sdk::Error> {
-                    let __options = ::api_bones_sdk::parse_options(
-                        &options_json,
-                        &[#(#option_keys),*],
-                    )?;
-                    <#self_ty>::from_host(
-                        base_url,
-                        host
-                        #(, ::api_bones_sdk::field(&__options, #option_keys)?)*
-                    )
-                    .map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)
+                    #private::check_boundary(wrapper, runtime)?;
+                    let __options = options.to_vec();
+                    #options
+                    <#self_ty>::from_host(base_url, host #options_arg)
+                        .map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)
                 })()
                 .map(|__client| Self { inner: ::std::sync::Arc::new(__client) })
-                .map_err(|__error| #private::wasm_bindgen::JsValue::from_str(&__error.to_json()))
+                .map_err(|__error| #rejected)
+            }
+
+            #[#method(js_name = "__api_bones_sdk_boundary")]
+            pub fn boundary_js() -> u32 {
+                ::api_bones_sdk::BOUNDARY
             }
 
             #[#method(js_name = "__api_bones_sdk_build_info")]
-            pub fn build_info_js() -> ::std::string::String {
-                #private::serde_json::json!({
-                    "name": ::core::env!("CARGO_PKG_NAME"),
-                    "version": ::core::env!("CARGO_PKG_VERSION"),
-                })
-                .to_string()
+            pub fn build_info_js() -> #private::js_sys::Uint8Array {
+                #build_info
             }
         }
 
         #(#methods)*
         };
     })
-}
-
-/// The call of an async export, run under the caller's trace fields: `reads`
-/// parse the arguments, then `body` runs.
-fn scoped(reads: &TokenStream, body: &TokenStream) -> TokenStream {
-    quote! {
-        ::api_bones_sdk::CallCtx::scope(
-            ::api_bones_sdk::CallCtx {
-                traceparent: __traceparent,
-                tracestate: __tracestate,
-            },
-            async move {
-                #reads
-                #body
-            },
-        )
-    }
-}
-
-/// What the expansion of one export needs to know.
-struct Shell<'a> {
-    service: &'a str,
-    client: &'a Client,
-    class_ident: &'a syn::Ident,
-    class: &'a str,
-    export: &'a Export,
-    function: &'a ImplItemFn,
 }
 
 impl Shell<'_> {
@@ -224,159 +351,245 @@ impl Shell<'_> {
             .into_iter()
             .collect();
         let gate = gate(&features);
-        let private = private();
         let method = &self.function.sig.ident;
-        let shell = format_ident!("{}_js", method);
-        let class_ident = self.class_ident;
         let impl_attr = impl_attr(self.class);
-        let parameters: Vec<(&syn::Ident, &Type)> = self
-            .function
+        let class_ident = self.class_ident;
+        let decode = self.decode()?;
+        let call_args = self.call_args();
+        let parts = Parts {
+            js,
+            shell: format_ident!("{}_js", method),
+            reads: quote! {
+                #decode
+            },
+            call: quote!(__client.#method(#(#call_args),*)),
+        };
+        let (shell, extra) = if self.export.sync {
+            (self.sync_shell(&parts)?, TokenStream::new())
+        } else if let Return::Handle { kind, item } = &self.export.ret {
+            self.handle_shell(&parts, *kind, item)?
+        } else {
+            (self.async_shell(&parts)?, TokenStream::new())
+        };
+        let guards = guards(&gate, self.messages())?;
+        Ok(quote! {
+            #gate
+            #impl_attr
+            impl #class_ident {
+                #shell
+            }
+
+            #extra
+
+            #guards
+        })
+    }
+
+    /// The messages the export's arguments and its result cross as.
+    fn messages(&self) -> Vec<&Wire> {
+        let result = match &self.export.ret {
+            Return::Unit => None,
+            Return::Value(wire) => Some(wire),
+            Return::Result { ok, .. } => Some(ok),
+            Return::Handle { item, .. } => Some(item),
+        };
+        std::iter::once(&self.export.args).chain(result).collect()
+    }
+
+    /// The statement that reads the arguments message: each parameter is bound
+    /// by the name of the field it is, so the compiler checks the message
+    /// against the method.
+    fn decode(&self) -> syn::Result<TokenStream> {
+        let private = private();
+        match &self.export.args {
+            Wire::Empty => Ok(quote!(#private::no_args(&__args.to_vec())?;)),
+            Wire::Message(message) => {
+                let path = message_path(message)?;
+                let names = self.parameters();
+                Ok(quote! {
+                    let #path { #(#names,)* .. } =
+                        #private::decode_strict::<#path>(&__args.to_vec())?;
+                })
+            }
+            Wire::Wrapper(_) => Err(named(&format!(
+                "export `{}`: its arguments arrive as a message of its own",
+                self.export.method
+            ))),
+        }
+    }
+
+    /// The names of the method's typed parameters.
+    fn parameters(&self) -> Vec<&syn::Ident> {
+        self.function
             .sig
             .inputs
             .iter()
             .filter_map(|input| match input {
                 FnArg::Typed(typed) => match &*typed.pat {
-                    Pat::Ident(ident) => Some((&ident.ident, &*typed.ty)),
+                    Pat::Ident(ident) => Some(&ident.ident),
                     _ => None,
                 },
                 FnArg::Receiver(_) => None,
             })
-            .collect();
-        let names: Vec<_> = parameters.iter().map(|(name, _)| *name).collect();
-        let types: Vec<_> = parameters.iter().map(|(_, ty)| *ty).collect();
-        let keys: Vec<_> = names
-            .iter()
-            .map(|name| json_name(&name.to_string()))
-            .collect();
-        let reads = quote! {
-            let __args = ::api_bones_sdk::parse_args(&__args_json)?;
-            #( let #names: #types = ::api_bones_sdk::field(&__args, #keys)?; )*
-        };
-        let call = quote!(__client.#method(#(#names),*));
-        let wasm_bindgen = method_attr();
-        let js_value = quote!(#private::wasm_bindgen::JsValue);
-        let promise = quote!(#private::js_sys::Promise);
-        let signal = quote!(#private::web_sys::AbortSignal);
-        if self.export.sync {
-            let outcome = self.sync_outcome(&call);
-            return Ok(quote! {
-                #gate
-                #impl_attr
-                impl #class_ident {
-                    #[#wasm_bindgen(js_name = #js)]
-                    pub fn #shell(
-                        &self,
-                        __args_json: ::std::string::String,
-                    ) -> ::core::result::Result<::std::string::String, #js_value> {
-                        let __client = &self.inner;
-                        (|| -> ::core::result::Result<::std::string::String, ::api_bones_sdk::Error> {
-                            #reads
-                            #outcome
-                        })()
-                        .map_err(|__error| #js_value::from_str(&__error.to_json()))
-                    }
-                }
-            });
-        }
-        let params = quote! {
-            &self,
-            __args_json: ::std::string::String,
-            __traceparent: ::core::option::Option<::std::string::String>,
-            __tracestate: ::core::option::Option<::std::string::String>,
-            __signal: ::core::option::Option<#signal>,
-        };
-        if let Return::Handle { kind, .. } = &self.export.ret {
-            let item = self.handle_item()?;
-            let handle_items = self.handle_class(*kind, &item, &js);
-            let handle_ident = self.handle_ident();
-            let scoped = scoped(&reads, &quote!(::core::result::Result::Ok(#call.await)));
-            return Ok(quote! {
-                #gate
-                #impl_attr
-                impl #class_ident {
-                    #[#wasm_bindgen(js_name = #js)]
-                    pub fn #shell(#params) -> #handle_ident {
-                        let __client = self.inner.clone();
-                        let __lazy = #private::Lazy::new(#scoped);
-                        let __cancel = __lazy.clone();
-                        #private::on_abort(&__signal, move || __cancel.cancel());
-                        #handle_ident { inner: __lazy }
-                    }
-                }
+            .collect()
+    }
 
-                #handle_items
-            });
-        }
-        let scoped = scoped(&reads, &self.async_outcome(&call)?);
-        Ok(quote! {
-            #gate
-            #impl_attr
-            impl #class_ident {
-                #[#wasm_bindgen(js_name = #js)]
-                pub fn #shell(#params) -> #promise {
-                    let __client = self.inner.clone();
-                    #private::promise(__signal, #scoped)
+    /// The arguments of the call: `&field` for a reference parameter, the
+    /// field otherwise.
+    fn call_args(&self) -> Vec<TokenStream> {
+        self.parameters()
+            .into_iter()
+            .zip(&self.export.params)
+            .map(|(name, param)| {
+                if param.by_ref {
+                    quote!(&#name)
+                } else {
+                    quote!(#name)
                 }
+            })
+            .collect()
+    }
+
+    /// The type a method returns, as written.
+    fn declared(&self) -> Option<&Type> {
+        match &self.function.sig.output {
+            syn::ReturnType::Type(_, ty) => Some(ty),
+            syn::ReturnType::Default => None,
+        }
+    }
+
+    /// The shell of a synchronous export: the arguments in, the result out.
+    fn sync_shell(&self, parts: &Parts) -> syn::Result<TokenStream> {
+        let Parts {
+            js,
+            shell,
+            reads,
+            call,
+        } = parts;
+        let wasm_bindgen = method_attr();
+        let private = private();
+        let js_value = quote!(#private::wasm_bindgen::JsValue);
+        let outcome = self.sync_outcome(call)?;
+        let delivered = uint8(&quote!(__bytes));
+        let rejected = rejection(&quote!(&__error));
+        Ok(quote! {
+            #[#wasm_bindgen(js_name = #js)]
+            pub fn #shell(
+                &self,
+                __args: #private::js_sys::Uint8Array,
+            ) -> ::core::result::Result<#private::js_sys::Uint8Array, #js_value> {
+                let __client = &self.inner;
+                (|| -> ::core::result::Result<::std::vec::Vec<u8>, ::api_bones_sdk::Error> {
+                    #reads
+                    #outcome
+                })()
+                .map(|__bytes| #delivered)
+                .map_err(|__error| #rejected)
             }
         })
     }
 
-    /// The JSON text of a successful result, as an expression.
-    fn encoded(has_value: bool) -> TokenStream {
-        if has_value {
-            quote!(::api_bones_sdk::to_json_string(&__out)?)
-        } else {
-            quote!({
-                let () = __out;
-                ::std::string::ToString::to_string("null")
-            })
-        }
+    /// The shell of an async export that resolves to one value.
+    fn async_shell(&self, parts: &Parts) -> syn::Result<TokenStream> {
+        let Parts {
+            js,
+            shell,
+            reads,
+            call,
+        } = parts;
+        let wasm_bindgen = method_attr();
+        let private = private();
+        let promise = quote!(#private::js_sys::Promise);
+        let params = async_params(false);
+        let scoped = scoped(false, reads, &self.async_outcome(call)?);
+        Ok(quote! {
+            #[#wasm_bindgen(js_name = #js)]
+            pub fn #shell(#params) -> #promise {
+                let __client = self.inner.clone();
+                #private::promise(__signal, #scoped)
+            }
+        })
     }
 
-    fn sync_outcome(&self, call: &TokenStream) -> TokenStream {
+    /// The shell of an export that returns a handle, and the handle's class.
+    fn handle_shell(
+        &self,
+        parts: &Parts,
+        kind: HandleKind,
+        wire: &Wire,
+    ) -> syn::Result<(TokenStream, TokenStream)> {
+        let Parts {
+            js,
+            shell,
+            reads,
+            call,
+        } = parts;
+        let wasm_bindgen = method_attr();
+        let private = private();
+        let params = async_params(kind == HandleKind::List);
+        let item = self.handle_item(wire)?;
+        let handle_items = self.handle_class(kind, &item, wire, js);
+        let handle_ident = self.handle_ident();
+        let body = quote!(::core::result::Result::Ok(#call.await));
+        let scoped = scoped(kind == HandleKind::List, reads, &body);
+        let shell = quote! {
+            #[#wasm_bindgen(js_name = #js)]
+            pub fn #shell(#params) -> #handle_ident {
+                let __client = self.inner.clone();
+                let __lazy = #private::Lazy::new(#scoped);
+                let __cancel = __lazy.clone();
+                #private::on_abort(&__signal, move || __cancel.cancel());
+                #handle_ident { inner: __lazy }
+            }
+        };
+        Ok((shell, handle_items))
+    }
+
+    fn sync_outcome(&self, call: &TokenStream) -> syn::Result<TokenStream> {
         match &self.export.ret {
-            Return::Unit => quote! {
+            Return::Unit => Ok(quote! {
                 #call;
-                ::core::result::Result::Ok(::std::string::ToString::to_string("null"))
-            },
+                ::core::result::Result::Ok(::std::vec::Vec::new())
+            }),
             Return::Result { ok, .. } => {
-                let encoded = Self::encoded(ok.is_some());
-                quote! {
+                let encoded = encode(ok, &quote!(&__out));
+                Ok(quote! {
                     let __out = #call.map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;
                     ::core::result::Result::Ok(#encoded)
-                }
+                })
             }
-            Return::Value(_) | Return::Handle { .. } => {
-                let encoded = Self::encoded(true);
-                quote! {
+            Return::Value(wire) => {
+                let encoded = encode(wire, &quote!(&__out));
+                Ok(quote! {
                     let __out = #call;
                     ::core::result::Result::Ok(#encoded)
-                }
+                })
             }
+            Return::Handle { .. } => Err(named("a sync export never returns a handle")),
         }
     }
 
-    /// The item type a handle export yields.
-    fn handle_item(&self) -> syn::Result<Type> {
-        let output = match &self.function.sig.output {
-            syn::ReturnType::Type(_, ty) => head(ty).1.into_iter().next(),
-            syn::ReturnType::Default => None,
-        };
+    /// The Rust item type a handle export yields, and what it crosses as.
+    fn handle_item(&self, wire: &Wire) -> syn::Result<Type> {
+        if matches!(wire, Wire::Empty) {
+            return Err(named("a handle yields a message or a scalar"));
+        }
+        let output = self.declared().and_then(|ty| head(ty).1.into_iter().next());
         output.ok_or_else(|| named("a handle yields one type"))
     }
 
     /// The body of the async block of a promise export.
     fn async_outcome(&self, call: &TokenStream) -> syn::Result<TokenStream> {
-        let private = private();
-        let js_value = quote!(#private::wasm_bindgen::JsValue);
         match &self.export.ret {
             Return::Result { ok, .. } => {
-                let encoded = Self::encoded(ok.is_some());
+                let encoded = encode(ok, &quote!(&__out));
+                let delivered = js_bytes(&quote!(__bytes));
                 Ok(quote! {
                     let __out = #call
                         .await
                         .map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;
-                    ::core::result::Result::Ok(#js_value::from_str(&#encoded))
+                    let __bytes: ::std::vec::Vec<u8> = #encoded;
+                    ::core::result::Result::Ok(#delivered)
                 })
             }
             Return::Handle { .. } | Return::Unit | Return::Value(_) => {
@@ -394,7 +607,7 @@ impl Shell<'_> {
     }
 
     /// The class a handle export returns: `next()`, `cancel()`, `span()`.
-    fn handle_class(&self, kind: HandleKind, item: &Type, js: &str) -> TokenStream {
+    fn handle_class(&self, kind: HandleKind, item: &Type, wire: &Wire, js: &str) -> TokenStream {
         let private = private();
         let js_value = quote!(#private::wasm_bindgen::JsValue);
         let wasm_bindgen = method_attr();
@@ -408,46 +621,15 @@ impl Shell<'_> {
                 .into_iter()
                 .collect(),
         );
-        let json = quote!(#private::serde_json);
-        let delivered = delivery(kind);
+        let each = encode(wire, &quote!(__item));
+        let delivered = js_bytes(&quote!(__bytes));
         let next = match kind {
             HandleKind::List => quote! {
-                let mut __items = ::std::vec::Vec::new();
-                for __item in __page.items.iter() {
-                    __items.push(::api_bones_sdk::Wire::encode(__item)?);
-                }
-                let mut __json = #json::Map::new();
-                __json.insert(::std::string::ToString::to_string("items"), #json::Value::Array(__items));
-                __json.insert(::std::string::ToString::to_string("revision"), #json::Value::String(__page.revision.clone()));
-                __json.insert(::std::string::ToString::to_string("fromCache"), #json::Value::Bool(__page.from_cache));
-                __json.insert(::std::string::ToString::to_string("hasNext"), #json::Value::Bool(__page.has_next));
-                if let ::core::option::Option::Some(__total) = __page.total {
-                    __json.insert(
-                        ::std::string::ToString::to_string("total"),
-                        #json::json!({
-                            "value": __total.value.to_string(),
-                            "kind": ::std::format!("{:?}", __total.kind).to_lowercase(),
-                        }),
-                    );
-                }
-                #json::Value::Object(__json).to_string()
+                #private::encode_page(&__page, |__item| #each)
             },
-            HandleKind::Stream => quote! {
-                ::api_bones_sdk::to_json_string(&__page)?
-            },
+            HandleKind::Stream => encode(wire, &quote!(&__page)),
             HandleKind::Batch => quote! {
-                let mut __chunk = ::std::vec::Vec::new();
-                for __result in __page {
-                    __chunk.push(match __result {
-                        ::core::result::Result::Ok(__value) => {
-                            #json::json!({ "ok": ::api_bones_sdk::Wire::encode(&__value)? })
-                        }
-                        ::core::result::Result::Err(__error) => {
-                            #json::json!({ "error": __error.to_value() })
-                        }
-                    });
-                }
-                #json::Value::Array(__chunk).to_string()
+                #private::encode_batch_chunk(&__page, |__item| #each)
             },
         };
         quote! {
@@ -474,7 +656,7 @@ impl Shell<'_> {
                                     ::core::result::Result::Ok(#js_value::UNDEFINED)
                                 }
                                 ::core::option::Option::Some(__page) => {
-                                    let __text = { #next };
+                                    let __bytes: ::std::vec::Vec<u8> = { #next };
                                     ::core::result::Result::Ok(#delivered)
                                 }
                             }
@@ -505,29 +687,26 @@ mod tests {
     use crate::common::flat;
 
     const SOURCE: &str = r#"
-        #[record]
-        pub struct Number { pub value: i64 }
-
-        #[client(surface = "connect-pagination")]
+        #[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
         impl NumbersClient {
             #[export]
-            pub async fn list(&self, limit: u32, since: Option<SystemTime>) -> ListCall<Number> { body() }
+            pub async fn list(&self, limit: u32, since: Option<SystemTime>) -> ListCall<generated::contract::sdk::v1::Number> { body() }
             #[export]
-            pub async fn watch(&self) -> Stream<Number> { body() }
+            pub async fn watch(&self) -> Stream<generated::contract::sdk::v1::Number> { body() }
             #[export]
-            pub async fn get_all(&self, ids: Vec<String>) -> Batch<Number> { body() }
+            pub async fn get_all(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> { body() }
             #[export(surface = "connect-batch")]
-            pub async fn get(&self, id: String) -> Result<Number, Error> { body() }
+            pub async fn get(&self, id: String) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
             #[export]
             pub async fn clear(&self) -> Result<(), Error> { body() }
             #[export(sync)]
-            pub fn label(&self, n: Number) -> String { body() }
+            pub fn label(&self, kind: &str) -> String { body() }
             #[export(sync)]
             pub fn reset(&self) { body() }
             #[export(sync)]
             pub fn check(&self) -> Result<(), Error> { body() }
-            #[export(sync)]
-            pub fn parse(&self, text: String) -> Result<Number, Error> { body() }
+            #[export(sync, args = generated::contract::v1::ParseRequest)]
+            pub fn parse(&self, text: String) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
         }
     "#;
 
@@ -536,8 +715,19 @@ mod tests {
     }
 
     fn built_from(source: &str, service: &str) -> syn::Result<TokenStream> {
+        expanded(source, service, |_| {})
+    }
+
+    /// Expands the first impl of `source` after `change` edits its model's first
+    /// client, for shapes the model itself never produces.
+    fn expanded(
+        source: &str,
+        service: &str,
+        change: impl FnOnce(&mut Client),
+    ) -> syn::Result<TokenStream> {
         let file: syn::File = syn::parse_str(source).expect("a file");
-        let model = Model::from_files([&file]).expect("a model");
+        let mut model = Model::from_files([&file]).expect("a model");
+        change(&mut model.clients[0]);
         let item = file
             .items
             .iter()
@@ -683,6 +873,7 @@ mod tests {
                 panic!("a block of items");
             };
             match item {
+                syn::Item::Const(guard) => assert_eq!(guard.ident, "_"),
                 syn::Item::Struct(item) => {
                     let out = expand_struct(item);
                     assert!(
@@ -728,30 +919,27 @@ mod tests {
             "{text}"
         );
         assert!(
-            text.contains("pubfnnew_js(base_url:::std::string::String,host:::api_bones_sdk::__private::wasm_bindgen::JsValue,options_json:::std::string::String,)->::core::result::Result<Self,::api_bones_sdk::__private::wasm_bindgen::JsValue>"),
+            text.contains("pubfnnew_js(base_url:::std::string::String,host:::api_bones_sdk::__private::wasm_bindgen::JsValue,options:::api_bones_sdk::__private::js_sys::Uint8Array,wrapper:u32,runtime:u32,)->::core::result::Result<Self,::api_bones_sdk::__private::wasm_bindgen::JsValue>"),
             "{text}"
         );
     }
 
     #[test]
-    fn a_constructor_that_fails_throws_the_error_json_instead_of_panicking() {
+    fn a_constructor_refuses_a_stale_boundary_then_throws_the_call_error_bytes() {
         let text = text();
-        assert!(text.contains("(||->::core::result::Result<NumbersClient,::api_bones_sdk::Error>{let__options=::api_bones_sdk::parse_options(&options_json,&[],)?;<NumbersClient>::from_host(base_url,host).map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)})().map(|__client|Self{inner:::std::sync::Arc::new(__client)}).map_err(|__error|::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&__error.to_json()))"), "{text}");
+        assert!(text.contains("(||->::core::result::Result<NumbersClient,::api_bones_sdk::Error>{::api_bones_sdk::__private::check_boundary(wrapper,runtime)?;let__options=options.to_vec();::api_bones_sdk::__private::no_options(&__options)?;<NumbersClient>::from_host(base_url,host).map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)})().map(|__client|Self{inner:::std::sync::Arc::new(__client)}).map_err(|__error|::api_bones_sdk::__private::wasm_bindgen::JsValue::from(::api_bones_sdk::__private::js_sys::Uint8Array::from(::api_bones_sdk::__private::encode_call_error(&__error).as_slice())))"), "{text}");
+        assert!(!text.contains("to_json"), "{text}");
     }
 
     #[test]
-    fn the_options_of_from_host_are_read_from_the_options_json_by_name() {
+    fn the_options_of_from_host_are_one_message_decoded_from_the_options_bytes() {
         let source = r#"
-            #[enumeration]
-            pub enum Transport { Fetch }
-
             #[client(surface = "s")]
             impl NumbersClient {
                 pub fn from_host(
                     base_url: String,
                     host: JsValue,
-                    default_page_size: Option<u32>,
-                    transport: Option<Transport>,
+                    options: generated::contract::v1::ClientOptions,
                 ) -> Result<Self, Error> { body() }
                 #[export]
                 pub async fn clear(&self) -> Result<(), Error> { body() }
@@ -759,28 +947,52 @@ mod tests {
         "#;
         let text = flat(&built_from(source, "api-bones").expect("expanded"));
         assert!(
-            text.contains("::api_bones_sdk::parse_options(&options_json,&[\"defaultPageSize\",\"transport\"],)?;"),
+            text.contains("<NumbersClient>::from_host(base_url,host,::api_bones_sdk::__private::decode_options(&__options)?)"),
             "{text}"
         );
+        assert!(!text.contains("no_options"), "{text}");
         assert!(
-            text.contains("<NumbersClient>::from_host(base_url,host,::api_bones_sdk::field(&__options,\"defaultPageSize\")?,::api_bones_sdk::field(&__options,\"transport\")?)"),
+            text.contains("const_:()=::core::assert!(::api_bones_sdk::__private::same_name(<generated::contract::v1::ClientOptionsas::api_bones_sdk::__private::MessageName>::FULL_NAME,\"contract.v1.ClientOptions\"),"),
             "{text}"
         );
     }
 
     #[test]
-    fn the_class_reports_its_build_info_from_the_package() {
+    fn a_message_path_that_does_not_parse_is_refused_by_the_expansion() {
+        let file: syn::File = syn::parse_str("impl C {}").expect("a file");
+        let syn::Item::Impl(item) = &file.items[0] else {
+            return;
+        };
+        let client = Client {
+            ty: "C".to_owned(),
+            surface: "s".to_owned(),
+            proto: None,
+            exports: Vec::new(),
+            options: Some(ProtoRef {
+                path: "not a path!".to_owned(),
+                full_name: "a.B".to_owned(),
+            }),
+        };
+        expand("svc", &client, &item.self_ty, &[]).expect_err("refused");
+    }
+
+    #[test]
+    fn the_class_reports_its_boundary_version_and_build_info() {
         let text = text();
+        assert!(
+            text.contains("js_name=\"__api_bones_sdk_boundary\""),
+            "{text}"
+        );
+        assert!(
+            text.contains("pubfnboundary_js()->u32{::api_bones_sdk::BOUNDARY}"),
+            "{text}"
+        );
         assert!(
             text.contains("js_name=\"__api_bones_sdk_build_info\""),
             "{text}"
         );
         assert!(
-            text.contains("\"name\":::core::env!(\"CARGO_PKG_NAME\")"),
-            "{text}"
-        );
-        assert!(
-            text.contains("\"version\":::core::env!(\"CARGO_PKG_VERSION\")"),
+            text.contains("pubfnbuild_info_js()->::api_bones_sdk::__private::js_sys::Uint8Array{::api_bones_sdk::__private::js_sys::Uint8Array::from(::api_bones_sdk::__private::encode_build_info(::core::env!(\"CARGO_PKG_NAME\"),::core::env!(\"CARGO_PKG_VERSION\"),).as_slice())}"),
             "{text}"
         );
     }
@@ -811,39 +1023,154 @@ mod tests {
             text.contains("js_name=\"api_bones__NumbersClient__get\""),
             "{text}"
         );
-        assert!(text.contains("pubfnget_js(&self,__args_json:::std::string::String,__traceparent:::core::option::Option<::std::string::String>,__tracestate:::core::option::Option<::std::string::String>,__signal:::core::option::Option<::api_bones_sdk::__private::web_sys::AbortSignal>,)->::api_bones_sdk::__private::js_sys::Promise"), "{text}");
-        assert!(text.contains("::api_bones_sdk::__private::promise(__signal,::api_bones_sdk::CallCtx::scope(::api_bones_sdk::CallCtx{traceparent:__traceparent,tracestate:__tracestate,}"), "{text}");
+        assert!(text.contains("pubfnget_js(&self,__args:::api_bones_sdk::__private::js_sys::Uint8Array,__traceparent:::core::option::Option<::std::string::String>,__tracestate:::core::option::Option<::std::string::String>,__signal:::core::option::Option<::api_bones_sdk::__private::web_sys::AbortSignal>,)->::api_bones_sdk::__private::js_sys::Promise"), "{text}");
+        assert!(text.contains("::api_bones_sdk::__private::promise(__signal,::api_bones_sdk::CallCtx::scope(::api_bones_sdk::CallCtx{traceparent:__traceparent,tracestate:__tracestate,prefetch:::core::option::Option::None,first_only:false,}"), "{text}");
     }
 
     #[test]
-    fn arguments_are_read_by_camel_case_name_in_declaration_order() {
+    fn arguments_are_the_fields_of_one_declared_message_bound_by_name() {
         let text = text();
-        assert!(text.contains("let__args=::api_bones_sdk::parse_args(&__args_json)?;letlimit:u32=::api_bones_sdk::field(&__args,\"limit\")?;letsince:Option<SystemTime>=::api_bones_sdk::field(&__args,\"since\")?;"), "{text}");
+        assert!(text.contains("letgenerated::contract::sdk::v1::ListArgs{limit,since,..}=::api_bones_sdk::__private::decode_strict::<generated::contract::sdk::v1::ListArgs>(&__args.to_vec())?;"), "{text}");
         assert!(text.contains("__client.list(limit,since)"), "{text}");
+        assert!(
+            text.contains("letgenerated::contract::sdk::v1::GetAllArgs{ids,..}="),
+            "{text}"
+        );
+        assert!(!text.contains("Args::parse"), "{text}");
+        assert!(!text.contains("scalar::<"), "{text}");
     }
 
     #[test]
-    fn a_result_export_resolves_to_the_json_of_its_value_or_rejects_with_the_error() {
-        let text = text();
-        assert!(text.contains("let__out=__client.get(id).await.map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;::core::result::Result::Ok(::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&::api_bones_sdk::to_json_string(&__out)?))"), "{text}");
-    }
-
-    #[test]
-    fn a_unit_result_resolves_to_null() {
+    fn a_reference_parameter_is_passed_by_reference() {
         let text = text();
         assert!(
-            text.contains("let()=__out;::std::string::ToString::to_string(\"null\")"),
+            text.contains("letgenerated::contract::sdk::v1::LabelArgs{kind,..}="),
+            "{text}"
+        );
+        assert!(text.contains("__client.label(&kind)"), "{text}");
+    }
+
+    #[test]
+    fn an_args_override_names_the_message_of_its_export() {
+        let text = text();
+        assert!(text.contains("letgenerated::contract::v1::ParseRequest{text,..}=::api_bones_sdk::__private::decode_strict::<generated::contract::v1::ParseRequest>(&__args.to_vec())?;"), "{text}");
+        assert!(text.contains("__client.parse(text)"), "{text}");
+    }
+
+    #[test]
+    fn an_export_without_parameters_takes_the_empty_message() {
+        let text = text();
+        assert!(
+            text.contains("::api_bones_sdk::__private::no_args(&__args.to_vec())?;"),
+            "{text}"
+        );
+        assert!(text.contains("__client.watch()"), "{text}");
+    }
+
+    #[test]
+    fn every_message_a_shell_names_is_guarded_against_the_recorded_name() {
+        let text = text();
+        for name in [
+            "generated::contract::sdk::v1::ListArgs\",\"contract.sdk.v1.ListArgs",
+            "generated::contract::sdk::v1::Number\",\"contract.sdk.v1.Number",
+            "generated::contract::v1::ParseRequest\",\"contract.v1.ParseRequest",
+        ] {
+            let (path, full_name) = name.split_once("\",\"").expect("a pair");
+            let guard = format!(
+                "const_:()=::core::assert!(::api_bones_sdk::__private::same_name(<{path}as::api_bones_sdk::__private::MessageName>::FULL_NAME,\"{full_name}\"),\"themessageapathnamesisnottheonethemodelrecorded\",);"
+            );
+            assert!(text.contains(&guard), "{guard} {text}");
+        }
+        assert!(
+            text.contains("#[cfg(all(target_arch=\"wasm32\",any(feature=\"sdk-all\",feature=\"sdk-connect-pagination\",feature=\"sdk-m-list\")))]const_:()=::core::assert!("),
+            "{text}"
+        );
+    }
+
+    /// Rebuilds the sample with `change` applied to the export `method` of its
+    /// model, for shapes the model itself never produces.
+    fn changed(method: &str, change: impl FnOnce(&mut Export)) -> syn::Result<TokenStream> {
+        expanded(SOURCE, "svc", |client| {
+            let export = client
+                .exports
+                .iter_mut()
+                .find(|export| export.method == method)
+                .expect("the export");
+            change(export);
+        })
+    }
+
+    #[test]
+    fn arguments_that_are_not_a_message_are_refused_by_the_expansion() {
+        let error = changed("get", |export| {
+            export.args = Wire::Wrapper(api_bones_sdk_model::Wrapper::UInt32);
+        })
+        .expect_err("refused");
+        assert!(
+            error.to_string().contains("arrive as a message of its own"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_result_is_the_proto_bytes_of_its_message_or_rejects_with_the_error() {
+        let text = text();
+        assert!(text.contains("let__out=__client.get(id).await.map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;let__bytes:::std::vec::Vec<u8>=::api_bones_sdk::__private::encode_message(&__out);::core::result::Result::Ok(::api_bones_sdk::__private::wasm_bindgen::JsValue::from(::api_bones_sdk::__private::js_sys::Uint8Array::from(__bytes.as_slice())))"), "{text}");
+    }
+
+    #[test]
+    fn a_unit_result_resolves_to_the_empty_message() {
+        let text = text();
+        assert!(
+            text.contains("let__bytes:::std::vec::Vec<u8>={let()=*&__out;::std::vec::Vec::new()};"),
             "{text}"
         );
     }
 
     #[test]
+    fn a_scalar_result_is_its_well_known_wrapper() {
+        let source = r#"
+            #[client(surface = "s")]
+            impl C {
+                #[export]
+                pub async fn name(&self) -> Result<String, Error> { body() }
+            }
+        "#;
+        let text = flat(&built_from(source, "svc").expect("expanded"));
+        assert!(
+            text.contains(
+                "let__bytes:::std::vec::Vec<u8>=::api_bones_sdk::__private::encode_wrapped(&__out);"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("MessageName"), "{text}");
+    }
+
+    #[test]
+    fn a_result_that_is_neither_a_message_nor_a_scalar_is_refused() {
+        let source = r#"
+            #[client(surface = "s")]
+            impl C {
+                #[export]
+                pub async fn many(&self) -> Result<Vec<String>, Error> { body() }
+            }
+        "#;
+        let error = built_from_source_error(source);
+        assert!(error.contains("generic type `Vec`"), "{error}");
+    }
+
+    fn built_from_source_error(source: &str) -> String {
+        let file: syn::File = syn::parse_str(source).expect("a file");
+        Model::from_files([&file]).expect_err("refused").to_string()
+    }
+
+    #[test]
     fn a_handle_export_returns_its_class_at_once_and_opens_on_the_first_read() {
         let text = text();
-        assert!(text.contains("__signal:::core::option::Option<::api_bones_sdk::__private::web_sys::AbortSignal>,)->ApiBonesJsNumbersClientListHandle{"), "{text}");
-        assert!(text.contains("let__lazy=::api_bones_sdk::__private::Lazy::new(::api_bones_sdk::CallCtx::scope(::api_bones_sdk::CallCtx{traceparent:__traceparent,tracestate:__tracestate,},asyncmove{let__args=::api_bones_sdk::parse_args(&__args_json)?;"), "{text}");
+        assert!(text.contains("__signal:::core::option::Option<::api_bones_sdk::__private::web_sys::AbortSignal>,)->ApiBonesJsNumbersClientWatchHandle{"), "{text}");
+        assert!(text.contains("let__lazy=::api_bones_sdk::__private::Lazy::new(::api_bones_sdk::CallCtx::scope(::api_bones_sdk::CallCtx{traceparent:__traceparent,tracestate:__tracestate,prefetch:::core::option::Option::None,first_only:false,},asyncmove{"), "{text}");
         assert!(
-            text.contains("::core::result::Result::Ok(__client.list(limit,since).await)"),
+            text.contains("::core::result::Result::Ok(__client.watch().await)"),
             "{text}"
         );
         assert!(text.contains("let__cancel=__lazy.clone();::api_bones_sdk::__private::on_abort(&__signal,move||__cancel.cancel());ApiBonesJsNumbersClientListHandle{inner:__lazy}"), "{text}");
@@ -854,11 +1181,25 @@ mod tests {
         for kind in ["ListCall", "Stream", "Batch"] {
             assert!(
                 text.contains(&format!(
-                    "inner:::api_bones_sdk::__private::Lazy<::api_bones_sdk::{kind}<Number>>"
+                    "inner:::api_bones_sdk::__private::Lazy<::api_bones_sdk::{kind}<generated::contract::sdk::v1::Number>>"
                 )),
                 "{kind} {text}"
             );
         }
+    }
+
+    #[test]
+    fn a_list_takes_prefetch_and_first_only_as_typed_parameters() {
+        let text = text();
+        assert!(text.contains("pubfnlist_js(&self,__args:::api_bones_sdk::__private::js_sys::Uint8Array,__traceparent:::core::option::Option<::std::string::String>,__tracestate:::core::option::Option<::std::string::String>,__signal:::core::option::Option<::api_bones_sdk::__private::web_sys::AbortSignal>,__prefetch:::core::option::Option<u8>,__first_only:bool,)->ApiBonesJsNumbersClientListHandle"), "{text}");
+        assert!(text.contains("::api_bones_sdk::CallCtx{traceparent:__traceparent,tracestate:__tracestate,prefetch:__prefetch,first_only:__first_only,}"), "{text}");
+        let stream = text
+            .split("pubfnwatch_js(")
+            .nth(1)
+            .and_then(|rest| rest.split("->").next())
+            .expect("the watch shell");
+        assert!(!stream.contains("__prefetch"), "{stream}");
+        assert!(!stream.contains("__first_only"), "{stream}");
     }
 
     #[test]
@@ -874,74 +1215,73 @@ mod tests {
     }
 
     #[test]
-    fn a_list_page_carries_items_revision_total_cache_and_next_flags() {
+    fn a_list_page_is_the_page_message_of_its_encoded_items() {
         let text = text();
-        for key in [
-            "\"items\"",
-            "\"revision\"",
-            "\"fromCache\"",
-            "\"hasNext\"",
-            "\"total\"",
-        ] {
-            assert!(
-                text.contains(&format!("ToString::to_string({key})")),
-                "{key} {text}"
-            );
-        }
         assert!(
-            text.contains("\"value\":__total.value.to_string()"),
-            "{text}"
-        );
-        assert!(
-            text.contains("\"kind\":::std::format!(\"{:?}\",__total.kind).to_lowercase()"),
+            text.contains("::api_bones_sdk::__private::encode_page(&__page,|__item|::api_bones_sdk::__private::encode_message(__item))"),
             "{text}"
         );
     }
 
-    /// A list page reaches the host as its JSON and a hold on its items; a
-    /// stream item and a batch chunk are the JSON alone.
+    /// Every handle delivers its bytes alone: a list page keeps no hold on its
+    /// items, because the cache owns them.
     #[test]
-    fn a_list_page_is_delivered_with_a_hold_on_its_items_and_no_other_handle_is() {
+    fn every_handle_delivers_its_bytes_alone() {
         let text = text();
-        let hold = "::api_bones_sdk::__private::wasm_bindgen::JsValue::from(::api_bones_sdk::__private::js_sys::Array::of2(&::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&__text),&::api_bones_sdk::__private::wasm_bindgen::JsValue::from(::api_bones_sdk::__private::PageHold::new(&__page)),))";
-        assert_eq!(text.matches(hold).count(), 1, "{text}");
-        assert_eq!(text.matches("PageHold").count(), 1, "{text}");
-        let bare = "let__text={::api_bones_sdk::to_json_string(&__page)?};::core::result::Result::Ok(::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&__text))";
-        assert_eq!(text.matches(bare).count(), 1, "{text}");
-        assert_eq!(text.matches("Array::of2").count(), 1, "{text}");
+        assert!(!text.contains("PageHold"), "{text}");
+        assert!(!text.contains("Array::of2"), "{text}");
+        assert!(!text.contains("from_str"), "{text}");
     }
 
     #[test]
-    fn a_batch_chunk_is_ok_or_error_in_request_order() {
+    fn a_batch_chunk_is_the_chunk_message_in_request_order() {
         let text = text();
         assert!(
-            text.contains("\"ok\":::api_bones_sdk::Wire::encode(&__value)?"),
-            "{text}"
-        );
-        assert!(text.contains("\"error\":__error.to_value()"), "{text}");
-    }
-
-    #[test]
-    fn a_stream_item_is_its_json() {
-        let text = text();
-        assert!(
-            text.contains("let__text={::api_bones_sdk::to_json_string(&__page)?};"),
+            text.contains("::api_bones_sdk::__private::encode_batch_chunk(&__page,|__item|::api_bones_sdk::__private::encode_message(__item))"),
             "{text}"
         );
     }
 
     #[test]
-    fn a_sync_export_returns_the_json_or_throws_the_error_json() {
+    fn a_stream_item_is_its_message() {
+        let text = text();
+        assert!(
+            text.contains("let__bytes:::std::vec::Vec<u8>={::api_bones_sdk::__private::encode_message(&__page)};"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_scalar_item_of_a_handle_is_its_well_known_wrapper() {
+        let source = r#"
+            #[client(surface = "s")]
+            impl C {
+                #[export]
+                pub async fn names(&self) -> Stream<String> { body() }
+            }
+        "#;
+        let text = flat(&built_from(source, "svc").expect("expanded"));
+        assert!(
+            text.contains("{::api_bones_sdk::__private::encode_wrapped(&__page)};"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_sync_export_returns_the_bytes_or_throws_the_call_error_bytes() {
         let text = text();
         assert!(
             text.contains("js_name=\"api_bones__NumbersClient__label\""),
             "{text}"
         );
-        assert!(text.contains("pubfnlabel_js(&self,__args_json:::std::string::String,)->::core::result::Result<::std::string::String,::api_bones_sdk::__private::wasm_bindgen::JsValue>"), "{text}");
-        assert!(text.contains(".map_err(|__error|::api_bones_sdk::__private::wasm_bindgen::JsValue::from_str(&__error.to_json()))"), "{text}");
-        assert!(text.contains("let__out=__client.label(n);::core::result::Result::Ok(::api_bones_sdk::to_json_string(&__out)?)"), "{text}");
-        assert!(text.contains("__client.reset();::core::result::Result::Ok(::std::string::ToString::to_string(\"null\"))"), "{text}");
-        assert!(text.contains("let__out=__client.check().map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;::core::result::Result::Ok({let()=__out;"), "{text}");
+        assert!(text.contains("pubfnlabel_js(&self,__args:::api_bones_sdk::__private::js_sys::Uint8Array,)->::core::result::Result<::api_bones_sdk::__private::js_sys::Uint8Array,::api_bones_sdk::__private::wasm_bindgen::JsValue>"), "{text}");
+        assert!(text.contains(".map(|__bytes|::api_bones_sdk::__private::js_sys::Uint8Array::from(__bytes.as_slice())).map_err(|__error|::api_bones_sdk::__private::wasm_bindgen::JsValue::from(::api_bones_sdk::__private::js_sys::Uint8Array::from(::api_bones_sdk::__private::encode_call_error(&__error).as_slice())))"), "{text}");
+        assert!(text.contains("let__out=__client.label(&kind);::core::result::Result::Ok(::api_bones_sdk::__private::encode_wrapped(&__out))"), "{text}");
+        assert!(
+            text.contains("__client.reset();::core::result::Result::Ok(::std::vec::Vec::new())"),
+            "{text}"
+        );
+        assert!(text.contains("let__out=__client.check().map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;::core::result::Result::Ok({let()=*&__out;"), "{text}");
         assert!(
             text.contains("let__out=__client.parse(text).map_err("),
             "{text}"
@@ -1014,32 +1354,44 @@ mod tests {
             sync: false,
             surface: "s".to_owned(),
             params: Vec::new(),
-            ret: Return::Value(api_bones_sdk_model::WireType::U32),
+            args: Wire::Empty,
+            ret: Return::Value(Wire::Wrapper(api_bones_sdk_model::Wrapper::UInt32)),
         };
         let client = Client {
             ty: "C".to_owned(),
             surface: "s".to_owned(),
+            proto: None,
             exports: vec![export],
-            options: Vec::new(),
+            options: None,
         };
         assert_eq!(model.clients.len(), 0);
-        let error = expand("svc", &client, &item.self_ty, &[function]).expect_err("refused");
-        assert!(
-            error.to_string().contains("async export returns"),
-            "{error}"
-        );
-        let handle = Export {
-            ret: Return::Handle {
-                kind: HandleKind::List,
-                item: "X".to_owned(),
-            },
-            ..client.exports[0].clone()
+        let refused = |client: &Client| {
+            expand("svc", client, &item.self_ty, &[function])
+                .expect_err("refused")
+                .to_string()
         };
-        let client = Client {
-            exports: vec![handle],
-            ..client
+        let error = refused(&client);
+        assert!(error.contains("async export returns"), "{error}");
+        let with = |sync: bool, ret: Return| Client {
+            exports: vec![Export {
+                sync,
+                ret,
+                ..client.exports[0].clone()
+            }],
+            ..client.clone()
         };
-        let error = expand("svc", &client, &item.self_ty, &[function]).expect_err("refused");
-        assert!(error.to_string().contains("yields one type"), "{error}");
+        let handle = |item: Wire| Return::Handle {
+            kind: HandleKind::List,
+            item,
+        };
+        let error = refused(&with(
+            false,
+            handle(Wire::Wrapper(api_bones_sdk_model::Wrapper::UInt32)),
+        ));
+        assert!(error.contains("yields one type"), "{error}");
+        let error = refused(&with(false, handle(Wire::Empty)));
+        assert!(error.contains("a message or a scalar"), "{error}");
+        let error = refused(&with(true, handle(Wire::Empty)));
+        assert!(error.contains("never returns a handle"), "{error}");
     }
 }

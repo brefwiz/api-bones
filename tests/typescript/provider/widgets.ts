@@ -22,7 +22,7 @@ function identityFromCredential(s: BatchState, authorization: string): { org: st
   const [header, body, signature] = authorization.replace(/^Bearer /, "").split(".");
   if (!header || !body || !signature || !verify(null, Buffer.from(`${header}.${body}`), s.keyPair.publicKey, Buffer.from(signature, "base64url"))) throw new ConnectError("invalid credential", Code.Unauthenticated);
   const claims = JSON.parse(Buffer.from(body, "base64url").toString());
-  if (!claims.sub || !claims.org || claims.aud !== "contract.v1.Widgets" || claims.exp <= Date.now() / 1000) throw new ConnectError("invalid claims", Code.Unauthenticated);
+  if (!claims.sub || !claims.org || claims.aud !== "contract.v1.WidgetsService" || claims.exp <= Date.now() / 1000) throw new ConnectError("invalid claims", Code.Unauthenticated);
   if (!Array.isArray(claims.permissions) || !claims.permissions.every((permission: unknown) => typeof permission === "string")) throw new ConnectError("invalid permissions", Code.Unauthenticated);
   return { org: claims.org, subject: claims.sub, permissions: claims.permissions };
 }
@@ -140,13 +140,13 @@ export async function startWidgetsProvider(s: BatchState) {
             const outcome = outcomes[0];
             if (!outcome.ok) throw outcome.error;
             await authorizeWidget(outcome.value, subject);
-            return create(method.output, { id: outcome.value.id, name: outcome.value.id, kind: input.kind ?? "" } as never);
+            return create(method.output, { widget: { id: outcome.value.id, name: outcome.value.id, kind: input.kind ?? "" } } as never);
           }
           const authorized = await authorizeBatchResults(outcomes, row => {
             if (s.authorizationFault?.id === row.id) throw new ConnectError(s.authorizationFault.message, Code.Internal);
             return authorizeWidget(row, subject);
           });
-          const results = authorized.map((outcome, index) => ({ id: ids[index], outcome: outcome.ok ? { case: "item", value: { id: outcome.value.id, name: outcome.value.id, kind: input.kind ?? "" } } : { case: "error", value: { code: Object.keys(codes).find(code => codes[code] === outcome.error.code) ?? "unknown", message: outcome.error.rawMessage, info: errorInfoOf(outcome.error), violations: itemRefusal(ids[index], rows.has(ids[index]))?.violations ?? [] } } }));
+          const results = authorized.map((outcome, index) => ({ id: ids[index], outcome: outcome.ok ? { case: "item", value: { widget: { id: outcome.value.id, name: outcome.value.id, kind: input.kind ?? "" } } } : { case: "error", value: { code: Object.keys(codes).find(code => codes[code] === outcome.error.code) ?? "unknown", message: outcome.error.rawMessage, info: errorInfoOf(outcome.error), violations: itemRefusal(ids[index], rows.has(ids[index]))?.violations ?? [] } } }));
           if (s.reverse || s.malformed === "order") results.reverse();
           if (s.malformed === "count") results.pop();
           return create(method.output, { results } as never);

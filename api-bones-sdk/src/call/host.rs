@@ -1,69 +1,42 @@
 // SPDX-License-Identifier: MIT
-//! The env a browser host describes.
+//! The env a browser host describes. The bytes a host answers are read by
+//! `crate::boundary::credential_read`, the one place the answer's wire form
+//! is decoded.
 //!
-//! The host is a plain object: `credential()` answers the caller's credential
-//! as JSON text, `anonymous` says the caller presents none, `unauthenticated()`
-//! is told when a server refuses the caller, and `start(json)` / `end(json)`
-//! receive the call's spans.
+//! The host is a plain object: `credential(refresh, signal)` answers the
+//! caller's credential as the bytes of a `bones.sdk.v1.CredentialAnswer`
+//! (through a promise or not), `anonymous` says the caller presents none,
+//! `unauthenticated()` is told when a server refuses the caller, and
+//! `start(bytes)` / `end(bytes)` receive the call's spans.
 
-use std::collections::BTreeMap;
-
-use api_bones_batch::{Credential, Identity};
-use connectrpc::ConnectError;
-use serde::Deserialize;
-
-/// The credential a host answers, as the JSON object it describes.
-#[derive(Deserialize)]
-struct Described {
-    subject: String,
-    org: String,
-    headers: BTreeMap<String, String>,
-}
-
-/// The credential a host answered as JSON text:
-/// `{"subject": "...", "org": "...", "headers": {"name": "value"}}`.
-///
-/// # Errors
-/// `failed_precondition` when the text is not that object. The call fails
-/// closed: nothing is sent as an unknown caller.
-pub(super) fn credential_of(text: &str) -> Result<Credential, ConnectError> {
-    let described: Described = serde_json::from_str(text)
-        .map_err(|_| unreadable("is not an object of `subject`, `org` and `headers` text"))?;
-    Ok(Credential {
-        identity: Identity {
-            subject: described.subject,
-            org: described.org,
-        },
-        headers: described
-            .headers
-            .into_iter()
-            .map(|(name, value)| (name.to_ascii_lowercase(), value.into_bytes()))
-            .collect(),
-    })
-}
-
-fn unreadable(why: &str) -> ConnectError {
-    ConnectError::failed_precondition(format!("the host's credential {why}"))
-}
-
-/// The host's `credential()` threw: the source could not answer. The call
-/// fails closed with nothing sent.
+/// The host's credential answer is not usable: it is not a function, not
+/// bytes, or ends before it names an answer. The call fails closed with
+/// nothing sent as an unknown caller.
 #[cfg(any(test, all(feature = "wasm", target_arch = "wasm32")))]
-fn unanswered() -> ConnectError {
-    ConnectError::unavailable("the host's credential source could not answer")
+fn unreadable(why: &str) -> connectrpc::ConnectError {
+    connectrpc::ConnectError::failed_precondition(format!("the host's credential {why}"))
+}
+
+/// The host's `credential()` threw or rejected: the source could not answer.
+/// The call fails closed with nothing sent.
+#[cfg(any(test, all(feature = "wasm", target_arch = "wasm32")))]
+fn unanswered() -> connectrpc::ConnectError {
+    connectrpc::ConnectError::unavailable("the host's credential source could not answer")
 }
 
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 mod browser {
     use std::sync::Arc;
 
-    use api_bones_batch::{Anonymous, Credential, CredentialSource};
+    use api_bones_batch::{Anonymous, CredentialAsk, CredentialFuture, CredentialSource};
     use api_bones_page::RevisionCache;
-    use connectrpc::ConnectError;
-    use js_sys::{Function, Reflect};
+    use js_sys::{Function, Promise, Reflect, Uint8Array};
     use wasm_bindgen::{JsCast as _, JsValue};
+    use wasm_bindgen_futures::JsFuture;
+    use web_sys::AbortController;
 
-    use super::{credential_of, unanswered, unreadable};
+    use super::{unanswered, unreadable};
+    use crate::boundary::credential_read;
     use crate::call::CallEnv;
     use crate::span::{JsSink, Tracer};
 
@@ -83,30 +56,91 @@ mod browser {
         static REVISIONS: RevisionCache = RevisionCache::default();
     }
 
-    /// The credential of a host, asked on every read.
-    struct HostCredential(JsValue);
+    /// The signal a credential read runs under: aborted when the read is
+    /// dropped before it settled, so a call that is abandoned or out of
+    /// budget does not leave the host's token request running.
+    struct ReadSignal(Option<AbortController>);
+
+    impl ReadSignal {
+        fn new() -> Result<Self, wasm_bindgen::JsValue> {
+            AbortController::new().map(|controller| Self(Some(controller)))
+        }
+
+        fn signal(&self) -> JsValue {
+            self.0
+                .as_ref()
+                .map_or(JsValue::UNDEFINED, |controller| controller.signal().into())
+        }
+
+        fn settled(mut self) {
+            self.0 = None;
+        }
+    }
+
+    impl Drop for ReadSignal {
+        fn drop(&mut self) {
+            if let Some(controller) = self.0.take() {
+                controller.abort();
+            }
+        }
+    }
+
+    /// The credential of a host, asked on every read. The host answers its
+    /// credential every time and keeps no state the core relies on.
+    struct HostCredential {
+        host: JsValue,
+        /// The host's `credential`, looked up once.
+        read: Option<Function>,
+    }
+
+    impl HostCredential {
+        fn new(host: JsValue) -> Self {
+            Self {
+                read: function(&host, "credential"),
+                host,
+            }
+        }
+
+        /// The bytes of the host's answer, once its promise settled.
+        async fn answer(&self, ask: CredentialAsk) -> Result<Vec<u8>, connectrpc::ConnectError> {
+            let read = self
+                .read
+                .as_ref()
+                .ok_or_else(|| unreadable("is not a function"))?;
+            let signal = ReadSignal::new().map_err(|_| unanswered())?;
+            let promise = read
+                .call2(
+                    &self.host,
+                    &JsValue::from_bool(ask.refresh),
+                    &signal.signal(),
+                )
+                .map_err(|_| unanswered())?;
+            let answer = JsFuture::from(Promise::resolve(&promise))
+                .await
+                .map_err(|_| unanswered())?;
+            signal.settled();
+            answer
+                .dyn_into::<Uint8Array>()
+                .map(|bytes| bytes.to_vec())
+                .map_err(|_| unreadable("is not bytes"))
+        }
+    }
 
     impl CredentialSource for HostCredential {
-        fn current(&self) -> Result<Credential, ConnectError> {
-            let read =
-                function(&self.0, "credential").ok_or_else(|| unreadable("is not a function"))?;
-            let answer = read.call0(&self.0).map_err(|_| unanswered())?;
-            credential_of(
-                &answer
-                    .as_string()
-                    .ok_or_else(|| unreadable("is not text"))?,
-            )
+        fn current(&self, ask: CredentialAsk) -> CredentialFuture<'_> {
+            Box::pin(async move { credential_read(&self.answer(ask).await?) })
         }
     }
 
     impl CallEnv {
-        /// The env a browser host describes: its `credential()` is read
-        /// before every send and a throw or unreadable answer fails the call
-        /// closed; `anonymous === true` presents no credential;
-        /// `unauthenticated()` is told of every unauthenticated refusal;
-        /// `start` and `end` receive the spans. Every call of the env shares
-        /// the instance's one revision cache, in the caller's own slot. Bind
-        /// the env to its server with [`CallEnv::at`] before listing.
+        /// The env a browser host describes: its `credential(refresh,
+        /// signal)` is read before every send and a rejection or unreadable
+        /// answer fails the call closed; `anonymous === true` presents no
+        /// credential; `unauthenticated()` is told of every unauthenticated
+        /// refusal the host's own credential could not cure; `start` and
+        /// `end` receive the spans. Every call of the env shares the
+        /// instance's one revision cache, in the caller's own slot. Bind the
+        /// env to its server with [`CallEnv::at`] before listing.
         #[must_use]
         pub fn from_host(host: JsValue) -> Self {
             let anonymous = Reflect::get(&host, &JsValue::from_str("anonymous"))
@@ -114,7 +148,7 @@ mod browser {
             let env = if anonymous {
                 Self::new(Anonymous)
             } else {
-                Self::new(HostCredential(host.clone()))
+                Self::new(HostCredential::new(host.clone()))
             };
             let told = host.clone();
             env.with_tracer(Tracer::new(Arc::new(JsSink::new(host))))
@@ -131,57 +165,24 @@ mod browser {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_credential_names_its_identity_and_headers() {
-        let credential =
-            credential_of(r#"{"subject":"u1","org":"o1","headers":{"Authorization":"Bearer t"}}"#)
-                .expect("a credential");
-        assert_eq!(credential.identity.subject, "u1");
-        assert_eq!(credential.identity.org, "o1");
-        assert_eq!(
-            credential.headers,
-            vec![("authorization".to_owned(), b"Bearer t".to_vec())]
-        );
-    }
-
-    #[test]
-    fn an_empty_header_object_is_a_credential_without_headers() {
-        let credential =
-            credential_of(r#"{"subject":"","org":"","headers":{}}"#).expect("a credential");
-        assert_eq!(credential.headers, Vec::<(String, Vec<u8>)>::new());
-    }
+    use connectrpc::ErrorCode;
 
     #[test]
     fn a_throwing_credential_source_is_unavailable() {
-        assert_eq!(unanswered().code, connectrpc::ErrorCode::Unavailable);
+        let error = unanswered();
+        assert_eq!(error.code, ErrorCode::Unavailable);
     }
 
     #[test]
-    fn an_unreadable_answer_is_a_failed_precondition() {
-        assert_eq!(
-            unreadable("is not text").code,
-            connectrpc::ErrorCode::FailedPrecondition
+    fn an_unreadable_answer_is_a_failed_precondition_naming_why() {
+        let error = unreadable("is not bytes");
+        assert_eq!(error.code, ErrorCode::FailedPrecondition);
+        assert!(
+            error
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("is not bytes")),
+            "{error:?}"
         );
-    }
-
-    #[test]
-    fn anything_else_fails_closed() {
-        for text in [
-            "not json",
-            "null",
-            r#"{"org":"o","headers":{}}"#,
-            r#"{"subject":"s","headers":{}}"#,
-            r#"{"subject":"s","org":"o"}"#,
-            r#"{"subject":"s","org":"o","headers":{"authorization":7}}"#,
-            r#"{"subject":1,"org":"o","headers":{}}"#,
-        ] {
-            let error = credential_of(text).expect_err(text);
-            assert_eq!(
-                error.code,
-                connectrpc::ErrorCode::FailedPrecondition,
-                "{text}"
-            );
-        }
     }
 }

@@ -168,14 +168,11 @@ where
                 let guard = guard.clone();
                 let headers = headers.clone();
                 Box::pin(async move {
-                    let credential = match wire.verify(&guard) {
-                        Ok(credential) => credential,
-                        Err(error) => return Err(error),
-                    };
+                    let credential = wire.verify(&guard).await?;
                     headers.validate(&credential.headers)?;
                     let response =
                         single(request, headers.call_options(&credential.headers)?).await;
-                    wire.verify(&guard)?;
+                    wire.verify(&guard).await?;
                     response
                 })
             });
@@ -290,6 +287,10 @@ mod tests {
 
     impl PagedResponse for Resp {
         type Item = String;
+
+        fn encoded_len(item: &String) -> usize {
+            item.len()
+        }
 
         fn split(self) -> (Vec<String>, PageInfo) {
             (
@@ -419,14 +420,17 @@ mod tests {
         let changed = Arc::new(AtomicBool::new(false));
         let source_changed = Arc::clone(&changed);
         let wire = Arc::new(Wire::new(
-            Arc::new(move || {
-                Ok(crate::key::Credential {
-                    identity: Identity {
-                        subject: source_changed.load(Ordering::SeqCst).to_string(),
-                        org: String::new(),
-                    },
-                    headers: Vec::new(),
-                })
+            Arc::new(move |_: crate::key::CredentialAsk| {
+                let subject = source_changed.load(Ordering::SeqCst).to_string();
+                async move {
+                    Ok(crate::key::Credential {
+                        identity: Identity {
+                            subject,
+                            org: String::new(),
+                        },
+                        headers: Vec::new(),
+                    })
+                }
             }),
             None,
         ));
@@ -514,11 +518,14 @@ mod tests {
                     headers.reverse();
                 }
                 let wire = Arc::new(Wire::new(
-                    Arc::new(move || {
-                        Ok(crate::key::Credential {
-                            identity: Identity::default(),
-                            headers: headers.clone(),
-                        })
+                    Arc::new(move |_: crate::key::CredentialAsk| {
+                        let headers = headers.clone();
+                        async move {
+                            Ok(crate::key::Credential {
+                                identity: Identity::default(),
+                                headers,
+                            })
+                        }
                     }),
                     None,
                 ));

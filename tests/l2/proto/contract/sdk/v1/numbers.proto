@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: MIT
+//
+// The messages the Layer 2 `Numbers` client exports cross the wasm boundary
+// as. An args message names each field exactly as the Rust parameter it
+// carries, with the same type.
+
+syntax = "proto3";
+
+package contract.sdk.v1;
+
+// One number of the `Numbers` list.
+message Number {
+  uint32 value = 1;
+}
+
+// The options of `NumbersClient::from_host`.
+message NumbersOptions {
+  // The size of the pages a list asks for when a call names none; unset leaves
+  // it to the server.
+  optional uint32 default_page_size = 1;
+}
+
+// The parameters of `NumbersClient::list`.
+message ListNumbersArgs {
+  // The size of the pages the list asks for; unset leaves it to the client's
+  // default.
+  optional uint32 page_size = 1;
+}

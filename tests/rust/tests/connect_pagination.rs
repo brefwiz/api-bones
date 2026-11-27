@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 //! Runs the Gherkin contract both languages answer: the page iterator over a
-//! PostgreSQL-backed Widgets service.
+//! PostgreSQL-backed WidgetsService.
 //!
 //! `TwoPass` owns scenario selection, concurrency and the census.
 mod steps;

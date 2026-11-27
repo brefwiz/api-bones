@@ -235,16 +235,36 @@ Feature: Paginated lists
     And the stored widget parts are "1,2,3,4,5,6"
     And the server saw 6 requests
 
-  Scenario: Released page holders cannot be replayed
+  Scenario: Pages the consumer released are still replayed within the hold budget
     Given a list of pages "1,2" "3,4" "5"
     And the current stored list revision is remembered as "r1"
     And the generated list client uses a revision cache
     Given the consumer retains every generated list page
     Given the consumer releases retained list pages
     When the consumer lists again
+    Then every generated list page is marked from cache true
+    And the first revalidation carried if-none-match "\"r1\""
+    And the server saw 4 requests
+    And the list completion records 3 pages and 1 not-modified hits
+
+  Scenario: A chain over the 1 MiB chain budget is not held
+    Given parts whose encoded size totals 1100 KiB
+    And the generated list client uses a revision cache
+    Given the consumer retains every generated list page
+    When the consumer lists again
     Then every generated list page is marked from cache false
     And the first revalidation carried if-none-match ""
-    And the server saw 6 requests
+    And the revision cache is empty
+
+  Scenario: The least recently used chain is evicted past the 4 MiB total
+    Given 5 widgets of about 900 KiB each
+    And the generated list client uses a revision cache
+    Given the consumer lists widgets "A,B,C,D,A,E"
+    When the consumer lists widget "B"
+    Then every generated list page is marked from cache false
+    And the first revalidation carried if-none-match ""
+    When the consumer lists widget "A"
+    Then every generated list page is marked from cache true
 
   Scenario: Changing identity clears cached pages before revalidation
     Given a list of pages "1,2" "3,4" "5"

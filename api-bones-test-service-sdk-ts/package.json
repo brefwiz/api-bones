@@ -18,6 +18,7 @@
     "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');for (const f of ['api_bones_test_service_l2.js','api_bones_test_service_l2_bg.wasm']) fs.copyFileSync('src/generated/'+f,'dist/generated-l2/'+f)\""
   },
   "dependencies": {
+    "@bufbuild/protobuf": "^2.2.0",
     "@opentelemetry/api": ">=1.9.0 <1.10.0"
   },
   "peerDependencies": {
@@ -25,6 +26,8 @@
   },
   "devDependencies": {
     "@brefwiz/api-bones-sdk-runtime": "file:../api-bones-sdk-runtime-ts",
+    "@bufbuild/buf": "^1.50.0",
+    "@bufbuild/protoc-gen-es": "^2.16.0",
     "@types/node": "^22.20.1",
     "typescript": "^5.0.0"
   },

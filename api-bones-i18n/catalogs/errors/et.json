@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Teenus ei ole saadaval",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Teenus ei ole ajutiselt saadaval. Proovige hiljem uuesti.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Lüüsi ajalõpp",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK versioonid ei ühti",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Selle rakenduse osad ei ole sünkroonis. Laadige leht uuesti ja proovige uuesti.",
   "bones.validation.min.title": "Peab olema vähemalt {min, number}.",
   "bones.validation.max.title": "Võib olla kuni {max, number}.",
   "bones.validation.range.title": "Väärtus on vahemikust väljas.",

@@ -23,7 +23,7 @@ When("the caller fetches the first page with a list call", async function (this:
   const wire = toBinary(TotalSchema, this.reportedTotal);
   const decoded = fromBinary(TotalSchema, wire);
   const call = listCall<string>(async () => ({ items: ["1"], page: { nextCursor: "", revision: "total-revision", total: decoded } }), {}, {
-    method: "/contract.v1.Numbers/ListNoSideEffects",
+    method: "/contract.v1.NumbersService/ListNoSideEffects",
     paging: { kind: "unary", itemField: "items", pageField: "page", requestPageField: "page" },
   });
   this.pagingFirst = await call.firstPage();
@@ -60,9 +60,10 @@ interface PagingWorld extends BatchWorld {
     listStart: number; revalidationStart: number; aborted: boolean; blocked: boolean; lockAfterFirst?: boolean;
     method: "listWidgetParts" | "listWidgetPartsIdempotent" | "listWidgetPartsUnspecified";
     stopAfterFirst?: boolean; outageActive: boolean; restartAfter: number; failedAttempts: number;
-    completions: Record<string, unknown>[]; spanStart: number;
+    completions: Record<string, unknown>[]; spanStart: number; widget?: string;
   };
 }
+const target = (world: PagingWorld) => world.paging.widget || PARENT;
 let activePaging: PagingWorld["paging"] | undefined;
 const previousInfo = console.info;
 console.info = (...args: unknown[]) => {
@@ -77,7 +78,7 @@ console.info = (...args: unknown[]) => {
 const identity = (s: BatchState) => `${s.session.subject}/${s.session.org}`;
 const requests = (world: PagingWorld) => state(world).requests.filter(request => request.rpc.startsWith("ListWidgetParts")).slice(world.paging.listStart);
 const methodName = (world: PagingWorld) => world.paging.method;
-const methodRpc = (world: PagingWorld) => `/contract.v1.Widgets/${world.paging.method[0].toUpperCase()}${world.paging.method.slice(1)}`;
+const methodRpc = (world: PagingWorld) => `/contract.v1.WidgetsService/${world.paging.method[0].toUpperCase()}${world.paging.method.slice(1)}`;
 function remembered(world: PagingWorld, label: string): string {
   const revision = world.paging.revisions.get(label);
   assert.ok(revision, `stored revision ${label} was captured`);
@@ -92,25 +93,39 @@ function changeIdentity(world: PagingWorld, value: string) {
 Given(/^a list of pages (.+)$/, function (this: PagingWorld, text: string) {
   const pages = [...text.matchAll(/"([^"]*)"/g)].map(match => split(match[1]));
   assert.ok(pages.length && pages[0].length);
-  const s = state(this);
+  seedPaging(this, pages[0].length, [{ id: PARENT, parts: pages.flat() }]);
+});
+/** Parts of at most 100 KiB each that together encode to about `kib` KiB. */
+function sizedParts(kib: number): string[] {
+  const parts: string[] = [];
+  for (let remaining = kib * 1024; remaining > 0; remaining -= 100 * 1024) parts.push("x".repeat(Math.min(remaining, 100 * 1024)));
+  return parts;
+}
+Given("parts whose encoded size totals {int} KiB", function (this: PagingWorld, kib: number) { seedPaging(this, 2, [{ id: PARENT, parts: sizedParts(kib) }]); });
+/** Widgets are named "A", "B", ... in seeding order. */
+Given("{int} widgets of about {int} KiB each", function (this: PagingWorld, count: number, kib: number) {
+  seedPaging(this, 2, Array.from({ length: count }, (_, index) => ({ id: String.fromCharCode(65 + index), parts: sizedParts(kib) })));
+});
+function seedPaging(world: PagingWorld, pageSize: number, widgets: { id: string; parts: string[] }[]) {
+  const s = state(world);
   s.permissions = ["widgets:read", "widgets:write"];
-  s.pageSize = pages[0].length;
-  for (const org of [s.session.org, "org-b"]) s.fixtures.push({ org, id: PARENT, parts: pages.flat() });
-  this.pagingItems = []; this.pagingPages = [];
-  this.paging = { cache: new RevisionCache(() => identity(s)), held: [], revisions: new Map(), listStart: 0, revalidationStart: 0, aborted: false, blocked: false, method: "listWidgetParts", outageActive: false, restartAfter: 0, failedAttempts: 0, completions: [], spanStart: listSpans.length };
+  s.pageSize = pageSize;
+  for (const org of [s.session.org, "org-b"]) for (const { id, parts } of widgets) s.fixtures.push({ org, id, parts });
+  world.pagingItems = []; world.pagingPages = [];
+  world.paging = { cache: new RevisionCache(() => identity(s)), held: [], revisions: new Map(), listStart: 0, revalidationStart: 0, aborted: false, blocked: false, method: "listWidgetParts", outageActive: false, restartAfter: 0, failedAttempts: 0, completions: [], spanStart: listSpans.length };
   s.fetch = async (...args) => {
     try { return await globalThis.fetch(...args); }
     catch (error) {
-      if (this.paging.outageActive) {
-        this.paging.failedAttempts++;
-        if (this.paging.failedAttempts === this.paging.restartAfter) { await startWidgetsListener(s); this.paging.outageActive = false; }
+      if (world.paging.outageActive) {
+        world.paging.failedAttempts++;
+        if (world.paging.failedAttempts === world.paging.restartAfter) { await startWidgetsListener(s); world.paging.outageActive = false; }
       }
       throw error;
     }
   };
-  s.events.on("aborted", () => { this.paging.aborted = true; });
-  activePaging = this.paging;
-});
+  s.events.on("aborted", () => { world.paging.aborted = true; });
+  activePaging = world.paging;
+}
 async function pagingArguments(world: PagingWorld): Promise<Parameters<typeof pagedClient>> {
   const s = await prepareBatch(world);
   return [createPlatformClient(s.service!, s.transport!), s.policy!, world.paging.cache];
@@ -265,7 +280,7 @@ When("the platform client batch-gets the parent and replays its list call across
   const batch = await client.batchGetWidgets([PARENT]);
   assert.equal(batch.length, 1);
   assert.ok(batch[0].ok);
-  assert.equal(batch[0].value.id, PARENT);
+  assert.equal(batch[0].value.widget.id, PARENT);
   const retained = await collectIteration(client.listWidgetParts({ widgetId: PARENT }, { prefetch: 0 }).pages());
   assert.equal(retained.error, undefined);
   assert.ok(retained.values.every(page => !page.fromCache));
@@ -314,7 +329,22 @@ When("the consumer classifies the cursor refusal as a page error", function (thi
 When(/^the consumer lists (again|bypassing the revision cache)$/, async function (this: PagingWorld, mode: string) {
   this.paging.revalidationStart = requests(this).length;
   const prepared = await preparePageFetch(this);
-  const result = await collectIteration(listCall<string>(prepared.fetch, { widgetId: PARENT }, prepared.config, { prefetch: 0, cache: mode === "again" ? "use" : "bypass" }).pages());
+  const result = await collectIteration(listCall<string>(prepared.fetch, { widgetId: target(this) }, prepared.config, { prefetch: 0, cache: mode === "again" ? "use" : "bypass" }).pages());
+  this.pagingPages = result.values; this.pagingItems = []; this.pagingError = result.error;
+});
+Given("the consumer lists widgets {string}", async function (this: PagingWorld, names: string) {
+  for (const name of names.split(",").filter(Boolean)) {
+    this.paging.widget = name; this.paging.revalidationStart = requests(this).length;
+    const prepared = await preparePageFetch(this);
+    const result = await collectIteration(listCall<string>(prepared.fetch, { widgetId: target(this) }, prepared.config, { prefetch: 0, cache: "use" }).pages());
+    this.pagingPages = result.values; this.pagingItems = []; this.pagingError = result.error;
+    assert.equal(this.pagingError, undefined, `listing widget ${name}`);
+  }
+});
+When("the consumer lists widget {string}", async function (this: PagingWorld, name: string) {
+  this.paging.widget = name; this.paging.revalidationStart = requests(this).length;
+  const prepared = await preparePageFetch(this);
+  const result = await collectIteration(listCall<string>(prepared.fetch, { widgetId: target(this) }, prepared.config, { prefetch: 0, cache: "use" }).pages());
   this.pagingPages = result.values; this.pagingItems = []; this.pagingError = result.error;
 });
 When(/^the consumer reads one page(?: with prefetch (off))? and stops$/, async function (this: PagingWorld, prefetch?: string) {
@@ -383,7 +413,7 @@ Then("the delivered pages report whether another page follows as {string}", func
 });
 Then("every generated list page is marked from cache {word}", async function (this: PagingWorld, expected: string) {
   assert.ok(this.pagingPages.length); assert.ok(this.pagingPages.every(page => page.fromCache === (expected === "true")));
-  const s = state(this); const stored = await storedWidgetParts(s, s.session.org, PARENT);
+  const s = state(this); const stored = await storedWidgetParts(s, s.session.org, target(this));
   assert.deepEqual(this.pagingPages.flatMap(page => [...page.items]), stored.items);
 });
 Then("the stored widget parts are {string}", async function (this: PagingWorld, expected: string) {
@@ -410,13 +440,13 @@ Then(/^the server saw (\d+) requests?$/, function (this: PagingWorld, count: str
 Then("the server saw at most {int} requests", function (this: PagingWorld, count: number) { assert.ok(requests(this).length <= count); assert.ok(this.pagingPages.length); });
 Then("the server saw the page size {int} on every request", async function (this: PagingWorld, size: number) {
   const items = this.pagingItems;
-  const s = state(this), stored = await storedWidgetParts(s, s.session.org, PARENT);
+  const s = state(this), stored = await storedWidgetParts(s, s.session.org, target(this));
   assert.deepEqual(items, stored.items);
   assert.ok(requests(this).length); for (const request of requests(this)) assert.equal(request.pageSize, size);
 });
 Then("the server saw no page size on every request", async function (this: PagingWorld) {
   const items = this.pagingItems;
-  const s = state(this), stored = await storedWidgetParts(s, s.session.org, PARENT);
+  const s = state(this), stored = await storedWidgetParts(s, s.session.org, target(this));
   assert.deepEqual(items, stored.items);
   assert.ok(requests(this).length); for (const request of requests(this)) assert.equal(request.pageSize, undefined);
 });

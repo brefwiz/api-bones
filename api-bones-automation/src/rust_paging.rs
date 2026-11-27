@@ -102,7 +102,7 @@ impl Output {
             .fields()
             .find(|field| field.json_name() == policy.page_field)
             .expect("paging response field");
-        let item = item_type(items.kind(), module)?;
+        let (item, size) = item_type(items.kind(), module)?;
         if self.requests.insert(request.full_name().to_owned()) {
             writeln!(
                 self.text,
@@ -114,7 +114,7 @@ impl Output {
         if self.responses.insert(response.full_name().to_owned()) {
             writeln!(
                 self.text,
-                "api_bones_batch::paged_response!({resp}, item: {item}, items: {}, page: {});",
+                "api_bones_batch::paged_response!({resp}, item: {item}, size: api_bones_batch::__private::item_len::{size}, items: {}, page: {});",
                 escape_ident(items.name()),
                 escape_ident(page.name())
             )
@@ -139,31 +139,57 @@ impl Output {
     }
 }
 
-fn item_type(kind: Kind, module: &dyn Fn(&str) -> String) -> Result<String, RustPagingError> {
-    Ok(match kind {
-        Kind::Double => "f64".into(),
-        Kind::Float => "f32".into(),
-        Kind::Int32 | Kind::Sint32 | Kind::Sfixed32 => "i32".into(),
-        Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 => "i64".into(),
-        Kind::Uint32 | Kind::Fixed32 => "u32".into(),
-        Kind::Uint64 | Kind::Fixed64 => "u64".into(),
-        Kind::Bool => "bool".into(),
-        Kind::String => "String".into(),
-        Kind::Bytes => "Vec<u8>".into(),
-        Kind::Message(message) => message_path(&message, module),
+/// The Rust type of one repeated element and the `item_len` function that
+/// measures its encoding.
+fn item_type(
+    kind: Kind,
+    module: &dyn Fn(&str) -> String,
+) -> Result<(String, &'static str), RustPagingError> {
+    let (item, size) = match kind {
+        Kind::Double => ("f64", "fixed64"),
+        Kind::Float => ("f32", "fixed32"),
+        Kind::Int32 => ("i32", "int32"),
+        Kind::Sint32 => ("i32", "sint32"),
+        Kind::Sfixed32 => ("i32", "fixed32"),
+        Kind::Int64 => ("i64", "int64"),
+        Kind::Sint64 => ("i64", "sint64"),
+        Kind::Sfixed64 => ("i64", "fixed64"),
+        Kind::Uint32 => ("u32", "uint32"),
+        Kind::Fixed32 => ("u32", "fixed32"),
+        Kind::Uint64 => ("u64", "uint64"),
+        Kind::Fixed64 => ("u64", "fixed64"),
+        Kind::Bool => ("bool", "boolean"),
+        Kind::String => ("String", "string"),
+        Kind::Bytes => ("Vec<u8>", "bytes"),
+        Kind::Message(message) => return Ok((message_path(&message, module), "message")),
         Kind::Enum(value) => {
             return Err(RustPagingError(format!(
                 "enum page items are unsupported: {}",
                 value.full_name()
             )));
         }
-    })
+    };
+    Ok((item.into(), size))
 }
 
 /// Emit traits and list methods for unary paging RPCs on selected services.
 ///
 /// `package_module` maps a proto package to its generated Rust module path.
 /// Server streams remain available only on the generated raw client.
+///
+/// Every path in the output is absolute, so it compiles inside a module.
+/// Include it in its own module and re-export the generated `<Service>Lists`
+/// traits by name, leaving `batch_method!` at the crate root:
+///
+/// ```ignore
+/// mod paged {
+///     include!(concat!(env!("OUT_DIR"), "/paged.rs"));
+/// }
+/// pub use paged::{NumbersServiceLists, WidgetsServiceLists};
+/// ```
+///
+/// A root-level `include!` of this file is refused by the feature-closure gate
+/// because the opaque file could shadow `api_bones_batch`.
 ///
 /// # Errors
 /// Refuses unknown or duplicate services, duplicate service names, enum items,
@@ -264,7 +290,7 @@ mod tests {
         assert_eq!(a, b);
         assert_eq!(a.matches("paged_request!").count(), 1);
         assert_eq!(a.matches("paged_response!").count(), 1);
-        assert!(a.contains("item: u32"));
+        assert!(a.contains("item: u32, size: api_bones_batch::__private::item_len::uint32,"));
         assert!(a.contains("Idempotency::NoSideEffects"));
         assert!(a.contains("Idempotency::Idempotent"));
         assert!(a.contains("Idempotency::Unspecified"));
@@ -352,6 +378,37 @@ mod tests {
                 .to_string()
                 .contains("duplicate service name")
         );
+    }
+
+    #[test]
+    fn every_scalar_item_names_the_length_of_its_wire_kind() {
+        for (proto, item, size) in [
+            ("double", "f64", "fixed64"),
+            ("float", "f32", "fixed32"),
+            ("int32", "i32", "int32"),
+            ("sint32", "i32", "sint32"),
+            ("sfixed32", "i32", "fixed32"),
+            ("int64", "i64", "int64"),
+            ("sint64", "i64", "sint64"),
+            ("sfixed64", "i64", "fixed64"),
+            ("uint32", "u32", "uint32"),
+            ("fixed32", "u32", "fixed32"),
+            ("uint64", "u64", "uint64"),
+            ("fixed64", "u64", "fixed64"),
+            ("bool", "bool", "boolean"),
+            ("string", "String", "string"),
+            ("bytes", "Vec<u8>", "bytes"),
+            ("Req", "crate::fixture::v1::Req", "message"),
+        ] {
+            let pool = pool(proto, "service Lists { rpc List(Req) returns (Res); }");
+            let out = emit_rust_paging(&pool, &["fixture.v1.Lists"], &module).expect("emitted");
+            assert!(
+                out.contains(&format!(
+                    "item: {item}, size: api_bones_batch::__private::item_len::{size},"
+                )),
+                "{proto}: {out}"
+            );
+        }
     }
 
     #[test]

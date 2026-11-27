@@ -5,15 +5,25 @@ import initGlue, * as glue from "./api_bones_test_service_l2.js";
 
 export type Glue = typeof glue;
 
-let digest = "";
+/** The `bones.sdk.v1` boundary version this wrapper speaks. */
+export const WRAPPER_BOUNDARY = 1;
+
+/** The SHA-256 of the wasm module, stamped when the package was built. */
+const WASM_SHA256 = "abababababababababababababababababababababababababababababababab";
 
 type Host = { process?: { env?: Record<string, string | undefined> } };
 
-/** Appends the provenance line of the loaded wasm when the run collects evidence. */
-async function recordProvenance(wasmSha256: string): Promise<void> {
-  const directory = (globalThis as Host).process?.env?.BREFWIZ_SDK_EVIDENCE;
-  if (!directory) {
-    return;
+/** The directory the run collects evidence in, when it does. */
+function evidenceDirectory(): string | undefined {
+  return (globalThis as Host).process?.env?.BREFWIZ_SDK_EVIDENCE || undefined;
+}
+
+/** Checks the module against the stamp and appends its provenance line. */
+async function recordProvenance(directory: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
+  const hash = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  const wasmSha256 = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
+  if (wasmSha256 !== WASM_SHA256) {
+    throw new Error(`the wasm module is ${wasmSha256}, not the stamped ${WASM_SHA256}`);
   }
   const specifier = "node:fs/promises";
   const fs = await import(specifier);
@@ -30,17 +40,19 @@ async function recordProvenance(wasmSha256: string): Promise<void> {
 /** Loads the wasm module once; concurrent callers share the one load. */
 export const init = lazyOnce(async (): Promise<Glue> => {
   const input = await wasmInput(new URL("./api_bones_test_service_l2_bg.wasm", import.meta.url));
-  const bytes =
-    input instanceof URL ? new Uint8Array(await (await globalThis.fetch(input)).arrayBuffer()) : new Uint8Array(input);
-  const hash = await globalThis.crypto.subtle.digest("SHA-256", bytes);
-  digest = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
+  const directory = evidenceDirectory();
+  if (directory === undefined) {
+    await initGlue({ module_or_path: input });
+    return glue;
+  }
+  const bytes = input instanceof URL ? new Uint8Array(await (await globalThis.fetch(input)).arrayBuffer()) : new Uint8Array(input);
+  await recordProvenance(directory, bytes);
   await initGlue({ module_or_path: bytes });
-  await recordProvenance(digest);
   return glue;
 });
 
-/** The wasm module this package loaded: its SHA-256, crate and version. */
+/** The wasm module this package loads: its stamped SHA-256, crate and version. */
 export async function sdkBuildInfo(): Promise<{ wasmSha256: string; crate: string; version: string }> {
   await init();
-  return { wasmSha256: digest, crate: "api-bones-test-service-l2", version: "0.0.0" };
+  return { wasmSha256: WASM_SHA256, crate: "api-bones-test-service-l2", version: "0.0.0" };
 }

@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "Serviço indisponível",
   "bones.errors.SERVICE_UNAVAILABLE.description": "O serviço está temporariamente indisponível. Tente novamente mais tarde.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Tempo limite do gateway esgotado",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "As versões do SDK não correspondem",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Partes deste app estão dessincronizadas. Recarregue a página e tente novamente.",
   "bones.validation.min.title": "Deve ser no mínimo {min, number}.",
   "bones.validation.max.title": "Deve ser no máximo {max, number}.",
   "bones.validation.range.title": "O valor está fora do intervalo.",

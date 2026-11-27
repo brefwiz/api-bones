@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "Palvelu ei ole käytettävissä",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Palvelu ei ole tilapäisesti käytettävissä. Yritä myöhemmin uudelleen.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Yhdyskäytävän aikakatkaisu",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK-versiot eivät täsmää",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Tämän sovelluksen osat eivät ole synkronoituja. Lataa sivu uudelleen ja yritä uudelleen.",
   "bones.validation.min.title": "Arvon on oltava vähintään {min, number}.",
   "bones.validation.max.title": "Arvon on oltava enintään {max, number}.",
   "bones.validation.range.title": "Arvo on sallitun alueen ulkopuolella.",

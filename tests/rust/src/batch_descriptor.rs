@@ -7,11 +7,11 @@ use connectrpc::ConnectError;
 use connectrpc::client::ClientConfig;
 use prost_reflect::{DescriptorPool, DynamicMessage, Value, prost::Message};
 
-use crate::{CONTRACT_DESCRIPTOR, WidgetsClient};
+use crate::{CONTRACT_DESCRIPTOR, WidgetsServiceClient};
 
-/// Generated Widgets client bound to its changed method-option descriptor.
+/// Generated WidgetsService client bound to its changed method-option descriptor.
 pub struct DescriptorClient {
-    inner: WidgetsClient<HttpTransport>,
+    inner: WidgetsServiceClient<HttpTransport>,
     descriptor: Vec<u8>,
 }
 
@@ -25,7 +25,7 @@ impl CredentialNeutralClient for DescriptorClient {
     }
 
     fn batch_client_service(&self) -> &str {
-        "contract.v1.Widgets"
+        "contract.v1.WidgetsService"
     }
 }
 
@@ -52,7 +52,7 @@ fn descriptor_with_idempotency(level: Option<i32>) -> Vec<u8> {
                 .get_field_by_name("name")
                 .and_then(|name| name.as_str().map(str::to_owned))
                 .as_deref()
-                != Some("Widgets")
+                != Some("WidgetsService")
             {
                 continue;
             }
@@ -86,7 +86,7 @@ fn descriptor_with_idempotency(level: Option<i32>) -> Vec<u8> {
 }
 
 fn client(descriptor: Vec<u8>) -> DescriptorClient {
-    let inner = WidgetsClient::new(
+    let inner = WidgetsServiceClient::new(
         HttpTransport::h2c(),
         ClientConfig::new("http://127.0.0.1:1".parse().expect("loopback URI")),
     );
@@ -97,7 +97,7 @@ fn construct(descriptor: Vec<u8>) -> Result<(), ConnectError> {
     Batched::anonymous(client(descriptor)).map(|_| ())
 }
 
-/// Bind the generated Widgets client to a changed batch method declaration.
+/// Bind the generated WidgetsService client to a changed batch method declaration.
 pub fn client_with_idempotency(level: Option<i32>) -> DescriptorClient {
     client(descriptor_with_idempotency(level))
 }
@@ -121,8 +121,8 @@ mod tests {
             .get_extension_by_name("bones.v1.batch_of")
             .expect("batch_of extension");
         let service = pool
-            .get_service_by_name("contract.v1.Widgets")
-            .expect("Widgets service");
+            .get_service_by_name("contract.v1.WidgetsService")
+            .expect("WidgetsService service");
         let method = service
             .methods()
             .find(|method| method.name() == "BatchGetWidgets")
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn method_glue_cannot_dispatch_outside_its_validated_relation() {
-        let inner = WidgetsClient::new(
+        let inner = WidgetsServiceClient::new(
             HttpTransport::h2c(),
             ClientConfig::new("http://127.0.0.1:1".parse().expect("loopback URI")),
         );
@@ -174,23 +174,23 @@ mod tests {
         assert!(
             client
                 .__validate_method(
-                    "contract.v1.Widgets/GetWidget",
-                    "contract.v1.Widgets/BatchGetWidgets"
+                    "contract.v1.WidgetsService/GetWidget",
+                    "contract.v1.WidgetsService/BatchGetWidgets"
                 )
                 .is_ok()
         );
         for (single, batch) in [
             (
-                "contract.v1.Widgets/ListWidgetParts",
-                "contract.v1.Widgets/BatchGetWidgets",
+                "contract.v1.WidgetsService/ListWidgetParts",
+                "contract.v1.WidgetsService/BatchGetWidgets",
             ),
             (
-                "contract.v1.Widgets/GetWidget",
-                "contract.v1.Widgets/UpdateWidgetParts",
+                "contract.v1.WidgetsService/GetWidget",
+                "contract.v1.WidgetsService/UpdateWidgetParts",
             ),
             (
                 "other.Widgets/GetWidget",
-                "contract.v1.Widgets/BatchGetWidgets",
+                "contract.v1.WidgetsService/BatchGetWidgets",
             ),
         ] {
             assert_eq!(

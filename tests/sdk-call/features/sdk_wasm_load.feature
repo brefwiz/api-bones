@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+@library @sdk-call @ts-sdk-only
+Feature: The generated SDK records the wasm module it loads
+
+  The TypeScript wrapper of a service loads its Layer 2 core as a wasm module.
+  When the run collects evidence, the module is checked against its build stamp
+  before it is instantiated; a module that differs is refused and records
+  nothing. The load records the module's provenance once. A native Rust client
+  compiles together with its core, so none of this can differ there.
+
+  @state:happy
+  Scenario: Loading the SDK records the provenance
+    Given the run collects SDK evidence in the run's evidence directory
+    And the SDK caller is "ada" of organization "acme"
+    When the caller opens the SDK
+    Then one SDK provenance line was recorded with the schema "api-bones.sdk-provenance/v1"
+    And its wasm digest is the SHA-256 of the installed wasm module
+    And its wasm digest is the one the SDK reports as its build info

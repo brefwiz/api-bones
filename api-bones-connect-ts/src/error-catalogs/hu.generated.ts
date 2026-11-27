@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "A szolgáltatás nem érhető el",
   "bones.errors.SERVICE_UNAVAILABLE.description": "A szolgáltatás átmenetileg nem érhető el. Próbálja újra később.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Az átjáró időkorlátja lejárt",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Az SDK-verziók nem egyeznek",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Az alkalmazás egyes részei nincsenek összhangban. Töltse újra az oldalt, és próbálja újra.",
   "bones.validation.min.title": "Legalább {min, number} legyen.",
   "bones.validation.max.title": "Legfeljebb {max, number} lehet.",
   "bones.validation.range.title": "Az érték a megengedett tartományon kívül esik.",

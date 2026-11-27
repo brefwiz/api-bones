@@ -22,7 +22,13 @@ mod batched {
     );
 
     api_bones_batch::paged_request!(ListItemsRequest, page);
-    api_bones_batch::paged_response!(ListItemsResponse, item: Item, items: items, page: page);
+    api_bones_batch::paged_response!(
+        ListItemsResponse,
+        item: Item,
+        size: api_bones_batch::__private::item_len::message,
+        items: items,
+        page: page
+    );
 
     impl From<&GetItemRequest> for BatchGetItemsRequest {
         fn from(request: &GetItemRequest) -> Self {

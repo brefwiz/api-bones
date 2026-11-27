@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use api_bones::connect::{RETRY_INFO_TYPE, RetryInfo, resource_exhausted_retry_after, retry_after};
 use api_bones_contract_rust::{
-    BatchGetWidgetsRequest, BatchGetWidgetsResponse, GetWidgetRequest, Widget, Widgets,
-    WidgetsClient, WidgetsExt,
+    BatchGetWidgetsRequest, BatchGetWidgetsResponse, GetWidgetRequest, GetWidgetResponse,
+    WidgetsService, WidgetsServiceClient, WidgetsServiceExt,
 };
 use api_bones_transport::HttpTransport;
 use connectrpc::client::ClientConfig;
@@ -38,13 +38,13 @@ struct Refuser {
     wait: Duration,
 }
 
-impl Widgets for Refuser {
+impl WidgetsService for Refuser {
     async fn get_widget<'a>(
         &'a self,
         _ctx: RequestContext,
         _request: ServiceRequest<'_, GetWidgetRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<Widget> + Send + use<'a>> {
-        ServiceResult::<Widget>::Err(resource_exhausted_retry_after(MESSAGE, self.wait))
+    ) -> ServiceResult<impl connectrpc::Encodable<GetWidgetResponse> + Send + use<'a>> {
+        ServiceResult::<GetWidgetResponse>::Err(resource_exhausted_retry_after(MESSAGE, self.wait))
     }
 
     async fn batch_get_widgets<'a>(
@@ -71,11 +71,11 @@ fn given_service(world: &mut RetryAfterWorld, millis: u64) {
 
 #[when("the refused call is sent")]
 async fn when_sent(world: &mut RetryAfterWorld) {
-    let router = WidgetsExt::register(Arc::new(Refuser { wait: world.wait }), Router::new());
+    let router = WidgetsServiceExt::register(Arc::new(Refuser { wait: world.wait }), Router::new());
     let (server, address) = serve_loopback(router).await;
     world.server = Some(server);
     let config = ClientConfig::new(format!("http://{address}").parse().expect("a loopback uri"));
-    let client = WidgetsClient::new(HttpTransport::h2c(), config);
+    let client = WidgetsServiceClient::new(HttpTransport::h2c(), config);
     let outcome = client
         .get_widget(GetWidgetRequest {
             id: "w1".into(),

@@ -10,7 +10,7 @@ const DESCRIPTOR_SET = new URL("./contract.binpb", import.meta.url);
 
 let registry: FileRegistry | undefined;
 
-/** The registry of the test contract (`contract.v1.Numbers`, `Widgets` and `Events`) with the shipped `bones/v1` files it imports. */
+/** The registry of the test contract (`contract.v1.WidgetsService`, `NumbersService` and `EventsService`) with the shipped `bones/v1` files it imports. */
 export function contractRegistry(): FileRegistry {
   registry ??= createFileRegistry(fromBinary(FileDescriptorSetSchema, readFileSync(DESCRIPTOR_SET)));
   return registry;

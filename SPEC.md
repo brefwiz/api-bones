@@ -8,10 +8,22 @@ surface_kind: library
 third_party_payloads:
   - {id: googleapis-protos, upstream: https://github.com/googleapis/googleapis, version: "94bc991b3f1df58bc841801631715894a7ac5e28", license: Apache-2.0, paths: [api-bones-protos/vendor]}
 generated_paths:
-  - tests/typescript/generated/bones/v1/annotations_pb.ts
-  - tests/typescript/generated/bones/v1/errors_pb.ts
-  - tests/typescript/generated/bones/v1/fields_pb.ts
-  - tests/typescript/generated/contract/v1/fields_pb.ts
+  - tests/typescript/generated/bones/v1/annotations_pb.js
+  - tests/typescript/generated/bones/v1/annotations_pb.d.ts
+  - tests/typescript/generated/bones/v1/errors_pb.js
+  - tests/typescript/generated/bones/v1/errors_pb.d.ts
+  - tests/typescript/generated/bones/v1/fields_pb.js
+  - tests/typescript/generated/bones/v1/fields_pb.d.ts
+  - tests/typescript/generated/bones/v1/pagination_pb.js
+  - tests/typescript/generated/bones/v1/pagination_pb.d.ts
+  - tests/typescript/generated/bones/sdk/v1/boundary_pb.js
+  - tests/typescript/generated/bones/sdk/v1/boundary_pb.d.ts
+  - tests/typescript/generated/contract/v1/fields_pb.js
+  - tests/typescript/generated/contract/v1/fields_pb.d.ts
+  - api-bones-sdk-runtime-ts/src/generated/bones/v1/annotations_pb.ts
+  - api-bones-sdk-runtime-ts/src/generated/bones/v1/errors_pb.ts
+  - api-bones-sdk-runtime-ts/src/generated/bones/v1/pagination_pb.ts
+  - api-bones-sdk-runtime-ts/src/generated/bones/sdk/v1/boundary_pb.ts
   - api-bones-connect-ts/src/error-catalogs/*.generated.ts  # embedded from api-bones-i18n/catalogs/errors by `npm run embed-catalogs`, committed so the module resolves before a build
 # The union of every sdk_surfaces target below, which the schema requires it
 # to equal.
@@ -272,13 +284,15 @@ sdk_surfaces:
       rust:
         delivery: package
         packages: [api-bones-transport, api-bones-connect]
-  # Page iteration on generated platform clients in Rust and TypeScript.
+  # Page iteration on generated platform clients in Rust and TypeScript. The
+  # Rust paging glue of a generated client is emitted by api-bones-automation
+  # (emit_rust_paging), so that crate ships this surface's Rust target too.
   connect-pagination:
     contract: tests/features/connect_pagination.feature
     targets:
       rust:
         delivery: package
-        packages: [api-bones-page, api-bones-batch, api-bones-protos]
+        packages: [api-bones-page, api-bones-batch, api-bones-protos, api-bones-automation]
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
@@ -402,19 +416,19 @@ sdk_surfaces:
   sdk-call:
     contract: tests/sdk-call/features/sdk_call.feature
     l2_methods:
-      contract.v1.Numbers/ListNoSideEffects:
+      contract.v1.NumbersService/ListNoSideEffects:
         rust: [list]
         typescript: [list]
-      contract.v1.Widgets/ListWidgetParts:
+      contract.v1.WidgetsService/ListWidgetParts:
         rust: [list_widget_parts]
         typescript: [listWidgetParts]
-      contract.v1.Widgets/GetWidget:
+      contract.v1.WidgetsService/GetWidget:
         rust: [get_widget]
         typescript: [getWidget]
-      contract.v1.Widgets/BatchGetWidgets:
+      contract.v1.WidgetsService/BatchGetWidgets:
         rust: [batch_get_widgets]
         typescript: [batchGetWidgets]
-      contract.v1.Events/Watch:
+      contract.v1.EventsService/Watch:
         rust: [watch]
         typescript: [watch]
     targets:
@@ -432,6 +446,18 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-sdk-runtime"]
+  # The wasm load and boundary are TS alone; Rust unit tests private.rs
+  # check_boundary + macro golden cover the native side. A native Rust client
+  # compiles together with its core, so no wasm module can differ from its
+  # build stamp and no wrapper can speak another boundary version. The
+  # refusals of an altered artifact are proven under internal_behavior_owners.
+  # No `l2_methods:`: the sdk-call surface owns the wrapper's methods.
+  sdk-wasm-load:
+    contract: tests/sdk-call/features/sdk_wasm_load.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-test-service-sdk"]
 internal_behavior_owners:
   # The TypeScript test service is the loopback server a browser page under
   # test calls: it answers a preflight for loopback origins only, and its
@@ -502,6 +528,14 @@ internal_behavior_owners:
   # library code callers embed directly; no generated contract reaches it.
   - paths: [api-bones-protos/src/lib.rs, api-bones-automation/src/batch_of.rs, api-bones-automation/src/nested_write_of.rs, api-bones-automation/src/method_shape.rs]
     feature: tests/internal-bdd/tests/features/proto_vocabulary.feature
+  # The wasm load check and the boundary stamp of a generated TypeScript
+  # wrapper fault only when the built artifact is altered (a flipped module
+  # byte, another boundary version in the wrapper's init). Those faults change
+  # the artifact itself, so no SDK call can produce them; the proof alters a
+  # copy of the built package and opens it. The provenance a healthy load
+  # records stays on the sdk-wasm-load surface.
+  - paths: [api-bones-sdk-gen/src/wrapper_ts.rs]
+    feature: tests/internal-bdd/tests/features/sdk_wasm_integrity.feature
 library_crates:
   - api-bones
   - api-bones-automation
