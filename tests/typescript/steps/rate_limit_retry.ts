@@ -30,6 +30,7 @@ interface RateLimitWorld extends World {
   deadlineMs?: number;
   refusals: number;
   retryAfter?: string;
+  retryAfterInTrailers?: boolean;
   arrivals: number[];
   served: boolean;
   elapsedMs: number;
@@ -57,6 +58,23 @@ Given(
 );
 
 Given(
+  "the server refuses it {int} times with a Retry-After date {int} seconds ahead",
+  function (this: RateLimitWorld, refusals: number, ahead: number) {
+    this.refusals = refusals;
+    this.retryAfter = new Date(Date.now() + ahead * 1000).toUTCString();
+  },
+);
+
+Given(
+  "the server refuses it {int} times with Retry-After {string} in the trailers",
+  function (this: RateLimitWorld, refusals: number, retryAfter: string) {
+    this.refusals = refusals;
+    this.retryAfter = retryAfter;
+    this.retryAfterInTrailers = true;
+  },
+);
+
+Given(
   "the server refuses it {int} times without Retry-After",
   function (this: RateLimitWorld, refusals: number) {
     this.refusals = refusals;
@@ -74,7 +92,9 @@ async function sendThrottledCall(world: RateLimitWorld, signal?: AbortSignal): P
         status: 429,
         headers: {
           "content-type": "application/json",
-          ...(world.retryAfter === undefined ? {} : { "retry-after": world.retryAfter }),
+          ...(world.retryAfter === undefined
+            ? {}
+            : { [world.retryAfterInTrailers ? "trailer-retry-after" : "retry-after"]: world.retryAfter }),
         },
       });
     }
@@ -150,6 +170,20 @@ Then(
     assert.equal(this.served, false);
     assert.ok(this.error instanceof RateLimitedError);
     assert.equal(this.error.retryAfterMs, waitMs);
+    assert.equal(ConnectError.from(this.error).code, Code.ResourceExhausted);
+    assert.equal(this.arrivals.length, attempt);
+  },
+);
+
+Then(
+  "the throttled call is rejected as a rate limit naming a wait between {int} and {int} ms on attempt {int}",
+  function (this: RateLimitWorld, leastMs: number, mostMs: number, attempt: number) {
+    assert.equal(this.served, false);
+    assert.ok(this.error instanceof RateLimitedError);
+    assert.ok(
+      this.error.retryAfterMs >= leastMs && this.error.retryAfterMs <= mostMs,
+      `the wait of ${this.error.retryAfterMs} ms is outside ${leastMs}..${mostMs} ms`,
+    );
     assert.equal(ConnectError.from(this.error).code, Code.ResourceExhausted);
     assert.equal(this.arrivals.length, attempt);
   },

@@ -143,7 +143,7 @@ where
             mut observed_ids,
             turn,
             receiver,
-        } = self.enqueue(request, headers)?;
+        } = self.enqueue(request, headers).await?;
         let mut waiting = Waiting {
             receiver,
             close: Some(|| self.leave_window(&key, serial, &turn)),
@@ -169,16 +169,12 @@ where
             .unwrap_or_else(|_| Err(item_error::abandoned()))
     }
 
-    fn enqueue(
+    async fn enqueue(
         self: &Arc<Self>,
         request: Get,
         headers: CallHeaders,
     ) -> Result<PendingGet<T>, ConnectError> {
-        let credential = self
-            .wire
-            .credentials
-            .current()
-            .map_err(|_| item_error::identity_changed())?;
+        let credential = self.wire.read().await?;
         let guard = CredentialGuard::capture(&credential)?;
         headers.validate(&credential.headers)?;
         let id = (self.plan.id_of)(&request);
@@ -395,7 +391,7 @@ where
                 Ok(slot) => slot,
                 Err(error) => return fail(error),
             };
-            let credential = match self.wire.verify(call.guard) {
+            let credential = match self.wire.verify(call.guard).await {
                 Ok(credential) => credential,
                 Err(error) => return fail(error),
             };
@@ -410,18 +406,18 @@ where
                 .and_then(|timeout| Instant::now().checked_add(timeout));
             let answer = fetch_with_retry(
                 move || {
-                    let options = self
-                        .wire
-                        .verify(call.guard)
-                        .and_then(|credential| headers.call_options(&credential.headers));
                     let request = request.clone();
-                    async move { (self.plan.single)(request, options?).await }
+                    async move {
+                        let credential = self.wire.verify(call.guard).await?;
+                        let options = headers.call_options(&credential.headers)?;
+                        (self.plan.single)(request, options).await
+                    }
                 },
                 retries_for(Idempotency::NoSideEffects),
                 deadline,
             )
             .await;
-            if self.wire.verify(call.guard).is_err() {
+            if self.wire.verify(call.guard).await.is_err() {
                 return fail(item_error::identity_changed());
             }
             return vec![answer];
@@ -667,6 +663,7 @@ mod tests {
         let mut first = harness
             .coalescer
             .enqueue("gone".into(), CallHeaders::new())
+            .await
             .expect("opening registration");
         first.receiver.close();
         let timeout = std::time::Duration::from_secs(10);
@@ -687,9 +684,11 @@ mod tests {
                 Err(std::sync::TryLockError::Poisoned(_)) => panic!("windows poisoned"),
             };
             progress.send(unlocked).expect("lock probe delivered");
-            let pending = coalescer
-                .enqueue("live".into(), CallHeaders::new())
-                .expect("joining registration");
+            let pending = futures_util::FutureExt::now_or_never(
+                coalescer.enqueue("live".into(), CallHeaders::new()),
+            )
+            .expect("an anonymous credential answers at once")
+            .expect("joining registration");
             if unlocked {
                 progress.send(true).expect("registration completed");
             }
@@ -745,12 +744,14 @@ mod tests {
             let mut first = harness
                 .coalescer
                 .enqueue("gone".into(), CallHeaders::new())
+                .await
                 .expect("opening registration");
             first.receiver.close();
             let second = if join_first {
                 let second = harness
                     .coalescer
                     .enqueue("live".into(), CallHeaders::new())
+                    .await
                     .expect("joined registration");
                 harness
                     .coalescer
@@ -764,6 +765,7 @@ mod tests {
                 let second = harness
                     .coalescer
                     .enqueue("live".into(), CallHeaders::new())
+                    .await
                     .expect("fresh registration");
                 assert_ne!(second.serial, first.serial);
                 second

@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# The protobuf-es codec of the SDK boundary: the `bones.sdk.v1` envelope and the
+# `bones.v1` messages it carries. The output is regenerated before every build and
+# test and committed so the module resolves before a build.
+version: v2
+plugins:
+  - local: ./node_modules/.bin/protoc-gen-es
+    out: src/generated
+    opt:
+      - target=ts
+      - import_extension=js
+inputs:
+  - directory: ../api-bones-protos/proto
+    paths:
+      - ../api-bones-protos/proto/bones/v1/annotations.proto
+      - ../api-bones-protos/proto/bones/v1/errors.proto
+      - ../api-bones-protos/proto/bones/v1/pagination.proto
+      - ../api-bones-protos/proto/bones/sdk/v1/boundary.proto

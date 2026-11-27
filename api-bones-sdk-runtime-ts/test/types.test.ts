@@ -14,7 +14,7 @@ type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 /**
  * The surface a paged-list consumer reads: a list with `pages()`, `items()`,
- * `firstPage()` and the iteration span; pages with their revision, total, cache
+ * `firstPage()`, `withPrefetch()` and the iteration span; pages with their revision, total, cache
  * flag and `hasNext`; and the page error's kind and delivered counts.
  */
 interface ConsumedPage<T> {
@@ -28,6 +28,7 @@ interface ConsumedListCall<T> {
   pages(): AsyncIterable<ConsumedPage<T>>;
   items(): AsyncIterable<T>;
   firstPage(): Promise<ConsumedPage<T>>;
+  withPrefetch(pages: 0 | 1): ConsumedListCall<T>;
   readonly span?: Span;
 }
 type ConsumedPageError = {

@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Služba není dostupná",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Služba je dočasně nedostupná. Zkuste to později znovu.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Časový limit brány vypršel",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Verze SDK si neodpovídají",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Části této aplikace nejsou ve shodě. Načtěte stránku znovu a zkuste to znovu.",
   "bones.validation.min.title": "Musí být alespoň {min, number}.",
   "bones.validation.max.title": "Musí být nejvýše {max, number}.",
   "bones.validation.range.title": "Hodnota je mimo rozsah.",

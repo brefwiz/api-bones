@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Servicio no disponible",
   "bones.errors.SERVICE_UNAVAILABLE.description": "El servicio no está disponible temporalmente. Inténtalo de nuevo más tarde.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Tiempo de espera de la puerta de enlace agotado",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Las versiones del SDK no coinciden",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Algunas partes de esta aplicación no están sincronizadas. Recarga la página e inténtalo de nuevo.",
   "bones.validation.min.title": "Debe ser al menos {min, number}.",
   "bones.validation.max.title": "Debe ser como máximo {max, number}.",
   "bones.validation.range.title": "El valor está fuera de rango.",

@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Услугата е недостъпна",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Услугата е временно недостъпна. Опитайте отново по-късно.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Времето за шлюза изтече",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Версиите на SDK не съвпадат",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Части от това приложение не са синхронизирани. Презаредете страницата и опитайте отново.",
   "bones.validation.min.title": "Трябва да бъде поне {min, number}.",
   "bones.validation.max.title": "Трябва да бъде най-много {max, number}.",
   "bones.validation.range.title": "Стойността е извън допустимия диапазон.",

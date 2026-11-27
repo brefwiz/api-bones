@@ -17,7 +17,8 @@
 //! when it fails, `unset` when the walk is abandoned.
 
 use std::fmt;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use api_bones_page::{ListCall as PageWalk, Page, PagedRequest, PagedResponse};
 use api_bones_rt::{BoxStream, MaybeSend, MaybeSync};
@@ -91,6 +92,8 @@ impl<T> Drop for Release<'_, T> {
 pub struct Handle<T> {
     inner: Mutex<Inner<T>>,
     span: Option<String>,
+    /// The pages a list reads ahead, read when its first page is requested.
+    prefetch: Option<Arc<AtomicU8>>,
 }
 
 impl<T> fmt::Debug for Handle<T> {
@@ -112,7 +115,16 @@ impl<T: MaybeSend + 'static> Handle<T> {
                 abort: None,
                 canceled: false,
             }),
+            prefetch: None,
         }
+    }
+
+    /// This handle, whose source reads the pages it fetches ahead from
+    /// `ahead` when its first result is requested.
+    #[must_use]
+    pub(crate) fn reading_ahead(mut self, ahead: Arc<AtomicU8>) -> Self {
+        self.prefetch = Some(ahead);
+        self
     }
 
     /// The next result; `None` once the source has run out or the handle was
@@ -209,6 +221,26 @@ impl<T: MaybeSend + 'static> Handle<T> {
     }
 }
 
+/// The prefetch cell of a list that has not been given one.
+pub(crate) const PREFETCH_UNSET: u8 = u8::MAX;
+
+/// A page stream built when its first result is requested, from the prefetch
+/// its handle was given by then (`None` when it was given none).
+pub(crate) fn opened_late<Item: MaybeSend + 'static>(
+    ahead: Arc<AtomicU8>,
+    build: impl FnOnce(Option<u8>) -> BoxStream<'static, Result<Page<Item>, Error>>
+    + MaybeSend
+    + 'static,
+) -> BoxStream<'static, Result<Page<Item>, Error>> {
+    Box::pin(
+        futures_util::stream::once(async move {
+            let chosen = ahead.load(Ordering::Acquire);
+            build((chosen != PREFETCH_UNSET).then_some(chosen))
+        })
+        .flatten(),
+    )
+}
+
 impl<Item: MaybeSend + MaybeSync + 'static> Handle<Page<Item>> {
     /// A list handle that walks the pages of `call`.
     #[must_use]
@@ -217,10 +249,26 @@ impl<Item: MaybeSend + MaybeSync + 'static> Handle<Page<Item>> {
         Req: PagedRequest,
         Resp: PagedResponse<Item = Item>,
     {
-        Self::new(
-            Box::pin(call.pages().map(|page| page.map_err(Error::from))),
-            span,
-        )
+        let ahead = Arc::new(AtomicU8::new(PREFETCH_UNSET));
+        let stream = opened_late(Arc::clone(&ahead), move |chosen| {
+            let call = match chosen {
+                Some(pages) => call.prefetch(pages),
+                None => call,
+            };
+            Box::pin(call.pages().map(|page| page.map_err(Error::from)))
+        });
+        Self::new(stream, span).reading_ahead(ahead)
+    }
+
+    /// This list reading `pages` ahead of its consumer: 0 reads only the pages
+    /// asked for, any larger value reads one ahead. It takes effect when the
+    /// first page is requested; after that it changes nothing.
+    #[must_use]
+    pub fn with_prefetch(self, pages: u8) -> Self {
+        if let Some(ahead) = &self.prefetch {
+            ahead.store(pages.min(1), Ordering::Release);
+        }
+        self
     }
 }
 
@@ -255,7 +303,7 @@ mod tests {
     use futures_util::task::noop_waker_ref;
 
     use crate::ctx::CallCtx;
-    use crate::span::{Attributes, SpanEnd, SpanKind, SpanSink, SpanStart, Tracer};
+    use crate::span::{Attributes, SpanEnd, SpanKind, SpanSink, SpanStart, SpanStarted, Tracer};
 
     const WALK: &str = "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01";
 
@@ -265,8 +313,8 @@ mod tests {
     }
 
     impl SpanSink for Sink {
-        fn start(&self, _: &SpanStart) -> Option<String> {
-            Some(WALK.to_owned())
+        fn start(&self, _: &SpanStart) -> SpanStarted {
+            SpanStarted::recording(WALK)
         }
 
         fn end(&self, end: &SpanEnd) {
@@ -416,6 +464,10 @@ mod tests {
     impl PagedResponse for Response {
         type Item = u32;
 
+        fn encoded_len(_: &u32) -> usize {
+            1
+        }
+
         fn split(self) -> (Vec<u32>, PageInfo) {
             let info = PageInfo {
                 next_cursor: self.next.to_owned(),
@@ -474,10 +526,90 @@ mod tests {
         handle.next().await.unwrap().unwrap();
         let error = handle.next().await.unwrap_err();
         assert_eq!(error.platform, "INTERNAL_SERVER_ERROR");
-        let page = error.page.unwrap();
+        let page = error.page().unwrap();
         assert_eq!(page.delivered_pages, 1);
         assert_eq!(page.delivered_items, 2);
         assert_eq!(sink.statuses(), vec![SpanStatus::Error]);
+    }
+
+    /// A two-page list and the number of fetches it has served.
+    fn counted_list() -> (
+        PageWalk<Request, Response>,
+        Arc<std::sync::atomic::AtomicUsize>,
+    ) {
+        let fetched = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let served = Arc::clone(&fetched);
+        let fetch: Fetch<Request, Response> = Arc::new(move |request: Request| {
+            served.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                Ok(if request.cursor.is_empty() {
+                    Response {
+                        items: vec![1, 2],
+                        next: "c2",
+                    }
+                } else {
+                    Response {
+                        items: vec![3],
+                        next: "",
+                    }
+                })
+            })
+        });
+        let call = PageWalk::new(
+            "/contract.v1.Numbers/List",
+            Idempotency::NoSideEffects,
+            fetch,
+            Request {
+                cursor: String::new(),
+            },
+        );
+        (call, fetched)
+    }
+
+    #[tokio::test]
+    async fn a_list_reads_one_page_ahead_unless_told_not_to() {
+        let sink = Arc::new(Sink::default());
+        let (call, fetched) = counted_list();
+        let ahead: ListCall<u32> = Handle::pages(call, walk(&sink));
+        ahead.next().await.unwrap().unwrap();
+        for _ in 0..100 {
+            if fetched.load(Ordering::SeqCst) == 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(fetched.load(Ordering::SeqCst), 2);
+
+        let (call, fetched) = counted_list();
+        let asked: ListCall<u32> = Handle::pages(call, walk(&sink)).with_prefetch(0);
+        asked.next().await.unwrap().unwrap();
+        for _ in 0..100 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(fetched.load(Ordering::SeqCst), 1);
+        asked.next().await.unwrap().unwrap();
+        assert_eq!(fetched.load(Ordering::SeqCst), 2);
+
+        // A larger value is one page ahead, and a later setting wins.
+        let (call, fetched) = counted_list();
+        let reset: ListCall<u32> = Handle::pages(call, walk(&sink))
+            .with_prefetch(0)
+            .with_prefetch(9);
+        reset.next().await.unwrap().unwrap();
+        for _ in 0..100 {
+            if fetched.load(Ordering::SeqCst) == 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(fetched.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_handle_that_is_no_list_ignores_a_prefetch() {
+        let sink = Arc::new(Sink::default());
+        let handle: ListCall<u32> = Handle::new(Box::pin(stream::empty()), walk(&sink));
+        assert!(handle.with_prefetch(0).next().await.unwrap().is_none());
     }
 
     #[tokio::test]

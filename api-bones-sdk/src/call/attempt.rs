@@ -4,15 +4,13 @@
 
 use std::fmt;
 
-use api_bones_batch::{BONES_LIST_CACHE, Credential, HeaderPair};
+use api_bones_batch::{BONES_LIST_CACHE, CREDENTIAL_HEADERS, Credential, HeaderPair};
 use api_bones_page::ListMetadata;
 use api_bones_transport::Deadline;
 use connectrpc::ConnectError;
 use connectrpc::client::{BoxFuture, CallOptions, ClientBody, ClientTransport};
 use http::header::{HeaderName, HeaderValue, IF_NONE_MATCH};
 use http::{Request, Response};
-
-use super::identity::CREDENTIAL_HEADERS;
 
 /// One send of a call, handed to the caller's fetch closure.
 ///

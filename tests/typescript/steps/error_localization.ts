@@ -46,7 +46,7 @@ import {
   ErrorInfoSchema,
   ValidationFailureSchema,
   type ErrorArg as WireErrorArg,
-} from "../generated/bones/v1/errors_pb.ts";
+} from "../generated/bones/v1/errors_pb.js";
 
 const OPERATOR_MESSAGE = "seat limit reached";
 

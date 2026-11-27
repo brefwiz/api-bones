@@ -156,9 +156,9 @@ enum ApprovalMode {
 
 // A count of uses per window.
 message Budget {
-  // The uses permitted in one window. Zero is invalid.
-  uint32 count = 1;
+  // The uses permitted in one window. Required; absent or zero is invalid.
+  optional uint32 count = 1;
 
-  // The length of the window in seconds. Zero is invalid.
-  uint32 window_seconds = 2;
+  // The length of the window in seconds. Required; absent or zero is invalid.
+  optional uint32 window_seconds = 2;
 }

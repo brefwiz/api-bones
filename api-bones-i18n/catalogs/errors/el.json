@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Η υπηρεσία δεν είναι διαθέσιμη",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Η υπηρεσία δεν είναι προσωρινά διαθέσιμη. Δοκιμάστε ξανά αργότερα.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Λήξη χρόνου πύλης",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Οι εκδόσεις του SDK δεν ταιριάζουν",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Τμήματα αυτής της εφαρμογής δεν είναι συγχρονισμένα. Φορτώστε ξανά τη σελίδα και δοκιμάστε ξανά.",
   "bones.validation.min.title": "Πρέπει να είναι τουλάχιστον {min, number}.",
   "bones.validation.max.title": "Πρέπει να είναι το πολύ {max, number}.",
   "bones.validation.range.title": "Η τιμή είναι εκτός εύρους.",

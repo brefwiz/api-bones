@@ -5,9 +5,10 @@ plugins:
     out: generated
     include_imports: true
     opt:
-      - target=ts
+      - target=js+dts
       - import_extension=js
 inputs:
   - directory: ../..
     paths:
       - ../../tests/shared/proto/contract/v1/fields.proto
+      - ../../api-bones-protos/proto/bones/sdk/v1/boundary.proto

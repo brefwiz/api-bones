@@ -7,7 +7,8 @@
 //! the wasm boundary, the spelling of an export and the meaning of an
 //! attribute are decided once.
 //!
-//! - [`ty`] classifies a parameter or return type against the allowed set.
+//! - [`ty`] classifies what crosses the boundary: a generated message, a scalar
+//!   in its `google.protobuf` wrapper, or nothing.
 //! - [`attrs`] reads the arguments of `#[client]`, `#[export]`, `#[error]`.
 //! - [`model`] walks parsed source into a [`Model`].
 //! - [`names`] spells the wasm export, the gate features and the TypeScript
@@ -22,9 +23,9 @@ pub mod ty;
 
 pub use attrs::{ClientArgs, ErrorArgs, ErrorVariantArgs, ExportArgs};
 pub use l2::{L2Error, L2Method, L2Methods, SpecL2Methods, l2_methods};
-pub use model::{
-    ArgKind, Client, Enumeration, ErrorField, ErrorType, ErrorVariant, Export, Model, Param,
-    Record, enumeration_values,
+pub use model::{ArgKind, Client, ErrorField, ErrorType, ErrorVariant, Export, Model, Param};
+pub use names::{NameError, export_name, gate_features, json_name, typescript_name};
+pub use ty::{
+    ALLOWED, EMPTY, Env, ErrorRef, HandleKind, ProtoRef, Return, Wire, Wrapper, classify_return,
+    classify_wire, path_text, proto_ref,
 };
-pub use names::{NameError, enum_value, export_name, gate_features, json_name, typescript_name};
-pub use ty::{ALLOWED, Env, ErrorRef, HandleKind, Return, WireType, classify, classify_return};

@@ -8,35 +8,35 @@
       "export": "api_bones__EventsClient__watch",
       "typescript": "watch",
       "endpoints": [
-        "contract.v1.Events/Watch"
+        "contract.v1.EventsService/Watch"
       ]
     },
     {
       "export": "api_bones__NumbersClient__list",
       "typescript": "list",
       "endpoints": [
-        "contract.v1.Numbers/ListNoSideEffects"
+        "contract.v1.NumbersService/ListNoSideEffects"
       ]
     },
     {
       "export": "api_bones__WidgetsClient__batch_get_widgets",
       "typescript": "batchGetWidgets",
       "endpoints": [
-        "contract.v1.Widgets/BatchGetWidgets"
+        "contract.v1.WidgetsService/BatchGetWidgets"
       ]
     },
     {
       "export": "api_bones__WidgetsClient__get_widget",
       "typescript": "getWidget",
       "endpoints": [
-        "contract.v1.Widgets/GetWidget"
+        "contract.v1.WidgetsService/GetWidget"
       ]
     },
     {
       "export": "api_bones__WidgetsClient__list_widget_parts",
       "typescript": "listWidgetParts",
       "endpoints": [
-        "contract.v1.Widgets/ListWidgetParts"
+        "contract.v1.WidgetsService/ListWidgetParts"
       ]
     }
   ]

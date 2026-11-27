@@ -8,18 +8,23 @@ syntax = "proto3";
 
 package contract.v1;
 
-message WatchTicksRequest {
+message WatchRequest {
   // How many ticks the server sends before it ends the stream.
-  uint32 count = 1;
+  optional uint32 count = 1;
 }
 
 message Tick {
   uint32 sequence = 1;
 }
 
-service Events {
+// One streamed message: the tick it carries.
+message WatchResponse {
+  Tick tick = 1;
+}
+
+service EventsService {
   // Streams `count` ticks, numbered from zero.
-  rpc Watch(WatchTicksRequest) returns (stream Tick) {
+  rpc Watch(WatchRequest) returns (stream WatchResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 }

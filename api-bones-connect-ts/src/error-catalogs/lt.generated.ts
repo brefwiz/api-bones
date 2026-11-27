@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "Paslauga nepasiekiama",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Paslauga laikinai nepasiekiama. Bandykite dar kartą vėliau.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Šliuzo laikas baigėsi",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK versijos nesutampa",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Kai kurios šios programos dalys nesinchronizuotos. Iš naujo įkelkite puslapį ir bandykite dar kartą.",
   "bones.validation.min.title": "Turi būti ne mažiau kaip {min, number}.",
   "bones.validation.max.title": "Turi būti ne daugiau kaip {max, number}.",
   "bones.validation.range.title": "Reikšmė yra už leistino intervalo ribų.",

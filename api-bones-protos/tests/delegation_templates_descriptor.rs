@@ -345,6 +345,8 @@ fn a_zero_budget_is_refused() {
     for budget in [
         "budget: { count: 0 window_seconds: 5 }",
         "budget: { count: 5 window_seconds: 0 }",
+        "budget: { window_seconds: 5 }",
+        "budget: { count: 5 }",
         "budget: {}",
     ] {
         assert_eq!(

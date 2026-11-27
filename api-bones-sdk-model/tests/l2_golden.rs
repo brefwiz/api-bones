@@ -5,21 +5,18 @@
 use api_bones_sdk_model::{Model, SpecL2Methods, l2_methods};
 
 const SOURCE: &str = r#"
-    #[record]
-    pub struct Number { pub value: i64 }
-
-    #[client(surface = "connect-pagination")]
+    #[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
     impl NumbersClient {
         #[export]
-        pub async fn list(&self, limit: u32) -> ListCall<Number> { body() }
+        pub async fn list(&self, limit: u32) -> ListCall<generated::contract::sdk::v1::Number> { body() }
     }
 
-    #[client(surface = "connect-batch")]
+    #[client(surface = "connect-batch", proto = generated::contract::sdk::v1)]
     impl WidgetsClient {
         #[export]
-        pub async fn get_widget(&self, id: String) -> Result<Number, Error> { body() }
+        pub async fn get_widget(&self, id: String) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
         #[export]
-        pub async fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<Number> { body() }
+        pub async fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> { body() }
         #[export(sync)]
         pub fn build_label(&self) -> String { body() }
     }

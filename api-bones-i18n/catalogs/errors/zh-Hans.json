@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "服务不可用",
   "bones.errors.SERVICE_UNAVAILABLE.description": "服务暂时不可用，请稍后重试。",
   "bones.errors.GATEWAY_TIMEOUT.title": "网关超时",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK 版本不匹配",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "此应用的部分组件不同步。请重新加载页面后重试。",
   "bones.validation.min.title": "必须至少为 {min, number}。",
   "bones.validation.max.title": "必须不超过 {max, number}。",
   "bones.validation.range.title": "值超出范围。",

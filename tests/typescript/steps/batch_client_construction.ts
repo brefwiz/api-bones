@@ -39,7 +39,7 @@ When("the constructed platform client batch-gets {string}", async function (this
   this.batchResults = [...await this.entrypointClient.batchGetWidgets(split(ids))];
 });
 Then("the constructed client returns the widgets {string}", function (this: ConstructionWorld, ids: string) {
-  assert.deepEqual(this.batchResults.map(result => { assert.ok(result.ok); return result.value.id; }), split(ids));
+  assert.deepEqual(this.batchResults.map(result => { assert.ok(result.ok); return result.value.widget.id; }), split(ids));
 });
 When("batching wraps an ordinary generated client", async function (this: ConstructionWorld) {
   const s = await prepareBatch(this);
@@ -70,19 +70,19 @@ async function constructWithPolicyDrift(this: ConstructionWorld, drift: string) 
       service = { ...service, methods: service.methods.filter(method => !method.input.fields.some(pagesOf)) } as typeof service;
       break;
     }
-    case "missing single": entry.rpc = "/contract.v1.Widgets/Missing"; break;
-    case "missing batch": entry.batch.method = "/contract.v1.Widgets/Missing"; break;
+    case "missing single": entry.rpc = "/contract.v1.WidgetsService/Missing"; break;
+    case "missing batch": entry.batch.method = "/contract.v1.WidgetsService/Missing"; break;
     case "missing key": entry.batch.keyField = "missing"; break;
     case "missing keys": entry.batch.keysField = "missing"; break;
     case "missing results": entry.batch.resultsField = "missing"; break;
-    case "non-string key": entry.rpc = "/contract.v1.Widgets/ListWidgetParts"; entry.batch.keyField = "page"; break;
+    case "non-string key": entry.rpc = "/contract.v1.WidgetsService/ListWidgetParts"; entry.batch.keyField = "page"; break;
     case "scalar keys": entry.batch.keysField = "kind"; break;
     case "scalar results": {
       const output = service.methods.find(method => method.name === "GetWidget")!.output;
       service = { ...service, methods: service.methods.map(method => method.name === "BatchGetWidgets" ? { ...method, output } : method) } as typeof service;
-      entry.batch.resultsField = "id"; break;
+      entry.batch.resultsField = "widget"; break;
     }
-    case "wrong item response": entry.rpc = "/contract.v1.Widgets/ListWidgetParts"; entry.batch.keyField = "widget_id"; break;
+    case "wrong item response": entry.rpc = "/contract.v1.WidgetsService/ListWidgetParts"; entry.batch.keyField = "widget_id"; break;
     case "wrong group item type": {
       const batch = service.methods.find(method => method.name === "BatchListWidgetParts")!;
       const groups = batch.output.fields.find(field => field.name === "groups")!;

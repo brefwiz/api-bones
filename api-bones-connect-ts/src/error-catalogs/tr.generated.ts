@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "Hizmet kullanılamıyor",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Hizmet geçici olarak kullanılamıyor. Lütfen daha sonra yeniden deneyin.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Ağ geçidi zaman aşımı",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK sürümleri uyuşmuyor",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Bu uygulamanın bazı parçaları eşzamanlı değil. Sayfayı yeniden yükleyin ve tekrar deneyin.",
   "bones.validation.min.title": "En az {min, number} olmalıdır.",
   "bones.validation.max.title": "En fazla {max, number} olmalıdır.",
   "bones.validation.range.title": "Değer aralığın dışında.",

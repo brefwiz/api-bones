@@ -1,21 +1,29 @@
 // SPDX-License-Identifier: MIT
 //! The call context a Layer 2 method runs under.
 //!
-//! A Layer 2 method takes no context parameter. The caller's trace fields are
-//! installed around the call's future with [`CallCtx::scope`], and the call
-//! helper reads them once, synchronously, when the call starts.
+//! A Layer 2 method takes no context parameter. The caller's trace fields and
+//! the prefetch it chose for a list are installed around the call's future with
+//! [`CallCtx::scope`], and the call helper reads them once, synchronously, when
+//! the call starts.
 
 use std::cell::RefCell;
 use std::future::{Future, poll_fn};
 use std::pin::pin;
 
-/// The caller's W3C trace fields.
+/// The caller's W3C trace fields and the prefetch or first-page read it chose for a list.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CallCtx {
     /// The caller's `traceparent`; absent for a call that starts a new trace.
     pub traceparent: Option<String>,
     /// The caller's `tracestate`.
     pub tracestate: Option<String>,
+    /// The pages a list fetches ahead of its consumer: 0 reads none, any
+    /// larger value reads one ahead; absent leaves the Layer 2 method's own
+    /// choice.
+    pub prefetch: Option<u8>,
+    /// A list delivers its first page only: one request, `next_cursor` never
+    /// followed, nothing fetched ahead.
+    pub first_only: bool,
 }
 
 thread_local! {
@@ -64,6 +72,8 @@ mod tests {
         CallCtx {
             traceparent: Some(parent.to_owned()),
             tracestate: Some(format!("k={parent}")),
+            prefetch: None,
+            first_only: false,
         }
     }
 
@@ -115,6 +125,18 @@ mod tests {
         .await;
         assert_eq!(inner, ctx("inner"));
         assert_eq!(after, ctx("outer"));
+    }
+
+    #[tokio::test]
+    async fn the_prefetch_a_caller_chose_travels_with_the_trace_fields() {
+        let chosen = CallCtx {
+            prefetch: Some(0),
+            ..ctx("a")
+        };
+        let seen = CallCtx::scope(chosen.clone(), async { CallCtx::current() }).await;
+        assert_eq!(seen, chosen);
+        assert_eq!(seen.prefetch, Some(0));
+        assert_eq!(CallCtx::current().prefetch, None);
     }
 
     #[test]

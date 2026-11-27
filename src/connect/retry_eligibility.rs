@@ -66,7 +66,9 @@ const BACKOFF_BASE: Duration = Duration::from_millis(50);
 /// jittered exponential backoff from [`RetryPolicy::next_delay_jittered`],
 /// slept with [`api_bones_rt::sleep`]. A wait that reaches the remaining
 /// `deadline` ends the call as `DeadlineExceeded` without sleeping, and a
-/// retry-after longer than five seconds returns the refusal unchanged.
+/// retry-after longer than five seconds returns the refusal. A throttle handed
+/// back, for that or because its attempts are spent, carries the wait it named
+/// in its `retry-after` header as whole seconds, rounded up.
 ///
 /// The fetch callback must check any captured identity before every send.
 ///
@@ -96,7 +98,7 @@ where
             attempt < retries && is_unprompted_retryable(error.code)
         };
         if !eligible {
-            return Err(error);
+            return Err(handed_back(error, server_wait));
         }
         let server_wait = server_wait.unwrap_or_default();
         let wait = server_wait
@@ -110,11 +112,25 @@ where
             ));
         }
         if server_wait > MAX_THROTTLE_WAIT {
-            return Err(error);
+            return Err(handed_back(error, Some(server_wait)));
         }
         api_bones_rt::sleep(wait).await;
         attempt += 1;
     }
+}
+
+/// A throttling refusal handed back to the caller, its `retry-after` header
+/// rewritten as whole seconds (rounded up, so a caller never waits less than
+/// the server named) whether the server named seconds or an HTTP-date. Any
+/// other refusal is returned unchanged.
+fn handed_back(mut error: ConnectError, wait: Option<Duration>) -> ConnectError {
+    if let Some(wait) = wait {
+        let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+        error
+            .response_headers_mut()
+            .insert(http::header::RETRY_AFTER, http::HeaderValue::from(seconds));
+    }
+    error
 }
 
 /// The wait a server named when it throttled a call.
@@ -519,6 +535,53 @@ mod tests {
         assert_eq!(result.expect("retried"), 3);
         assert_eq!(calls, 2);
         within(elapsed, 50, 100);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_throttle_handed_back_carries_its_wait_as_whole_seconds() {
+        // An HTTP-date is rewritten as the seconds left, rounded up.
+        let ahead = chrono::DateTime::<chrono::Utc>::from(
+            api_bones_rt::system_now() + Duration::from_secs(60),
+        )
+        .to_rfc2822();
+        let (result, calls, _) = run(vec![Err(throttled(&ahead)), Ok(1)], 0, None).await;
+        let error = result.expect_err("too long a wait");
+        assert_eq!(calls, 1);
+        let seconds: u64 = error
+            .response_headers()
+            .get(http::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse().ok())
+            .expect("whole seconds");
+        assert!((58..=60).contains(&seconds), "{seconds}");
+
+        // A wait named in the trailers is carried in the headers too, once the
+        // attempts are spent.
+        let script = (0..5)
+            .map(|_| {
+                Err(
+                    ConnectError::new(ErrorCode::ResourceExhausted, "limit reached")
+                        .with_trailers(retry_after_headers("1")),
+                )
+            })
+            .collect();
+        let (result, calls, _) = run(script, 0, None).await;
+        let error = result.expect_err("repeats spent");
+        assert_eq!(calls, 4);
+        assert_eq!(
+            error.response_headers().get(http::header::RETRY_AFTER),
+            Some(&HeaderValue::from_static("1"))
+        );
+
+        // A refusal that is no throttle is not stamped.
+        let (result, _, _) = run(vec![Err(unavailable())], 0, None).await;
+        assert!(
+            result
+                .expect_err("not retried")
+                .response_headers()
+                .get(http::header::RETRY_AFTER)
+                .is_none()
+        );
     }
 
     #[tokio::test(start_paused = true)]

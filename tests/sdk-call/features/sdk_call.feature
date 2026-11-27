@@ -11,8 +11,17 @@ Feature: Every Layer 2 call runs through one helper
   that starts as one caller never continues as another. A batch owns one
   budget for the whole call. A stream owns the budget only until its response
   head arrives; its ticks after that are bound by nothing but the stream's own
-  lifetime. A server that refuses the caller as unauthenticated is told to the
-  host and drops the caller's revision cache; so does a changed identity. A
+  lifetime. A server that refuses the caller as unauthenticated is refreshed
+  once and replayed: the credential source is asked to refresh, and a renewed
+  credential for the same caller is sent in a replay that the retry budget does
+  not count. Calls refused on the same credential at once share that one
+  refresh. The host is told only when the refresh fails to cure the refusal,
+  and the refusal drops the caller's revision cache; so does a changed
+  identity, and so does the end of the session: a credential source that
+  rejects or answers no credential after a sign-out drops every page the
+  session held. A refusal before a stream's first tick is the open's and is
+  refreshed and replayed once; a watch that has delivered a tick is never
+  replayed, and its refusal is told to the host. A
   revision cache never replays the pages of one server address to a client of
   another. A credential source that cannot answer fails the call closed,
   before anything is sent. Every call opens one client span when it starts and ends it with its
@@ -42,6 +51,47 @@ Feature: Every Layer 2 call runs through one helper
     Then the caller received the part pages "bolt,nut|washer"
     And the server saw 2 request(s)
     And every request the server saw carried a valid traceparent
+
+  @state:happy
+  Scenario: The parts listed are those of the widget the request names
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widgets server has the widget "w2" named "Hammer"
+    And the widget "w1" has the parts "bolt,nut"
+    And the widget "w2" has the parts "handle"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller lists the parts of the widget "w2" through the SDK
+    Then the caller received the part pages "handle"
+    And the server saw 1 request(s)
+
+  @state:happy
+  Scenario: A part list the server confirms unchanged is replayed from the revision cache
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widget "w1" has the parts "bolt,nut|washer"
+    And the SDK caller is "ada" of organization "acme"
+    And the revision cache holds the parts of the widget "w1"
+    When the caller lists the parts of the widget "w1" through the SDK
+    Then the caller received the part pages "bolt,nut|washer"
+    And every page the caller received came from the revision cache
+    And the server saw 1 request(s)
+
+  @state:error
+  Scenario: A part cursor the server refuses as expired ends the walk with a PageError
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widget "w1" has the parts "bolt|nut|washer"
+    And the widgets server refuses the cursor of part page 3 as expired
+    And the SDK caller is "ada" of organization "acme"
+    When the caller lists the parts of the widget "w1" through the SDK
+    Then the caller received the part pages "bolt|nut"
+    And the walk is refused with a PageError of kind "cursor_expired" after 2 pages and 2 items
+
+  @state:happy
+  Scenario: A part list asks the server for pages of the size the caller names
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widget "w1" has the parts "bolt,nut|washer"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller lists the parts of the widget "w1" with the page size 2 through the SDK
+    Then the caller received the part pages "bolt,nut|washer"
+    And every request the server saw asked for the part page size 2
 
   @state:error
   Scenario: The parts of a widget the server does not know are refused as not found
@@ -105,6 +155,16 @@ Feature: Every Layer 2 call runs through one helper
     And the SDK caller is "ada" of organization "acme"
     When the caller gets the widget "w1" through the SDK
     Then the call is refused with the platform code "RATE_LIMITED"
+    And the refusal names a wait of 6000 ms
+    And the server saw 1 request(s)
+
+  @state:error
+  Scenario: A failure that is not transient is not asked again
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the widgets server fails the first 2 requests as internal
+    And the SDK caller is "ada" of organization "acme"
+    When the caller gets the widget "w1" through the SDK
+    Then the call is refused with the platform code "INTERNAL_SERVER_ERROR"
     And the server saw 1 request(s)
 
   @state:error
@@ -150,7 +210,7 @@ Feature: Every Layer 2 call runs through one helper
     When the caller reads the next page of the list
     Then the caller received the pages "1,2|3,4|5"
     And the walk is over
-    And the tracer recorded 3 client spans named "contract.v1.Numbers/ListNoSideEffects" under the span of the walk
+    And the tracer recorded 3 client spans named "contract.v1.NumbersService/ListNoSideEffects" under the span of the walk
     And every span the tracer recorded ended
 
   @state:happy
@@ -193,6 +253,46 @@ Feature: Every Layer 2 call runs through one helper
     When the caller reads the first page of the numbers list through the SDK
     Then the first page holds the numbers "1,2"
     And the first page says a next page follows
+
+  @state:happy
+  Scenario: The first page of a list reads exactly one page
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller reads the first page of the numbers list through the SDK
+    And the caller waits 200 ms
+    Then the first page holds the numbers "1,2"
+    And the list ends after its first page
+    And the server saw 1 request(s)
+
+  @state:happy
+  Scenario: A list opened without fetching ahead reads only the pages asked for
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller has opened a list of the numbers without fetching ahead through the SDK
+    When the caller reads the next page of the list
+    And the caller waits 200 ms
+    Then the caller received the pages "1,2"
+    And the server saw 1 request(s)
+
+  @state:happy
+  Scenario: A list asked to fetch ahead overrides the call that chose not to
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller has opened a list of the numbers without fetching ahead and then asked it to fetch ahead through the SDK
+    When the caller reads the next page of the list
+    And the caller waits 200 ms
+    Then the caller received the pages "1,2"
+    And the server saw 2 request(s)
+
+  @state:happy
+  Scenario: The first page of a list asked to fetch ahead is still read alone
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller reads the first page of the numbers list through the SDK having asked to fetch ahead
+    And the caller waits 200 ms
+    Then the first page holds the numbers "1,2"
+    And the list ends after its first page
+    And the server saw 1 request(s)
 
   @state:happy
   Scenario: A client built with a default page size asks the server for pages of that size
@@ -307,15 +407,29 @@ Feature: Every Layer 2 call runs through one helper
     Then the caller received the ticks "0,1"
     And the watch gives nothing after the caller left
 
-  @state:error
-  Scenario: A stream that cannot open is refused when it opens
+  @state:happy
+  Scenario: A stream refused in its first frame is renewed and replayed once
     Given the events server streams 3 ticks
     And the events server refuses the first 1 requests as unauthenticated
     And the SDK caller is "ada" of organization "acme"
     When the caller watches the events through the SDK
+    Then the caller received the ticks "0,1,2"
+    And the watch was not refused
+    And the server saw 2 request(s)
+    And the credential source was asked to refresh 1 time(s)
+    And the host was told 0 time(s) that a server refused the caller as unauthenticated
+
+  @state:error
+  Scenario: A stream that cannot open is refused when it opens
+    Given the events server streams 3 ticks
+    And the events server refuses the first 2 requests as unauthenticated
+    And the SDK caller is "ada" of organization "acme"
+    When the caller watches the events through the SDK
     Then the caller received the ticks ""
     And the call is refused as unauthenticated
-    And the server saw 1 request(s)
+    And the server saw 2 request(s)
+    And the credential source was asked to refresh 1 time(s)
+    And the host was told 1 time(s) that a server refused the caller as unauthenticated
 
   @state:error
   Scenario: A stream ends with an identity change when the caller switches between ticks
@@ -345,15 +459,16 @@ Feature: Every Layer 2 call runs through one helper
     And the watch has ended
 
   @state:error
-  Scenario: A server that refuses the caller as unauthenticated is told to the host and drops the revision cache
+  Scenario: A server that refuses the refreshed credential as unauthenticated is told to the host and drops the revision cache
     Given the widgets server has the widget "w1" named "Anvil"
     And the numbers server has the pages "1,2|3"
     And the SDK caller is "ada" of organization "acme"
     And the revision cache holds the numbers list
-    And the widgets server refuses the first 1 requests as unauthenticated
+    And the widgets server refuses the first 2 requests as unauthenticated
     When the caller gets the widget "w1" through the SDK
     Then the call is refused as unauthenticated
-    And the server saw 1 request(s)
+    And the server saw 2 request(s)
+    And the credential source was asked to refresh 1 time(s)
     And the host was told 1 time(s) that a server refused the caller as unauthenticated
     And the caller's revision cache is empty
     And the tracer ended every span it started with the status "error"
@@ -379,9 +494,10 @@ Feature: Every Layer 2 call runs through one helper
     And the revision cache holds the numbers list
     And the caller switches to "bob" of organization "acme"
     And the revision cache holds the numbers list
-    And the widgets server refuses the first 1 requests as unauthenticated
+    And the widgets server refuses the first 2 requests as unauthenticated
     When the caller gets the widget "w1" through the SDK
     Then the call is refused as unauthenticated
+    And the credential source was asked to refresh 1 time(s)
     And the host was told 1 time(s) that a server refused the caller as unauthenticated
     And the revision cache still holds the numbers list of the other caller
 
@@ -398,6 +514,40 @@ Feature: Every Layer 2 call runs through one helper
     Then the caller received the pages "1,2|3,4|5"
     And every page the caller received came from the revision cache
     And the server saw 1 request(s)
+
+  @state:happy
+  Scenario: A list is replayed from the revision cache after the caller dropped every page and the host collected its garbage
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    And the revision cache holds the numbers list
+    And the caller dropped every page and the host collected its garbage
+    And the caller has opened a list of the numbers through the SDK
+    And the caller has read the first page of the list
+    And the caller has read the next page of the list
+    And the caller has read the next page of the list
+    When the caller reads the next page of the list
+    Then the caller received the pages "1,2|3,4|5"
+    And every page the caller received came from the revision cache
+    And the server saw 1 request(s)
+
+  @state:happy
+  Scenario: A list whose items encode to more than 1 MiB is never replayed from the revision cache
+    Given the numbers server has 2 pages of 200000 numbers each
+    And the SDK caller is "ada" of organization "acme"
+    And the caller has walked the numbers list through the SDK
+    And the caller has opened a list of the numbers through the SDK
+    And the caller has read the first page of the list
+    When the caller reads the next page of the list
+    Then no page the caller received came from the revision cache
+    And the server saw 2 request(s)
+
+  @state:happy
+  Scenario: A list takes its page size from the call's options
+    Given the numbers server has the pages "1,2|3,4|5"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller lists the numbers with the page size 2 through the SDK
+    Then the caller received the pages "1,2|3,4|5"
+    And every request the server saw asked for the page size 2
 
   @state:happy
   Scenario: A list the server confirms unchanged is not replayed to a client of another server address
@@ -448,12 +598,25 @@ Feature: Every Layer 2 call runs through one helper
     Given the numbers server has the pages "1,2|3"
     And the SDK caller is "ada" of organization "acme"
     And the revision cache holds the numbers list
-    And the numbers server refuses the first 1 requests as unauthenticated
+    And the numbers server refuses the first 2 requests as unauthenticated
     And the caller has opened a list of the numbers through the SDK
     When the caller reads the next page of the list
     Then the call is refused as unauthenticated
-    And the server saw 1 request(s)
+    And the server saw 2 request(s)
+    And the credential source was asked to refresh 1 time(s)
     And the host was told 1 time(s) that a server refused the caller as unauthenticated
+    And the caller's revision cache is empty
+
+  @state:error
+  Scenario: A signed-out session drops its held pages
+    Given the numbers server has the pages "1,2|3"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller's session holds the numbers list
+    And the caller signs out
+    When the caller reads the numbers list through the same session
+    And the caller signs in again
+    Then the call is refused with the platform code "SERVICE_UNAVAILABLE"
+    And the host was told 0 time(s) that a server refused the caller as unauthenticated
     And the caller's revision cache is empty
 
   @state:error
@@ -465,13 +628,106 @@ Feature: Every Layer 2 call runs through one helper
     Then the call is refused with the platform code "SERVICE_UNAVAILABLE"
     And the server saw 0 request(s)
 
+  @state:error
+  Scenario: A credential source that rejects fails the call closed
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller's credential source rejects
+    When the caller gets the widget "w1" through the SDK
+    Then the call is refused with the platform code "SERVICE_UNAVAILABLE"
+    And the server saw 0 request(s)
+
+  @state:happy
+  Scenario: A credential refused as unauthenticated is refreshed once and the call replayed
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the numbers server has the pages "1,2|3"
+    And the SDK caller is "ada" of organization "acme"
+    And the revision cache holds the numbers list
+    And the widgets server refuses the first 1 requests as unauthenticated
+    When the caller gets the widget "w1" through the SDK
+    Then the response is the widget "w1" named "Anvil"
+    And the server saw 2 request(s)
+    And the requests the server saw carried the credentials "Bearer caller,Bearer refreshed" in order
+    And the credential source was asked to refresh 1 time(s)
+    And the host was told 0 time(s) that a server refused the caller as unauthenticated
+    And the revision cache still holds the numbers list
+
+  @state:happy
+  Scenario: Concurrent calls refused on one credential renew it once
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller's credential source answers after 50 ms
+    And the widgets server refuses the first 4 requests as unauthenticated
+    When the caller gets the widget "w1" through the SDK in 4 concurrent calls
+    Then every concurrent call answered the widget "w1" named "Anvil"
+    And the server saw 8 request(s)
+    And the credential source was asked to refresh 1 time(s)
+    And the host was told 0 time(s) that a server refused the caller as unauthenticated
+
+  @state:error
+  Scenario: A refresh that answers the same credential is not replayed
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the SDK caller is "ada" of organization "acme"
+    And the widgets server refuses the first 1 requests as unauthenticated
+    And the caller's credential source answers the same credential when asked to refresh
+    When the caller gets the widget "w1" through the SDK
+    Then the call is refused as unauthenticated
+    And the server saw 1 request(s)
+    And the credential source was asked to refresh 1 time(s)
+    And the host was told 1 time(s) that a server refused the caller as unauthenticated
+
+  @state:error
+  Scenario: A refresh that answers another identity refuses with IDENTITY_CHANGED
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the SDK caller is "ada" of organization "acme"
+    And the widgets server refuses the first 1 requests as unauthenticated
+    And the caller's credential source answers "bob" of organization "acme" when asked to refresh
+    When the caller gets the widget "w1" through the SDK
+    Then the call is refused with the code "IDENTITY_CHANGED"
+    And the server saw 1 request(s)
+    And the credential source was asked to refresh 1 time(s)
+    And the host was told 0 time(s) that a server refused the caller as unauthenticated
+
+  @state:happy
+  Scenario: A credential answered later is awaited before the first send
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller's credential source answers after 300 ms
+    When the caller gets the widget "w1" through the SDK
+    Then the response is the widget "w1" named "Anvil"
+    And the server saw 1 request(s)
+    And every request the server saw carried the caller's credential
+
+  @state:error
+  Scenario: A list cancelled while its credential is awaited sends nothing
+    Given the numbers server has the pages "1,2|3"
+    And the SDK caller is "ada" of organization "acme"
+    And the caller's credential source answers after 5000 ms
+    And the caller has opened a list of the numbers through the SDK
+    And a read of the first page of the list is waiting for the caller's credential
+    When the caller cancels the list
+    Then the pending read is refused with the code "CANCELED"
+    And the server saw 0 request(s)
+
+  @state:error
+  Scenario: A watch refused after it delivered a tick is not replayed
+    Given the events server streams 3 ticks
+    And the events server refuses the watch as unauthenticated after its first tick
+    And the SDK caller is "ada" of organization "acme"
+    When the caller watches the events through the SDK
+    Then the caller received the ticks "0"
+    And the call is refused as unauthenticated
+    And the server saw 1 request(s)
+    And the credential source was asked to refresh 0 time(s)
+    And the host was told 1 time(s) that a server refused the caller as unauthenticated
+
   @state:happy
   Scenario: A call opens one client span when it starts and ends it with its outcome
     Given the widgets server has the widget "w1" named "Anvil"
     And the SDK caller is "ada" of organization "acme"
     When the caller gets the widget "w1" through the SDK
     Then the response is the widget "w1" named "Anvil"
-    And the tracer started 1 client span named "contract.v1.Widgets/GetWidget"
+    And the tracer started 1 client span named "contract.v1.WidgetsService/GetWidget"
     And the tracer ended every span it started with the status "ok"
     And every request the server saw carried the traceparent of a span the tracer ended
 
@@ -547,3 +803,22 @@ Feature: Every Layer 2 call runs through one helper
     And the caller has cancelled the list
     When the caller cancels the list
     Then the span of the walk ended once with the status "unset"
+
+  @state:happy
+  Scenario: An SDK opened from the caller's session serves every client with its credential
+    Given the widgets server has the widget "w1" named "Anvil"
+    And the numbers server has the pages "1,2|3"
+    And the SDK caller is "ada" of organization "acme"
+    When the caller opens the Api Bones SDK from the caller's session at the address of the server
+    And the caller gets the widget "w1" through the opened SDK
+    And the caller lists the numbers through the opened SDK
+    Then the response is the widget "w1" named "Anvil"
+    And the caller received the pages "1,2|3"
+    And every request the server saw carried the caller's credential
+
+  @state:error
+  Scenario: An SDK opened without a base address outside a page is refused
+    Given the SDK caller is "ada" of organization "acme"
+    When the caller opens the Api Bones SDK from the caller's session without a base address
+    Then the call is refused with the platform code "VALIDATION_FAILED"
+    And the refusal says "no page origin; pass baseUrl"

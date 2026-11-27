@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "Tjänsten är inte tillgänglig",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Tjänsten är tillfälligt otillgänglig. Försök igen senare.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Gateway-tidsgräns överskriden",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK-versionerna matchar inte",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Delar av den här appen är inte synkade. Ladda om sidan och försök igen.",
   "bones.validation.min.title": "Måste vara minst {min, number}.",
   "bones.validation.max.title": "Får vara högst {max, number}.",
   "bones.validation.range.title": "Värdet ligger utanför intervallet.",

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { getExtension, type DescMethod, type DescService } from "@bufbuild/protobuf";
+import { getExtension, type DescMessage, type DescMethod, type DescService } from "@bufbuild/protobuf";
 import type { BatchedClient } from "./batch.js";
 import { Code, ConnectError, type CallOptions, type Client } from "@connectrpc/connect";
 import type { ListCall, Page, PageErrorKind, PageOptions, Total } from "@brefwiz/api-bones-sdk-runtime";
@@ -50,6 +50,7 @@ export function mapListCall<T, U>(call: ListCall<T>, f: (item: T) => U): ListCal
     async *pages() { for await (const page of call.pages()) yield mapPage(page); },
     async *items() { for await (const item of call.items()) yield f(item); },
     async firstPage() { return mapPage(await call.firstPage()); },
+    withPrefetch: (pages) => mapListCall(call.withPrefetch(pages), f),
   };
 }
 
@@ -57,6 +58,8 @@ export type PageFetch = (request: Record<string, unknown>, options: CallOptions)
 export interface ListConfig<T> {
   method: string;
   paging: GeneratedPagingPolicy;
+  /** Message type of one list item, for charging held pages by encoded size; scalar items need none. */
+  itemSchema?: DescMessage;
   cache?: RevisionCache;
   initialPage?: Page<T>;
   nextCursor?: string;
@@ -135,6 +138,7 @@ export function listCall<T>(fetchPage: PageFetch, request: Record<string, unknow
       }).then((value) => ({ value, notModified }), (error: unknown) => ({ error, notModified }));
     };
     try {
+      const ahead = prefetch >= 1 ? 1 : 0;
       hash = await requestHash(base);
       key = cache?.key(config.method, hash);
       const cached = key && !inputPage.cursor && !config.initialPage ? cache?.replay<T>(key) : undefined;
@@ -159,7 +163,7 @@ export function listCall<T>(fetchPage: PageFetch, request: Record<string, unknow
               if (controller.signal.aborted) throw new ConnectError("list cancelled", Code.Canceled);
               if (!identityCurrent()) throw new ConnectError("list cache identity changed", Code.Unauthenticated);
               page = { ...original, fromCache: true };
-              if (key && retain) cache?.keep(key, page, original === cached[cached.length - 1]);
+              if (key && retain) cache?.keep(key, page, original === cached[cached.length - 1], config.itemSchema);
               delivered(page);
               yield page;
             }
@@ -177,8 +181,8 @@ export function listCall<T>(fetchPage: PageFetch, request: Record<string, unknow
           };
           cursor = String(metadata.nextCursor ?? "");
         }
-        if (key && retain && identityCurrent()) cache?.keep(key, page, cursor === "");
-        if (cursor && prefetch) { pending = fetch(cursor); prefetched = true; }
+        if (key && retain && identityCurrent()) cache?.keep(key, page, cursor === "", config.itemSchema);
+        if (cursor && ahead) { pending = fetch(cursor); prefetched = true; }
         delivered(page);
         yield page;
         if (!cursor) { ended = true; return; }
@@ -231,6 +235,7 @@ export function listCall<T>(fetchPage: PageFetch, request: Record<string, unknow
       for await (const page of iterate(0, true)) return page;
       throw new PageError(new ConnectError("list returned no page", Code.Internal), 0, 0);
     },
+    withPrefetch: (pages) => listCall(fetchPage, request, config, { ...options, prefetch: pages }),
   };
 }
 export function pages<T>(fetchPage: PageFetch, request: Record<string, unknown>, config: ListConfig<T>, options?: PageOptions): AsyncIterable<Page<T>> {
@@ -263,6 +268,8 @@ export function pagedClient<S extends DescService, C extends Client<S> | Batched
     const name = method.rpc.slice(method.rpc.lastIndexOf("/") + 1);
     const localName = name.charAt(0).toLowerCase() + name.slice(1);
     const original = wrapped[localName];
+    const itemField = service.methods.find((candidate) => candidate.name === name)?.output.fields.find((field) => field.localName === method.paging!.itemField);
+    const itemSchema = itemField?.fieldKind === "list" && itemField.listKind === "message" ? itemField.message : undefined;
     if (typeof original !== "function") throw new Error(`missing list method ${method.rpc}`);
     wrapped[localName] = (request: Record<string, unknown>, options?: PageOptions) => {
       let stream: AsyncIterator<unknown> | undefined;
@@ -283,7 +290,7 @@ export function pagedClient<S extends DescService, C extends Client<S> | Batched
           if (next.done) throw new ConnectError("list stream ended without a batch", Code.Internal);
           return next.value;
         };
-      return listCall(fetchPage, request, { method: method.rpc, paging: method.paging!, cache }, method.paging!.kind === "stream" ? { ...options, cache: "bypass" } : options);
+      return listCall(fetchPage, request, { method: method.rpc, paging: method.paging!, itemSchema, cache }, method.paging!.kind === "stream" ? { ...options, cache: "bypass" } : options);
     };
   }
   return wrapped as PagedClient<S, C>;

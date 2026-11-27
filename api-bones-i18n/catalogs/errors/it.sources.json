@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "f454e65f1deae63e",
   "bones.errors.SERVICE_UNAVAILABLE.description": "c961addf07b25996",
   "bones.errors.GATEWAY_TIMEOUT.title": "5d33ceb7bf20c166",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "6b1f8506fc4c3cb5",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "46e8874649ae175d",
   "bones.validation.min.title": "083eb44640c00554",
   "bones.validation.max.title": "172566eed78a6c20",
   "bones.validation.range.title": "daad1d935cfec1ac",

@@ -1,0 +1,169 @@
+// SPDX-License-Identifier: MIT
+//
+// The in-process boundary contract of the api-bones SDK. Every value that
+// crosses between a host language and the Rust core (wasm exports, handle
+// deliveries, host credential and span callbacks, client build info) is the
+// protobuf binary encoding of a message declared here or in the service's own
+// proto. No export takes or returns JSON text.
+//
+// There is no service in this file: it declares messages only. A service's
+// request and response messages cross as themselves, so none is wrapped here.
+// Call context (traceparent, tracestate, abort signal, prefetch, first-only,
+// refresh) crosses as typed parameters, never as a field of a message.
+
+syntax = "proto3";
+
+package bones.sdk.v1;
+
+import "bones/v1/errors.proto";
+import "bones/v1/pagination.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+// A failed call. It is the only value an export rejects with, and the only
+// failure a handle delivers.
+message CallError {
+  // The emitted error code, such as GRANT_MISSING; the platform code when the
+  // server named none.
+  string code = 1;
+  // The emitting deployable; empty when the server stamped none.
+  string emitter = 2;
+  // The platform ErrorCode, such as FORBIDDEN.
+  string platform = 3;
+  // The Connect code of the refusal, as its wire name (`invalid_argument`).
+  string connect_code = 4;
+  // The diagnostic text, for logs.
+  string message = 5;
+  // The message arguments, keyed by placeholder name.
+  map<string, bones.v1.ErrorArg> args = 6;
+  // Present only when a list failed.
+  PageFailure page = 7;
+  // The wait a resource_exhausted refusal named in its retry-after.
+  google.protobuf.Duration retry_after = 8;
+}
+
+// What a list had delivered when it failed, and why it stopped.
+message PageFailure {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_CURSOR_INVALID = 1;
+    KIND_CURSOR_EXPIRED = 2;
+    KIND_CURSOR_QUERY_MISMATCH = 3;
+    KIND_RPC = 4;
+  }
+
+  Kind kind = 1;
+  // Pages handed over before the failure.
+  uint32 delivered_pages = 2;
+  // Items handed over before the failure.
+  uint64 delivered_items = 3;
+}
+
+// One page of a list. Each item is the encoded item message; a repeated bytes
+// field of encoded messages is byte-identical on the wire to a repeated field
+// of that message, so a host decodes each item by its schema.
+message Page {
+  repeated bytes items = 1;
+  string revision = 2;
+  // True when the page was served from the revision cache.
+  bool from_cache = 3;
+  bool has_next = 4;
+  bones.v1.Total total = 5;
+}
+
+// One chunk of a batch: one outcome per requested id, in request order.
+message BatchChunk {
+  repeated BatchResult results = 1;
+}
+
+message BatchResult {
+  oneof outcome {
+    // The encoded item message.
+    bytes item = 1;
+    CallError error = 2;
+  }
+}
+
+// The caller's credential, read by the core before every send.
+message Credential {
+  string subject = 1;
+  string org = 2;
+  // The headers that carry it: authorization, brefwiz-relayed-credential.
+  map<string, string> headers = 3;
+}
+
+// What a host answers when the core asks for its credential.
+message CredentialAnswer {
+  reserved 2;
+  reserved "unchanged";
+
+  oneof answer {
+    Credential credential = 1;
+  }
+}
+
+// What the core reports when it opens a span.
+message SpanStart {
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_CLIENT = 1;
+    KIND_INTERNAL = 2;
+  }
+
+  // `<package.Service>/<Method>` for an RPC, a descriptive name otherwise.
+  string name = 1;
+  google.protobuf.Timestamp start_time = 2;
+  Kind kind = 3;
+  // The parent's traceparent; absent for a new root.
+  optional string parent = 4;
+  // The parent's tracestate.
+  optional string tracestate = 5;
+  map<string, AttributeValue> attributes = 6;
+}
+
+// What the host answers when a span starts.
+message SpanStarted {
+  string traceparent = 1;
+  // False when the span is not recording: the core still sends the root
+  // traceparent and ends the root, but makes no child start or end crossings
+  // for the call.
+  bool recording = 2;
+}
+
+// What the core reports when it ends a span the sink started.
+message SpanEnd {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_OK = 1;
+    STATUS_ERROR = 2;
+    // The work was abandoned or its outcome is not known.
+    STATUS_UNSET = 3;
+  }
+
+  // The value start returned.
+  string traceparent = 1;
+  google.protobuf.Timestamp end_time = 2;
+  Status status = 3;
+  // `<connectCode> <code>`, set when status is STATUS_ERROR.
+  optional string error = 4;
+  // Attributes known only at the end.
+  map<string, AttributeValue> attributes = 5;
+}
+
+message AttributeValue {
+  oneof value {
+    string string = 1;
+    int64 int64 = 2;
+    double double = 3;
+    bool bool = 4;
+  }
+}
+
+// The identity of a built core, and the boundary version it speaks.
+message BuildInfo {
+  string name = 1;
+  string version = 2;
+  // The boundary version the core speaks; a wrapper stamped for another
+  // version is refused with SDK_BOUNDARY_MISMATCH.
+  uint32 boundary = 3;
+}

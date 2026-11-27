@@ -37,7 +37,7 @@ fn main() {
     let pool = compiler.descriptor_pool();
     let paging = api_bones_automation::emit_rust_paging(
         &pool,
-        &["contract.v1.Numbers", "contract.v1.Widgets"],
+        &["contract.v1.NumbersService", "contract.v1.WidgetsService"],
         &|package| format!("crate::generated::{}", package.replace('.', "::")),
     )
     .expect("emit Rust paging glue");

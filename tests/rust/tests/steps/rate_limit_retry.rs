@@ -10,13 +10,15 @@
 //! which owns the call's deadline and the cancellation of its wire request.
 
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use api_bones_batch::{Batched, CallHeaders};
 use api_bones_contract_rust::{
-    BatchGetWidgetsRequest, BatchGetWidgetsResponse, GetWidgetRequest, ListNumbersRequest,
-    ListNumbersResponse, Numbers, NumbersClient, NumbersExt, NumbersLists, PageResponse, Widget,
-    WidgetGets, Widgets, WidgetsClient, WidgetsExt,
+    BatchGetWidgetsRequest, BatchGetWidgetsResponse, GetWidgetRequest, GetWidgetResponse,
+    ListIdempotentRequest, ListIdempotentResponse, ListNoSideEffectsRequest,
+    ListNoSideEffectsResponse, ListRequest, ListResponse, NumbersService, NumbersServiceClient,
+    NumbersServiceExt, NumbersServiceLists, PageResponse, Widget, WidgetGets, WidgetsService,
+    WidgetsServiceClient, WidgetsServiceExt,
 };
 use api_bones_page::{ListCall, PageError, PageErrorKind};
 use api_bones_transport::HttpTransport;
@@ -31,9 +33,6 @@ use futures_util::future::{Either, select};
 
 use super::support::{batch_response, unserved_widget_methods};
 use crate::world::RateLimitWorld;
-
-type WidgetsBatched = Batched<WidgetsClient<HttpTransport>>;
-type NumbersBatched = Batched<NumbersClient<HttpTransport>>;
 
 /// How long a step waits for the first refusal to arrive before it gives up.
 const FIRST_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -52,6 +51,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 struct Throttle {
     refusals: usize,
     retry_after: Option<String>,
+    in_trailers: bool,
     arrivals: Arc<Mutex<Vec<Instant>>>,
 }
 
@@ -73,60 +73,77 @@ impl Throttle {
                 http::HeaderValue::from_str(wait).expect("the contract states a header value"),
             );
         }
-        Err(ConnectError::resource_exhausted("slow down").with_headers(headers))
+        let refusal = ConnectError::resource_exhausted("slow down");
+        Err(if self.in_trailers {
+            refusal.with_trailers(headers)
+        } else {
+            refusal.with_headers(headers)
+        })
     }
 
-    fn page(&self) -> Result<ListNumbersResponse, ConnectError> {
+    /// The page position of one admitted list call.
+    fn page(&self) -> Result<PageResponse, ConnectError> {
         self.admit()?;
-        Ok(ListNumbersResponse {
-            items: vec![1],
-            page: PageResponse {
-                next_cursor: String::new(),
-                revision: "r1".into(),
-                ..Default::default()
-            }
-            .into(),
+        Ok(PageResponse {
+            next_cursor: String::new(),
+            revision: "r1".into(),
             ..Default::default()
         })
     }
 }
 
-impl Numbers for Throttle {
+impl NumbersService for Throttle {
     async fn list_no_side_effects<'a>(
         &'a self,
         _ctx: RequestContext,
-        _request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
-        Response::ok(self.page()?)
+        _request: ServiceRequest<'_, ListNoSideEffectsRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ListNoSideEffectsResponse> + Send + use<'a>> {
+        Response::ok(ListNoSideEffectsResponse {
+            items: vec![1],
+            page: self.page()?.into(),
+            ..Default::default()
+        })
     }
 
     async fn list_idempotent<'a>(
         &'a self,
         _ctx: RequestContext,
-        _request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
-        Response::ok(self.page()?)
+        _request: ServiceRequest<'_, ListIdempotentRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ListIdempotentResponse> + Send + use<'a>> {
+        Response::ok(ListIdempotentResponse {
+            items: vec![1],
+            page: self.page()?.into(),
+            ..Default::default()
+        })
     }
 
     async fn list<'a>(
         &'a self,
         _ctx: RequestContext,
-        _request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
-        Response::ok(self.page()?)
+        _request: ServiceRequest<'_, ListRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ListResponse> + Send + use<'a>> {
+        Response::ok(ListResponse {
+            items: vec![1],
+            page: self.page()?.into(),
+            ..Default::default()
+        })
     }
 }
 
-impl Widgets for Throttle {
+impl WidgetsService for Throttle {
     async fn get_widget<'a>(
         &'a self,
         _ctx: RequestContext,
         request: ServiceRequest<'_, GetWidgetRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<Widget> + Send + use<'a>> {
+    ) -> ServiceResult<impl connectrpc::Encodable<GetWidgetResponse> + Send + use<'a>> {
         self.admit()?;
         let asked = request.to_owned_message();
-        Response::ok(Widget {
-            id: asked.id.clone(),
+        Response::ok(GetWidgetResponse {
+            widget: Widget {
+                id: asked.id.clone(),
+                ..Default::default()
+            }
+            .into(),
             ..Default::default()
         })
     }
@@ -165,6 +182,7 @@ async fn serve(
     let router = register(Throttle {
         refusals: world.refusals,
         retry_after: world.retry_after.clone(),
+        in_trailers: world.retry_after_in_trailers,
         arrivals: world.arrivals.clone(),
     });
     world.server = Some(tokio::spawn(async move {
@@ -175,28 +193,29 @@ async fn serve(
     ClientConfig::new(format!("http://{address}").parse().expect("a loopback uri"))
 }
 
-/// The batch runtime's client for the widget service. The batch path rides
+/// The batch runtime's client for the widget service. It is written out, not
+/// aliased, so the step reads as holding an SDK client. The batch path rides
 /// `GetWidget`, so the scenario must declare what that method declares.
-async fn widgets(world: &mut RateLimitWorld) -> WidgetsBatched {
+async fn widgets(world: &mut RateLimitWorld) -> Batched<WidgetsServiceClient<HttpTransport>> {
     assert_eq!(
         world.idempotency, "NO_SIDE_EFFECTS",
         "the batch path serves only a method declared NO_SIDE_EFFECTS"
     );
     let config = serve(world, |throttle| {
-        WidgetsExt::register(Arc::new(throttle), Router::new())
+        WidgetsServiceExt::register(Arc::new(throttle), Router::new())
     })
     .await;
-    Batched::anonymous(WidgetsClient::new(HttpTransport::h2c(), config))
+    Batched::anonymous(WidgetsServiceClient::new(HttpTransport::h2c(), config))
         .expect("the widget client binds")
 }
 
 /// The list-only client of the paged call type, which needs no batch method.
-async fn numbers(world: &mut RateLimitWorld) -> NumbersBatched {
+async fn numbers(world: &mut RateLimitWorld) -> Batched<NumbersServiceClient<HttpTransport>> {
     let config = serve(world, |throttle| {
-        NumbersExt::register(Arc::new(throttle), Router::new())
+        NumbersServiceExt::register(Arc::new(throttle), Router::new())
     })
     .await;
-    Batched::anonymous(NumbersClient::new(HttpTransport::h2c(), config))
+    Batched::anonymous(NumbersServiceClient::new(HttpTransport::h2c(), config))
         .expect("a list-only client binds without a batch method")
 }
 
@@ -212,6 +231,42 @@ impl RateLimitWorld {
             .expect("the contract states whole seconds")
             * 1000
     }
+}
+
+/// `at` as an HTTP-date, whole seconds in GMT.
+fn http_date(at: SystemTime) -> String {
+    const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let seconds = at
+        .duration_since(UNIX_EPOCH)
+        .expect("the date is after the epoch")
+        .as_secs();
+    let days = i64::try_from(seconds / 86_400).expect("a date within range");
+    let of_day = seconds % 86_400;
+    let weekday = DAYS[usize::try_from((days + 4) % 7).expect("a weekday")];
+    let shifted = days + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let day_of_era = shifted - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{weekday}, {day:02} {} {year} {:02}:{:02}:{:02} GMT",
+        MONTHS[usize::try_from(month - 1).expect("a month")],
+        of_day / 3600,
+        of_day % 3600 / 60,
+        of_day % 60
+    )
 }
 
 fn widget_request() -> GetWidgetRequest {
@@ -260,6 +315,19 @@ fn given_refuses_with(world: &mut RateLimitWorld, refusals: usize, retry_after: 
     world.retry_after = Some(retry_after);
 }
 
+#[given(expr = "the server refuses it {int} times with a Retry-After date {int} seconds ahead")]
+fn given_refuses_with_date(world: &mut RateLimitWorld, refusals: usize, ahead: u64) {
+    world.refusals = refusals;
+    world.retry_after = Some(http_date(SystemTime::now() + Duration::from_secs(ahead)));
+}
+
+#[given(expr = "the server refuses it {int} times with Retry-After {string} in the trailers")]
+fn given_refuses_in_trailers(world: &mut RateLimitWorld, refusals: usize, retry_after: String) {
+    world.refusals = refusals;
+    world.retry_after = Some(retry_after);
+    world.retry_after_in_trailers = true;
+}
+
 #[given(expr = "the server refuses it {int} times without Retry-After")]
 fn given_refuses_without(world: &mut RateLimitWorld, refusals: usize) {
     world.refusals = refusals;
@@ -280,19 +348,22 @@ async fn when_sent(world: &mut RateLimitWorld) {
         }
         None => {
             let client = numbers(world).await;
-            let request = ListNumbersRequest::default();
             match world.idempotency.as_str() {
-                "NO_SIDE_EFFECTS" => ListCall::items(client.list_no_side_effects(request))
-                    .try_collect::<Vec<_>>()
-                    .await
-                    .map(drop)
-                    .map_err(refusal_of),
-                "IDEMPOTENT" => ListCall::items(client.list_idempotent(request))
-                    .try_collect::<Vec<_>>()
-                    .await
-                    .map(drop)
-                    .map_err(refusal_of),
-                "UNSPECIFIED" => ListCall::items(client.list(request))
+                "NO_SIDE_EFFECTS" => ListCall::items(
+                    client.list_no_side_effects(ListNoSideEffectsRequest::default()),
+                )
+                .try_collect::<Vec<_>>()
+                .await
+                .map(drop)
+                .map_err(refusal_of),
+                "IDEMPOTENT" => {
+                    ListCall::items(client.list_idempotent(ListIdempotentRequest::default()))
+                        .try_collect::<Vec<_>>()
+                        .await
+                        .map(drop)
+                        .map_err(refusal_of)
+                }
+                "UNSPECIFIED" => ListCall::items(client.list(ListRequest::default()))
                     .try_collect::<Vec<_>>()
                     .await
                     .map(drop)
@@ -342,8 +413,8 @@ fn then_replay_gap(world: &mut RateLimitWorld, minimum_ms: u64) {
     );
 }
 
-#[then(expr = "the throttled call is rejected as a rate limit after {int} ms on attempt {int}")]
-fn then_rate_limited(world: &mut RateLimitWorld, wait_ms: u64, attempt: usize) {
+/// The `retry-after` a rate-limited refusal states, as the wire carried it.
+fn stated_retry_after(world: &RateLimitWorld) -> &str {
     let refusal = world
         .outcome
         .as_ref()
@@ -351,13 +422,40 @@ fn then_rate_limited(world: &mut RateLimitWorld, wait_ms: u64, attempt: usize) {
         .as_ref()
         .expect_err("the call was served");
     assert_eq!(refusal.code, ErrorCode::ResourceExhausted);
-    let stated = refusal
+    refusal
         .response_headers()
         .get("retry-after")
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .expect("a rate limit carries its retry-after");
+        .expect("a rate limit carries its retry-after")
+}
+
+#[then(expr = "the throttled call is rejected as a rate limit after {int} ms on attempt {int}")]
+fn then_rate_limited(world: &mut RateLimitWorld, wait_ms: u64, attempt: usize) {
+    let stated = stated_retry_after(world);
+    let stated = stated
+        .parse::<u64>()
+        .unwrap_or_else(|_| panic!("the retry-after {stated:?} is not whole seconds"));
     assert_eq!(stated * 1000, wait_ms);
+    assert_eq!(lock(&world.arrivals).len(), attempt);
+}
+
+#[then(
+    expr = "the throttled call is rejected as a rate limit naming a wait between {int} and {int} ms on attempt {int}"
+)]
+fn then_rate_limited_in_whole_seconds(
+    world: &mut RateLimitWorld,
+    least_ms: u64,
+    most_ms: u64,
+    attempt: usize,
+) {
+    let stated = stated_retry_after(world);
+    let seconds = stated
+        .parse::<u64>()
+        .unwrap_or_else(|_| panic!("the retry-after {stated:?} is not whole seconds"));
+    assert!(
+        (least_ms..=most_ms).contains(&(seconds * 1000)),
+        "the retry-after of {seconds} s is outside {least_ms}..{most_ms} ms"
+    );
     assert_eq!(lock(&world.arrivals).len(), attempt);
 }
 

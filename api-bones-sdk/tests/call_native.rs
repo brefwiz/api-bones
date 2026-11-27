@@ -13,8 +13,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use api_bones::connect::Idempotency;
-use api_bones_batch::{Credential, Identity};
+use api_bones::connect::{Idempotency, retries_for};
+use api_bones_batch::{Credential, CredentialAsk, CredentialSource, Identity};
 use api_bones_page::{PageInfo, PageOptions, PagedRequest, PagedResponse, RevisionCache};
 use api_bones_rt::BoxFuture;
 use api_bones_sdk::call::{
@@ -22,7 +22,7 @@ use api_bones_sdk::call::{
 };
 use api_bones_sdk::{
     CALL_BUDGET_ELAPSED, CANCELED, CallCtx, Error, IDENTITY_CHANGED, SpanEnd, SpanKind, SpanSink,
-    SpanStart, SpanStatus, Traceparent, Tracer,
+    SpanStart, SpanStarted, SpanStatus, Traceparent, Tracer,
 };
 use connectrpc::ConnectError;
 use futures_util::stream;
@@ -48,10 +48,41 @@ fn credential(subject: &str, token: usize) -> Credential {
 /// `b` after them; every read carries a new token.
 fn switching(reads: usize) -> CallEnv {
     let count = Arc::new(AtomicUsize::new(0));
-    CallEnv::new(move || {
+    CallEnv::new(fixed(move || {
         let n = count.fetch_add(1, Ordering::SeqCst);
         Ok(credential(if n < reads { "a" } else { "b" }, n))
-    })
+    }))
+}
+
+/// A credential source that answers what `read` says to every read, whether or
+/// not it was asked to refresh.
+fn fixed(
+    read: impl Fn() -> Result<Credential, ConnectError> + Send + Sync + 'static,
+) -> impl CredentialSource {
+    move |_: CredentialAsk| {
+        let answer = read();
+        async move { answer }
+    }
+}
+
+/// A source that answers `plain` to a read and `renewed` to a read that asks to
+/// refresh, counting the refreshes it was asked for.
+fn renewing(
+    plain: Credential,
+    renewed: Result<Credential, ConnectError>,
+) -> (impl CredentialSource, Arc<AtomicUsize>) {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&asked);
+    let source = move |ask: CredentialAsk| {
+        let answer = if ask.refresh {
+            count.fetch_add(1, Ordering::SeqCst);
+            renewed.clone()
+        } else {
+            Ok(plain.clone())
+        };
+        async move { answer }
+    };
+    (source, asked)
 }
 
 fn steady() -> CallEnv {
@@ -74,10 +105,10 @@ struct Sink {
 }
 
 impl SpanSink for Sink {
-    fn start(&self, span: &SpanStart) -> Option<String> {
+    fn start(&self, span: &SpanStart) -> SpanStarted {
         let mut starts = self.starts.lock().expect("sink");
         starts.push(span.clone());
-        Some(format!(
+        SpanStarted::recording(format!(
             "00-{:032x}-{:016x}-01",
             0xabcd_u128,
             starts.len() as u64
@@ -142,6 +173,7 @@ async fn a_call_inside_a_caller_trace_sends_a_child_of_it() {
     let ctx = CallCtx {
         traceparent: Some(PARENT.to_owned()),
         tracestate: Some("vendor=1".to_owned()),
+        ..CallCtx::default()
     };
     let seen = CallCtx::scope(ctx, attempts(steady())).await;
     let traceparent = header(&seen[0], "traceparent").expect("a traceparent");
@@ -243,7 +275,7 @@ async fn an_anonymous_call_presents_no_credential() {
 #[tokio::test(start_paused = true)]
 async fn a_credential_source_that_cannot_answer_fails_the_call_closed() {
     let sent = AtomicUsize::new(0);
-    let refusal = CallEnv::new(|| Err::<Credential, _>(ConnectError::unavailable("no token")))
+    let refusal = CallEnv::new(fixed(|| Err(ConnectError::unavailable("no token"))))
         .call(SERVICE, "GetWidget")
         .unary(Idempotency::NoSideEffects, |_| {
             sent.fetch_add(1, Ordering::SeqCst);
@@ -432,11 +464,12 @@ async fn a_stream_is_bounded_only_until_its_response_head() {
 
 #[tokio::test(start_paused = true)]
 async fn a_stream_open_states_no_deadline_to_the_server() {
-    let seen = Mutex::new(Vec::new());
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&seen);
     let handle = steady()
         .call(SERVICE, "Watch")
-        .stream(Idempotency::NoSideEffects, |attempt| {
-            seen.lock().expect("seen").push(attempt.deadline());
+        .stream(Idempotency::NoSideEffects, move |attempt| {
+            log.lock().expect("seen").push(attempt.deadline());
             async { Ok::<_, ConnectError>(stream::once(async { Ok::<u32, ConnectError>(7) })) }
         })
         .await
@@ -572,6 +605,10 @@ struct PageResp {
 impl PagedResponse for PageResp {
     type Item = u32;
 
+    fn encoded_len(_: &u32) -> usize {
+        1
+    }
+
     fn split(self) -> (Vec<u32>, PageInfo) {
         (
             self.items,
@@ -607,10 +644,11 @@ fn answer(request: &PageReq, not_modified: bool) -> ListResponse<PageResp> {
     ListResponse { body, not_modified }
 }
 
-/// A two-page list whose every page takes `each` to arrive.
-fn two_pages(
+/// A list whose every page takes `each` to arrive, each answered by `reply`.
+fn timed_pages(
     each: Duration,
     deadlines: Arc<Mutex<Vec<api_bones_transport::Deadline>>>,
+    reply: impl Fn(&PageReq) -> ListResponse<PageResp> + Send + Sync + 'static,
 ) -> PageSend<PageReq, PageResp> {
     Arc::new(
         move |(request, attempt): (PageReq, Attempt)| -> BoxFuture<'static, _> {
@@ -618,12 +656,21 @@ fn two_pages(
                 .lock()
                 .expect("deadlines")
                 .push(attempt.deadline().expect("a page send has a deadline"));
+            let response = reply(&request);
             Box::pin(async move {
                 tokio::time::sleep(each).await;
-                Ok(answer(&request, false))
+                Ok(response)
             })
         },
     )
+}
+
+/// A two-page list whose every page takes `each` to arrive.
+fn two_pages(
+    each: Duration,
+    deadlines: Arc<Mutex<Vec<api_bones_transport::Deadline>>>,
+) -> PageSend<PageReq, PageResp> {
+    timed_pages(each, deadlines, |request| answer(request, false))
 }
 
 fn walk(
@@ -642,6 +689,49 @@ fn walk(
             ..PageOptions::default()
         },
     )
+}
+
+/// A list of three pages whose every page takes `each` to arrive: a fetch
+/// ahead that is not held to one page is told apart from one that is by the
+/// requests it makes.
+fn three_pages(
+    each: Duration,
+    deadlines: Arc<Mutex<Vec<api_bones_transport::Deadline>>>,
+) -> PageSend<PageReq, PageResp> {
+    timed_pages(each, deadlines, |request| {
+        let (items, next) = match request.cursor.as_str() {
+            "" => (vec![1], "p2"),
+            "p2" => (vec![2], "p3"),
+            _ => (vec![3], ""),
+        };
+        ListResponse {
+            body: PageResp { items, next },
+            not_modified: false,
+        }
+    })
+}
+
+/// A three-page list started under `ctx`, its first page read and a fetch
+/// ahead given time to start.
+async fn first_page_read_under(
+    ctx: CallCtx,
+    deadlines: &Arc<Mutex<Vec<api_bones_transport::Deadline>>>,
+) -> api_bones_sdk::ListCall<u32> {
+    let list = CallCtx::scope(ctx, async {
+        steady().call(SERVICE, "ListWidgets").list(
+            Idempotency::NoSideEffects,
+            PageReq {
+                cursor: String::new(),
+            },
+            three_pages(Duration::from_millis(5), Arc::clone(deadlines)),
+            PageOptions::default(),
+        )
+    })
+    .await;
+    let first = list.next().await.expect("page 1").expect("a page");
+    assert_eq!(&*first.items, &[1]);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    list
 }
 
 #[tokio::test(start_paused = true)]
@@ -747,7 +837,7 @@ fn switchable() -> (CallEnv, Arc<AtomicBool>) {
     let switched = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&switched);
     let count = Arc::new(AtomicUsize::new(0));
-    let env = CallEnv::new(move || {
+    let env = CallEnv::new(fixed(move || {
         let n = count.fetch_add(1, Ordering::SeqCst);
         Ok(credential(
             if flag.load(Ordering::SeqCst) {
@@ -757,7 +847,7 @@ fn switchable() -> (CallEnv, Arc<AtomicBool>) {
             },
             n,
         ))
-    });
+    }));
     (env, switched)
 }
 
@@ -787,6 +877,40 @@ async fn a_page_fetched_ahead_is_never_delivered_to_a_caller_who_switched_after_
     assert_eq!(refusal.emitter, "bones");
     assert_eq!(refusal.platform, "UNAUTHORIZED");
     assert!(list.next().await.expect("the walk ended").is_none());
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_prefetch_a_caller_chose_decides_how_many_pages_are_read() {
+    // Each row: the caller's choice, then the pages sent once the first page
+    // was delivered and a fetch ahead had time to start. The list has three
+    // pages, so a choice above 1 that were not held to one page ahead would
+    // send a third request.
+    for (chosen, sent) in [(Some(0), 1), (Some(1), 2), (Some(5), 2), (None, 2)] {
+        let deadlines = Arc::default();
+        let ctx = CallCtx {
+            prefetch: chosen,
+            ..CallCtx::default()
+        };
+        let _list = first_page_read_under(ctx, &deadlines).await;
+        assert_eq!(
+            deadlines.lock().expect("deadlines").len(),
+            sent,
+            "prefetch {chosen:?}"
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_first_page_call_makes_one_request_and_fetches_nothing_ahead() {
+    let deadlines = Arc::default();
+    let ctx = CallCtx {
+        first_only: true,
+        ..CallCtx::default()
+    };
+    let list = first_page_read_under(ctx, &deadlines).await;
+    assert_eq!(deadlines.lock().expect("deadlines").len(), 1);
+    assert!(list.next().await.expect("the walk ended").is_none());
+    assert_eq!(deadlines.lock().expect("deadlines").len(), 1);
 }
 
 #[tokio::test(start_paused = true)]
@@ -982,7 +1106,7 @@ async fn a_bound_cache_keeps_the_codes_of_a_server_refusal() {
 #[tokio::test(start_paused = true)]
 async fn a_credential_that_cannot_be_read_fails_the_cached_walk_closed() {
     let env = bound(
-        &CallEnv::new(|| Err::<Credential, _>(ConnectError::unavailable("no credential")))
+        &CallEnv::new(fixed(|| Err(ConnectError::unavailable("no credential"))))
             .with_revision_cache(RevisionCache::default()),
     );
     let seen = Arc::default();
@@ -1041,8 +1165,8 @@ async fn two_servers_sharing_one_cache_never_replay_each_others_pages() {
         "http://prod.example",
     );
     let seen = Arc::default();
-    // The cache holds weak item references: a chain replays while its pages are held.
-    let _held = pages_of(&revalidated_walk(&staging, revalidating(Arc::clone(&seen)))).await;
+    // A chain replays while it is cached within budget.
+    pages_of(&revalidated_walk(&staging, revalidating(Arc::clone(&seen)))).await;
     let other = pages_of(&revalidated_walk(&prod, revalidating(Arc::clone(&seen)))).await;
     assert!(other.iter().all(|page| !page.from_cache));
     assert_eq!(
@@ -1061,16 +1185,16 @@ async fn a_refusal_of_one_env_leaves_another_envs_cached_walk_replaying() {
     let cache = RevisionCache::default();
     let server = "http://widgets.example";
     let alice = at(
-        &CallEnv::new(|| Ok(credential("a", 0))).with_revision_cache(cache.clone()),
+        &CallEnv::new(fixed(|| Ok(credential("a", 0)))).with_revision_cache(cache.clone()),
         server,
     );
     let bob = at(
-        &CallEnv::new(|| Ok(credential("b", 0))).with_revision_cache(cache.clone()),
+        &CallEnv::new(fixed(|| Ok(credential("b", 0)))).with_revision_cache(cache.clone()),
         server,
     );
     let seen = Arc::default();
-    let _alice_pages = pages_of(&revalidated_walk(&alice, revalidating(Arc::clone(&seen)))).await;
-    let _bob_pages = pages_of(&revalidated_walk(&bob, revalidating(Arc::clone(&seen)))).await;
+    pages_of(&revalidated_walk(&alice, revalidating(Arc::clone(&seen)))).await;
+    pages_of(&revalidated_walk(&bob, revalidating(Arc::clone(&seen)))).await;
     alice
         .call(SERVICE, "GetWidget")
         .unary(Idempotency::NoSideEffects, |_| {
@@ -1102,11 +1226,12 @@ async fn a_refused_call_drops_the_slot_of_the_identity_it_started_as() {
     let cache = RevisionCache::default();
     let env = bound(&env.with_revision_cache(cache.clone()));
     let seen = Arc::default();
-    // Both identities hold a slot; the cache replays only chains whose pages are held.
-    let _held_a = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
-    switched.store(true, Ordering::SeqCst);
-    let _held_b = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
-    switched.store(false, Ordering::SeqCst);
+    // Other sessions of the shared cache fill the slots of `a` and of `b`; the
+    // refused session recorded neither, so only the refusal can drop `a`'s.
+    let (other_a, _) = endable("a", &Arc::default(), &cache);
+    let (other_b, _) = endable("b", &Arc::default(), &cache);
+    pages_of(&revalidated_walk(&other_a, revalidating(Arc::clone(&seen)))).await;
+    pages_of(&revalidated_walk(&other_b, revalidating(Arc::clone(&seen)))).await;
     // A call that started as `a` is refused after the credential became `b`.
     let flag = Arc::clone(&switched);
     let refusal = env
@@ -1118,15 +1243,708 @@ async fn a_refused_call_drops_the_slot_of_the_identity_it_started_as() {
         .await
         .expect_err("another identity");
     assert_eq!(refusal.code, IDENTITY_CHANGED);
-    let bob = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    let bob = pages_of(&revalidated_walk(&other_b, revalidating(Arc::clone(&seen)))).await;
     assert!(
         bob.iter().all(|page| page.from_cache),
         "b's slot is untouched"
     );
-    switched.store(false, Ordering::SeqCst);
-    let ada = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    let ada = pages_of(&revalidated_walk(&other_a, revalidating(Arc::clone(&seen)))).await;
     assert!(
         ada.iter().all(|page| !page.from_cache),
         "a's slot was dropped"
+    );
+}
+
+/// An env of `subject` whose credential source fails closed once `down` is
+/// set, bound to the widgets server and sharing `cache`; the count of
+/// unauthenticated refusals told to the host.
+fn endable(
+    subject: &'static str,
+    down: &Arc<AtomicBool>,
+    cache: &RevisionCache,
+) -> (CallEnv, Arc<AtomicUsize>) {
+    let down = Arc::clone(down);
+    let told = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&told);
+    let env = CallEnv::new(fixed(move || {
+        if down.load(Ordering::SeqCst) {
+            Err(ConnectError::unavailable("signed out"))
+        } else {
+            Ok(credential(subject, 0))
+        }
+    }))
+    .with_revision_cache(cache.clone())
+    .on_unauthenticated(Arc::new(move || {
+        seen.fetch_add(1, Ordering::SeqCst);
+    }));
+    (bound(&env), told)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_session_that_can_no_longer_answer_drops_the_slot_it_filled_without_telling_the_host() {
+    let cache = RevisionCache::default();
+    let down = Arc::new(AtomicBool::new(false));
+    let (env, told) = endable("a", &down, &cache);
+    let seen = Arc::default();
+    pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert!(!cache.is_empty());
+    down.store(true, Ordering::SeqCst);
+    let refusal = revalidated_walk(&env, revalidating(Arc::clone(&seen)))
+        .next()
+        .await
+        .expect_err("signed out");
+    assert_eq!(refusal.platform, "SERVICE_UNAVAILABLE");
+    assert!(cache.is_empty(), "the signed-out caller's slot is gone");
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_session_that_switches_caller_drops_the_slot_of_the_one_before() {
+    let (env, switched) = switchable();
+    let cache = RevisionCache::default();
+    let env = bound(&env.with_revision_cache(cache.clone()));
+    let seen = Arc::default();
+    pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    switched.store(true, Ordering::SeqCst);
+    let bob = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert!(bob.iter().all(|page| !page.from_cache));
+    let bob_again = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        bob_again.iter().all(|page| page.from_cache),
+        "b's slot is held"
+    );
+    // Another session of the shared cache reads `a`: nothing of `a` is left.
+    let down = Arc::new(AtomicBool::new(false));
+    let (ada, _) = endable("a", &down, &cache);
+    let ada = pages_of(&revalidated_walk(&ada, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        ada.iter().all(|page| !page.from_cache),
+        "a's slot was dropped when the session moved to b"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_session_that_ends_leaves_the_slot_of_another_session_of_the_shared_cache() {
+    let cache = RevisionCache::default();
+    let down = Arc::new(AtomicBool::new(false));
+    let (alice, _) = endable("a", &down, &cache);
+    let (bob, _) = endable("b", &Arc::default(), &cache);
+    let seen = Arc::default();
+    pages_of(&revalidated_walk(&alice, revalidating(Arc::clone(&seen)))).await;
+    pages_of(&revalidated_walk(&bob, revalidating(Arc::clone(&seen)))).await;
+    down.store(true, Ordering::SeqCst);
+    revalidated_walk(&alice, revalidating(Arc::clone(&seen)))
+        .next()
+        .await
+        .expect_err("signed out");
+    let bob_again = pages_of(&revalidated_walk(&bob, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        bob_again.iter().all(|page| page.from_cache),
+        "the other session's slot is held"
+    );
+    let (fresh, _) = endable("a", &Arc::default(), &cache);
+    let alice_again = pages_of(&revalidated_walk(&fresh, revalidating(Arc::clone(&seen)))).await;
+    assert!(
+        alice_again.iter().all(|page| !page.from_cache),
+        "the ended session's slot is gone"
+    );
+}
+
+/// A list send that answers like `revalidating` once `open` is set, and waits
+/// for `gate` before its first answer.
+fn held_until(
+    gate: &Arc<tokio::sync::Notify>,
+    open: &Arc<AtomicBool>,
+) -> PageSend<PageReq, PageResp> {
+    let gate = Arc::clone(gate);
+    let open = Arc::clone(open);
+    Arc::new(
+        move |(request, _): (PageReq, Attempt)| -> BoxFuture<'static, _> {
+            let gate = Arc::clone(&gate);
+            let open = Arc::clone(&open);
+            Box::pin(async move {
+                if !open.load(Ordering::SeqCst) {
+                    gate.notified().await;
+                }
+                Ok(answer(&request, false))
+            })
+        },
+    )
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_walk_in_flight_when_the_session_ends_is_refused_and_holds_nothing() {
+    let cache = RevisionCache::default();
+    let down = Arc::new(AtomicBool::new(false));
+    let (env, _) = endable("a", &down, &cache);
+    let seen = Arc::default();
+    let gate = Arc::new(tokio::sync::Notify::new());
+    let open = Arc::new(AtomicBool::new(false));
+    // The walk opens `a`'s slot before its first send. The end removes the
+    // slot, so the answer that arrives afterwards is refused and never stored.
+    let walk = revalidated_walk(&env, held_until(&gate, &open));
+    let in_flight = walk.next();
+    let sign_out_and_back_in = async {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        down.store(true, Ordering::SeqCst);
+        revalidated_walk(&env, revalidating(Arc::clone(&seen)))
+            .next()
+            .await
+            .expect_err("signed out");
+        down.store(false, Ordering::SeqCst);
+        open.store(true, Ordering::SeqCst);
+        gate.notify_one();
+    };
+    let (first, ()) = tokio::join!(in_flight, sign_out_and_back_in);
+    let refusal = first.expect_err("the walk spanned a session end");
+    assert_eq!(refusal.platform, "UNAUTHORIZED");
+    assert!(cache.is_empty(), "the refused walk left pages held");
+    // A further end still leaves nothing held.
+    down.store(true, Ordering::SeqCst);
+    revalidated_walk(&env, revalidating(Arc::clone(&seen)))
+        .next()
+        .await
+        .expect_err("signed out again");
+    assert!(cache.is_empty(), "the second end left a's pages held");
+    down.store(false, Ordering::SeqCst);
+    let again = pages_of(&revalidated_walk(&env, revalidating(Arc::clone(&seen)))).await;
+    assert!(again.iter().all(|page| !page.from_cache));
+}
+
+/// An env over `source` and the count of unauthenticated refusals it told the host.
+fn telling(source: impl CredentialSource + 'static) -> (CallEnv, Arc<AtomicUsize>) {
+    let told = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&told);
+    let env = CallEnv::new(source).on_unauthenticated(Arc::new(move || {
+        seen.fetch_add(1, Ordering::SeqCst);
+    }));
+    (env, told)
+}
+
+/// An env that reads `plain` and, when asked to refresh, answers `renewed`;
+/// the count of unauthenticated refusals told to the host and of refreshes the
+/// source was asked for.
+fn refreshing(
+    renewed: Result<Credential, ConnectError>,
+) -> (CallEnv, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    let (source, asked) = renewing(credential("a", 1), renewed);
+    let (env, told) = telling(source);
+    (env, asked, told)
+}
+
+/// The `authorization` of each send of a unary call that is refused as
+/// unauthenticated `refused` times, then answered; the call's outcome.
+async fn refused_then_answered(
+    env: &CallEnv,
+    refused: usize,
+) -> (Result<u32, Error>, Vec<Option<String>>) {
+    let tokens = Mutex::new(Vec::new());
+    let outcome = env
+        .call(SERVICE, "GetWidget")
+        .unary(Idempotency::NoSideEffects, |attempt| {
+            let mut tokens = tokens.lock().expect("tokens");
+            tokens.push(header(&attempt, "authorization"));
+            std::future::ready(if tokens.len() <= refused {
+                Err(ConnectError::unauthenticated("expired"))
+            } else {
+                Ok(7)
+            })
+        })
+        .await;
+    (outcome, tokens.into_inner().expect("tokens"))
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refused_credential_is_refreshed_and_the_call_replayed_with_the_renewed_one() {
+    let (env, asked, told) = refreshing(Ok(credential("a", 2)));
+    let (outcome, tokens) = refused_then_answered(&env, 1).await;
+    assert_eq!(outcome.expect("replayed"), 7);
+    assert_eq!(
+        tokens,
+        [Some("Bearer 1".to_owned()), Some("Bearer 2".to_owned())]
+    );
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_replay_is_not_counted_against_the_retry_budget() {
+    let retries = usize::from(retries_for(Idempotency::NoSideEffects));
+    let (env, asked, _) = refreshing(Ok(credential("a", 2)));
+    let sent = AtomicUsize::new(0);
+    let answer = env
+        .call(SERVICE, "GetWidget")
+        .unary(Idempotency::NoSideEffects, |_| {
+            // One unavailable answer, the refusal, then every retry the budget
+            // allows, all unavailable, before the answer.
+            let n = sent.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(match n {
+                1 => Err(ConnectError::unauthenticated("expired")),
+                n if n <= 1 + retries => Err(ConnectError::unavailable("down")),
+                _ => Ok(7_u32),
+            })
+        })
+        .await
+        .expect("the replay keeps a retry budget of its own");
+    assert_eq!(answer, 7);
+    assert_eq!(sent.load(Ordering::SeqCst), retries + 3);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refresh_that_answers_the_refused_credential_returns_the_servers_error_and_tells_the_host_once()
+ {
+    let (env, asked, told) = refreshing(Ok(credential("a", 1)));
+    let (outcome, tokens) = refused_then_answered(&env, 1).await;
+    let refusal = outcome.expect_err("refused");
+    assert_eq!(refusal.platform, "UNAUTHORIZED");
+    assert_ne!(refusal.code, IDENTITY_CHANGED);
+    assert_eq!(tokens.len(), 1, "nothing is replayed");
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refusal_before_any_send_carried_a_credential_is_returned_without_a_refresh() {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&reads);
+    let asked = Arc::new(AtomicUsize::new(0));
+    let refreshes = Arc::clone(&asked);
+    let env = CallEnv::new(move |ask: CredentialAsk| {
+        refreshes.fetch_add(usize::from(ask.refresh), Ordering::SeqCst);
+        // The capture reads once; the read before the send is refused.
+        let answer = if count.fetch_add(1, Ordering::SeqCst) == 0 {
+            Ok(credential("a", 1))
+        } else {
+            Err(ConnectError::unauthenticated("the source is signed out"))
+        };
+        async move { answer }
+    });
+    let sent = AtomicUsize::new(0);
+    let outcome = env
+        .call(SERVICE, "GetWidget")
+        .unary(Idempotency::NoSideEffects, |_| {
+            sent.fetch_add(1, Ordering::SeqCst);
+            std::future::ready(Ok(7_u32))
+        })
+        .await;
+    assert_eq!(outcome.expect_err("refused").platform, "UNAUTHORIZED");
+    assert_eq!(sent.load(Ordering::SeqCst), 0, "nothing is sent");
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "nothing is refreshed");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refused_replay_is_not_refreshed_again_and_tells_the_host_once() {
+    let (env, asked, told) = refreshing(Ok(credential("a", 2)));
+    let (outcome, tokens) = refused_then_answered(&env, 2).await;
+    let refusal = outcome.expect_err("refused");
+    assert_eq!(refusal.platform, "UNAUTHORIZED");
+    assert_eq!(tokens.len(), 2, "one send and one replay");
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 1);
+}
+
+/// Like `refreshing`, but a refresh spans several polls, so calls refused
+/// together wait for one renewal, and the renewed credential is what a plain
+/// read answers once it is made.
+fn contended(renewed: Credential) -> (CallEnv, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    let plain = Arc::new(Mutex::new(credential("a", 1)));
+    let asked = Arc::new(AtomicUsize::new(0));
+    let (held, count) = (Arc::clone(&plain), Arc::clone(&asked));
+    let source = move |ask: CredentialAsk| {
+        let (plain, count, renewed) = (Arc::clone(&held), Arc::clone(&count), renewed.clone());
+        async move {
+            if !ask.refresh {
+                return Ok(plain.lock().expect("plain").clone());
+            }
+            count.fetch_add(1, Ordering::SeqCst);
+            for _ in 0..3 {
+                tokio::task::yield_now().await;
+            }
+            *plain.lock().expect("plain") = renewed.clone();
+            Ok(renewed)
+        }
+    };
+    let (env, told) = telling(source);
+    (env, asked, told)
+}
+
+#[tokio::test(start_paused = true)]
+async fn concurrent_calls_refused_on_one_credential_renew_it_once() {
+    let (env, asked, told) = contended(credential("a", 2));
+    let calls = futures_util::future::join_all((0..4).map(|_| refused_then_answered(&env, 1)));
+    for (outcome, tokens) in calls.await {
+        assert_eq!(outcome.expect("replayed"), 7);
+        assert_eq!(
+            tokens,
+            [Some("Bearer 1".to_owned()), Some("Bearer 2".to_owned())]
+        );
+    }
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn concurrent_calls_whose_renewal_is_the_refused_credential_tell_the_host_once() {
+    let (env, asked, told) = contended(credential("a", 1));
+    let calls = futures_util::future::join_all((0..4).map(|_| refused_then_answered(&env, 1)));
+    for (outcome, tokens) in calls.await {
+        let refusal = outcome.expect_err("refused");
+        assert_eq!(refusal.platform, "UNAUTHORIZED");
+        assert_ne!(refusal.code, IDENTITY_CHANGED);
+        assert_eq!(tokens.len(), 1, "nothing is replayed");
+    }
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn concurrent_calls_whose_replay_is_refused_again_share_one_renewal_and_start_no_second() {
+    let (env, asked, told) = contended(credential("a", 2));
+    let calls = futures_util::future::join_all((0..4).map(|_| refused_then_answered(&env, 2)));
+    for (outcome, tokens) in calls.await {
+        assert_eq!(outcome.expect_err("refused").platform, "UNAUTHORIZED");
+        assert_eq!(tokens.len(), 2, "one send and one replay");
+    }
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 4, "each refused replay tells");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refresh_that_answers_another_identity_is_identity_changed() {
+    let (env, asked, told) = refreshing(Ok(credential("b", 2)));
+    let (outcome, tokens) = refused_then_answered(&env, 1).await;
+    let refusal = outcome.expect_err("refused");
+    assert_eq!(refusal.code, IDENTITY_CHANGED);
+    assert_eq!(
+        tokens.len(),
+        1,
+        "the other caller's credential is never sent"
+    );
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refresh_that_cannot_be_read_does_not_tell_the_host() {
+    let (env, asked, told) = refreshing(Err(ConnectError::unavailable("the session is gone")));
+    let (outcome, tokens) = refused_then_answered(&env, 1).await;
+    let refusal = outcome.expect_err("refused");
+    assert_eq!(refusal.platform, "SERVICE_UNAVAILABLE");
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+/// `refreshing(renewed)` bound to the widgets server over a revision cache
+/// that holds the slot of its caller `a`.
+async fn refreshing_with_a_slot(
+    renewed: Result<Credential, ConnectError>,
+) -> (CallEnv, Arc<AtomicUsize>, RevisionCache) {
+    let (source, _) = renewing(credential("a", 1), renewed);
+    let told = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&told);
+    let cache = RevisionCache::default();
+    let env = bound(
+        &CallEnv::new(source)
+            .with_revision_cache(cache.clone())
+            .on_unauthenticated(Arc::new(move || {
+                seen.fetch_add(1, Ordering::SeqCst);
+            })),
+    );
+    pages_of(&revalidated_walk(&env, revalidating(Arc::default()))).await;
+    assert!(!cache.is_empty());
+    (env, told, cache)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_refresh_that_fails_drops_the_callers_slot_and_tells_the_host_nothing() {
+    for failure in [
+        ConnectError::unavailable("the session is gone"),
+        ConnectError::failed_precondition("the session is gone"),
+    ] {
+        let (env, told, cache) = refreshing_with_a_slot(Err(failure)).await;
+        let (outcome, _) = refused_then_answered(&env, 1).await;
+        outcome.expect_err("refused");
+        assert!(cache.is_empty(), "the caller's slot is gone");
+        assert_eq!(told.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_refused_after_an_item_is_never_replayed() {
+    let (env, asked, told) = refreshing(Ok(credential("a", 2)));
+    let handle = env
+        .call(SERVICE, "Watch")
+        .stream(Idempotency::NoSideEffects, |_| async {
+            Ok::<_, ConnectError>(stream::iter([
+                Ok(1_u32),
+                Err(ConnectError::unauthenticated("expired")),
+            ]))
+        })
+        .await
+        .expect("the head arrives");
+    assert_eq!(handle.next().await.expect("an item"), Some(1));
+    let refusal = handle.next().await.expect_err("refused mid-stream");
+    assert_eq!(refusal.platform, "UNAUTHORIZED");
+    assert_eq!(asked.load(Ordering::SeqCst), 0, "nothing is refreshed");
+    assert_eq!(told.load(Ordering::SeqCst), 1, "the host is told once");
+}
+
+/// What a `Watch` open answers: its frames, or the open's own refusal.
+type Opened = Result<Vec<Result<u32, ConnectError>>, ConnectError>;
+
+fn expired() -> ConnectError {
+    ConnectError::unauthenticated("expired")
+}
+
+/// A `Watch` on `env` whose nth open answers `opens[n]`, the last one every
+/// open after it, read to its end: what it delivered and how often it opened.
+async fn watched(env: &CallEnv, opens: Vec<Opened>) -> (Vec<Result<u32, Error>>, usize) {
+    let opened = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&opened);
+    let handle = env
+        .call(SERVICE, "Watch")
+        .stream(Idempotency::NoSideEffects, move |_| {
+            let n = count.fetch_add(1, Ordering::SeqCst);
+            let answer = opens[n.min(opens.len() - 1)].clone();
+            async move { answer.map(stream::iter) }
+        })
+        .await
+        .expect("the first open is answered");
+    let mut delivered = Vec::new();
+    loop {
+        match handle.next().await {
+            Ok(Some(item)) => delivered.push(Ok(item)),
+            Ok(None) => break,
+            Err(error) => delivered.push(Err(error)),
+        }
+    }
+    (delivered, opened.load(Ordering::SeqCst))
+}
+
+/// The watch delivered one item, a refusal as unauthorized, and the host was
+/// told of it once.
+fn refused_once_and_told(delivered: &[Result<u32, Error>], told: &AtomicUsize) {
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(
+        delivered[0].as_ref().expect_err("refused").platform,
+        "UNAUTHORIZED"
+    );
+    assert_eq!(told.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_refused_in_its_first_frame_is_renewed_and_opened_again() {
+    let (env, asked, told) = refreshing(Ok(credential("a", 2)));
+    let (delivered, opened) = watched(&env, vec![Ok(vec![Err(expired())]), Ok(vec![Ok(1)])]).await;
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(*delivered[0].as_ref().expect("an item"), 1);
+    assert_eq!(opened, 2);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        told.load(Ordering::SeqCst),
+        0,
+        "the renewed open is not a refusal"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_refused_in_its_first_frame_twice_tells_the_host_once_and_drops_the_slot() {
+    let (env, told, cache) = refreshing_with_a_slot(Ok(credential("a", 2))).await;
+    let (delivered, opened) = watched(&env, vec![Ok(vec![Err(expired())])]).await;
+    assert_eq!(opened, 2, "replayed once and no more");
+    refused_once_and_told(&delivered, &told);
+    assert!(cache.is_empty(), "the caller's slot is gone");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_whose_renewed_open_is_refused_tells_the_host_once() {
+    let (env, asked, told) = refreshing(Ok(credential("a", 2)));
+    let (delivered, opened) = watched(&env, vec![Ok(vec![Err(expired())]), Err(expired())]).await;
+    assert_eq!(opened, 2);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    refused_once_and_told(&delivered, &told);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_refused_in_its_first_frame_with_nothing_newer_to_send_tells_the_host_once() {
+    let (env, asked, told) = refreshing(Ok(credential("a", 1)));
+    let (delivered, opened) = watched(&env, vec![Ok(vec![Err(expired())])]).await;
+    assert_eq!(opened, 1, "no renewed credential, no replay");
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    refused_once_and_told(&delivered, &told);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_head_refused_and_replayed_leaves_no_renewal_for_the_first_frame() {
+    let (env, told, cache) = refreshing_with_a_slot(Ok(credential("a", 2))).await;
+    let (delivered, opened) = watched(&env, vec![Err(expired()), Ok(vec![Err(expired())])]).await;
+    assert_eq!(opened, 2, "the head replayed once, the first frame not");
+    refused_once_and_told(&delivered, &told);
+    assert!(cache.is_empty(), "the caller's slot is gone");
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_head_refused_and_replayed_asks_the_source_once_across_the_first_frame() {
+    let (source, asked) = renewing(credential("a", 1), Ok(credential("a", 2)));
+    let (env, told) = telling(source);
+    let (delivered, opened) = watched(&env, vec![Err(expired()), Ok(vec![Err(expired())])]).await;
+    assert_eq!(opened, 2);
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+    assert_eq!(told.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_whose_first_frame_renewal_fails_drops_the_slot_and_tells_the_host_nothing() {
+    let (env, told, cache) =
+        refreshing_with_a_slot(Err(ConnectError::unavailable("the session is gone"))).await;
+    let (delivered, opened) = watched(&env, vec![Ok(vec![Err(expired())])]).await;
+    assert_eq!(opened, 1, "no renewed credential, no replay");
+    assert_eq!(delivered.len(), 1);
+    delivered[0].as_ref().expect_err("refused");
+    assert!(cache.is_empty(), "the caller's slot is gone");
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_refused_in_its_first_frame_for_another_reason_is_not_renewed() {
+    let (env, asked, told) = refreshing(Ok(credential("a", 2)));
+    let (delivered, opened) =
+        watched(&env, vec![Ok(vec![Err(ConnectError::internal("boom"))])]).await;
+    assert_eq!(opened, 1);
+    assert_eq!(delivered.len(), 1);
+    delivered[0].as_ref().expect_err("failed");
+    assert_eq!(asked.load(Ordering::SeqCst), 0);
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_stream_that_ends_before_its_first_frame_delivers_nothing_and_renews_nothing() {
+    let (env, asked, told) = refreshing(Ok(credential("a", 2)));
+    let (delivered, opened) = watched(&env, vec![Ok(vec![])]).await;
+    assert!(delivered.is_empty(), "no frame was delivered");
+    assert_eq!(opened, 1);
+    assert_eq!(asked.load(Ordering::SeqCst), 0);
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+/// A source that reads `credential("a", 1)` and never answers a refresh.
+fn hanging_refresh() -> impl CredentialSource {
+    |ask: CredentialAsk| async move {
+        if ask.refresh {
+            std::future::pending::<Result<Credential, ConnectError>>().await
+        } else {
+            Ok(credential("a", 1))
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_renewal_of_a_first_frame_that_never_answers_is_cut_at_the_budget() {
+    let (env, told) = telling(hanging_refresh());
+    let started = tokio::time::Instant::now();
+    let (delivered, opened) = watched(&env, vec![Ok(vec![Err(expired())])]).await;
+    assert_eq!(opened, 1);
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(
+        delivered[0].as_ref().expect_err("out of time").code,
+        CALL_BUDGET_ELAPSED
+    );
+    assert_eq!(started.elapsed(), CALL_BUDGET);
+    assert_eq!(told.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_abort_during_a_first_frame_renewal_ends_the_stream_canceled() {
+    let (env, _) = telling(hanging_refresh());
+    let flag = AbortFlag::new();
+    let handle = env
+        .call(SERVICE, "Watch")
+        .with_abort(flag.clone())
+        .stream(Idempotency::NoSideEffects, |_| async {
+            Ok::<_, ConnectError>(stream::iter([Err::<u32, _>(expired())]))
+        })
+        .await
+        .expect("the head arrives");
+    let (next, ()) = tokio::join!(handle.next(), async {
+        tokio::task::yield_now().await;
+        flag.abort();
+    });
+    assert_eq!(next.expect_err("canceled").code, CANCELED);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_list_reads_its_identity_at_its_first_poll_not_when_it_is_built() {
+    let (env, switched) = switchable();
+    let list = walk(&env, Duration::from_millis(5), Arc::default());
+    // The caller changes after the list was built and before it was read: the
+    // walk is the one caller that reads it, so it is not refused.
+    switched.store(true, Ordering::SeqCst);
+    let first = list.next().await.expect("page 1").expect("a page");
+    assert_eq!(&*first.items, &[1]);
+}
+
+/// A sink that records nothing: every span it is asked to start is not
+/// recording, and it counts what the core crossed to it.
+#[derive(Default)]
+struct Quiet {
+    starts: Mutex<Vec<SpanStart>>,
+    ends: Mutex<Vec<SpanEnd>>,
+}
+
+impl SpanSink for Quiet {
+    fn start(&self, span: &SpanStart) -> SpanStarted {
+        self.starts.lock().expect("sink").push(span.clone());
+        SpanStarted::not_recording(format!("00-{:032x}-{:016x}-01", 0xabcd_u128, 1_u64))
+    }
+
+    fn end(&self, end: &SpanEnd) {
+        self.ends.lock().expect("sink").push(end.clone());
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_walk_whose_span_is_not_recorded_makes_no_crossing_for_its_pages() {
+    let sink = Arc::new(Quiet::default());
+    let env = steady().with_tracer(Tracer::new(sink.clone()));
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&sent);
+    let pager: PageSend<PageReq, PageResp> = Arc::new(
+        move |(request, attempt): (PageReq, Attempt)| -> BoxFuture<'static, _> {
+            seen.lock()
+                .expect("sent")
+                .push(header(&attempt, "traceparent"));
+            Box::pin(async move { Ok(answer(&request, false)) })
+        },
+    );
+    let list = env.call(SERVICE, "ListWidgets").list(
+        Idempotency::NoSideEffects,
+        PageReq {
+            cursor: String::new(),
+        },
+        pager,
+        PageOptions {
+            prefetch: 0,
+            ..PageOptions::default()
+        },
+    );
+    while list.next().await.expect("a page or the end").is_some() {}
+    assert_eq!(
+        sink.starts.lock().expect("sink").len(),
+        1,
+        "only the walk's own span crossed"
+    );
+    assert_eq!(sink.ends.lock().expect("sink").len(), 1);
+    let trace = format!("{:032x}", 0xabcd_u128);
+    let sent = sent.lock().expect("sent");
+    assert_eq!(sent.len(), 2);
+    assert!(
+        sent.iter().all(|traceparent| traceparent
+            .as_deref()
+            .and_then(|text| text.split('-').nth(1))
+            == Some(trace.as_str())),
+        "every page continues the walk's trace: {sent:?}"
     );
 }

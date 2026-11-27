@@ -10,21 +10,32 @@ use syn::meta::ParseNestedMeta;
 use syn::parse::Parser;
 use syn::{Attribute, LitStr, Meta};
 
-/// The arguments of `#[client(surface = "...")]`.
+use crate::ty::path_text;
+
+/// The arguments of `#[client(surface = "...", proto = <module path>)]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientArgs {
     /// The `sdk_surfaces` id every export of the impl belongs to.
     pub surface: String,
+    /// The Rust module that holds the generated `<Method>Args` messages of the
+    /// impl's exports, such as `generated::contract::sdk::v1`. Each export
+    /// without `args = ...` takes `<proto>::<PascalMethod>Args`. Not needed
+    /// when every export takes no parameter or names its `args`.
+    pub proto: Option<String>,
 }
 
-/// The arguments of `#[export]`, `#[export(sync)]` and
-/// `#[export(surface = "...")]`.
+/// The arguments of `#[export]`, `#[export(sync)]`, `#[export(surface = "...")]`
+/// and `#[export(args = <message path>)]`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ExportArgs {
     /// The export is synchronous: no endpoint, no handle.
     pub sync: bool,
     /// Overrides the surface of the `#[client]` impl for this method.
     pub surface: Option<String>,
+    /// The generated message the export's parameters arrive as, when it is not
+    /// the `<PascalMethod>Args` of the impl's `proto` module: the request
+    /// message of the RPC when the parameters equal it.
+    pub args: Option<String>,
 }
 
 /// The arguments of `#[error(emitter = "...")]` on an error type.
@@ -71,20 +82,13 @@ pub fn tokens(attr: &Attribute) -> syn::Result<TokenStream> {
     }
 }
 
-/// Refuses any argument: for `#[record]` and `#[enumeration]`.
-///
-/// # Errors
-///
-/// A [`syn::Error`] naming the attribute when it carries arguments.
-pub fn no_args(name: &str, args: TokenStream) -> syn::Result<()> {
-    if args.is_empty() {
-        Ok(())
-    } else {
-        Err(syn::Error::new_spanned(
-            args,
-            format!("`#[{name}]` takes no arguments"),
-        ))
+/// Stores the path value of `meta` into `slot`, refusing a repeat.
+fn path_arg(meta: &ParseNestedMeta<'_>, slot: &mut Option<String>) -> syn::Result<()> {
+    if slot.is_some() {
+        return Err(meta.error("this argument is given twice"));
     }
+    *slot = Some(path_text(&meta.value()?.parse::<syn::Path>()?)?);
+    Ok(())
 }
 
 /// Stores the string value of `meta` into `slot`, refusing a repeat.
@@ -106,29 +110,36 @@ fn require(slot: Option<String>, attr: &str, arg: &str) -> syn::Result<String> {
 }
 
 impl ClientArgs {
-    /// Reads `surface = "..."`.
+    /// Reads `surface = "..."` and `proto = <module path>`.
     ///
     /// # Errors
     ///
     /// A [`syn::Error`] for an unknown, repeated or missing argument.
     pub fn parse(args: TokenStream) -> syn::Result<Self> {
         let mut surface = None;
+        let mut proto = None;
         syn::meta::parser(|meta| {
             if meta.path.is_ident("surface") {
                 string_arg(&meta, &mut surface)
+            } else if meta.path.is_ident("proto") {
+                path_arg(&meta, &mut proto)
             } else {
-                Err(meta.error("unknown argument, expected `surface = \"...\"`"))
+                Err(meta.error(
+                    "unknown argument, expected `surface = \"...\"` or `proto = <module path>`",
+                ))
             }
         })
         .parse2(args)?;
         Ok(Self {
             surface: require(surface, "client", "surface")?,
+            proto,
         })
     }
 }
 
 impl ExportArgs {
-    /// Reads `sync` and `surface = "..."`, both optional.
+    /// Reads `sync`, `surface = "..."` and `args = <message path>`, all
+    /// optional.
     ///
     /// # Errors
     ///
@@ -136,6 +147,7 @@ impl ExportArgs {
     pub fn parse(args: TokenStream) -> syn::Result<Self> {
         let mut parsed = Self::default();
         let mut surface = None;
+        let mut args_path = None;
         syn::meta::parser(|meta| {
             if meta.path.is_ident("sync") {
                 if parsed.sync {
@@ -145,12 +157,17 @@ impl ExportArgs {
                 Ok(())
             } else if meta.path.is_ident("surface") {
                 string_arg(&meta, &mut surface)
+            } else if meta.path.is_ident("args") {
+                path_arg(&meta, &mut args_path)
             } else {
-                Err(meta.error("unknown argument, expected `sync` or `surface = \"...\"`"))
+                Err(meta.error(
+                    "unknown argument, expected `sync`, `surface = \"...\"` or `args = <message path>`",
+                ))
             }
         })
         .parse2(args)?;
         parsed.surface = surface;
+        parsed.args = args_path;
         Ok(parsed)
     }
 }
@@ -326,9 +343,41 @@ mod tests {
     }
 
     #[test]
-    fn a_marker_attribute_takes_no_arguments() {
-        no_args("record", TokenStream::new()).expect("none");
-        let refused = no_args("record", stream("camel")).expect_err("args");
-        assert_eq!(refused.to_string(), "`#[record]` takes no arguments");
+    fn client_reads_its_proto_module_and_export_its_args_message() {
+        let client = ClientArgs::parse(stream(
+            "surface = \"s\", proto = generated::contract::sdk::v1",
+        ))
+        .expect("ok");
+        assert_eq!(
+            client.proto.as_deref(),
+            Some("generated::contract::sdk::v1")
+        );
+        assert_eq!(
+            ClientArgs::parse(stream("surface = \"s\""))
+                .expect("ok")
+                .proto,
+            None
+        );
+        let twice = ClientArgs::parse(stream("surface = \"s\", proto = a::b, proto = c::d"))
+            .expect_err("twice");
+        assert!(twice.to_string().contains("given twice"), "{twice}");
+        let generic =
+            ClientArgs::parse(stream("surface = \"s\", proto = a::B<C>")).expect_err("generic");
+        assert!(
+            generic.to_string().contains("no type arguments"),
+            "{generic}"
+        );
+
+        let export = ExportArgs::parse(stream(
+            "args = generated::contract::v1::GetWidgetRequest, sync",
+        ))
+        .expect("ok");
+        assert_eq!(
+            export.args.as_deref(),
+            Some("generated::contract::v1::GetWidgetRequest")
+        );
+        assert!(export.sync);
+        let twice = ExportArgs::parse(stream("args = a::B, args = a::C")).expect_err("twice");
+        assert!(twice.to_string().contains("given twice"), "{twice}");
     }
 }

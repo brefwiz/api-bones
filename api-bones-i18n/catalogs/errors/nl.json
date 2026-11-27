@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Dienst niet beschikbaar",
   "bones.errors.SERVICE_UNAVAILABLE.description": "De dienst is tijdelijk niet beschikbaar. Probeer het later opnieuw.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Gateway-time-out",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK-versies komen niet overeen",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Onderdelen van deze app lopen niet gelijk. Laad de pagina opnieuw en probeer het opnieuw.",
   "bones.validation.min.title": "Moet minstens {min, number} zijn.",
   "bones.validation.max.title": "Mag hoogstens {max, number} zijn.",
   "bones.validation.range.title": "Waarde valt buiten het bereik.",

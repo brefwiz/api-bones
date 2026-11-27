@@ -33,7 +33,8 @@ pub mod reason {
 
 pub use cache::RevisionCache;
 pub use call::{
-    CacheMode, CanonicalPagedRequest, Fetch, ListCall, ListMetadata, ListResponse, MetadataFetch,
-    Page, PageInfo, PageOptions, PagedRequest, PagedResponse, Total, TotalKind,
+    CacheIdentity, CacheMode, CanonicalPagedRequest, Fetch, IdentityFn, ListCall, ListMetadata,
+    ListResponse, MetadataFetch, Page, PageInfo, PageOptions, PagedRequest, PagedResponse, Total,
+    TotalKind,
 };
 pub use error::{PageError, PageErrorKind};

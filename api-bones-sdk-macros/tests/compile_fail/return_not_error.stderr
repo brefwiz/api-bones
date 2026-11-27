@@ -7,9 +7,6 @@ error[E0277]: the trait bound `api_bones_sdk::Error: From<NotAnError>` is not sa
 help: `api_bones_sdk::Error` implements trait `From<T>`
   --> $WORKSPACE/api-bones-sdk/src/error.rs
    |
-   | impl From<BadValue> for Error {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<BadValue>`
-...
    | impl From<ConnectError> for Error {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `From<connectrpc::error::ConnectError>`
 ...

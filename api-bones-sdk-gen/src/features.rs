@@ -132,24 +132,19 @@ mod tests {
         #[client(surface = "connect-pagination")]
         impl NumbersClient {
             #[export]
-            pub async fn list(&self) -> ListCall<Number> { body() }
+            pub async fn list(&self) -> ListCall<generated::sdk::v1::Number> { body() }
         }
 
-        #[client(surface = "connect-batch")]
+        #[client(surface = "connect-batch", proto = generated::sdk::v1)]
         impl WidgetsClient {
             #[export]
-            pub async fn get_widget(&self, id: String) -> Result<Widget, Error> { body() }
+            pub async fn get_widget(&self, id: String) -> Result<generated::sdk::v1::Widget, Error> { body() }
             #[export(surface = "connect-write")]
             pub async fn clear(&self) -> Result<(), Error> { body() }
         }
 
         #[client(surface = "idle")]
         impl IdleClient {}
-
-        #[record]
-        pub struct Number { pub value: i64 }
-        #[record]
-        pub struct Widget { pub id: String }
     "#;
 
     const MANIFEST: &str = "[package]\nname = \"x\"\n\n[features]\ndefault = []\n# api-bones-sdk-gen features: begin\nsdk-old = []\n# api-bones-sdk-gen features: end\nother = []\n";
@@ -220,7 +215,7 @@ wasm = [\"api-bones-sdk/wasm\"]\n\
         let dir = scratch("read");
         fs::write(
             dir.join("src/lib.rs"),
-            "#[record] pub struct Number { pub value: i64 }",
+            "#[error(emitter = \"e\")] pub enum Failure { #[error(code = \"c\", platform = \"p\")] Gone }",
         )
         .expect("a file");
         fs::write(
@@ -230,7 +225,7 @@ wasm = [\"api-bones-sdk/wasm\"]\n\
         .expect("a file");
         fs::write(dir.join("src/notes.txt"), "not rust").expect("a file");
         let model = read_model(&dir).expect("a model");
-        assert_eq!(model.records.len(), 1);
+        assert_eq!(model.errors.len(), 1);
         assert_eq!(model.clients[0].exports[0].method, "f");
         fs::remove_dir_all(&dir).expect("cleaned");
     }
@@ -245,9 +240,13 @@ wasm = [\"api-bones-sdk/wasm\"]\n\
         fs::write(dir.join("src/lib.rs"), "fn (").expect("a file");
         let error = read_model(&dir).expect_err("unparsable");
         assert!(error.to_string().contains("cannot parse"), "{error}");
-        fs::write(dir.join("src/lib.rs"), "#[record] struct R { id: u8 }").expect("a file");
+        fs::write(
+            dir.join("src/lib.rs"),
+            "#[client(surface = \"s\")] impl C { #[export] async fn f(&self) -> Result<Widget, Error> { body() } }",
+        )
+        .expect("a file");
         let error = read_model(&dir).expect_err("a rule");
-        assert!(format!("{error:#}").contains("8 and 16 bit"), "{error:#}");
+        assert!(format!("{error:#}").contains("bare name"), "{error:#}");
         fs::remove_dir_all(&dir).expect("cleaned");
     }
 

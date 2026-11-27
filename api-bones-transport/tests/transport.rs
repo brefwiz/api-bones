@@ -666,7 +666,7 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 async fn assert_fails_without_http1(alpn: Vec<Vec<u8>>) {
     let (acceptor, client) = tls_pair_offering(alpn);
     let (addr, seen) = spy(acceptor).await;
-    let uri = format!("https://localhost:{}/test.v1.Echo/Call", addr.port());
+    let uri = format!("https://127.0.0.1:{}/test.v1.Echo/Call", addr.port());
     let outcome = tokio::time::timeout(
         Duration::from_secs(10),
         call(&HttpTransport::fleet(client), request(&uri, "alpn", None)),
@@ -807,7 +807,7 @@ async fn dropping_the_transport_closes_its_connections() {
         .expect("server task");
 }
 
-/// A TLS acceptor offering `h2` for `localhost` (see [`tls_pair_offering`]), and a client config trusting
+/// A TLS acceptor offering `h2` for `localhost` and `127.0.0.1` (see [`tls_pair_offering`]), and a client config trusting
 /// it with no ALPN of its own (the transport sets it).
 fn tls_pair() -> (tokio_rustls::TlsAcceptor, Arc<rustls::ClientConfig>) {
     tls_pair_offering(vec![b"h2".to_vec()])
@@ -815,7 +815,9 @@ fn tls_pair() -> (tokio_rustls::TlsAcceptor, Arc<rustls::ClientConfig>) {
 
 /// As [`tls_pair`], with the server offering `alpn` (none when empty).
 fn tls_pair_offering(alpn: Vec<Vec<u8>>) -> (tokio_rustls::TlsAcceptor, Arc<rustls::ClientConfig>) {
-    let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).expect("cert");
+    let certified =
+        rcgen::generate_simple_self_signed(vec!["localhost".to_owned(), "127.0.0.1".to_owned()])
+            .expect("cert");
     let cert = certified.cert.der().clone();
     let key = rustls::pki_types::PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der());
     let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());

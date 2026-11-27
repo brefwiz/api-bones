@@ -36,6 +36,7 @@ use std::task::{Context, Poll, ready};
 use bytes::Bytes;
 use connectrpc::ConnectError;
 use connectrpc::client::{BoxFuture, ClientBody, ClientTransport};
+use http::header::{CONTENT_ENCODING, CONTENT_LENGTH};
 use http::request::Parts;
 use http::{HeaderMap, HeaderName, HeaderValue, Method, Request, Response, StatusCode, Uri};
 use http_body::{Body, Frame};
@@ -341,6 +342,9 @@ fn origin_of(uri: &Uri) -> String {
     }
 }
 
+/// Builds the response the codec layer reads. The host has already inflated
+/// the body, so `Content-Encoding` and `Content-Length` no longer describe it
+/// and are not carried over.
 fn into_response(response: &web_sys::Response) -> Result<Response<FetchBody>, ConnectError> {
     let status = StatusCode::from_u16(response.status())
         .map_err(|_| ConnectError::internal("the host answered a status outside 100-999"))?;
@@ -349,7 +353,10 @@ fn into_response(response: &web_sys::Response) -> Result<Response<FetchBody>, Co
     let iterator = js_sys::try_iter(&entries).map_err(|error| js_error(&error))?;
     for entry in iterator.into_iter().flatten() {
         let entry = entry.map_err(|error| js_error(&error))?;
-        if let Some((name, value)) = header_of(&entry) {
+        if let Some((name, value)) = header_of(&entry)
+            && name != CONTENT_ENCODING
+            && name != CONTENT_LENGTH
+        {
             headers.append(name, value);
         }
     }

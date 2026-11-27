@@ -103,7 +103,10 @@ ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the cove
 # recipe that replaces RUSTFLAGS, as the platform's own build actions rely on.
 ci-e2e-rust: export CARGO_PROFILE_DEV_DEBUG := 0
 ci-e2e-rust: export CARGO_PROFILE_TEST_DEBUG := 0
-ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctests
+# The sdk_wasm_integrity lane alters a copy of the built test-service wrapper
+# package, so the wrapper build (ci-sdk-autogenerate ends in `wrapper build-ts`)
+# comes first; a missing build fails the lane rather than skipping it.
+ci-e2e-rust: ci-sdk-autogenerate ## Run what nextest cannot carry: the Gherkin contracts and doctests
 	# A cucumber suite is its own harness (harness = false), so nextest cannot
 	# carry it. Both contracts are pure classification/config assertions, so
 	# neither needs a live stack and both run synchronously.
@@ -151,6 +154,7 @@ ci-e2e-rust: ## Run what nextest cannot carry: the Gherkin contracts and doctest
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test connect_get_reads
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test proto_vocabulary
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test automation_manifest
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_wasm_integrity
 
 ci-coverage: ci-e2e-rust ## Enforce the line and function floor (one-shot local run with the same gate knobs CI reads)
 	cargo llvm-cov nextest --locked --no-fail-fast --workspace $(foreach c,$(COVERAGE_EXCLUDE),--exclude $(c)) --all-features --profile $(COVERAGE_NEXTEST_PROFILE) $(_COVERAGE_IGNORE) $(_COVERAGE_LINE_GATE) $(_COVERAGE_FUNCTION_GATE)
@@ -337,7 +341,7 @@ ts-build: ts-types-generate ## Build TypeScript packages
 # asserts; never hand-edit. Manual target, not part of any CI lane.
 l2-surface: ## Regenerate api-bones-test-service-sdk-ts/api-surface.d.ts from the wrapper generator
 	@set -e; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
-	cargo run --locked -p api-bones-sdk-gen -- wrapper typescript --crate tests/l2 --spec SPEC.md --surface sdk-call --out "$$tmp"; \
+	cargo run --locked -p api-bones-sdk-gen -- wrapper typescript --crate tests/l2 --spec SPEC.md --surface sdk-call --wasm-sha256 abababababababababababababababababababababababababababababababab --descriptor api-bones-test-service-ts/dist/contract.binpb --out "$$tmp"; \
 	cp "$$tmp/api-surface.d.ts" api-bones-test-service-sdk-ts/api-surface.d.ts
 
 ts-test: ts-types-generate ## Test TypeScript packages
@@ -377,7 +381,7 @@ ts-test: ts-types-generate ## Test TypeScript packages
 	: 'The contract lane imports the wasm wrapper of the test service Layer 2,'
 	: 'so it is built (wasm32, bound, compiled) before the lane runs cucumber.'
 	@echo "==> prebuild test-service wrapper"; log=$$(mktemp); rcf=$$(mktemp); \
-	{ cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --out api-bones-test-service-sdk-ts 2>&1; echo $$? > "$$rcf"; } | tee "$$log"; \
+	{ cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --descriptor api-bones-test-service-ts/dist/contract.binpb --out api-bones-test-service-sdk-ts 2>&1; echo $$? > "$$rcf"; } | tee "$$log"; \
 	rc=$$(cat "$$rcf"); rm -f "$$rcf"; \
 	if [ "$$rc" = 0 ]; then \
 		rm -f "$$log"; \
@@ -389,7 +393,7 @@ ts-test: ts-types-generate ## Test TypeScript packages
 	@set -e; for pkg in $(TS_TEST_PACKAGES); do \
 		echo "==> test $$pkg"; \
 		log=$$(mktemp); rcf=$$(mktemp); \
-		{ ( cd $$pkg && npm install --no-audit --no-fund && npm run test ) 2>&1 && rc=0 || rc=$$?; echo $$rc > "$$rcf"; } | tee "$$log"; \
+		{ ( cd $$pkg && npm install --no-audit --no-fund && BREFWIZ_SDK_EVIDENCE="$$(mktemp -d)" npm run test ) 2>&1 && rc=0 || rc=$$?; echo $$rc > "$$rcf"; } | tee "$$log"; \
 		rc=$$(cat "$$rcf"); rm -f "$$rcf"; \
 		if [ "$$rc" = 0 ]; then \
 			rm -f "$$log"; \
@@ -425,4 +429,8 @@ ci-sdk-autogenerate: ts-types-generate ## Generate canonical TypeScript typed-fi
 	: 'The test service wrapper links the built sdk-runtime package, which links otel.'
 	cd api-bones-otel && npm install --no-audit --no-fund && npm run build
 	cd api-bones-sdk-runtime-ts && npm install --no-audit --no-fund && npm run build
-	cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --out api-bones-test-service-sdk-ts
+	: 'The wrapper reads the test contract descriptor set, which the test service package'
+	: 'writes on build once connect is built.'
+	cd api-bones-connect-ts && npm install --no-audit --no-fund && npm run build
+	cd api-bones-test-service-ts && npm install --no-audit --no-fund && npm run build
+	cargo run --locked -p api-bones-sdk-gen -- wrapper build-ts --crate tests/l2 --surface sdk-call --descriptor api-bones-test-service-ts/dist/contract.binpb --out api-bones-test-service-sdk-ts

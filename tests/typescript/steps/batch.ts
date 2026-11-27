@@ -43,7 +43,7 @@ const spanProvider = new BasicTracerProvider({ spanProcessors: [{
 }] });
 trace.setGlobalTracerProvider(spanProvider);
 
-type Widget = { id: string; name: string; kind: string };
+type Widget = { widget: { id: string; name: string; kind: string } };
 export type Result = BatchResults<Widget>[number];
 type Session = { subject: string; org: string; serial: string };
 type CredentialFault = "missing bearer" | "missing relay" | "malformed bearer" | "malformed relay";
@@ -91,7 +91,7 @@ function session(s: BatchState): Session {
   return s.session;
 }
 function token(s: BatchState, current: Session = session(s)): string {
-  const body = Buffer.from(JSON.stringify({ sub: current.subject, org: current.org, jti: current.serial, aud: "contract.v1.Widgets", exp: s.expires, permissions: s.permissions })).toString("base64url");
+  const body = Buffer.from(JSON.stringify({ sub: current.subject, org: current.org, jti: current.serial, aud: "contract.v1.WidgetsService", exp: s.expires, permissions: s.permissions })).toString("base64url");
   const header = Buffer.from(JSON.stringify({ alg: "EdDSA", typ: "JWT" })).toString("base64url");
   const payload = `${header}.${body}`;
   return `${payload}.${sign(null, Buffer.from(payload), s.keyPair.privateKey).toString("base64url")}`;
@@ -115,7 +115,7 @@ function credentialSnapshot(s: BatchState) {
 export async function prepareBatch(world: BatchWorld): Promise<BatchState> {
   const s = state(world);
   if (s.transport) return s;
-  s.service = contractRegistry().getService("contract.v1.Widgets")!;
+  s.service = contractRegistry().getService("contract.v1.WidgetsService")!;
   s.policy = JSON.parse(readFileSync(new URL("../connect-method-policy.json", import.meta.url), "utf8"));
   await startWidgetsProvider(s);
   const transport = configureConnectTransport({ baseUrl: `http://127.0.0.1:${(s.server.address() as AddressInfo).port}`, profile: "service", policy: s.policy, fetch: s.fetch, session: { snapshot: () => credentialSnapshot(s) }, interceptors: [next => req => { if (s.metadata !== undefined) req.header.set("x-trace", s.metadata); return next(req); }], retry: { initialDelayMs: 0, maxDelayMs: 0 } });
@@ -325,7 +325,7 @@ Then("all prepared batch calls have finished", async function (this: BatchWorld)
   this.batchResults = [...preparedResults, ...finalResults];
 });
 const result = (results: readonly Result[], position: number) => { const value = results[position - 1]; assert.ok(value, `missing position ${position}`); return value; };
-const widget = (results: readonly Result[], position: number) => { const value = result(results, position); assert.ok(value.ok, value.ok ? "" : value.error.message); return value.value; };
+const widget = (results: readonly Result[], position: number) => { const value = result(results, position); assert.ok(value.ok, value.ok ? "" : value.error.message); return value.value.widget; };
 const failure = (results: readonly Result[], position: number) => { const value = result(results, position); assert.equal(value.ok, false); if (value.ok) throw new Error("expected failure"); return value.error; };
 const shape = (error: ConnectError) => ({ code: error.code, message: error.rawMessage, info: errorInfoOf(error) });
 Then("the coalesced denial of {string} has the single get's code, message and ErrorInfo", async function (this: BatchWorld, id: string) {
@@ -354,7 +354,7 @@ Then("position {int} carries the code, message and ErrorInfo of the unbatched ge
 Then("the widget at position {int} echoes the kind {string}", function (this: BatchWorld, position: number, kind: string) { assert.equal(widget(this.batchResults, position).kind, kind); });
 Then("every result is a widget", function (this: BatchWorld) { assert.ok(this.batchResults.length); this.batchResults.forEach((_, i) => widget(this.batchResults, i + 1)); });
 Then("exactly {int} calls of the first token fail with {string}", function (this: BatchWorld, count: number, code: string) { assert.equal(this.batchResults.slice(0, state(this).firstTokenCalls).filter(value => !value.ok && value.error.code === codes[code]).length, count); });
-Then("every other call of the first token is the widget {string}", function (this: BatchWorld, id: string) { for (const value of this.batchResults.slice(0, state(this).firstTokenCalls)) if (value.ok) assert.equal(value.value.id, id); });
+Then("every other call of the first token is the widget {string}", function (this: BatchWorld, id: string) { for (const value of this.batchResults.slice(0, state(this).firstTokenCalls)) if (value.ok) assert.equal(value.value.widget.id, id); });
 Then("every call of the second token is the widget {string}", function (this: BatchWorld, id: string) { const s = state(this); assert.ok(this.batchResults.length > s.firstTokenCalls); for (let i = s.firstTokenCalls; i < this.batchResults.length; i++) assert.equal(widget(this.batchResults, i + 1).id, id); });
 Then("every call is the widget {string}", function (this: BatchWorld, id: string) { assert.ok(this.batchResults.length); this.batchResults.forEach((_, i) => assert.equal(widget(this.batchResults, i + 1).id, id)); });
 Then("group {int} is for {string} and lists the parts {string}", async function (this: BatchWorld, position: number, parentId: string, parts: string) {
@@ -412,8 +412,8 @@ function assertTelemetry(s: BatchState, outcomes: string) {
     assert.ok(Number(attributes["bones.batch.calls"]) >= 1);
     assert.ok(Number(attributes["bones.batch.chunk_index"]) < Number(attributes["bones.batch.chunks"]));
     const request = s.requests.filter(request => request.rpc.startsWith("Batch"))[i];
-    assert.equal(attributes["rpc.method"], `contract.v1.Widgets/${request.rpc}`);
-    assert.equal(attributes["bones.batch.single_method"], `contract.v1.Widgets/${request.rpc === "BatchListWidgetParts" ? "ListWidgetParts" : "GetWidget"}`);
+    assert.equal(attributes["rpc.method"], `contract.v1.WidgetsService/${request.rpc}`);
+    assert.equal(attributes["bones.batch.single_method"], `contract.v1.WidgetsService/${request.rpc === "BatchListWidgetParts" ? "ListWidgetParts" : "GetWidget"}`);
   }
 }
 Then("batch telemetry has exactly the wire outcomes {string}", function (this: BatchWorld, outcomes: string) { assertTelemetry(state(this), outcomes); });

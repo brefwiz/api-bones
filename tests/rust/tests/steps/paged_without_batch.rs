@@ -8,8 +8,9 @@ use super::support::serve_loopback;
 use crate::world::UnbatchedPagingWorld;
 use api_bones_batch::Batched;
 use api_bones_contract_rust::{
-    FieldsClient, ListNumbersRequest, ListNumbersResponse, Numbers, NumbersClient, NumbersExt,
-    NumbersLists, PageResponse,
+    FieldsServiceClient, ListIdempotentRequest, ListIdempotentResponse, ListNoSideEffectsRequest,
+    ListNoSideEffectsResponse, ListRequest, ListResponse, NumbersService, NumbersServiceClient,
+    NumbersServiceExt, NumbersServiceLists, PageResponse,
 };
 use api_bones_transport::HttpTransport;
 use connectrpc::client::ClientConfig;
@@ -27,9 +28,8 @@ struct PagedNumbers {
 }
 
 impl PagedNumbers {
-    fn page(&self, request: ListNumbersRequest) -> ListNumbersResponse {
+    fn page(&self, cursor: &str) -> (Vec<u32>, PageResponse) {
         self.requests.fetch_add(1, Ordering::SeqCst);
-        let cursor = request.page.into_option().unwrap_or_default().cursor;
         let index = cursor
             .strip_prefix('c')
             .and_then(|index| index.parse::<usize>().ok())
@@ -39,42 +39,73 @@ impl PagedNumbers {
         } else {
             String::new()
         };
-        ListNumbersResponse {
-            items: self.pages.get(index).cloned().unwrap_or_default(),
-            page: PageResponse {
+        (
+            self.pages.get(index).cloned().unwrap_or_default(),
+            PageResponse {
                 next_cursor,
                 revision: "r1".into(),
                 ..Default::default()
-            }
-            .into(),
-            ..Default::default()
-        }
+            },
+        )
     }
 }
 
-impl Numbers for PagedNumbers {
+impl NumbersService for PagedNumbers {
     async fn list_no_side_effects<'a>(
         &'a self,
         _ctx: RequestContext,
-        request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
-        Response::ok(self.page(request.to_owned_message()))
+        request: ServiceRequest<'_, ListNoSideEffectsRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ListNoSideEffectsResponse> + Send + use<'a>> {
+        let cursor = request
+            .to_owned_message()
+            .page
+            .into_option()
+            .unwrap_or_default()
+            .cursor;
+        let (items, page) = self.page(&cursor);
+        Response::ok(ListNoSideEffectsResponse {
+            items,
+            page: page.into(),
+            ..Default::default()
+        })
     }
 
     async fn list_idempotent<'a>(
         &'a self,
         _ctx: RequestContext,
-        request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
-        Response::ok(self.page(request.to_owned_message()))
+        request: ServiceRequest<'_, ListIdempotentRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ListIdempotentResponse> + Send + use<'a>> {
+        let cursor = request
+            .to_owned_message()
+            .page
+            .into_option()
+            .unwrap_or_default()
+            .cursor;
+        let (items, page) = self.page(&cursor);
+        Response::ok(ListIdempotentResponse {
+            items,
+            page: page.into(),
+            ..Default::default()
+        })
     }
 
     async fn list<'a>(
         &'a self,
         _ctx: RequestContext,
-        request: ServiceRequest<'_, ListNumbersRequest>,
-    ) -> ServiceResult<impl connectrpc::Encodable<ListNumbersResponse> + Send + use<'a>> {
-        Response::ok(self.page(request.to_owned_message()))
+        request: ServiceRequest<'_, ListRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<ListResponse> + Send + use<'a>> {
+        let cursor = request
+            .to_owned_message()
+            .page
+            .into_option()
+            .unwrap_or_default()
+            .cursor;
+        let (items, page) = self.page(&cursor);
+        Response::ok(ListResponse {
+            items,
+            page: page.into(),
+            ..Default::default()
+        })
     }
 }
 
@@ -96,16 +127,17 @@ async fn when_read_items(world: &mut UnbatchedPagingWorld) {
         pages: Arc::new(world.pages.clone()),
         requests: world.requests.clone(),
     };
-    let router = NumbersExt::register(Arc::new(service), Router::new());
+    let router = NumbersServiceExt::register(Arc::new(service), Router::new());
     let (server, address) = serve_loopback(router).await;
     world.server = Some(server);
     let config = ClientConfig::new(format!("http://{address}").parse().expect("a loopback uri"));
-    let client = Batched::anonymous(NumbersClient::new(HttpTransport::h2c(), config))
+    let client = Batched::anonymous(NumbersServiceClient::new(HttpTransport::h2c(), config))
         .expect("a list-only client binds without a batch method");
-    let results: Vec<_> =
-        api_bones_page::ListCall::items(client.list_no_side_effects(ListNumbersRequest::default()))
-            .collect()
-            .await;
+    let results: Vec<_> = api_bones_page::ListCall::items(
+        client.list_no_side_effects(ListNoSideEffectsRequest::default()),
+    )
+    .collect()
+    .await;
     world.items = results
         .into_iter()
         .map(|item| item.expect("every page is delivered"))
@@ -128,7 +160,8 @@ fn given_plain_service(_world: &mut UnbatchedPagingWorld) {}
 #[when("the SDK constructs a platform client for that service")]
 fn when_construct_plain(world: &mut UnbatchedPagingWorld) {
     let config = ClientConfig::new("http://127.0.0.1:1".parse().expect("a loopback uri"));
-    world.refusal = Batched::anonymous(FieldsClient::new(HttpTransport::h2c(), config)).err();
+    world.refusal =
+        Batched::anonymous(FieldsServiceClient::new(HttpTransport::h2c(), config)).err();
 }
 
 #[then(expr = "platform client construction fails with {string}")]

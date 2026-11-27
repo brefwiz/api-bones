@@ -16,7 +16,7 @@
 use std::time::Duration;
 
 use api_bones::connect::Idempotency;
-use api_bones_batch::{Credential, Identity};
+use api_bones_batch::{Credential, CredentialAsk, CredentialSource, Identity};
 use api_bones_rt::{Instant, sleep};
 use api_bones_sdk::call::{AbortFlag, CALL_BUDGET, CallEnv};
 use api_bones_sdk::{CANCELED, Error};
@@ -51,16 +51,21 @@ fn millis(value: i64) -> Int64Value {
     }
 }
 
-fn user(subject: &str) -> impl Fn() -> Result<Credential, ConnectError> + 'static {
-    let subject = subject.to_owned();
-    move || {
-        Ok(Credential {
-            identity: Identity {
-                subject: subject.clone(),
-                org: "org".to_owned(),
-            },
-            headers: Vec::new(),
-        })
+fn credential(subject: &str) -> Credential {
+    Credential {
+        identity: Identity {
+            subject: subject.to_owned(),
+            org: "org".to_owned(),
+        },
+        headers: Vec::new(),
+    }
+}
+
+fn user(subject: &str) -> impl CredentialSource {
+    let credential = credential(subject);
+    move |_: CredentialAsk| {
+        let answer: Result<Credential, ConnectError> = Ok(credential.clone());
+        async move { answer }
     }
 }
 
@@ -156,16 +161,12 @@ async fn the_server_sees_the_call_budget_as_the_time_remaining() {
 async fn an_identity_that_changed_sends_nothing_and_says_so() {
     let reads = std::rc::Rc::new(std::cell::Cell::new(0_u32));
     let seen = std::rc::Rc::clone(&reads);
-    let env = CallEnv::new(move || {
+    let env = CallEnv::new(move |_: CredentialAsk| {
         let n = seen.get();
         seen.set(n + 1);
-        Ok(Credential {
-            identity: Identity {
-                subject: if n == 0 { "a" } else { "b" }.to_owned(),
-                org: "org".to_owned(),
-            },
-            headers: Vec::new(),
-        })
+        let answer: Result<Credential, ConnectError> =
+            Ok(credential(if n == 0 { "a" } else { "b" }));
+        async move { answer }
     });
     let before = abandoned().await;
     let refusal = delay(&env, None, 30).await.expect_err("refused");
@@ -269,4 +270,73 @@ async fn a_second_read_while_the_first_opens_is_refused_busy() {
     assert!(first.expect("opened").is_some());
     assert_eq!(second.err().expect("busy").code, api_bones_sdk::HANDLE_BUSY);
     assert!(!canceled.get());
+}
+
+/// A browser host whose members are the JS `members`, as an object literal body.
+fn host(members: &str) -> JsValue {
+    Function::new_no_args(&format!("return {{ {members} }};"))
+        .call0(&JsValue::NULL)
+        .expect("the host object is built")
+}
+
+fn member(host: &JsValue, name: &str) -> JsValue {
+    Reflect::get(host, &JsValue::from_str(name)).expect("the host has the member")
+}
+
+#[wasm_bindgen_test]
+async fn a_host_without_a_credential_function_fails_closed_naming_why() {
+    let env = CallEnv::from_host(host("credential: 1"));
+    let refusal = delay(&env, None, 30).await.expect_err("refused");
+    assert!(refusal.message.contains("is not a function"), "{refusal:?}");
+}
+
+#[wasm_bindgen_test]
+async fn a_host_credential_that_throws_synchronously_is_unavailable() {
+    let env = CallEnv::from_host(host("credential() { throw new Error('boom'); }"));
+    let refusal = delay(&env, None, 30).await.expect_err("refused");
+    assert!(refusal.message.contains("could not answer"), "{refusal:?}");
+}
+
+#[wasm_bindgen_test]
+async fn a_host_credential_that_rejects_is_unavailable() {
+    let env = CallEnv::from_host(host("credential: () => Promise.reject(new Error('no'))"));
+    let refusal = delay(&env, None, 30).await.expect_err("refused");
+    assert!(refusal.message.contains("could not answer"), "{refusal:?}");
+}
+
+#[wasm_bindgen_test]
+async fn a_host_credential_that_answers_a_non_bytes_value_is_refused() {
+    let env = CallEnv::from_host(host("credential: () => 'text'"));
+    let refusal = delay(&env, None, 30).await.expect_err("refused");
+    assert!(refusal.message.contains("is not bytes"), "{refusal:?}");
+}
+
+#[wasm_bindgen_test]
+async fn a_settled_credential_read_leaves_the_host_signal_unaborted() {
+    let host = host(
+        "credential(refresh, signal) { this.signal = signal; return Promise.resolve(new Uint8Array()); }",
+    );
+    let env = CallEnv::from_host(host.clone());
+    delay(&env, None, 30)
+        .await
+        .expect_err("an empty answer names nothing");
+    let signal: web_sys::AbortSignal = member(&host, "signal").dyn_into().expect("a signal");
+    assert!(!signal.aborted());
+}
+
+#[wasm_bindgen_test]
+async fn a_call_canceled_while_its_credential_is_awaited_aborts_the_host_signal() {
+    let host =
+        host("credential(refresh, signal) { this.signal = signal; return new Promise(() => {}); }");
+    let env = CallEnv::from_host(host.clone());
+    let (controller, signal) = controller();
+    let flag = AbortFlag::from_signal(Some(&signal));
+    let (result, ()) = join(delay(&env, Some(flag), 30), async {
+        sleep(Duration::from_millis(100)).await;
+        fire(&controller);
+    })
+    .await;
+    assert_eq!(result.expect_err("canceled").code, CANCELED);
+    let seen: web_sys::AbortSignal = member(&host, "signal").dyn_into().expect("a signal");
+    assert!(seen.aborted());
 }

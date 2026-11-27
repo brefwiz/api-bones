@@ -6,7 +6,8 @@ use std::time::Duration;
 use crate::world::{PagingWorld, WidgetRequest, token_credential, writer_credential};
 use api_bones_connect::{ErrorInfo, Idempotency, with_error_info};
 use api_bones_contract_rust::{
-    BatchListWidgetPartsRequest, ListWidgetPartsRequest, ListWidgetPartsResponse,
+    BatchListWidgetPartsRequest, ListWidgetPartsIdempotentRequest, ListWidgetPartsRequest,
+    ListWidgetPartsResponse, ListWidgetPartsUnspecifiedRequest, PageResponse,
     UpdateWidgetPartsRequest,
 };
 use api_bones_page::{ListCall, Page, PageError, PageErrorKind, PageOptions, PagedResponse};
@@ -14,7 +15,7 @@ use connectrpc::{ConnectError, ErrorCode};
 use cucumber::{given, then, when};
 use futures_util::StreamExt;
 
-const METHOD: &str = "contract.v1.Widgets/ListWidgetParts";
+const METHOD: &str = "contract.v1.WidgetsService/ListWidgetParts";
 const PARENT: &str = "paged";
 
 #[given(expr = "the server reports a total of kind {int}")]
@@ -30,7 +31,9 @@ fn given_total_kind(world: &mut PagingWorld, number: u8) {
 #[when("the caller fetches the first page with a list call")]
 async fn when_first_total_page(world: &mut PagingWorld) {
     use api_bones_contract_rust::field_wire::Total;
-    use api_bones_contract_rust::{ListNumbersRequest, ListNumbersResponse, PageResponse};
+    use api_bones_contract_rust::{
+        ListNoSideEffectsRequest, ListNoSideEffectsResponse, PageResponse,
+    };
     use buffa::Message;
 
     let wire = world
@@ -39,11 +42,11 @@ async fn when_first_total_page(world: &mut PagingWorld) {
         .expect("reported total")
         .encode_to_vec();
     let decoded = Total::decode_from_slice(&wire).expect("decode response total");
-    let fetch: api_bones_page::Fetch<ListNumbersRequest, ListNumbersResponse> =
+    let fetch: api_bones_page::Fetch<ListNoSideEffectsRequest, ListNoSideEffectsResponse> =
         Arc::new(move |_| {
             let total = decoded.clone();
             Box::pin(async move {
-                Ok(ListNumbersResponse {
+                Ok(ListNoSideEffectsResponse {
                     items: vec![1],
                     page: PageResponse {
                         revision: "total-revision".into(),
@@ -56,10 +59,10 @@ async fn when_first_total_page(world: &mut PagingWorld) {
             })
         });
     let call = ListCall::new(
-        "contract.v1.Numbers/ListNoSideEffects",
+        "contract.v1.NumbersService/ListNoSideEffects",
         Idempotency::NoSideEffects,
         fetch,
-        ListNumbersRequest::default(),
+        ListNoSideEffectsRequest::default(),
     );
     world.total_page = Some(
         api_bones_page::ListCall::first_page(call)
@@ -199,9 +202,21 @@ fn parts(text: &str) -> Vec<String> {
 }
 
 fn request() -> ListWidgetPartsRequest {
+    request_for(PARENT)
+}
+
+fn request_for(widget: &str) -> ListWidgetPartsRequest {
     ListWidgetPartsRequest {
-        widget_id: PARENT.into(),
+        widget_id: widget.into(),
         ..Default::default()
+    }
+}
+
+fn target(world: &PagingWorld) -> &str {
+    if world.widget.is_empty() {
+        PARENT
+    } else {
+        &world.widget
     }
 }
 
@@ -228,7 +243,7 @@ fn organization(world: &PagingWorld) -> String {
 
 async fn stored(world: &PagingWorld) -> (Vec<String>, String) {
     db(world)
-        .parts_snapshot(&organization(world), PARENT)
+        .parts_snapshot(&organization(world), target(world))
         .await
         .expect("stored widget")
 }
@@ -246,6 +261,30 @@ fn seen(world: &PagingWorld) -> Vec<WidgetRequest> {
         .skip(seed_request_count)
         .cloned()
         .collect()
+}
+
+/// Whether the server confirmed the cached list unchanged.
+fn is_not_modified(headers: &http::HeaderMap) -> bool {
+    headers
+        .get("bones-not-modified")
+        .is_some_and(|value| value == "1")
+}
+
+/// The list answer the paging steps read, rebuilt on the `ListWidgetParts`
+/// response message whichever idempotency level's RPC produced the page.
+fn parts_answer(
+    not_modified: bool,
+    items: Vec<String>,
+    page: buffa::MessageField<PageResponse, buffa::Inline<PageResponse>>,
+) -> (ListWidgetPartsResponse, bool) {
+    (
+        ListWidgetPartsResponse {
+            items,
+            page,
+            ..Default::default()
+        },
+        not_modified,
+    )
 }
 
 async fn generated_call(
@@ -284,28 +323,63 @@ async fn generated_call(
                     .page
                     .as_option()
                     .is_none_or(|page| page.cursor.is_empty());
+                // Each idempotency level is its own RPC with its own message
+                // pair; the three pairs carry the same fields, so the list
+                // call's request and response stay the `ListWidgetParts` pair.
                 let response = match idempotency {
-                    Idempotency::NoSideEffects => {
-                        client
-                            .raw()
-                            .list_widget_parts_with_options(request, options)
-                            .await
-                    }
+                    Idempotency::NoSideEffects => client
+                        .raw()
+                        .list_widget_parts_with_options(request, options)
+                        .await
+                        .map(|response| {
+                            let not_modified = is_not_modified(response.headers());
+                            (response.into_owned(), not_modified)
+                        }),
                     Idempotency::Idempotent => {
+                        let ListWidgetPartsRequest {
+                            widget_id, page, ..
+                        } = request;
                         client
                             .raw()
-                            .list_widget_parts_idempotent_with_options(request, options)
+                            .list_widget_parts_idempotent_with_options(
+                                ListWidgetPartsIdempotentRequest {
+                                    widget_id,
+                                    page,
+                                    ..Default::default()
+                                },
+                                options,
+                            )
                             .await
+                            .map(|r| {
+                                let nm = is_not_modified(r.headers());
+                                let o = r.into_owned();
+                                parts_answer(nm, o.items, o.page)
+                            })
                     }
                     Idempotency::NonIdempotent | Idempotency::Unspecified => {
+                        let ListWidgetPartsRequest {
+                            widget_id, page, ..
+                        } = request;
                         client
                             .raw()
-                            .list_widget_parts_unspecified_with_options(request, options)
+                            .list_widget_parts_unspecified_with_options(
+                                ListWidgetPartsUnspecifiedRequest {
+                                    widget_id,
+                                    page,
+                                    ..Default::default()
+                                },
+                                options,
+                            )
                             .await
+                            .map(|r| {
+                                let nm = is_not_modified(r.headers());
+                                let o = r.into_owned();
+                                parts_answer(nm, o.items, o.page)
+                            })
                     }
                 };
-                let response = match response {
-                    Ok(response) => response,
+                let (body, not_modified) = match response {
+                    Ok(answer) => answer,
                     Err(error) => {
                         if outage_page.is_some() {
                             let count = {
@@ -321,39 +395,37 @@ async fn generated_call(
                         return Err(error);
                     }
                 };
-                let not_modified = response
-                    .headers()
-                    .get("bones-not-modified")
-                    .is_some_and(|value| value == "1");
                 if lock_after_first && first {
                     database.lock_reads().await;
                 }
                 if outage_page == Some(2) && first {
                     server.stop().await;
                 }
-                Ok(api_bones_page::ListResponse {
-                    body: response.into_owned(),
-                    not_modified,
-                })
+                Ok(api_bones_page::ListResponse { body, not_modified })
             })
         });
     let identity = world.identity.clone();
     use buffa::Message as _;
-    let request = request();
+    let request = request_for(target(world));
     let encoded = request.encode_to_vec();
     ListCall::generated(
         match idempotency {
             Idempotency::NoSideEffects => METHOD,
-            Idempotency::Idempotent => "contract.v1.Widgets/ListWidgetPartsIdempotent",
+            Idempotency::Idempotent => "contract.v1.WidgetsService/ListWidgetPartsIdempotent",
             Idempotency::NonIdempotent | Idempotency::Unspecified => {
-                "contract.v1.Widgets/ListWidgetPartsUnspecified"
+                "contract.v1.WidgetsService/ListWidgetPartsUnspecified"
             }
         },
         world.idempotency,
         fetch,
         request,
         world.cache.clone(),
-        Arc::new(move || identity.lock().expect("identity").clone()),
+        Arc::new(move |()| {
+            let name = identity.lock().expect("identity").clone();
+            Box::pin(async move {
+                Ok(api_bones_page::CacheIdentity::new(name).expect("the world names its caller"))
+            })
+        }),
         &encoded,
     )
 }
@@ -402,9 +474,47 @@ fn without_prefetch() -> PageOptions {
     }
 }
 
+/// Seeds `widgets` with their `values`, `page_size` parts to a page, for both
+/// organizations, and signs the default caller in.
+async fn seed_widgets(
+    world: &mut PagingWorld,
+    page_size: usize,
+    widgets: Vec<(String, Vec<String>)>,
+) {
+    reset_telemetry();
+    {
+        let mut data = world.batch.data.lock().expect("widget fixtures");
+        data.part_page_size = page_size;
+        for org in ["acme", "org-b"] {
+            for (widget, values) in &widgets {
+                data.widgets
+                    .insert((org.into(), widget.clone()), widget.clone());
+                data.parts
+                    .insert((org.into(), widget.clone()), values.clone());
+            }
+        }
+    }
+    let credential = writer_credential(&world.batch.issuers, "ada", "acme").await;
+    *world.batch.credential.lock().expect("credential") = credential;
+    *world.identity.lock().expect("identity") = "ada:acme".into();
+    super::batch::client(&mut world.batch).await;
+}
+
+/// Parts of at most 100 KiB each that together encode to about `kib` KiB.
+fn sized_parts(kib: usize) -> Vec<String> {
+    const PART_KIB: usize = 100;
+    let mut remaining = kib * 1024;
+    let mut values = Vec::new();
+    while remaining > 0 {
+        let size = remaining.min(PART_KIB * 1024);
+        values.push("x".repeat(size));
+        remaining -= size;
+    }
+    values
+}
+
 #[given(regex = r#"^a list of pages ((?:"[^"]*" ?)+)$"#)]
 async fn given_pages(world: &mut PagingWorld, quoted: String) {
-    reset_telemetry();
     let pages: Vec<Vec<String>> = quoted
         .split('"')
         .enumerate()
@@ -419,20 +529,25 @@ async fn given_pages(world: &mut PagingWorld, quoted: String) {
             .all(|page| page.len() == page_size)
     );
     let values: Vec<_> = pages.into_iter().flatten().collect();
-    {
-        let mut data = world.batch.data.lock().expect("widget fixtures");
-        data.part_page_size = page_size;
-        for org in ["acme", "org-b"] {
-            data.widgets
-                .insert((org.into(), PARENT.into()), PARENT.into());
-            data.parts
-                .insert((org.into(), PARENT.into()), values.clone());
-        }
-    }
-    let credential = writer_credential(&world.batch.issuers, "ada", "acme").await;
-    *world.batch.credential.lock().expect("credential") = credential;
-    *world.identity.lock().expect("identity") = "ada:acme".into();
-    super::batch::client(&mut world.batch).await;
+    seed_widgets(world, page_size, vec![(PARENT.into(), values)]).await;
+}
+
+#[given(expr = "parts whose encoded size totals {int} KiB")]
+async fn given_sized_parts(world: &mut PagingWorld, kib: usize) {
+    seed_widgets(world, 2, vec![(PARENT.into(), sized_parts(kib))]).await;
+}
+
+#[given(expr = "{int} widgets of about {int} KiB each")]
+async fn given_sized_widgets(world: &mut PagingWorld, count: usize, kib: usize) {
+    let widgets = (0..count)
+        .map(|index| (widget_name(index), sized_parts(kib)))
+        .collect();
+    seed_widgets(world, 2, widgets).await;
+}
+
+/// Widgets are named "A", "B", ... in seeding order.
+fn widget_name(index: usize) -> String {
+    char::from(b'A' + u8::try_from(index).expect("few widgets")).to_string()
 }
 
 #[given(expr = "the current stored list revision is remembered as {string}")]
@@ -670,7 +785,7 @@ async fn when_items(world: &mut PagingWorld) {
 
 #[when("the consumer reads every item through the platform list call")]
 async fn when_platform_items(world: &mut PagingWorld) {
-    use api_bones_contract_rust::WidgetsLists;
+    use api_bones_contract_rust::WidgetsServiceLists;
 
     let client = super::batch::client(&mut world.batch).await;
     let call = client.list_widget_parts(request());
@@ -692,7 +807,7 @@ async fn platform_pages(
 
 #[when("the platform client batch-gets the parent and replays its list call across a clone")]
 async fn when_platform_composition(world: &mut PagingWorld) {
-    use api_bones_contract_rust::{BatchGetWidgetsRequest, WidgetGets, WidgetsLists};
+    use api_bones_contract_rust::{BatchGetWidgetsRequest, WidgetGets, WidgetsServiceLists};
 
     let client = super::batch::client(&mut world.batch).await;
     let batch = client
@@ -703,7 +818,16 @@ async fn when_platform_composition(world: &mut PagingWorld) {
         .await
         .into_vec();
     assert_eq!(batch.len(), 1);
-    assert_eq!(batch[0].as_ref().expect("parent widget").id, PARENT);
+    assert_eq!(
+        batch[0]
+            .as_ref()
+            .expect("parent widget")
+            .widget
+            .as_option()
+            .expect("the response carries the widget")
+            .id,
+        PARENT
+    );
     let retained = platform_pages(client.list_widget_parts(request())).await;
     assert!(retained.iter().all(|page| !page.from_cache));
     let clone = client.clone();
@@ -716,13 +840,17 @@ async fn when_platform_composition(world: &mut PagingWorld) {
 
 #[then("an independently constructed platform client fetches its own pages")]
 async fn then_independent_platform_pages(world: &mut PagingWorld) {
-    use api_bones_contract_rust::WidgetsLists;
+    use api_bones_contract_rust::WidgetsServiceLists;
 
     let client = super::batch::client(&mut world.batch).await;
     let source = world.batch.credential.clone();
-    let independent = api_bones_batch::Batched::new(client.raw().clone(), move || {
-        Ok(source.lock().expect("credential").clone())
-    })
+    let independent = api_bones_batch::Batched::new(
+        client.raw().clone(),
+        move |_: api_bones_batch::CredentialAsk| {
+            let answer = Ok(source.lock().expect("credential").clone());
+            async move { answer }
+        },
+    )
     .expect("independent platform client");
     let before = seen(world).len();
     let pages = platform_pages(independent.list_widget_parts(request())).await;
@@ -773,6 +901,21 @@ async fn when_again(world: &mut PagingWorld) {
     world.latest = pages;
     world.error = error;
     record_pages(world);
+}
+
+#[given(expr = "the consumer lists widgets {string}")]
+async fn given_lists_widgets(world: &mut PagingWorld, names: String) {
+    for name in names.split(',').filter(|name| !name.is_empty()) {
+        world.widget = name.into();
+        when_again(world).await;
+        assert!(world.error.is_none(), "listing widget {name}");
+    }
+}
+
+#[when(expr = "the consumer lists widget {string}")]
+async fn when_lists_widget(world: &mut PagingWorld, name: String) {
+    world.widget = name;
+    when_again(world).await;
 }
 
 #[given(expr = "the consumer has listed every page with page size {int}")]

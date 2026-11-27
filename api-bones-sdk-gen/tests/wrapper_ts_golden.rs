@@ -6,6 +6,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
+
+/// The digest the generator is told the module has; the golden `init.ts`
+/// states it.
+const STAMP: &str = "abababababababababababababababababababababababababababababababab";
 
 const GOLDEN_CLIENT: &str = include_str!("fixtures/wrapper-ts/client.ts");
 const GOLDEN_TYPES: &str = include_str!("fixtures/wrapper-ts/types.ts");
@@ -24,6 +29,51 @@ fn generate(name: &str) -> PathBuf {
     generate_from(name, &repo().join("SPEC.md"))
 }
 
+/// The descriptor set of the test service's contract protos, with the shipped
+/// `bones` protos they import, written once to a file.
+fn descriptor() -> &'static Path {
+    static FILE: OnceLock<PathBuf> = OnceLock::new();
+    FILE.get_or_init(|| {
+        let root = std::env::temp_dir().join(format!(
+            "api-bones-sdk-gen-wrapper-{}-protos",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        for (relative, bytes) in api_bones_protos::files() {
+            let path = root.join(relative);
+            fs::create_dir_all(path.parent().expect("a directory")).expect("created");
+            fs::write(path, bytes).expect("a proto");
+        }
+        let contract = repo().join("tests/l2/proto");
+        let mut files = Vec::new();
+        protos_under(&contract, &contract, &mut files);
+        let mut compiler = protox::Compiler::new([&contract, &root]).expect("include paths");
+        compiler.include_imports(true);
+        compiler
+            .open_files(&files)
+            .expect("the contract protos compile");
+        let file = root.join("l2.fds");
+        fs::write(&file, compiler.encode_file_descriptor_set()).expect("a descriptor set");
+        file
+    })
+}
+
+fn protos_under(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .expect("a proto directory")
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    entries.sort();
+    for path in entries {
+        if path.is_dir() {
+            protos_under(root, &path, out);
+        } else if path.extension().is_some_and(|ext| ext == "proto") {
+            let relative = path.strip_prefix(root).expect("under the root");
+            out.push(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+}
+
 fn run_from(name: &str, spec: &Path) -> (std::process::Output, PathBuf) {
     let out = std::env::temp_dir().join(format!(
         "api-bones-sdk-gen-wrapper-{}-{name}",
@@ -35,7 +85,15 @@ fn run_from(name: &str, spec: &Path) -> (std::process::Output, PathBuf) {
         .arg(repo().join("tests/l2"))
         .arg("--spec")
         .arg(spec)
-        .args(["--surface", "sdk-call", "--out"])
+        .args([
+            "--surface",
+            "sdk-call",
+            "--wasm-sha256",
+            STAMP,
+            "--descriptor",
+        ])
+        .arg(descriptor())
+        .arg("--out")
         .arg(&out)
         .output()
         .expect("the generator runs");
@@ -173,7 +231,15 @@ fn a_surface_the_spec_does_not_list_fails_the_command() {
         .arg(repo().join("tests/l2"))
         .arg("--spec")
         .arg(repo().join("SPEC.md"))
-        .args(["--surface", "no-such-surface", "--out"])
+        .args([
+            "--surface",
+            "no-such-surface",
+            "--wasm-sha256",
+            STAMP,
+            "--descriptor",
+        ])
+        .arg(descriptor())
+        .arg("--out")
         .arg(std::env::temp_dir().join("api-bones-sdk-gen-wrapper-none"))
         .output()
         .expect("the generator runs");
@@ -182,19 +248,32 @@ fn a_surface_the_spec_does_not_list_fails_the_command() {
 
 #[test]
 fn size_reports_the_schema_and_the_byte_count() {
-    let wasm = std::env::temp_dir().join(format!(
-        "api-bones-sdk-gen-size-{}.wasm",
-        std::process::id()
-    ));
-    fs::write(&wasm, [0u8; 12]).expect("a module");
+    let dir = std::env::temp_dir().join(format!("api-bones-sdk-gen-size-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(dir.join("ts")).expect("a directory");
+    fs::write(dir.join("m.wasm"), [0u8; 12]).expect("a module");
+    fs::write(dir.join("glue.js"), "export {};\n").expect("a glue");
+    fs::write(dir.join("ts/client.ts"), "export {};\n").expect("a source");
     let output = Command::new(env!("CARGO_BIN_EXE_api-bones-sdk-gen"))
         .args(["wrapper", "size", "--crate-name", "numbers", "--wasm"])
-        .arg(&wasm)
+        .arg(dir.join("m.wasm"))
+        .arg("--glue")
+        .arg(dir.join("glue.js"))
+        .arg("--typescript")
+        .arg(dir.join("ts"))
         .output()
         .expect("the generator runs");
-    fs::remove_file(&wasm).expect("cleaned");
-    assert!(output.status.success());
-    let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.contains("\"api-bones.wasm-size/v1\""), "{text}");
-    assert!(text.contains("\"bytes\": 12"), "{text}");
+    fs::remove_dir_all(&dir).expect("cleaned");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let document: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("a JSON document");
+    assert_eq!(document["schema"], "api-bones.sdk-size/v1");
+    assert_eq!(document["crate"], "numbers");
+    assert_eq!(document["wasm"]["raw"], 12);
+    assert_eq!(document["glue"]["raw"], 11);
+    assert_eq!(document["typescript"]["raw"], 11);
 }

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
-//! `#[error]`: the errors a client declares, which cross as the error JSON.
+//! `#[error]`: the errors a client declares, which cross as `bones.sdk.v1.CallError`.
 
+use api_bones_sdk_model::ArgKind;
 use api_bones_sdk_model::attrs::{ErrorArgs, ErrorVariantArgs, find, tokens};
-use api_bones_sdk_model::{Env, WireType, classify};
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Fields, ItemEnum};
@@ -108,14 +108,12 @@ fn impls(args: TokenStream, item: &ItemEnum) -> syn::Result<TokenStream> {
 /// A field of an error variant becomes one entry of `args`, so it is a String,
 /// an i64, an f64 or a `SystemTime`.
 fn argument(field: &syn::Ident, ty: &syn::Type) -> syn::Result<()> {
-    let what = format!("field `{field}`");
-    match classify(ty, &Env::deferred(), &what)? {
-        WireType::String | WireType::I64 | WireType::F64 | WireType::SystemTime => Ok(()),
-        _ => Err(syn::Error::new_spanned(
+    ArgKind::of(ty).map(|_| ()).ok_or_else(|| {
+        syn::Error::new_spanned(
             ty,
-            format!("{what}: an error argument is a String, i64, f64 or SystemTime"),
-        )),
-    }
+            format!("field `{field}`: an error argument is a String, i64, f64 or SystemTime"),
+        )
+    })
 }
 
 #[cfg(test)]
@@ -243,7 +241,6 @@ mod tests {
         );
         let outside = out("enum E { #[error(code = \"X\", platform = \"Y\")] A { n: u8 } }");
         assert!(outside.contains("field`n`"), "{outside}");
-        assert!(outside.contains("allowed:"), "{outside}");
     }
 
     #[test]

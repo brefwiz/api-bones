@@ -1,9 +1,0 @@
-{
-  "code": "CURSOR_EXPIRED",
-  "emitter": "example",
-  "platform": "PRECONDITION_FAILED",
-  "connectCode": "failed_precondition",
-  "message": "the cursor expired",
-  "args": {},
-  "page": { "kind": "cursor_expired", "deliveredPages": 2, "deliveredItems": 4 }
-}

@@ -8,7 +8,7 @@
       "idempotency": "NO_SIDE_EFFECTS",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
-      "rpc": "/contract.v1.Fields/Validate",
+      "rpc": "/contract.v1.FieldsService/Validate",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -25,7 +25,7 @@
         "requestPageField": "page"
       },
       "procedure": "unary",
-      "rpc": "/contract.v1.Numbers/List",
+      "rpc": "/contract.v1.NumbersService/List",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -42,7 +42,7 @@
         "requestPageField": "page"
       },
       "procedure": "unary",
-      "rpc": "/contract.v1.Numbers/ListIdempotent",
+      "rpc": "/contract.v1.NumbersService/ListIdempotent",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -59,7 +59,7 @@
         "requestPageField": "page"
       },
       "procedure": "unary",
-      "rpc": "/contract.v1.Numbers/ListNoSideEffects",
+      "rpc": "/contract.v1.NumbersService/ListNoSideEffects",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -70,7 +70,7 @@
       "idempotency": "UNSPECIFIED",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
-      "rpc": "/contract.v1.WidgetAssembly/CreateWidget",
+      "rpc": "/contract.v1.WidgetAssemblyService/CreateWidget",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -81,7 +81,7 @@
       "idempotency": "UNSPECIFIED",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
-      "rpc": "/contract.v1.WidgetAssembly/PutWidgetPart",
+      "rpc": "/contract.v1.WidgetAssemblyService/PutWidgetPart",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -92,7 +92,7 @@
       "idempotency": "UNSPECIFIED",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
-      "rpc": "/contract.v1.WidgetAssembly/UpdateWidget",
+      "rpc": "/contract.v1.WidgetAssemblyService/UpdateWidget",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -103,7 +103,7 @@
       "idempotency": "NO_SIDE_EFFECTS",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
-      "rpc": "/contract.v1.Widgets/BatchGetWidgets",
+      "rpc": "/contract.v1.WidgetsService/BatchGetWidgets",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -114,7 +114,7 @@
       "idempotency": "NO_SIDE_EFFECTS",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
-      "rpc": "/contract.v1.Widgets/BatchListWidgetParts",
+      "rpc": "/contract.v1.WidgetsService/BatchListWidgetParts",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -132,7 +132,7 @@
       "idempotency": "NO_SIDE_EFFECTS",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
-      "rpc": "/contract.v1.Widgets/GetWidget",
+      "rpc": "/contract.v1.WidgetsService/GetWidget",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -156,7 +156,7 @@
         "requestPageField": "page"
       },
       "procedure": "unary",
-      "rpc": "/contract.v1.Widgets/ListWidgetParts",
+      "rpc": "/contract.v1.WidgetsService/ListWidgetParts",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -173,7 +173,7 @@
         "requestPageField": "page"
       },
       "procedure": "unary",
-      "rpc": "/contract.v1.Widgets/ListWidgetPartsIdempotent",
+      "rpc": "/contract.v1.WidgetsService/ListWidgetPartsIdempotent",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -190,7 +190,7 @@
         "requestPageField": "page"
       },
       "procedure": "unary",
-      "rpc": "/contract.v1.Widgets/ListWidgetPartsUnspecified",
+      "rpc": "/contract.v1.WidgetsService/ListWidgetPartsUnspecified",
       "sensitivity": "UNSPECIFIED"
     },
     {
@@ -201,7 +201,7 @@
       "idempotency": "UNSPECIFIED",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
-      "rpc": "/contract.v1.Widgets/UpdateWidgetParts",
+      "rpc": "/contract.v1.WidgetsService/UpdateWidgetParts",
       "sensitivity": "UNSPECIFIED"
     }
   ],

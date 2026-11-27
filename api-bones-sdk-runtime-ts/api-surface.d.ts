@@ -20,6 +20,11 @@ export interface BonesErrorInit {
     readonly args?: Readonly<Record<string, ErrorArg>>;
     /** The diagnostic text, for logs. Clients render {@link formatError} instead. */
     readonly message: string;
+    /**
+     * The whole milliseconds a `resource_exhausted` refusal named in its
+     * `retry-after`; absent when it named none.
+     */
+    readonly retryAfterMs?: number;
 }
 /** A failed call. A generated wrapper extends it once per service. */
 export declare class BonesError extends Error {
@@ -29,6 +34,8 @@ export declare class BonesError extends Error {
     readonly platform: string;
     readonly connectCode: string;
     readonly args: Readonly<Record<string, ErrorArg>>;
+    /** The wait the refusal named, in milliseconds; `null` when it named none. */
+    readonly retryAfterMs: number | null;
     constructor(init: BonesErrorInit);
 }
 /** Why a page of a list could not be delivered. */
@@ -73,6 +80,8 @@ export interface BonesErrorWire {
     readonly args: Readonly<Record<string, ErrorArgWire>>;
     /** Present only for list failures. */
     readonly page?: PageDetail;
+    /** Present only when a refusal named a wait: whole milliseconds. */
+    readonly retryAfterMs?: number;
 }
 /**
  * Revives the wire JSON of a failed call into its error class: a
@@ -143,6 +152,12 @@ export interface ListCall<T> {
     pages(): AsyncIterable<Page<T>>;
     items(): AsyncIterable<T>;
     firstPage(): Promise<Page<T>>;
+    /**
+     * The same list reading `pages` ahead of the consumer: 0 reads only the
+     * pages asked for, 1 reads one ahead; the Rust core reads one ahead for any
+     * larger value. It wins over the `prefetch` the list was called with.
+     */
+    withPrefetch(pages: 0 | 1): ListCall<T>;
     /** Active iteration span, usable by the UI for first-row measurements. */
     readonly span?: Span;
 }

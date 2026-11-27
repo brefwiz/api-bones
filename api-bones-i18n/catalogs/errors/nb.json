@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Tjenesten er utilgjengelig",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Tjenesten er midlertidig utilgjengelig. Prøv igjen senere.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Gateway-tidsavbrudd",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK-versjonene samsvarer ikke",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Deler av denne appen er ikke synkronisert. Last inn siden på nytt og prøv igjen.",
   "bones.validation.min.title": "Må være minst {min, number}.",
   "bones.validation.max.title": "Må være høyst {max, number}.",
   "bones.validation.range.title": "Verdien er utenfor området.",

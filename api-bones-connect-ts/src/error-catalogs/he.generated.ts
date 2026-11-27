@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "השירות אינו זמין",
   "bones.errors.SERVICE_UNAVAILABLE.description": "השירות אינו זמין זמנית. נסו שוב מאוחר יותר.",
   "bones.errors.GATEWAY_TIMEOUT.title": "תם הזמן הקצוב לשער",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "גרסאות ה-SDK אינן תואמות",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "חלקים מהאפליקציה הזו אינם מסונכרנים. טען את הדף מחדש ונסה שוב.",
   "bones.validation.min.title": "חייב להיות לפחות {min, number}.",
   "bones.validation.max.title": "חייב להיות לכל היותר {max, number}.",
   "bones.validation.range.title": "הערך מחוץ לטווח.",

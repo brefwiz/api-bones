@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Serviciu indisponibil",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Serviciul este temporar indisponibil. Încercați din nou mai târziu.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Timp de expirare al gateway-ului",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Versiunile SDK nu se potrivesc",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Părți ale acestei aplicații nu sunt sincronizate. Reîncărcați pagina și încercați din nou.",
   "bones.validation.min.title": "Trebuie să fie cel puțin {min, number}.",
   "bones.validation.max.title": "Trebuie să fie cel mult {max, number}.",
   "bones.validation.range.title": "Valoarea este în afara intervalului.",

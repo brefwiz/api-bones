@@ -268,7 +268,7 @@ Feature: Batched reads
     And the caller is "ada" of organization "acme"
     When the callers get "w1,w2,w3" at the same time
     Then the results are the widgets "w1,w2,w3"
-    And one bones.batch record names "contract.v1.Widgets/BatchGetWidgets" with 3 items and 3 calls
+    And one bones.batch record names "contract.v1.WidgetsService/BatchGetWidgets" with 3 items and 3 calls
 
   Scenario: A cross-org parent is answered exactly like an unknown parent
     Given the organization "acme" has the widget "w1" with parts "a"

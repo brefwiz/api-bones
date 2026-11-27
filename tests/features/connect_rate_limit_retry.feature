@@ -47,6 +47,18 @@ Feature: Connect waits out a rate-limit refusal
     When the throttled call is sent
     Then the throttled call is rejected as a rate limit after 6000 ms on attempt 1
 
+  Scenario: A pushback named as an HTTP-date is handed back as the wait left until that date
+    Given a throttled method declared "NO_SIDE_EFFECTS"
+    And the server refuses it 1 times with a Retry-After date 8 seconds ahead
+    When the throttled call is sent
+    Then the throttled call is rejected as a rate limit naming a wait between 6000 and 8000 ms on attempt 1
+
+  Scenario: A pushback named in the trailers is handed back as a Retry-After
+    Given a throttled method declared "NO_SIDE_EFFECTS"
+    And the server refuses it 1 times with Retry-After "6" in the trailers
+    When the throttled call is sent
+    Then the throttled call is rejected as a rate limit after 6000 ms on attempt 1
+
   Scenario: A pushback longer than the remaining deadline ends the call without waiting it out
     Given a throttled method declared "NO_SIDE_EFFECTS"
     And the throttled call has a deadline of 500 ms

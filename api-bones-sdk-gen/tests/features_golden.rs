@@ -10,26 +10,20 @@ use std::process::{Command, Output};
 const GOLDEN: &str = include_str!("fixtures/numbers.golden.toml");
 
 const LIB: &str = r#"
-#[record]
-pub struct Number { pub value: i64 }
-
-#[record]
-pub struct Widget { pub id: String }
-
-#[client(surface = "connect-batch")]
+#[client(surface = "connect-batch", proto = generated::sdk::v1)]
 impl WidgetsClient {
     #[export(sync)]
-    pub fn label(&self, widget: Widget) -> String { body() }
+    pub fn label(&self, widget: generated::sdk::v1::Widget) -> String { body() }
     #[export]
-    pub async fn get_widget(&self, id: String) -> Result<Widget, Error> { body() }
+    pub async fn get_widget(&self, id: String) -> Result<generated::sdk::v1::Widget, Error> { body() }
     #[export]
-    pub async fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<Widget> { body() }
+    pub async fn batch_get_widgets(&self, ids: Vec<String>) -> Batch<generated::sdk::v1::Widget> { body() }
 }
 
-#[client(surface = "connect-pagination")]
+#[client(surface = "connect-pagination", proto = generated::sdk::v1)]
 impl NumbersClient {
     #[export]
-    pub async fn list(&self, limit: u32) -> ListCall<Number> { body() }
+    pub async fn list(&self, limit: u32) -> ListCall<generated::sdk::v1::Number> { body() }
 }
 "#;
 
@@ -112,13 +106,13 @@ fn a_source_that_breaks_a_macro_rule_fails_the_command() {
     let dir = krate("broken");
     fs::write(
         dir.join("src/lib.rs"),
-        "#[record] pub struct R { pub id: u8 }",
+        "#[client(surface = \"s\")] impl C { #[export] async fn f(&self) -> Result<Widget, Error> { body() } }",
     )
     .expect("a source");
     let output = features(&dir, false);
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("8 and 16 bit"),
+        String::from_utf8_lossy(&output.stderr).contains("bare name"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );

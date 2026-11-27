@@ -12,8 +12,15 @@
  *
  * A CORS preflight (`OPTIONS` naming an `Origin`) is answered on the services'
  * address for loopback origins only; any other origin is refused with no CORS
- * header. A scripted `exhausted` answers the next requests as resource
- * exhausted with a `retry-after` of the scripted seconds.
+ * header.
+ *
+ * Failures are scripted per request count and spent one request at a time:
+ * `unavailable`, `unauthenticated` and `failing` (internal, which the SDK does
+ * not retry) answer the next N requests; `exhausted` answers the next N as
+ * resource exhausted with a `retry-after` of the scripted seconds;
+ * `expireAtPage` refuses the cursor of one page as expired for the next N
+ * requests of it. A list of widget parts answers the parts of the widget the
+ * request names.
  *
  * The caller's credential state lives in the steps process. A scripted change
  * of the caller (`switchTo`, `switchOnPage`, `refreshTo`) is published on
@@ -41,7 +48,7 @@ import { encodeErrorInfo } from "@brefwiz/api-bones-connect";
 import { contractRegistry } from "./contract.js";
 import { refuse } from "./control-guard.js";
 import { preflight } from "./cors.js";
-import { throttled } from "./throttle.js";
+import { expiring, failing, throttled } from "./throttle.js";
 import type { Patch, Seen } from "./types.js";
 
 /** The scenario the server last heard of; every line it narrates names it. */
@@ -64,9 +71,9 @@ let services: Services | undefined;
 function contract(): Services {
   const registry = contractRegistry();
   services ??= {
-    widgets: registry.getService("contract.v1.Widgets")!,
-    numbers: registry.getService("contract.v1.Numbers")!,
-    events: registry.getService("contract.v1.Events")!,
+    widgets: registry.getService("contract.v1.WidgetsService")!,
+    numbers: registry.getService("contract.v1.NumbersService")!,
+    events: registry.getService("contract.v1.EventsService")!,
   };
   return services;
 }
@@ -102,17 +109,21 @@ class SdkCallServer {
   readonly seen: Seen[] = [];
   readonly unavailable = { count: 0 };
   readonly unauthenticated = { count: 0 };
+  /** Whether a watch is refused as unauthenticated once its first tick is delivered. */
+  unauthenticatedAfterTick = false;
   /** The throttles the server still answers, and the seconds each names in its `retry-after`. */
   readonly exhausted = { count: 0 };
   exhaustedRetryAfterSeconds = 0;
+  /** The requests the server still answers as an internal failure. */
+  readonly failing = { count: 0 };
   /** The subject the server switches the caller to while it handles a request. */
   switchTo: string | undefined;
   /** The subject the server switches the caller to while it handles the request for the zero-based page. */
   switchOnPage: { index: number; subject: string } | undefined;
   /** The `authorization` value the server gives the caller's source while it handles a request. */
   refreshTo: string | undefined;
-  /** The zero-based page whose cursor the server refuses as expired. */
-  expireAtPage: number | undefined;
+  /** The zero-based page whose cursor the server refuses as expired, and how many more requests of it it refuses. */
+  expireAtPage: { page: number; count: number } | undefined;
   /** Whether the numbers server answers with bytes no decoder reads. */
   garble = false;
   #server: Server | undefined;
@@ -138,8 +149,10 @@ class SdkCallServer {
     this.seen.length = 0;
     this.unavailable.count = 0;
     this.unauthenticated.count = 0;
+    this.unauthenticatedAfterTick = false;
     this.exhausted.count = 0;
     this.exhaustedRetryAfterSeconds = 0;
+    this.failing.count = 0;
     this.switchTo = undefined;
     this.switchOnPage = undefined;
     this.refreshTo = undefined;
@@ -167,15 +180,23 @@ class SdkCallServer {
     if (patch.tickMs !== undefined) this.tickMs = patch.tickMs;
     if (patch.unavailable !== undefined) this.unavailable.count = patch.unavailable;
     if (patch.unauthenticated !== undefined) this.unauthenticated.count = patch.unauthenticated;
+    if (patch.unauthenticatedAfterTick !== undefined) this.unauthenticatedAfterTick = patch.unauthenticatedAfterTick;
     if (patch.exhausted !== undefined) {
       throttled(patch.exhausted.retryAfterSeconds); // refuses a retry-after no throttle could name
       this.exhausted.count = patch.exhausted.count;
       this.exhaustedRetryAfterSeconds = patch.exhausted.retryAfterSeconds;
     }
+    if (patch.failing !== undefined) {
+      failing(patch.failing); // refuses a count no script could spend
+      this.failing.count = patch.failing;
+    }
     if (patch.switchTo !== undefined) this.switchTo = patch.switchTo ?? undefined;
     if (patch.switchOnPage !== undefined) this.switchOnPage = patch.switchOnPage ?? undefined;
     if (patch.refreshTo !== undefined) this.refreshTo = patch.refreshTo ?? undefined;
-    if (patch.expireAtPage !== undefined) this.expireAtPage = patch.expireAtPage ?? undefined;
+    if (patch.expireAtPage !== undefined) {
+      if (patch.expireAtPage !== null) expiring(patch.expireAtPage.page, patch.expireAtPage.count);
+      this.expireAtPage = patch.expireAtPage ?? undefined;
+    }
     if (patch.garble !== undefined) this.garble = patch.garble;
   }
 
@@ -196,6 +217,7 @@ class SdkCallServer {
     if (spend(this.unauthenticated)) throw new ConnectError("the caller is not signed in", Code.Unauthenticated);
     if (spend(this.unavailable)) throw new ConnectError("the server is down", Code.Unavailable);
     if (spend(this.exhausted)) throw throttled(this.exhaustedRetryAfterSeconds);
+    if (spend(this.failing)) throw failing(this.failing.count);
   }
 
   async #switchIfScripted(): Promise<void> {
@@ -205,22 +227,32 @@ class SdkCallServer {
     await changeCaller({ subject });
   }
 
-  async #page(cursor: string): Promise<{ items: number[]; page: { nextCursor: string; revision: string } }> {
+  /** Whether a first-page read carries the current revision's validator, so the answer is "not modified". */
+  #unchanged(cursor: string, requestHeader: Headers): boolean {
+    return cursor === "" && requestHeader.get("bones-list-cache") === "1" && requestHeader.get("if-none-match") === `"${this.revision}"`;
+  }
+
+  /**
+   * Serves one configured page. The fixture publishes its pages itself: the cursor `cN` names page `N`
+   * and the request's page size is recorded, not applied, so every list serves the same pages.
+   */
+  async #page<T>(pages: T[][], cursor: string, emitter: string): Promise<{ items: T[]; page: { nextCursor: string; revision: string } }> {
     const index = /^c(\d+)$/.exec(cursor)?.[1] === undefined ? 0 : Number(cursor.slice(1));
     if (this.switchOnPage?.index === index) {
       const { subject } = this.switchOnPage;
       this.switchOnPage = undefined;
       await changeCaller({ subject });
     }
-    if (this.expireAtPage === index) {
+    if (this.expireAtPage !== undefined && this.expireAtPage.page === index && this.expireAtPage.count > 0) {
+      this.expireAtPage.count -= 1;
       const expired = new ConnectError("the cursor expired", Code.FailedPrecondition);
-      expired.details.push({ type: "bones.v1.ErrorInfo", value: encodeErrorInfo({ code: "CURSOR_EXPIRED", emitter: "numbers" }) });
+      expired.details.push({ type: "bones.v1.ErrorInfo", value: encodeErrorInfo({ code: "CURSOR_EXPIRED", emitter }) });
       throw expired;
     }
     if (this.pageDelayMs > 0) await delay(this.pageDelayMs);
     return {
-      items: this.pages[index] ?? [],
-      page: { nextCursor: index + 1 < this.pages.length ? `c${index + 1}` : "", revision: this.revision },
+      items: pages[index] ?? [],
+      page: { nextCursor: index + 1 < pages.length ? `c${index + 1}` : "", revision: this.revision },
     };
   }
 
@@ -236,7 +268,7 @@ class SdkCallServer {
           await this.#switchIfScripted();
           const name = this.widgets.get(asked.id);
           if (name === undefined) throw new ConnectError("no such widget", Code.NotFound);
-          return create(getWidget.output, { id: asked.id, name } as never);
+          return create(getWidget.output, { widget: { id: asked.id, name } } as never);
         });
         const batch = method<DescMethodUnary>(widgets, "BatchGetWidgets");
         router.rpc(batch, async (request, context) => {
@@ -247,22 +279,22 @@ class SdkCallServer {
             const name = this.widgets.get(id);
             return name === undefined
               ? { id, outcome: { case: "error", value: { code: "not_found", message: "no such widget" } } }
-              : { id, outcome: { case: "item", value: { id, name } } };
+              : { id, outcome: { case: "item", value: { widget: { id, name } } } };
           });
           return create(batch.output, { results } as never);
         });
         const listParts = method<DescMethodUnary>(widgets, "ListWidgetParts");
         router.rpc(listParts, async (request, context) => {
-          const asked = request as unknown as { widgetId: string; page?: { cursor: string } };
-          await this.#admit(context.requestHeader);
+          const asked = request as unknown as { widgetId: string; page?: { cursor: string; pageSize: number } };
+          await this.#admit(context.requestHeader, asked.page?.pageSize ?? 0);
           if (!this.widgets.has(asked.widgetId)) throw new ConnectError("no such widget", Code.NotFound);
           const cursor = asked.page?.cursor ?? "";
-          const index = /^c(\d+)$/.exec(cursor)?.[1] === undefined ? 0 : Number(cursor.slice(1));
-          const pages = this.parts.get(asked.widgetId) ?? [];
-          return create(listParts.output, {
-            items: pages[index] ?? [],
-            page: { nextCursor: index + 1 < pages.length ? `c${index + 1}` : "", revision: this.revision },
-          } as never);
+          if (this.#unchanged(cursor, context.requestHeader)) {
+            context.responseHeader.set("bones-not-modified", "1");
+            return create(listParts.output);
+          }
+          const answer = await this.#page(this.parts.get(asked.widgetId) ?? [], cursor, "widgets");
+          return create(listParts.output, answer as never);
         });
         const list = method<DescMethodUnary>(numbers, "ListNoSideEffects");
         router.rpc(list, async (request, context) => {
@@ -272,12 +304,12 @@ class SdkCallServer {
           const asked = { cursor, listCache: context.requestHeader.get("bones-list-cache"), ifNoneMatch: context.requestHeader.get("if-none-match") };
           context.signal.addEventListener("abort", () => note("list-aborted", { ...asked, ms: Math.round(performance.now() - began) }), { once: true });
           await this.#admit(context.requestHeader, page?.pageSize ?? 0);
-          if (cursor === "" && asked.listCache === "1" && asked.ifNoneMatch === `"${this.revision}"`) {
+          if (this.#unchanged(cursor, context.requestHeader)) {
             context.responseHeader.set("bones-not-modified", "1");
             note("list", { ...asked, answer: "not-modified", ms: Math.round(performance.now() - began) });
             return create(list.output);
           }
-          const answer = await this.#page(cursor);
+          const answer = await this.#page(this.pages, cursor, "numbers");
           note("list", { ...asked, answer: "page", items: answer.items.length, next: answer.page.nextCursor, revision: answer.page.revision, ms: Math.round(performance.now() - began) });
           return create(list.output, answer as never);
         });
@@ -295,7 +327,7 @@ class SdkCallServer {
         response.end();
         return;
       }
-      if (this.garble && request.url?.startsWith("/contract.v1.Numbers/")) {
+      if (this.garble && request.url?.startsWith("/contract.v1.NumbersService/")) {
         response.writeHead(200, { "content-type": request.headers["content-type"] ?? "application/proto" });
         response.end(Buffer.from([0xff, 0xff, 0xff]));
         return;
@@ -326,9 +358,10 @@ class SdkCallServer {
       for (let next = 0; next < count; next += 1) {
         await delay(this.tickMs);
         if (signal.aborted) return;
+        if (this.unauthenticatedAfterTick && next === 1) throw new ConnectError("the caller is not signed in", Code.Unauthenticated);
         note("tick", { sequence: next, ms: elapsed() });
         sent = next + 1;
-        yield create(watch.output, { sequence: next } as never);
+        yield create(watch.output, { tick: { sequence: next } } as never);
       }
     } finally {
       note("watch-end", { count, sent, aborted: signal.aborted, tickMs: this.tickMs, ms: elapsed() });

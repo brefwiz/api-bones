@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: MIT
+//
+// The messages the Layer 2 `Widgets` client exports cross the wasm boundary
+// as. An args message names each field exactly as the Rust parameter it
+// carries, with the same type.
+
+syntax = "proto3";
+
+package contract.sdk.v1;
+
+// One part of a widget.
+message WidgetPart {
+  string name = 1;
+}
+
+// The parameters of `WidgetsClient::get_widget`.
+message GetWidgetArgs {
+  string id = 1;
+}
+
+// The parameters of `WidgetsClient::list_widget_parts`.
+message ListWidgetPartsArgs {
+  string widget_id = 1;
+  // The size of the pages the list asks for; unset leaves it to the server.
+  optional uint32 page_size = 2;
+}
+
+// The parameters of `WidgetsClient::batch_get_widgets`.
+message BatchGetWidgetsArgs {
+  repeated string ids = 1;
+}

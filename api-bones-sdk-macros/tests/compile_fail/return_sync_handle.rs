@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 use api_bones_sdk::ListCall;
-use api_bones_sdk_macros::{client, record};
+use api_bones_sdk_macros::client;
 
-#[record]
 pub struct Number {
     pub value: i64,
 }

@@ -25,6 +25,10 @@ message GetWidgetRequest {
   string kind = 2;
 }
 
+message GetWidgetResponse {
+  Widget widget = 1;
+}
+
 message BatchGetWidgetsRequest {
   repeated string ids = 1;
   string kind = 2;
@@ -33,7 +37,7 @@ message BatchGetWidgetsRequest {
 message WidgetResult {
   string id = 1;
   oneof outcome {
-    Widget item = 2;
+    GetWidgetResponse item = 2;
     bones.v1.ItemError error = 3;
   }
 }
@@ -52,10 +56,35 @@ message ListWidgetPartsResponse {
   bones.v1.PageResponse page = 2;
 }
 
+message ListWidgetPartsIdempotentRequest {
+  string widget_id = 1;
+  bones.v1.PageRequest page = 2;
+}
+
+message ListWidgetPartsIdempotentResponse {
+  repeated string items = 1;
+  bones.v1.PageResponse page = 2;
+}
+
+message ListWidgetPartsUnspecifiedRequest {
+  string widget_id = 1;
+  bones.v1.PageRequest page = 2;
+}
+
+message ListWidgetPartsUnspecifiedResponse {
+  repeated string items = 1;
+  bones.v1.PageResponse page = 2;
+}
+
 message UpdateWidgetPartsRequest {
   string widget_id = 1;
   repeated string items = 2;
   optional string owner = 3;
+}
+
+message UpdateWidgetPartsResponse {
+  repeated string items = 1;
+  bones.v1.PageResponse page = 2;
 }
 
 message BatchListWidgetPartsRequest {
@@ -74,8 +103,8 @@ message BatchListWidgetPartsResponse {
   repeated WidgetPartsGroup groups = 1;
 }
 
-service Widgets {
-  rpc GetWidget(GetWidgetRequest) returns (Widget) {
+service WidgetsService {
+  rpc GetWidget(GetWidgetRequest) returns (GetWidgetResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
@@ -89,13 +118,13 @@ service Widgets {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 
-  rpc ListWidgetPartsIdempotent(ListWidgetPartsRequest) returns (ListWidgetPartsResponse) {
+  rpc ListWidgetPartsIdempotent(ListWidgetPartsIdempotentRequest) returns (ListWidgetPartsIdempotentResponse) {
     option idempotency_level = IDEMPOTENT;
   }
 
-  rpc ListWidgetPartsUnspecified(ListWidgetPartsRequest) returns (ListWidgetPartsResponse);
+  rpc ListWidgetPartsUnspecified(ListWidgetPartsUnspecifiedRequest) returns (ListWidgetPartsUnspecifiedResponse);
 
-  rpc UpdateWidgetParts(UpdateWidgetPartsRequest) returns (ListWidgetPartsResponse);
+  rpc UpdateWidgetParts(UpdateWidgetPartsRequest) returns (UpdateWidgetPartsResponse);
 
   // At most 200 parents per call.
   rpc BatchListWidgetParts(BatchListWidgetPartsRequest) returns (BatchListWidgetPartsResponse) {
@@ -118,6 +147,10 @@ message PutWidgetPartRequest {
   WidgetPart part = 2;
 }
 
+message PutWidgetPartResponse {
+  WidgetPart part = 1;
+}
+
 message CreateWidgetRequest {
   string name = 1;
   // At most 200 parts per call.
@@ -132,16 +165,22 @@ message UpdateWidgetRequest {
 }
 
 // The widget and its stored parts.
-message WidgetWithParts {
+message CreateWidgetResponse {
+  Widget widget = 1;
+  repeated WidgetPart parts = 2;
+}
+
+// The widget and its stored parts.
+message UpdateWidgetResponse {
   Widget widget = 1;
   repeated WidgetPart parts = 2;
 }
 
 // A widget written together with its parts in one call.
-service WidgetAssembly {
-  rpc PutWidgetPart(PutWidgetPartRequest) returns (WidgetPart);
+service WidgetAssemblyService {
+  rpc PutWidgetPart(PutWidgetPartRequest) returns (PutWidgetPartResponse);
 
-  rpc CreateWidget(CreateWidgetRequest) returns (WidgetWithParts);
+  rpc CreateWidget(CreateWidgetRequest) returns (CreateWidgetResponse);
 
-  rpc UpdateWidget(UpdateWidgetRequest) returns (WidgetWithParts);
+  rpc UpdateWidget(UpdateWidgetRequest) returns (UpdateWidgetResponse);
 }

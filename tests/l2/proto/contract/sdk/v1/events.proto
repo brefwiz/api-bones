@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: MIT
+//
+// The messages the Layer 2 `Events` client exports cross the wasm boundary
+// as. An args message names each field exactly as the Rust parameter it
+// carries, with the same type.
+
+syntax = "proto3";
+
+package contract.sdk.v1;
+
+// The parameters of `EventsClient::watch`.
+message WatchArgs {
+  // How many ticks the stream delivers before it ends.
+  uint32 ticks = 1;
+}

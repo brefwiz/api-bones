@@ -221,11 +221,10 @@ mod tests {
     }
 
     const CLIENT: &str = r#"
-        #[record] struct R { x: i32 }
         #[client(surface = "s")]
         impl ZClient {
-            #[export] async fn zeta(&self) -> Result<R, Error> { body() }
-            #[export] async fn alpha_beta(&self) -> Result<R, Error> { body() }
+            #[export] async fn zeta(&self) -> Result<generated::p::v1::R, Error> { body() }
+            #[export] async fn alpha_beta(&self) -> Result<generated::p::v1::R, Error> { body() }
             #[export(sync)] fn label(&self) -> String { body() }
         }
     "#;
@@ -296,9 +295,8 @@ mod tests {
     #[test]
     fn a_name_with_a_double_underscore_is_refused() {
         let source = r#"
-            #[record] struct R { x: i32 }
             #[client(surface = "s")]
-            impl C { #[export] async fn a__b(&self) -> Result<R, Error> { body() } }
+            impl C { #[export] async fn a__b(&self) -> Result<generated::p::v1::R, Error> { body() } }
         "#;
         let error = build(source, &spec(&[("p.S/A", &["a__b"])])).expect_err("refused");
         assert!(matches!(error, L2Error::Name(_)));
@@ -308,11 +306,10 @@ mod tests {
     #[test]
     fn a_repeated_client_type_and_a_repeated_spelling_are_refused() {
         let twice = r#"
-            #[record] struct R { x: i32 }
             #[client(surface = "s")]
-            impl C { #[export] async fn go(&self) -> Result<R, Error> { body() } }
+            impl C { #[export] async fn go(&self) -> Result<generated::p::v1::R, Error> { body() } }
             #[client(surface = "t")]
-            impl C { #[export] async fn go(&self) -> Result<R, Error> { body() } }
+            impl C { #[export] async fn go(&self) -> Result<generated::p::v1::R, Error> { body() } }
         "#;
         let spec_go = spec(&[("p.S/A", &["go"])]);
         let error = build(twice, &spec_go).expect_err("refused");
@@ -324,11 +321,10 @@ mod tests {
         );
         assert!(error.to_string().contains("defined twice"));
         let spelled = r#"
-            #[record] struct R { x: i32 }
             #[client(surface = "s")]
-            impl C { #[export] async fn go(&self) -> Result<R, Error> { body() } }
+            impl C { #[export] async fn go(&self) -> Result<generated::p::v1::R, Error> { body() } }
             #[client(surface = "s")]
-            impl D { #[export] async fn go(&self) -> Result<R, Error> { body() } }
+            impl D { #[export] async fn go(&self) -> Result<generated::p::v1::R, Error> { body() } }
         "#;
         let error = build(spelled, &spec_go).expect_err("refused");
         assert_eq!(

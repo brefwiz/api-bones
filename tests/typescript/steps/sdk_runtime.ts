@@ -2,9 +2,10 @@
 /**
  * The TypeScript answer to `tests/features/sdk_runtime.feature`.
  *
- * The runtime is reached through its package entry alone. The documents
- * recorded under `tests/features/fixtures/sdk_runtime/` are the input of the
- * contract: the runtime makes no network call.
+ * The runtime is reached through its package entry alone. Every message the
+ * Rust core hands it (`bones.sdk.v1.CallError`, `SpanStart`, `SpanEnd`) is
+ * built here as protobuf bytes and read back from the bytes the runtime
+ * answers: the runtime makes no network call.
  */
 
 import assert from "node:assert/strict";
@@ -13,7 +14,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { After, Before, BeforeAll, Given, Then, When, World } from "@cucumber/cucumber";
+import { create, fromBinary, toBinary, type MessageInitShape } from "@bufbuild/protobuf";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
+import { After, Before, BeforeAll, Given, Then, When, World, type DataTable } from "@cucumber/cucumber";
 import { ROOT_CONTEXT, SpanStatusCode, context, createTraceState, propagation, trace } from "@opentelemetry/api";
 import type { Context, Span } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
@@ -29,14 +32,23 @@ import {
   formatError,
   isCursorRejected,
   lazyOnce,
-  parseBonesError,
+  mapCallError,
   registerErrorCatalog,
   wasmInput,
   type CallCtx,
   type ErrorCatalog,
   type FormattedError,
-  type SpanStart,
 } from "@brefwiz/api-bones-sdk-runtime";
+import {
+  CallErrorSchema,
+  PageFailure_Kind,
+  SpanEnd_Status,
+  SpanEndSchema,
+  SpanStart_Kind,
+  SpanStartSchema,
+  SpanStartedSchema,
+} from "../generated/bones/sdk/v1/boundary_pb.js";
+import type { ErrorArgSchema } from "../generated/bones/v1/errors_pb.js";
 
 const FIXTURES = new URL("../../features/fixtures/sdk_runtime/", import.meta.url);
 const CORPUS = new URL("../../features/fixtures/locale_catalogs/", import.meta.url);
@@ -99,8 +111,9 @@ class SteppedContextManager extends AsyncLocalStorageContextManager {
 
 /** The runtime objects a Given hands over (`sink`, `list`, `lazy`) are read by the When that calls them. */
 interface RuntimeWorld extends World {
-  wire?: string;
-  parsed?: BonesError;
+  callError?: CallErrorInit;
+  rejection?: unknown;
+  parsed?: unknown;
   error?: BonesError;
   formatted?: FormattedError;
   span?: Span;
@@ -146,26 +159,89 @@ After({ tags: "@sdk-runtime" }, async function (this: RuntimeWorld) {
 
 // --- errors ---
 
-Given("the wire error recorded as {string}", async function (this: RuntimeWorld, name: string) {
-  this.wire = JSON.stringify(await recorded<object>(name));
+type CallErrorInit = MessageInitShape<typeof CallErrorSchema>;
+type ErrorArgInit = MessageInitShape<typeof ErrorArgSchema>;
+
+/** The `google.protobuf.Timestamp` of an RFC 3339 UTC instant, keeping nanosecond digits. */
+function timestampOf(text: string): { seconds: bigint; nanos: number } {
+  const match = /^(.*?)(?:\.(\d{1,9}))?Z$/.exec(text);
+  assert.ok(match !== null, `not a UTC instant: ${text}`);
+  const millis = Date.parse(`${match[1] ?? ""}Z`);
+  assert.ok(!Number.isNaN(millis), `not a UTC instant: ${text}`);
+  return { seconds: BigInt(Math.floor(millis / 1000)), nanos: Number((match[2] ?? "").padEnd(9, "0")) };
+}
+
+/** The `bones.v1.ErrorArg` a kind and a value stand for; a kind naming no member of the oneof gives an argument with none set. */
+function errorArg(kind: string, value: string | number): ErrorArgInit {
+  switch (kind) {
+    case "string":
+      return { value: { case: "string", value: String(value) } };
+    case "int64":
+      return { value: { case: "int64", value: BigInt(value) } };
+    case "double":
+      return { value: { case: "double", value: Number(value) } };
+    case "timestamp":
+      return { value: { case: "timestamp", value: timestampOf(String(value)) } };
+    default:
+      return {};
+  }
+}
+
+/** The arguments a feature row writes as JSON, `{"<name>":{"kind":"<kind>","value":<value>}}`. */
+function argsOfJson(json: string): Record<string, ErrorArgInit> {
+  const written = JSON.parse(json) as Record<string, { kind: string; value: string | number }>;
+  return Object.fromEntries(Object.entries(written).map(([name, { kind, value }]) => [name, errorArg(kind, value)]));
+}
+
+function callErrorOf(world: RuntimeWorld): CallErrorInit {
+  assert.ok(world.callError !== undefined, "no call error given");
+  return world.callError;
+}
+
+Given(
+  "a call error with code {string} from emitter {string} of platform {string}, connect code {string} and message {string}",
+  function (this: RuntimeWorld, code: string, emitter: string, platform: string, connectCode: string, message: string) {
+    this.callError = { code, emitter, platform, connectCode, message };
+  },
+);
+
+Given("the call error carries the arguments:", function (this: RuntimeWorld, table: DataTable) {
+  const args: Record<string, ErrorArgInit> = {};
+  for (const row of table.hashes()) args[row["name"] ?? ""] = errorArg(row["kind"] ?? "", row["value"] ?? "");
+  this.callError = { ...callErrorOf(this), args };
 });
 
-Given("a wire list failure of kind {string}", function (this: RuntimeWorld, kind: string) {
-  this.wire = JSON.stringify({
-    code: "CURSOR_REJECTED",
-    emitter: "example",
-    platform: "PRECONDITION_FAILED",
-    connectCode: "failed_precondition",
-    message: "the list position was refused",
-    args: {},
-    page: { kind, deliveredPages: 0, deliveredItems: 0 },
-  });
+Given("the call error names a wait of {int} ms", function (this: RuntimeWorld, millis: number) {
+  const retryAfter = { seconds: BigInt(Math.floor(millis / 1000)), nanos: (millis % 1000) * 1_000_000 };
+  this.callError = { ...callErrorOf(this), retryAfter };
 });
 
-When("the wire error is parsed", function (this: RuntimeWorld) {
-  if (this.wire === undefined) throw new Error("no wire error given");
-  const parsed = parseBonesError(this.wire);
-  this.parsed = parsed;
+Given(
+  "the call error names a list failure of kind {string} after {int} pages and {int} items",
+  function (this: RuntimeWorld, kind: string, pages: number, items: number) {
+    const kinds: Record<string, PageFailure_Kind> = {
+      cursor_invalid: PageFailure_Kind.CURSOR_INVALID,
+      cursor_expired: PageFailure_Kind.CURSOR_EXPIRED,
+      cursor_query_mismatch: PageFailure_Kind.CURSOR_QUERY_MISMATCH,
+      rpc: PageFailure_Kind.RPC,
+    };
+    const page = { kind: kinds[kind] ?? PageFailure_Kind.UNSPECIFIED, deliveredPages: pages, deliveredItems: BigInt(items) };
+    this.callError = { ...callErrorOf(this), page };
+  },
+);
+
+Given("the host rejected a call with an Error saying {string}", function (this: RuntimeWorld, text: string) {
+  this.rejection = new Error(text);
+});
+
+When("the call error is revived", function (this: RuntimeWorld) {
+  const revived = mapCallError(toBinary(CallErrorSchema, create(CallErrorSchema, callErrorOf(this))));
+  this.parsed = revived;
+});
+
+When("the host rejection is mapped", function (this: RuntimeWorld) {
+  const mapped = mapCallError(this.rejection);
+  this.parsed = mapped;
 });
 
 Then(
@@ -182,6 +258,16 @@ Then(
   },
 );
 
+Then("the error names a wait of {int} ms", function (this: RuntimeWorld, millis: number) {
+  assert.ok(this.parsed instanceof BonesError, "no call error revived");
+  assert.equal(this.parsed.retryAfterMs, millis);
+});
+
+Then("the error names no wait", function (this: RuntimeWorld) {
+  assert.ok(this.parsed instanceof BonesError, "no call error revived");
+  assert.equal(this.parsed.retryAfterMs, null);
+});
+
 Then(
   "the result is a PageError of kind {string} after {int} pages and {int} items",
   function (this: RuntimeWorld, kind: string, pages: number, items: number) {
@@ -193,6 +279,12 @@ Then(
   },
 );
 
+Then("the mapped value is the very Error the host rejected with, and no BonesError", function (this: RuntimeWorld) {
+  assert.ok(this.rejection instanceof Error, "no host rejection given");
+  assert.equal(this.parsed, this.rejection);
+  assert.ok(!(this.parsed instanceof BonesError));
+});
+
 function describeArg(value: unknown): string {
   if (typeof value === "string") return `string ${value}`;
   if (typeof value === "bigint") return `bigint ${value.toString()}`;
@@ -202,14 +294,14 @@ function describeArg(value: unknown): string {
 }
 
 Then("argument {string} is revived as {string}", function (this: RuntimeWorld, name: string, revived: string) {
-  assert.ok(this.parsed !== undefined, "no wire error parsed");
+  assert.ok(this.parsed instanceof BonesError, "no call error revived");
   const args = this.parsed.args;
   const value = Object.prototype.hasOwnProperty.call(args, name) ? args[name] : undefined;
   assert.equal(value === undefined ? "dropped" : describeArg(value), revived);
 });
 
 Then("the cursor rejection check answers {string}", function (this: RuntimeWorld, answer: string) {
-  assert.ok(this.parsed !== undefined, "no wire error parsed");
+  assert.ok(this.parsed instanceof BonesError, "no call error revived");
   const rejected = isCursorRejected(this.parsed);
   assert.equal(String(rejected), answer);
 });
@@ -227,10 +319,11 @@ Given("the error catalog for locale {string} is registered from recorded file {s
 });
 
 Given(
-  "an error {string} from emitter {string} of platform {string} with the wire arguments {string}",
+  "an error {string} from emitter {string} of platform {string} with the typed arguments {string}",
   function (this: RuntimeWorld, code: string, emitter: string, platform: string, args: string) {
-    const wire = JSON.stringify({ code, emitter, platform, connectCode: "unknown", message: "refused", args: JSON.parse(args) as object });
-    const error = parseBonesError(wire);
+    const init: CallErrorInit = { code, emitter, platform, connectCode: "unknown", message: "refused", args: argsOfJson(args) };
+    const error = mapCallError(toBinary(CallErrorSchema, create(CallErrorSchema, init)));
+    assert.ok(error instanceof BonesError, "the call error was not revived");
     this.error = error;
   },
 );
@@ -387,19 +480,41 @@ Given("spans are sampled out", function (this: RuntimeWorld) {
   this.sink = new JsSpanSink(provider.getTracer("sdk-runtime-contract"));
 });
 
-type SpanStartExtras = Omit<SpanStart, "name" | "startTime" | "kind">;
+type SpanStartExtras = Pick<MessageInitShape<typeof SpanStartSchema>, "parent" | "tracestate" | "attributes">;
 
-/** The span start the core reports, as the sink takes it. */
-function startJson(name: string, extras: SpanStartExtras = {}): string {
-  const start: SpanStart = { name, startTime: Date.now(), kind: "client", ...extras };
-  return JSON.stringify(start);
+/** The `bones.sdk.v1.SpanStart` bytes the core reports, as the sink takes them. */
+function startBytes(name: string, extras: SpanStartExtras = {}): Uint8Array {
+  return toBinary(SpanStartSchema, create(SpanStartSchema, { name, startTime: timestampFromMs(Date.now()), kind: SpanStart_Kind.CLIENT, ...extras }));
 }
 
-/** The span end the core reports, as the sink takes it. */
-function endJson(traceparent: string, status: string, attributes?: Record<string, number>): string {
-  const end = status === "error" ? { error: "unavailable SERVICE_UNAVAILABLE" } : {};
-  const more = attributes === undefined ? {} : { attributes };
-  return JSON.stringify({ traceparent, endTime: Date.now(), status, ...end, ...more });
+/** What the sink answered at a start: the traceparent of the open span, or none when the span is not recording. */
+function traceparentOf(answer: Uint8Array): string | undefined {
+  const started = fromBinary(SpanStartedSchema, answer);
+  return started.recording ? started.traceparent : undefined;
+}
+
+const END_STATUS: Record<string, SpanEnd_Status> = { ok: SpanEnd_Status.OK, error: SpanEnd_Status.ERROR, unset: SpanEnd_Status.UNSET };
+
+/** The `bones.sdk.v1.SpanEnd` bytes the core reports, as the sink takes them. */
+function endBytes(traceparent: string, status: string, attributes?: Record<string, number>): Uint8Array {
+  const recorded = Object.entries(attributes ?? {}).map(([name, value]) => [name, { value: { case: "int64" as const, value: BigInt(value) } }] as const);
+  return toBinary(
+    SpanEndSchema,
+    create(SpanEndSchema, {
+      traceparent,
+      endTime: timestampFromMs(Date.now()),
+      status: END_STATUS[status] ?? SpanEnd_Status.UNSPECIFIED,
+      ...(status === "error" ? { error: "unavailable SERVICE_UNAVAILABLE" } : {}),
+      attributes: Object.fromEntries(recorded),
+    }),
+  );
+}
+
+/** Makes the started span the world's current one when it is recording. */
+function adoptStarted(world: RuntimeWorld, answer: Uint8Array): void {
+  const traceparent = traceparentOf(answer);
+  world.traceparent = traceparent;
+  world.span = traceparent === undefined || world.sink === undefined ? undefined : world.sink.lookup(traceparent);
 }
 
 function opened(span: Span | undefined): Span {
@@ -409,48 +524,46 @@ function opened(span: Span | undefined): Span {
 
 When("the core starts the client span {string}", function (this: RuntimeWorld, name: string) {
   assert.ok(this.sink !== undefined, "spans are not recorded");
-  const traceparent = this.sink.start(startJson(name));
+  const started = this.sink.start(startBytes(name));
+  const traceparent = traceparentOf(started);
   this.traceparent = traceparent;
   this.span = traceparent === undefined ? undefined : this.sink.lookup(traceparent);
 });
 
 When("the core starts the client span {string} under the parent {string}", function (this: RuntimeWorld, name: string, parent: string) {
   assert.ok(this.sink !== undefined, "spans are not recorded");
-  const traceparent = this.sink.start(startJson(name, { parent }));
-  this.traceparent = traceparent;
-  this.span = traceparent === undefined ? undefined : this.sink.lookup(traceparent);
+  const started = this.sink.start(startBytes(name, { parent }));
+  adoptStarted(this, started);
 });
 
 When(
   "the core starts the client span {string} under the parent {string} with the trace state {string}",
   function (this: RuntimeWorld, name: string, parent: string, tracestate: string) {
     assert.ok(this.sink !== undefined, "spans are not recorded");
-    const traceparent = this.sink.start(startJson(name, { parent, tracestate }));
-    this.traceparent = traceparent;
-    this.span = traceparent === undefined ? undefined : this.sink.lookup(traceparent);
+    const started = this.sink.start(startBytes(name, { parent, tracestate }));
+    adoptStarted(this, started);
   },
 );
 
 Given("a client span {string} is open", function (this: RuntimeWorld, name: string) {
   assert.ok(this.sink !== undefined, "spans are not recorded");
-  const traceparent = this.sink.start(startJson(name));
-  assert.notEqual(traceparent, undefined, "the span was not recording");
-  this.traceparent = traceparent;
-  this.span = this.sink.lookup(traceparent as string);
+  const started = this.sink.start(startBytes(name));
+  adoptStarted(this, started);
+  assert.notEqual(this.traceparent, undefined, "the span was not recording");
 });
 
 Given(
   "a client span {string} is open with the attribute {string} set to {int}",
   function (this: RuntimeWorld, name: string, attribute: string, value: number) {
+    const attributes = { [attribute]: { value: { case: "int64" as const, value: BigInt(value) } } };
     assert.ok(this.sink !== undefined, "spans are not recorded");
-    const traceparent = this.sink.start(startJson(name, { attributes: { [attribute]: value } }));
-    assert.notEqual(traceparent, undefined, "the span was not recording");
-    this.traceparent = traceparent;
-    this.span = this.sink.lookup(traceparent as string);
+    const started = this.sink.start(startBytes(name, { attributes }));
+    adoptStarted(this, started);
+    assert.notEqual(this.traceparent, undefined, "the span was not recording");
   },
 );
 
-Then("the start returned the traceparent of a span that is still open", function (this: RuntimeWorld) {
+Then("the start answered the traceparent of a span that is still open", function (this: RuntimeWorld) {
   const traceparent = this.traceparent;
   assert.ok(traceparent !== undefined && /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/.test(traceparent), `not a traceparent: ${String(traceparent)}`);
   assert.ok(this.sink !== undefined, "spans are not recorded");
@@ -459,8 +572,9 @@ Then("the start returned the traceparent of a span that is still open", function
   assert.equal(readableOf(opened(this.span)).ended, false);
 });
 
-Then("the start returned no traceparent", function (this: RuntimeWorld) {
+Then("the start answered that the span is not recording", function (this: RuntimeWorld) {
   assert.equal(this.traceparent, undefined);
+  assert.equal(this.span, undefined);
 });
 
 Then("the started span is a new root outside the active trace", function (this: RuntimeWorld) {
@@ -498,20 +612,20 @@ Then("the client span {string} is still open", function (this: RuntimeWorld, nam
 
 When("the core ends the span with status {string}", function (this: RuntimeWorld, status: string) {
   assert.ok(this.sink !== undefined && this.traceparent !== undefined, "no span started");
-  this.sink.end(endJson(this.traceparent, status));
+  this.sink.end(endBytes(this.traceparent, status));
 });
 
 When(
   "the core ends the span with status {string} and the attribute {string} set to {int}",
   function (this: RuntimeWorld, status: string, attribute: string, value: number) {
     assert.ok(this.sink !== undefined && this.traceparent !== undefined, "no span started");
-    this.sink.end(endJson(this.traceparent, status, { [attribute]: value }));
+    this.sink.end(endBytes(this.traceparent, status, { [attribute]: value }));
   },
 );
 
 When("the core ends a span named by the unknown traceparent {string}", function (this: RuntimeWorld, traceparent: string) {
   assert.ok(this.sink !== undefined, "spans are not recorded");
-  this.sink.end(endJson(traceparent, "ok"));
+  this.sink.end(endBytes(traceparent, "ok"));
 });
 
 /** The span the start returned, read as the recorded span once the core has ended it. */

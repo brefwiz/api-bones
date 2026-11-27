@@ -38,6 +38,8 @@
   "bones.errors.SERVICE_UNAVAILABLE.title": "Service unavailable",
   "bones.errors.SERVICE_UNAVAILABLE.description": "The service is temporarily unavailable. Please try again later.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Gateway timeout",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "SDK versions do not match",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Parts of this app are out of step. Reload the page and try again.",
   "bones.validation.min.title": "Must be at least {min, number}.",
   "bones.validation.max.title": "Must be at most {max, number}.",
   "bones.validation.range.title": "Value is out of range.",

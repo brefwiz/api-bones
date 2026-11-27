@@ -16,12 +16,24 @@
 //!   again before every send and retry and once more after an answer arrived,
 //!   before it is delivered. A change refuses the call and clears the revision
 //!   cache; the credential a send carries is the one read just before it. A
-//!   list walk reads it once, when the walk starts, and every page is
-//!   checked against that one identity, so the walk never continues as
+//!   list walk reads it once, when its first page is requested, and every page
+//!   is checked against that one identity, so the walk never continues as
 //!   another; a page that was fetched ahead, or replayed from the revision
 //!   cache, is checked again before it is delivered. A server stream reads
 //!   the identity at open and checks it again before each item is delivered.
 //!   A change ends the stream with `IDENTITY_CHANGED`.
+//! - **A refused credential.** A server that refuses a request as
+//!   unauthenticated is not believed at once: the source is asked once to
+//!   renew the credential, and a renewal for the same caller is sent in place
+//!   of the refused one, apart from the retry budget. A source with nothing
+//!   newer, or a renewal that is refused too, tells the host and fails the
+//!   call as unauthenticated; a renewal for another caller is
+//!   `IDENTITY_CHANGED`. Nothing is replayed once an item reached the caller:
+//!   a refusal before a stream's first item is the open's and is renewed and
+//!   replayed once; after an item it tells the host and is not replayed.
+//!   Calls refused on the same credential share one renewal: they wait for
+//!   it together, each replays the credential it brings, and when it brings
+//!   nothing newer the host is told once for all of them.
 //! - **The trace context.** The call reads [`CallCtx::current`] synchronously
 //!   when it starts, opens its spans against the env's sink, and sends the
 //!   `traceparent` (and `tracestate`) of the span it opened.
@@ -40,9 +52,11 @@ mod attempt;
 mod host;
 mod identity;
 mod refusal;
+mod reopen;
 mod run;
 
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU8};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use api_bones::connect::{Idempotency, retries_for};
@@ -63,9 +77,10 @@ pub use attempt::{Attempt, WithDeadline};
 
 use crate::ctx::CallCtx;
 use crate::error::Error;
-use crate::handle::{Batch, Handle, ListCall, Stream};
+use crate::handle::{self, Batch, Handle, ListCall, Stream};
 use crate::span::{ActiveSpan, SpanKind, Tracer};
-use identity::WalkGuard;
+use identity::{RefreshFlights, Session, WalkGuard};
+use reopen::Reopen;
 use run::{Plan, Route};
 
 /// The whole-call time limit, retries included. A fixed platform constant:
@@ -92,10 +107,15 @@ pub struct CallEnv {
     pub(crate) credentials: Arc<dyn CredentialSource>,
     pub(crate) tracer: Tracer,
     pub(crate) cache: Option<RevisionCache>,
+    /// What the env filled of `cache`; `credentials` reads through it.
+    pub(crate) session: Option<Session>,
     /// The server the env's calls go to, as [`CallEnv::at`] parsed it. The
     /// revision cache is scoped to it; an env without one caches nothing.
     pub(crate) origin: Option<Arc<str>>,
     pub(crate) unauthenticated: Option<Notify>,
+    /// The credential refreshes in flight, shared by every call of the env
+    /// and its clones.
+    pub(crate) flights: RefreshFlights,
 }
 
 impl CallEnv {
@@ -107,8 +127,10 @@ impl CallEnv {
             credentials: Arc::new(credentials),
             tracer: Tracer::default(),
             cache: None,
+            session: None,
             origin: None,
             unauthenticated: None,
+            flights: RefreshFlights::default(),
         }
     }
 
@@ -129,9 +151,19 @@ impl CallEnv {
     /// revision. The cache holds one slot per caller identity, so envs of
     /// different callers may share it; a call that finds its identity changed
     /// or is refused as unauthenticated drops its own caller's slot. A list
-    /// caches only on an env bound to a server with [`CallEnv::at`].
+    /// caches only on an env bound to a server with [`CallEnv::at`]. When the
+    /// session behind the credential ends, the env drops the slots it filled:
+    /// a credential read that fails (rejects, or answers no credential) drops
+    /// every one, and a read of another caller drops the earlier caller's.
     #[must_use]
     pub fn with_revision_cache(mut self, cache: RevisionCache) -> Self {
+        let inner = self
+            .session
+            .take()
+            .map_or_else(|| Arc::clone(&self.credentials), Session::into_inner);
+        let session = Session::over(inner, cache.clone());
+        self.credentials = Arc::new(session.clone());
+        self.session = Some(session);
         self.cache = Some(cache);
         self
     }
@@ -212,6 +244,7 @@ impl Call {
             retries: retries_for(idempotency),
             batch: false,
             stream: false,
+            record: true,
             abort: self.abort.as_ref(),
             walk: None,
         }
@@ -228,7 +261,9 @@ impl Call {
     ///
     /// # Errors
     /// As [`Call::unary`], for the open; the stream's own failures arrive
-    /// through the handle.
+    /// through the handle. A refusal before the stream's first item is the
+    /// open's and is renewed and replayed once; after an item it tells the
+    /// host and drops the caller's revision cache slot, and is not replayed.
     pub async fn stream<Item, S, F, Fut>(
         self,
         idempotency: Idempotency,
@@ -237,31 +272,29 @@ impl Call {
     where
         Item: MaybeSend + 'static,
         S: FutureStream<Item = Result<Item, ConnectError>> + MaybeSend + 'static,
-        F: FnMut(Attempt) -> Fut,
-        Fut: Future<Output = Result<S, ConnectError>>,
+        F: FnMut(Attempt) -> Fut + MaybeSend + 'static,
+        Fut: Future<Output = Result<S, ConnectError>> + MaybeSend + 'static,
     {
         let walk = self.walk_span();
-        let walk_ctx = walk.ctx();
+        let record = walk.recorded_traceparent().is_some();
         // The open captures the identity; every item is checked against it.
         let guard = Arc::new(WalkGuard::default());
-        let head = Plan {
-            env: &self.env,
+        let mut reopen = Reopen {
+            env: self.env.clone(),
             route: self.route,
-            parent: &walk_ctx,
+            ctx: walk.ctx(),
             deadline: self.deadline,
             retries: retries_for(idempotency),
-            batch: false,
-            stream: true,
-            abort: self.abort.as_ref(),
-            walk: Some(guard.as_ref()),
-        }
-        .run(open)
-        .await;
-        match head {
+            record,
+            abort: self.abort.clone(),
+            walk: Arc::clone(&guard),
+            open,
+            carried: Mutex::default(),
+            spent: AtomicBool::new(false),
+        };
+        match reopen.open(None).await {
             Ok(items) => {
-                let items: api_bones_rt::BoxStream<'static, Result<Item, Error>> =
-                    Box::pin(items.map(|item| item.map_err(Error::from)));
-                let items = identity::checked(items, self.env.clone(), guard);
+                let items = identity::checked(reopen.frames(items), self.env.clone(), guard);
                 Ok(self.handle(items, walk))
             }
             Err(error) => {
@@ -289,6 +322,7 @@ impl Call {
     {
         let walk = self.walk_span();
         let ctx = walk.ctx();
+        let record = walk.recorded_traceparent().is_some();
         let Self {
             env,
             route,
@@ -306,6 +340,7 @@ impl Call {
                 retries,
                 batch: true,
                 stream: false,
+                record,
                 abort: abort.as_ref(),
                 walk: None,
             }
@@ -322,7 +357,7 @@ impl Call {
         Handle::new(Box::pin(stream::once(chunk)), walk)
     }
 
-    /// A list: one [`Page`] per `next()`. Each page
+    /// A list: one page per `next()`. Each page
     /// fetch owns a whole budget of its own, so a long walk is never cut off
     /// as a whole, and each is a `client` span under the walk's `internal` one.
     ///
@@ -331,6 +366,10 @@ impl Call {
     /// `IDENTITY_CHANGED`, which ends the walk. A page fetched ahead is checked
     /// against that identity again when it is about to be delivered, so it is
     /// never delivered to a caller who switched after it was fetched.
+    ///
+    /// The pages fetched ahead are the caller's choice when [`CallCtx::prefetch`]
+    /// names one, else `options.prefetch`. When [`CallCtx::first_only`] is set
+    /// the list delivers its first page alone, as `ListCall::first_page` does.
     ///
     /// An env that carries a revision cache makes the walk revalidate: the
     /// first page asks the server to confirm the cached revision, and a
@@ -352,19 +391,25 @@ impl Call {
     {
         let key = self.cache_key(&request);
         let walk = self.walk_span();
+        let record = walk.recorded_traceparent().is_some();
         let ctx = walk.ctx();
+        let first_only = self.ctx.first_only;
+        let options = PageOptions {
+            prefetch: self
+                .ctx
+                .prefetch
+                .map_or(options.prefetch, |pages| pages.min(1)),
+            ..options
+        };
         let Self {
             env, route, abort, ..
         } = self;
         let retries = retries_for(idempotency);
-        // One identity for the whole walk, captured when it starts.
+        // One identity for the whole walk, captured when its first page is
+        // requested.
         let identity = Arc::new(WalkGuard::default());
-        let checks = (env.clone(), Arc::clone(&identity));
-        let cache_identity = {
-            let env = env.clone();
-            let identity = Arc::clone(&identity);
-            Arc::new(move || identity.cache_identity(&*env.credentials))
-        };
+        let checks = (env.clone(), Arc::clone(&identity), abort.clone());
+        let cache_identity = identity::cache_identity_of(Arc::clone(&identity));
         let cache = env.cache.clone();
         let fetch = Arc::new(
             move |request: Req,
@@ -385,6 +430,7 @@ impl Call {
                         retries,
                         batch: false,
                         stream: false,
+                        record,
                         abort: abort.as_ref(),
                         walk: Some(identity.as_ref()),
                     }
@@ -427,11 +473,28 @@ impl Call {
             ),
         }
         .options(options);
+        // The prefetch a caller sets on the handle is read when the first page
+        // is requested.
+        let ahead = Arc::new(AtomicU8::new(options.prefetch));
+        let (env, identity, abort) = checks;
+        let (own_env, own_identity) = (env.clone(), Arc::clone(&identity));
+        let pages = handle::opened_late(Arc::clone(&ahead), move |chosen| {
+            let pages: api_bones_rt::BoxStream<'static, Result<Page<Resp::Item>, Error>> =
+                if first_only {
+                    // The core's own first-page rule: one request, no cursor
+                    // followed, nothing fetched ahead.
+                    Box::pin(stream::once(pages.first_page()).map(|page| page.map_err(Error::from)))
+                } else {
+                    let pages = match chosen {
+                        Some(chosen) => pages.prefetch(chosen),
+                        None => pages,
+                    };
+                    Box::pin(pages.pages().map(|page| page.map_err(Error::from)))
+                };
+            Box::pin(stream::once(started(own_env, own_identity, abort, pages)).flatten())
+        });
         // A page fetched ahead was fetched as whoever the caller was then.
-        let pages: api_bones_rt::BoxStream<'static, Result<Page<Resp::Item>, Error>> =
-            Box::pin(pages.pages().map(|page| page.map_err(Error::from)));
-        let (env, identity) = checks;
-        Handle::new(identity::checked(pages, env, identity), walk)
+        Handle::new(identity::checked(pages, env, identity), walk).reading_ahead(ahead)
     }
 
     /// What a revision cache entry of this list is keyed on: the length-prefixed
@@ -473,6 +536,30 @@ impl Call {
         match &self.abort {
             Some(abort) => Handle::new(abort::abortable(items, abort.clone()), walk),
             None => Handle::new(items, walk),
+        }
+    }
+}
+
+/// `pages` once the walk's identity is captured, inside one call budget and
+/// abandonable by the abort; a credential that cannot be read is the walk's
+/// one failure.
+async fn started<Item: MaybeSend + MaybeSync + 'static>(
+    env: CallEnv,
+    identity: Arc<WalkGuard>,
+    abort: Option<AbortFlag>,
+    pages: api_bones_rt::BoxStream<'static, Result<Page<Item>, Error>>,
+) -> api_bones_rt::BoxStream<'static, Result<Page<Item>, Error>> {
+    let source: &dyn CredentialSource = &*env.credentials;
+    let capture = run::guarded(
+        api_bones_rt::Instant::now() + CALL_BUDGET,
+        abort.as_ref(),
+        identity.get(source, false),
+    );
+    match capture.await {
+        Ok(_) => pages,
+        Err(error) => {
+            env.refused(&error, Some(identity.as_ref()), true);
+            Box::pin(stream::once(std::future::ready(Err(Error::from(error)))))
         }
     }
 }

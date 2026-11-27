@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 const PAGES: &str = "contract/v1/pages.proto";
 const WIDGETS: &str = "contract/v1/widgets.proto";
 const EVENTS: &str = "contract/v1/events.proto";
+const SDK_EVENTS: &str = "contract/sdk/v1/events.proto";
+const SDK_NUMBERS: &str = "contract/sdk/v1/numbers.proto";
+const SDK_WIDGETS: &str = "contract/sdk/v1/widgets.proto";
 const PAGINATION: &str = "bones/v1/pagination.proto";
 const BATCH: &str = "bones/v1/batch.proto";
 const ERRORS: &str = "bones/v1/errors.proto";
@@ -23,7 +26,7 @@ fn main() {
     let mut compiler = protox::Compiler::new([&contract, &bones]).expect("proto include paths");
     compiler.include_imports(true);
     compiler
-        .open_files([PAGES, WIDGETS, EVENTS])
+        .open_files([PAGES, WIDGETS, EVENTS, SDK_EVENTS, SDK_NUMBERS, SDK_WIDGETS])
         .expect("compile the contract protos");
     let descriptor_set = out_dir.join("l2.fds");
     std::fs::write(&descriptor_set, compiler.encode_file_descriptor_set())
@@ -35,6 +38,9 @@ fn main() {
             PAGINATION,
             WIDGETS,
             EVENTS,
+            SDK_EVENTS,
+            SDK_NUMBERS,
+            SDK_WIDGETS,
             BATCH,
             ERRORS,
             ANNOTATIONS,

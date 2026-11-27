@@ -29,13 +29,19 @@ export interface ListCall<T> {
   pages(): AsyncIterable<Page<T>>;
   items(): AsyncIterable<T>;
   firstPage(): Promise<Page<T>>;
+  /**
+   * The same list reading `pages` ahead of the consumer: 0 reads only the
+   * pages asked for, 1 reads one ahead; the Rust core reads one ahead for any
+   * larger value. It wins over the `prefetch` the list was called with.
+   */
+  withPrefetch(pages: 0 | 1): ListCall<T>;
   /** Active iteration span, usable by the UI for first-row measurements. */
   readonly span?: Span;
 }
 
-/** A Rust-side cursor over a sequence of documents; a document is JSON text unless the handle delivers more with it. */
-export interface Handle<Raw = string> {
-  /** The next document, or `undefined` when the sequence has ended. */
+/** A Rust-side cursor over a sequence of messages, each delivered as its protobuf bytes. */
+export interface Handle<Raw = Uint8Array> {
+  /** The next message, or `undefined` when the sequence has ended. */
   next(): Promise<Raw | undefined>;
   /** Releases the Rust side, dropping anything it read ahead. */
   cancel(): void;
@@ -51,7 +57,7 @@ export type ErrorMapper = (rejection: unknown) => unknown;
  * when the sequence ends, when `next()` fails, or when the consumer calls
  * `return()` (a `break`, an unmount or an abort), whichever comes first.
  */
-export function iterateHandle<T, Raw = string>(
+export function iterateHandle<T, Raw = Uint8Array>(
   handle: Handle<Raw>,
   decode: (raw: Raw) => T,
   mapError: ErrorMapper = (rejection) => rejection,
@@ -97,18 +103,23 @@ export function iterateHandle<T, Raw = string>(
 }
 
 /** A sequence that opens a fresh handle for every walk, such as a server stream. */
-export function iterableOf<T>(
-  open: () => Handle,
-  decode: (json: string) => T,
+export function iterableOf<T, Raw = Uint8Array>(
+  open: () => Handle<Raw>,
+  decode: (raw: Raw) => T,
   mapError?: ErrorMapper,
 ): AsyncIterable<T> {
   return { [Symbol.asyncIterator]: () => iterateHandle(open(), decode, mapError) };
 }
 
 /** What a generated wrapper supplies to build a {@link ListCall}. */
-export interface ListCallSource<T, Raw = string> {
-  /** Opens a handle over the list's pages. Called once per walk. */
-  openPages(): Handle<Raw>;
+export interface ListCallSource<T, Raw = Uint8Array> {
+  /**
+   * Opens a handle over the list's pages. Called once per walk. A `prefetch`
+   * names the pages the Rust core fetches ahead and wins over the caller's
+   * option; `undefined` leaves the caller's option. `firstOnly` asks the core
+   * for its first-page read: the host forwards it and keeps no prefetch rule.
+   */
+  openPages(prefetch?: 0 | 1, firstOnly?: boolean): Handle<Raw>;
   decodePage(raw: Raw): Page<T>;
   mapError?: ErrorMapper;
   /** Resolves a handle's iteration span to the live span. */
@@ -116,18 +127,24 @@ export interface ListCallSource<T, Raw = string> {
 }
 
 /** A {@link ListCall} over Rust page handles. */
-export function listCallOf<T, Raw = string>(source: ListCallSource<T, Raw>): ListCall<T> {
+export function listCallOf<T, Raw = Uint8Array>(source: ListCallSource<T, Raw>): ListCall<T> {
+  return listCallReading(source, undefined);
+}
+
+function listCallReading<T, Raw>(source: ListCallSource<T, Raw>, chosen: 0 | 1 | undefined): ListCall<T> {
   let current: Handle<Raw> | undefined;
-  const pages = (): AsyncIterableIterator<Page<T>> => {
-    current = source.openPages();
+  const walkPages = (firstOnly?: true): AsyncIterableIterator<Page<T>> => {
+    current = firstOnly ? source.openPages(undefined, true) : source.openPages(chosen);
     return iterateHandle(current, source.decodePage, source.mapError);
   };
+  const pages = (): AsyncIterableIterator<Page<T>> => walkPages();
   return {
     get span(): Span | undefined {
       const traceparent = current?.span();
       return traceparent === undefined ? undefined : source.sink.lookup(traceparent);
     },
     pages,
+    withPrefetch: (pages) => listCallReading(source, pages),
     items(): AsyncIterableIterator<T> {
       const walk = pages();
       let buffered: readonly T[] = [];
@@ -154,7 +171,7 @@ export function listCallOf<T, Raw = string>(source: ListCallSource<T, Raw>): Lis
       };
     },
     async firstPage(): Promise<Page<T>> {
-      const walk = pages();
+      const walk = walkPages(true);
       try {
         const step = await walk.next();
         if (step.done) throw new TypeError("the page handle ended before delivering a page");

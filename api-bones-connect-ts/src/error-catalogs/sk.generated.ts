@@ -40,6 +40,8 @@ const catalog: Readonly<Record<string, string>> = {
   "bones.errors.SERVICE_UNAVAILABLE.title": "Služba nie je dostupná",
   "bones.errors.SERVICE_UNAVAILABLE.description": "Služba je dočasne nedostupná. Skúste to neskôr znova.",
   "bones.errors.GATEWAY_TIMEOUT.title": "Časový limit brány vypršal",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.title": "Verzie SDK sa nezhodujú",
+  "bones.errors.SDK_BOUNDARY_MISMATCH.description": "Časti tejto aplikácie nie sú zosúladené. Načítajte stránku znova a skúste to znova.",
   "bones.validation.min.title": "Musí byť aspoň {min, number}.",
   "bones.validation.max.title": "Musí byť najviac {max, number}.",
   "bones.validation.range.title": "Hodnota je mimo rozsahu.",
