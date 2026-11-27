@@ -1,0 +1,13 @@
+fun maxPageSize(): UInt
+fun clamp(value: UInt, low: UInt, high: UInt): UInt
+class NumbersClient {
+    fun list(pageSize: UInt? = null): Flow<Page<contract.sdk.v1.Numbers.Number>>
+}
+class WidgetsClient {
+    suspend fun getWidget(id: String): contract.v1.Widgets.Widget
+    fun listWidgetParts(widgetId: String, pageSize: UInt? = null): Flow<Page<contract.sdk.v1.Widgets.WidgetPart>>
+    fun batchGetWidgets(ids: List<String>): Flow<List<BatchItem<contract.v1.Widgets.Widget>>>
+}
+class EventsClient {
+    fun watch(ticks: UInt): Flow<contract.v1.Events.Tick>
+}

@@ -1,0 +1,81 @@
+{
+  "schema": "api-bones.l2-methods/v1",
+  "service": "api-bones",
+  "crate": "api-bones-test-service-l2",
+  "package": "com.brefwiz.apibones.testservice",
+  "methods": [
+    {
+      "export": "api_bones__EventsClient__watch",
+      "type": "EventsClient",
+      "rust": "watch",
+      "typescript": "watch",
+      "surface": "sdk-call",
+      "kind": "stream",
+      "endpoints": [
+        "contract.v1.EventsService/Watch"
+      ]
+    },
+    {
+      "export": "api_bones__NumbersClient__MAX_PAGE_SIZE",
+      "type": "NumbersClient",
+      "rust": "MAX_PAGE_SIZE",
+      "typescript": "maxPageSize",
+      "surface": "sdk-call",
+      "kind": "sync",
+      "endpoints": []
+    },
+    {
+      "export": "api_bones__NumbersClient__clamp",
+      "type": "NumbersClient",
+      "rust": "clamp",
+      "typescript": "clamp",
+      "surface": "sdk-call",
+      "kind": "sync",
+      "endpoints": []
+    },
+    {
+      "export": "api_bones__NumbersClient__list",
+      "type": "NumbersClient",
+      "rust": "list",
+      "typescript": "list",
+      "surface": "sdk-call",
+      "kind": "list",
+      "endpoints": [
+        "contract.v1.NumbersService/ListNoSideEffects"
+      ]
+    },
+    {
+      "export": "api_bones__WidgetsClient__batch_get_widgets",
+      "type": "WidgetsClient",
+      "rust": "batch_get_widgets",
+      "typescript": "batchGetWidgets",
+      "surface": "sdk-call",
+      "kind": "batch",
+      "endpoints": [
+        "contract.v1.WidgetsService/BatchGetWidgets"
+      ]
+    },
+    {
+      "export": "api_bones__WidgetsClient__get_widget",
+      "type": "WidgetsClient",
+      "rust": "get_widget",
+      "typescript": "getWidget",
+      "surface": "sdk-call",
+      "kind": "unary",
+      "endpoints": [
+        "contract.v1.WidgetsService/GetWidget"
+      ]
+    },
+    {
+      "export": "api_bones__WidgetsClient__list_widget_parts",
+      "type": "WidgetsClient",
+      "rust": "list_widget_parts",
+      "typescript": "listWidgetParts",
+      "surface": "sdk-call",
+      "kind": "list",
+      "endpoints": [
+        "contract.v1.WidgetsService/ListWidgetParts"
+      ]
+    }
+  ]
+}

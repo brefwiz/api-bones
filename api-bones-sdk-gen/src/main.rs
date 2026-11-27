@@ -2,6 +2,7 @@
 mod build_ts;
 mod features;
 mod size;
+mod wrapper_kotlin;
 mod wrapper_package;
 mod wrapper_ts;
 
@@ -128,6 +129,7 @@ enum Wrapper {
         #[arg(long)]
         wasm_sha256: String,
     },
+    Kotlin(WrapperArgs),
     /// Build the wasm, bind it and compile the package
     BuildTs {
         #[command(flatten)]
@@ -206,6 +208,7 @@ fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
                 &wrapper_ts::generate(&model, &package, &contract)?,
             )
         }
+        Wrapper::Kotlin(args) => wrapper_kotlin::run(&args),
         Wrapper::BuildTs { args, target_dir } => build_ts::run_build(
             &args.spec,
             &args.krate,
