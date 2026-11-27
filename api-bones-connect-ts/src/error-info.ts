@@ -181,7 +181,7 @@ export interface CarriesErrorInfo {
   readonly args: ReadonlyMap<string, ErrorArg>;
 }
 
-function putVarint(out: number[], value: bigint): void {
+export function putVarint(out: number[], value: bigint): void {
   let rest = BigInt.asUintN(64, value);
   while (rest > 0x7fn) {
     out.push(Number(rest & 0x7fn) | 0x80);
@@ -190,7 +190,7 @@ function putVarint(out: number[], value: bigint): void {
   out.push(Number(rest));
 }
 
-function putLen(out: number[], field: number, payload: ArrayLike<number>): void {
+export function putLen(out: number[], field: number, payload: ArrayLike<number>): void {
   out.push((field << 3) | 2);
   putVarint(out, BigInt(payload.length));
   for (let i = 0; i < payload.length; i++) out.push(payload[i]);
@@ -290,14 +290,14 @@ function takeVarint64(bytes: Uint8Array, at: number): [bigint, number] | undefin
   return undefined;
 }
 
-type WireValue =
+export type WireValue =
   | { readonly type: "varint"; readonly value: bigint }
   | { readonly type: "fixed64"; readonly value: Uint8Array }
   | { readonly type: "len"; readonly value: Uint8Array }
   | { readonly type: "skipped" };
 
 /** Every field of a message in order, or `undefined` when the bytes are malformed. */
-function wireFields(bytes: Uint8Array): Array<[number, WireValue]> | undefined {
+export function wireFields(bytes: Uint8Array): Array<[number, WireValue]> | undefined {
   const fields: Array<[number, WireValue]> = [];
   let at = 0;
   while (at < bytes.length) {

@@ -1,10 +1,32 @@
 // SPDX-License-Identifier: LicenseRef-Brefwiz-Proprietary
 //! What the lanes' loopback `Widgets` servers have in common: the answer of
-//! `BatchGetWidgets` and the methods no lane serves.
+//! `BatchGetWidgets` and the methods no lane serves, and the loopback server
+//! every lane spawns.
+
+use std::net::SocketAddr;
 
 use api_bones_contract_rust::{
     BatchGetWidgetsResponse, ItemError, Widget, WidgetResult, widget_result,
 };
+
+/// Serves `router` on an ephemeral loopback port: the task running the server
+/// and the address it listens on.
+pub async fn serve_loopback(
+    router: connectrpc::Router,
+) -> (tokio::task::JoinHandle<()>, SocketAddr) {
+    let bound = connectrpc::Server::bind("127.0.0.1:0")
+        .await
+        .expect("the loopback server binds");
+    let address = bound
+        .local_addr()
+        .expect("the loopback server has an address");
+    let task = tokio::spawn(async move {
+        let _ = bound
+            .serve_with_service(connectrpc::ConnectRpcService::new(router))
+            .await;
+    });
+    (task, address)
+}
 
 /// The answer of `BatchGetWidgets` over `ids`: one result per id, in request
 /// order, holding the widget `found` gives for it or a `not_found` item error.

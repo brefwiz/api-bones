@@ -74,6 +74,7 @@ mod keepalive;
 mod page;
 mod parse;
 pub mod precondition_client;
+mod retry_after;
 mod retry_eligibility;
 mod scoped;
 pub mod stream_control;
@@ -107,6 +108,10 @@ pub use parse::parse_rfc3339;
 pub use precondition_client::{
     IF_MATCH_ANY, Idempotency, PreconditionedTransport, SUPPORTED_POLICY_SCHEMA_VERSIONS,
     UnsupportedPolicySchema, index_generated_policy,
+};
+pub use retry_after::{
+    RETRY_INFO_TYPE, RetryInfo, resource_exhausted_retry_after, retry_after, retry_after_seconds,
+    with_retry_after,
 };
 pub use retry_eligibility::{
     connection_failure_as_unavailable, fetch_with_retry, is_connection_write_failure,

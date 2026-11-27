@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+use super::support::serve_loopback;
 use crate::world::UnbatchedPagingWorld;
 use api_bones_batch::Batched;
 use api_bones_contract_rust::{
@@ -13,8 +14,7 @@ use api_bones_contract_rust::{
 use api_bones_transport::HttpTransport;
 use connectrpc::client::ClientConfig;
 use connectrpc::{
-    ConnectError, ConnectRpcService, ErrorCode, RequestContext, Response, Router, Server,
-    ServiceRequest, ServiceResult,
+    ConnectError, ErrorCode, RequestContext, Response, Router, ServiceRequest, ServiceResult,
 };
 use cucumber::{given, then, when};
 use futures_util::StreamExt;
@@ -92,22 +92,13 @@ fn given_pages(world: &mut UnbatchedPagingWorld, pages: String) {
 
 #[when("the caller reads every item of the list-only service through its platform client")]
 async fn when_read_items(world: &mut UnbatchedPagingWorld) {
-    let bound = Server::bind("127.0.0.1:0")
-        .await
-        .expect("the numbers server binds");
-    let address = bound
-        .local_addr()
-        .expect("the numbers server has an address");
     let service = PagedNumbers {
         pages: Arc::new(world.pages.clone()),
         requests: world.requests.clone(),
     };
     let router = NumbersExt::register(Arc::new(service), Router::new());
-    world.server = Some(tokio::spawn(async move {
-        let _ = bound
-            .serve_with_service(ConnectRpcService::new(router))
-            .await;
-    }));
+    let (server, address) = serve_loopback(router).await;
+    world.server = Some(server);
     let config = ClientConfig::new(format!("http://{address}").parse().expect("a loopback uri"));
     let client = Batched::anonymous(NumbersClient::new(HttpTransport::h2c(), config))
         .expect("a list-only client binds without a batch method");

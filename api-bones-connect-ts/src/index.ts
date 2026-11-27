@@ -50,6 +50,13 @@ export {
 } from "./error-info.js";
 
 export {
+  resourceExhaustedRetryAfter,
+  retryAfter,
+  retryAfterSeconds,
+  withRetryAfter,
+} from "./retry-after.js";
+
+export {
   DEFAULT_LOCALE,
   LOCALE_ALIASES,
   LocalizeOptionsError,

@@ -137,6 +137,10 @@ name = "connect_rate_limit_retry"
 harness = false
 
 [[test]]
+name = "connect_retry_after"
+harness = false
+
+[[test]]
 name = "connect_batch_identity_guard"
 path = "tests/connect_batch_identity_guard.rs"
 harness = false
