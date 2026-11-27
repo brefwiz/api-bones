@@ -1020,3 +1020,22 @@ impl Drop for RateLimitWorld {
         }
     }
 }
+
+/// The refusing service, the refused call and the wait a client read from it.
+#[derive(Debug, Default, cucumber::World)]
+pub struct RetryAfterWorld {
+    /// The wait the service asks of the caller.
+    pub wait: std::time::Duration,
+    pub failure: Option<ConnectError>,
+    /// What the client read: `Some(None)` is a read that found no wait.
+    pub read: Option<Option<std::time::Duration>>,
+    pub server: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Drop for RetryAfterWorld {
+    fn drop(&mut self) {
+        if let Some(server) = self.server.take() {
+            server.abort();
+        }
+    }
+}

@@ -9,7 +9,7 @@
 // It runs before error_localization.feature, whose Background loads every catalog into the one module instance.
 // The SDK runtime contract is TypeScript-only: Rust callers use api-bones-sdk directly.
 // The test service preflight contract is TypeScript-only: the Rust test service serves no browser page.
-// The error-info, CSRF replay-rule, pinned-peer, field-labels and stream-rotation, stream-keepalive and error-localization contracts are answered by both lanes.
+// The error-info, retry-after, CSRF replay-rule, pinned-peer, field-labels and stream-rotation, stream-keepalive and error-localization contracts are answered by both lanes.
 module.exports = {
   default: {
     paths: [
@@ -23,6 +23,7 @@ module.exports = {
       "../features/connect_rate_limit_retry.feature",
       "../features/connect_rate_limit_relative_base.feature",
       "../features/connect_error_info.feature",
+      "../features/connect_retry_after.feature",
       "../features/connect_csrf_replay_rule.feature",
       "../features/connect_pinned_peer.feature",
       "../features/field_labels.feature",
@@ -53,6 +54,7 @@ module.exports = {
       "steps/undelivered_retry.ts",
       "steps/rate_limit_retry.ts",
       "steps/error_info.ts",
+      "steps/retry_after.ts",
       "steps/csrf_replay_rule.ts",
       "steps/pinned_peer.ts",
       "steps/field_labels.ts",

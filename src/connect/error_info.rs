@@ -443,7 +443,7 @@ fn valid_emitter(s: &str) -> bool {
         })
 }
 
-fn put_varint(out: &mut Vec<u8>, mut value: u64) {
+pub(super) fn put_varint(out: &mut Vec<u8>, mut value: u64) {
     loop {
         let byte = u8::try_from(value & 0x7f).unwrap_or_default();
         value >>= 7;
@@ -456,7 +456,7 @@ fn put_varint(out: &mut Vec<u8>, mut value: u64) {
 }
 
 /// A length-delimited field, written even when empty.
-fn put_len(out: &mut Vec<u8>, field: u8, payload: &[u8]) {
+pub(super) fn put_len(out: &mut Vec<u8>, field: u8, payload: &[u8]) {
     out.push((field << 3) | 2);
     put_varint(out, payload.len() as u64);
     out.extend_from_slice(payload);
@@ -510,7 +510,7 @@ fn put_args(out: &mut Vec<u8>, field: u8, args: &BTreeMap<String, ErrorArg>) {
 }
 
 /// One decoded field value. Groups are not supported.
-enum Wire<'a> {
+pub(super) enum Wire<'a> {
     Varint(u64),
     Fixed64([u8; 8]),
     Len(&'a [u8]),
@@ -518,7 +518,7 @@ enum Wire<'a> {
 }
 
 /// Every field of a message in order, or `None` when the bytes are malformed.
-fn wire_fields(bytes: &[u8]) -> Option<Vec<(u64, Wire<'_>)>> {
+pub(super) fn wire_fields(bytes: &[u8]) -> Option<Vec<(u64, Wire<'_>)>> {
     let mut fields = Vec::new();
     let mut rest = bytes;
     while !rest.is_empty() {

@@ -30,8 +30,8 @@ use api_bones_test_service_l2::{Number, Tick, Widget as L2Widget};
 use brefwiz_cucumber_steps::TwoPass;
 use bytes::Bytes;
 use connectrpc::{
-    CodecFormat, ConnectError, ConnectRpcService, Encodable, ErrorCode, RequestContext, Response,
-    Router, Server, ServiceRequest, ServiceResult,
+    CodecFormat, ConnectError, Encodable, ErrorCode, RequestContext, Response, Router,
+    ServiceRequest, ServiceResult,
 };
 use cucumber::{given, then, when};
 use http::{HeaderMap, HeaderValue};
@@ -41,7 +41,7 @@ mod stream;
 #[path = "../../../rust/tests/steps/support.rs"]
 mod support;
 
-use support::{batch_response, unserved_widget_methods};
+use support::{batch_response, serve_loopback, unserved_widget_methods};
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().expect("the recorder is never poisoned")
@@ -510,23 +510,13 @@ async fn serve(world: &mut SdkCallWorld) {
     if world.shared.started.swap(true, Ordering::SeqCst) {
         return;
     }
-    let bound = Server::bind("127.0.0.1:0")
-        .await
-        .expect("the lane's server binds");
-    world.address = Some(
-        bound
-            .local_addr()
-            .expect("the lane's server has an address"),
-    );
     let shared = &world.shared;
     let router = WidgetsExt::register(Arc::new(Service(shared.clone())), Router::new());
     let router = NumbersExt::register(Arc::new(NumbersService(shared.clone())), router);
     let router = EventsExt::register(Arc::new(stream::EventsService(shared.clone())), router);
-    world.server = Some(tokio::spawn(async move {
-        let _ = bound
-            .serve_with_service(ConnectRpcService::new(router))
-            .await;
-    }));
+    let (server, address) = serve_loopback(router).await;
+    world.address = Some(address);
+    world.server = Some(server);
 }
 
 /// Where the lane's server listens.

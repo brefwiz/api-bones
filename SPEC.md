@@ -196,6 +196,18 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # A refusal that names when to come back: Retry-After, RetryInfo and
+  # no-store written by one rounding rule, read back from the detail first and
+  # the header second.
+  connect-retry-after:
+    contract: tests/features/connect_retry_after.feature
+    targets:
+      rust:
+        delivery: package
+        packages: [api-bones, api-bones-connect]
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-connect"]
   # The one replay rule for the BFF CSRF synchronizer, exported by both
   # packages so no caller restates it.
   connect-csrf-replay-rule:
