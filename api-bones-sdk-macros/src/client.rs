@@ -4,12 +4,13 @@
 use api_bones_sdk_model::{Client, Model, Return};
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, quote};
-use syn::{ImplItem, ImplItemFn, Item, ItemImpl, ReturnType, Type, parse_quote};
+use syn::{ImplItem, Item, parse_quote};
 
 use crate::common::{finish, head, without};
+use crate::wasm::{Home, Member};
 use crate::{service, wasm};
 
-/// The impl, kept as written but for the `#[export]` attributes, the
+/// The impl or module, kept as written but for the `#[export]` attributes, the
 /// compile-time check that every error is an `Into<api_bones_sdk::Error>`, and
 /// the wasm exports.
 pub(crate) fn expand(args: TokenStream, item: TokenStream) -> TokenStream {
@@ -21,36 +22,100 @@ pub(crate) fn expand_for(
     args: TokenStream,
     item: TokenStream,
 ) -> TokenStream {
-    let mut parsed: ItemImpl = match syn::parse2(item) {
+    let mut parsed: Item = match syn::parse2(item) {
         Ok(parsed) => parsed,
         Err(error) => return error.to_compile_error(),
     };
     let generated = service.and_then(|service| generate(&service, args, &parsed));
-    for member in &mut parsed.items {
-        if let ImplItem::Fn(function) = member {
-            function.attrs = without(&function.attrs, "export");
+    match &mut parsed {
+        Item::Impl(item) => {
+            for member in &mut item.items {
+                match member {
+                    ImplItem::Fn(function) => function.attrs = kept(&function.attrs),
+                    ImplItem::Const(constant) => {
+                        constant.attrs = without(&constant.attrs, "export");
+                    }
+                    _ => {}
+                }
+            }
         }
+        Item::Mod(item) => {
+            for member in item.content.iter_mut().flat_map(|(_, items)| items) {
+                match member {
+                    Item::Fn(function) => function.attrs = kept(&function.attrs),
+                    Item::Const(constant) => constant.attrs = without(&constant.attrs, "export"),
+                    _ => {}
+                }
+            }
+        }
+        _ => return not_a_client(&parsed),
     }
     finish(&quote!(#parsed), generated)
 }
 
-fn generate(service: &str, args: TokenStream, item: &ItemImpl) -> syn::Result<TokenStream> {
+/// The attributes of an exported function as it is kept: no `#[export]`, and
+/// `clippy::too_many_arguments` allowed. The parameters of an export are the
+/// fields of its arguments message, so their number follows the contract.
+fn kept(attrs: &[syn::Attribute]) -> Vec<syn::Attribute> {
+    let marked = api_bones_sdk_model::attrs::find(attrs, "export").is_some();
+    let mut out = without(attrs, "export");
+    if marked {
+        // An export's parameters mirror the fields of its proto args message; the contract sets the count.
+        // golden-lint: justified: parameter count is fixed by the proto args message (api-bones #289)
+        out.push(parse_quote!(#[allow(clippy::too_many_arguments)]));
+    }
+    out
+}
+
+fn not_a_client(item: &Item) -> TokenStream {
+    syn::Error::new_spanned(item, "`#[client]` goes on an impl or an inline module")
+        .to_compile_error()
+}
+
+fn generate(service: &str, args: TokenStream, item: &Item) -> syn::Result<TokenStream> {
     let client = read(args, item)?;
-    let functions: Vec<&ImplItemFn> = item
-        .items
-        .iter()
-        .filter_map(|member| match member {
-            ImplItem::Fn(function)
-                if api_bones_sdk_model::attrs::find(&function.attrs, "export").is_some() =>
-            {
-                Some(function)
-            }
-            _ => None,
-        })
-        .collect();
-    let checks = checks(&client, &functions);
-    let exports = wasm::expand(service, &client, &item.self_ty, &functions)?;
+    let members = members(item);
+    let checks = checks(&client, &members);
+    let exports = match item {
+        Item::Impl(item) => wasm::expand(service, &client, &Home::Impl(&item.self_ty), &members)?,
+        Item::Mod(item) => wasm::expand(service, &client, &Home::Module(&item.ident), &members)?,
+        _ => return Err(syn::Error::new_spanned(item, "`#[client]` goes on an impl")),
+    };
     Ok(quote!(#checks #exports))
+}
+
+/// The exported items of the impl or module, in source order.
+fn members(item: &Item) -> Vec<Member> {
+    let marked =
+        |attrs: &[syn::Attribute]| api_bones_sdk_model::attrs::find(attrs, "export").is_some();
+    match item {
+        Item::Impl(item) => item
+            .items
+            .iter()
+            .filter_map(|member| match member {
+                ImplItem::Fn(function) if marked(&function.attrs) => {
+                    Some(Member::of_fn(&function.sig))
+                }
+                ImplItem::Const(constant) if marked(&constant.attrs) => {
+                    Some(Member::of_const(&constant.ident, &constant.ty))
+                }
+                _ => None,
+            })
+            .collect(),
+        Item::Mod(item) => item
+            .content
+            .iter()
+            .flat_map(|(_, items)| items)
+            .filter_map(|member| match member {
+                Item::Fn(function) if marked(&function.attrs) => Some(Member::of_fn(&function.sig)),
+                Item::Const(constant) if marked(&constant.attrs) => {
+                    Some(Member::of_const(&constant.ident, &constant.ty))
+                }
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// The model of this one impl.
@@ -61,9 +126,14 @@ fn generate(service: &str, args: TokenStream, item: &ItemImpl) -> syn::Result<To
 /// and leaves every other rule to the model. Messages are named by their full
 /// path, which the model reads without declarations. That the names really are
 /// errors is asserted by [`checks`].
-fn read(args: TokenStream, item: &ItemImpl) -> syn::Result<Client> {
+fn read(args: TokenStream, item: &Item) -> syn::Result<Client> {
     let mut marked = item.clone();
-    marked.attrs.push(syn::Attribute {
+    let attrs = match &mut marked {
+        Item::Impl(item) => &mut item.attrs,
+        Item::Mod(item) => &mut item.attrs,
+        _ => return Err(syn::Error::new_spanned(item, "`#[client]` goes on an impl")),
+    };
+    attrs.push(syn::Attribute {
         pound_token: syn::token::Pound::default(),
         style: syn::AttrStyle::Outer,
         bracket_token: syn::token::Bracket::default(),
@@ -85,7 +155,7 @@ fn read(args: TokenStream, item: &ItemImpl) -> syn::Result<Client> {
             items.push(stand_in);
         }
     }
-    items.push(Item::Impl(marked));
+    items.push(marked);
     let file = syn::File {
         shebang: None,
         attrs: Vec::new(),
@@ -96,7 +166,7 @@ fn read(args: TokenStream, item: &ItemImpl) -> syn::Result<Client> {
         .clients
         .into_iter()
         .next()
-        .ok_or_else(|| syn::Error::new_spanned(&item.self_ty, "`#[client]` goes on an impl"))
+        .ok_or_else(|| syn::Error::new_spanned(item, "`#[client]` goes on an impl"))
 }
 
 /// Every identifier in `tokens`.
@@ -114,10 +184,10 @@ fn names_in(tokens: TokenStream, out: &mut Vec<syn::Ident>) {
 /// error. What crosses is a generated message or a scalar in its wrapper; the
 /// exports' own `decode_strict`, `encode_*` and name guards assert that on
 /// wasm32.
-fn checks(client: &Client, functions: &[&ImplItemFn]) -> TokenStream {
-    let mut error: Vec<Type> = Vec::new();
+fn checks(client: &Client, functions: &[Member]) -> TokenStream {
+    let mut error: Vec<syn::Type> = Vec::new();
     for (export, function) in client.exports.iter().zip(functions) {
-        let ReturnType::Type(_, ty) = &function.sig.output else {
+        let Some(ty) = &function.output else {
             continue;
         };
         if let Return::Result { .. } = &export.ret {
@@ -180,6 +250,19 @@ mod tests {
     }
 
     #[test]
+    fn a_kept_export_allows_the_argument_count_its_contract_sets() {
+        let text = flat(&sample());
+        assert!(
+            text.contains("#[allow(clippy::too_many_arguments)]pubasyncfnlist("),
+            "{text}"
+        );
+        assert!(
+            !text.contains("#[allow(clippy::too_many_arguments)]pubfnplain"),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn the_expansion_is_valid_rust() {
         syn::parse2::<syn::File>(sample()).expect("a file");
     }
@@ -235,7 +318,10 @@ mod tests {
             "impl C { #[export] fn a(&self) {} }",
         ));
         assert!(text.contains("anasyncexportis`async`"), "{text}");
-        assert!(text.contains("implC{fna(&self){}}"), "{text}");
+        assert!(
+            text.contains("implC{#[allow(clippy::too_many_arguments)]fna(&self){}}"),
+            "{text}"
+        );
         let text = flat(&run(
             quote!(surface = "s"),
             "impl C { #[export] async fn a(&self, n: u8) -> Result<(), Error> { body() } }",
@@ -335,5 +421,73 @@ mod tests {
             text.contains("js_name=\"") && text.contains("__C__new\""),
             "{text}"
         );
+    }
+
+    const STATICS: &str = r"
+        impl Tools {
+            #[export(sync)]
+            pub fn label(value: u32) -> String { body() }
+            #[export(sync)]
+            pub const LIMIT: u32 = 5;
+            #[export(sync)]
+            pub fn check(&self) -> Result<(), Error> { body() }
+        }
+    ";
+
+    #[test]
+    fn a_static_function_and_a_constant_are_static_exports_of_the_class() {
+        let text = flat(&run(
+            quote!(surface = "s", proto = generated::contract::v1),
+            STATICS,
+        ));
+        assert!(!text.contains("#[export"), "{text}");
+        assert!(
+            text.contains("pubfnlabel(value:u32)->String{body()}"),
+            "{text}"
+        );
+        assert!(text.contains("pubconstLIMIT:u32=5;"), "{text}");
+        assert!(text.contains("js_name=\"svc__Tools__label\""), "{text}");
+        assert!(text.contains("js_name=\"svc__Tools__LIMIT\""), "{text}");
+        assert!(text.contains("pubfnlabel_js(__args:"), "{text}");
+        assert!(text.contains("pubfnlimit_const_js(__args:"), "{text}");
+        assert!(text.contains("<Tools>::label(value)"), "{text}");
+        assert!(text.contains("<Tools>::LIMIT"), "{text}");
+        assert!(text.contains("__client.check()"), "{text}");
+    }
+
+    #[test]
+    fn a_client_module_is_kept_and_expands_to_a_class_without_an_instance() {
+        let text = flat(&run(
+            quote!(surface = "s", proto = generated::contract::v1),
+            "mod digits { #[export(sync)] pub fn doubled(value: u32) -> u32 { body() } #[export(sync)] pub const BASE: u32 = 10; }",
+        ));
+        assert!(text.contains("moddigits{"), "{text}");
+        assert!(
+            text.contains("pubfndoubled(value:u32)->u32{body()}"),
+            "{text}"
+        );
+        assert!(!text.contains("#[export"), "{text}");
+        assert!(text.contains("js_name=\"svc__digits__doubled\""), "{text}");
+        assert!(text.contains("self::digits::doubled(value)"), "{text}");
+        assert!(text.contains("self::digits::BASE"), "{text}");
+        assert!(text.contains("pubstructApiBonesJsdigits{}"), "{text}");
+        assert!(!text.contains("__new"), "{text}");
+        assert!(!text.contains("from_host"), "{text}");
+        assert!(!text.contains("inner"), "{text}");
+        syn::parse2::<syn::File>(run(
+            quote!(surface = "s", proto = generated::contract::v1),
+            "mod digits { #[export(sync)] pub fn doubled(value: u32) -> u32 { body() } }",
+        ))
+        .expect("a file");
+    }
+
+    #[test]
+    fn a_module_that_breaks_a_rule_is_reported_with_the_module_kept() {
+        let text = flat(&run(
+            quote!(surface = "s"),
+            "mod m { #[export] pub async fn f() -> Result<(), Error> { body() } }",
+        ));
+        assert!(text.contains("anasyncexporttakes`&self`"), "{text}");
+        assert!(text.contains("modm{"), "{text}");
     }
 }

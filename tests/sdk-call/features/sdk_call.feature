@@ -41,6 +41,10 @@ Feature: Every Layer 2 call runs through one helper
   a call and names when it will be ready is waited out and asked again, inside
   the same budget; a wait longer than five seconds is not sat out, and the call
   is refused as rate limited.
+  A static export and a constant export need no client and no server: the
+  function is called by its name and the constant is read through a function
+  that takes nothing, the same in Rust and in the generated package once its
+  module is loaded.
 
   @state:happy
   Scenario: The parts of a widget are listed page by page through the SDK
@@ -823,3 +827,25 @@ Feature: Every Layer 2 call runs through one helper
     When the caller opens the Api Bones SDK from the caller's session without a base address
     Then the call is refused with the platform code "VALIDATION_FAILED"
     And the refusal says "no page origin; pass baseUrl"
+
+  @state:happy
+  Scenario: A static function of the SDK answers without a client or a server
+    When the caller clamps 5 between 1 and 10 through the SDK
+    Then the static answer is 5
+    And the wrapper lists "clamp" as a "sync" method of the surface "sdk-call"
+
+  @state:happy
+  Scenario: A static function holds a value above its bounds at the upper one
+    When the caller clamps 50 between 1 and 10 through the SDK
+    Then the static answer is 10
+
+  @state:happy
+  Scenario: A static function holds a value below its bounds at the lower one
+    When the caller clamps 0 between 1 and 10 through the SDK
+    Then the static answer is 1
+
+  @state:happy
+  Scenario: A constant of the SDK is read through a function that takes nothing
+    When the caller reads the largest page size through the SDK
+    Then the static answer is 1000
+    And the wrapper lists "MAX_PAGE_SIZE" as a "sync" method of the surface "sdk-call"

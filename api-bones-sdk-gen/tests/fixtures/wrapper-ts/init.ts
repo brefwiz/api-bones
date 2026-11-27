@@ -37,17 +37,37 @@ async function recordProvenance(directory: string, bytes: Uint8Array<ArrayBuffer
   await fs.appendFile(`${directory}/sdk-provenance.jsonl`, `${line}\n`);
 }
 
+let ready: Glue | undefined;
+
+/** Thrown by a function that needs the wasm module before `init()` has resolved. */
+export class SdkNotInitializedError extends Error {
+  constructor() {
+    super("the wasm module is not loaded: await init() before calling this function");
+    this.name = "SdkNotInitializedError";
+  }
+}
+
+/** The loaded wasm module, for the functions that run without a client. */
+export function loaded(): Glue {
+  if (ready === undefined) {
+    throw new SdkNotInitializedError();
+  }
+  return ready;
+}
+
 /** Loads the wasm module once; concurrent callers share the one load. */
 export const init = lazyOnce(async (): Promise<Glue> => {
   const input = await wasmInput(new URL("./api_bones_test_service_l2_bg.wasm", import.meta.url));
   const directory = evidenceDirectory();
   if (directory === undefined) {
     await initGlue({ module_or_path: input });
+    ready = glue;
     return glue;
   }
   const bytes = input instanceof URL ? new Uint8Array(await (await globalThis.fetch(input)).arrayBuffer()) : new Uint8Array(input);
   await recordProvenance(directory, bytes);
   await initGlue({ module_or_path: bytes });
+  ready = glue;
   return glue;
 });
 

@@ -13,8 +13,12 @@
 //!   surface. The impl is kept as written; on wasm32 each export also becomes
 //!   a method of a class named `<svc>__<Type>`, gated by the features
 //!   `sdk-all`, `sdk-<surface>` and `sdk-m-<method>`.
-//! - [`export`]: marks a method of a `#[client]` impl, and is refused anywhere
-//!   else.
+//!   A receiver-less `#[export(sync)]` function and an `#[export(sync)]` const
+//!   of the impl are static exports of the class. `#[client]` also goes on an
+//!   inline `mod`, whose `#[export(sync)]` functions and consts are the
+//!   exports of a class named `<svc>__<mod>` that has no instance.
+//! - [`export`]: marks a method, function or const of a `#[client]` impl or
+//!   module, and is refused anywhere else.
 //!
 //! The expansions live in plain modules over `proc_macro2` so they are unit
 //! tested; the functions here only convert token streams.
@@ -34,15 +38,15 @@ pub fn error(args: TokenStream, item: TokenStream) -> TokenStream {
     error_type::expand(args.into(), item.into()).into()
 }
 
-/// An inherent impl whose `#[export]` methods are exported to wasm;
-/// `#[client(surface = "<sdk_surfaces id>")]`.
+/// An inherent impl, or an inline module, whose `#[export]` items are exported
+/// to wasm; `#[client(surface = "<sdk_surfaces id>")]`.
 #[proc_macro_attribute]
 pub fn client(args: TokenStream, item: TokenStream) -> TokenStream {
     client::expand(args.into(), item.into()).into()
 }
 
-/// A method of a `#[client]` impl. `#[client]` consumes it, so the macro only
-/// runs for a method outside one.
+/// A method, function or const of a `#[client]` impl or module. `#[client]`
+/// consumes it, so the macro only runs for an item outside one.
 #[proc_macro_attribute]
 pub fn export(args: TokenStream, item: TokenStream) -> TokenStream {
     common::misplaced_export(args.into(), &item.into()).into()

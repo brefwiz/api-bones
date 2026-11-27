@@ -16,6 +16,24 @@
       ]
     },
     {
+      "export": "api_bones__NumbersClient__MAX_PAGE_SIZE",
+      "type": "NumbersClient",
+      "rust": "MAX_PAGE_SIZE",
+      "typescript": "maxPageSize",
+      "surface": "sdk-call",
+      "kind": "sync",
+      "endpoints": []
+    },
+    {
+      "export": "api_bones__NumbersClient__clamp",
+      "type": "NumbersClient",
+      "rust": "clamp",
+      "typescript": "clamp",
+      "surface": "sdk-call",
+      "kind": "sync",
+      "endpoints": []
+    },
+    {
       "export": "api_bones__NumbersClient__list",
       "type": "NumbersClient",
       "rust": "list",

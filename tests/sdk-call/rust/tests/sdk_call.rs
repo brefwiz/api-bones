@@ -644,6 +644,8 @@ struct SdkCallWorld {
     pages_cached: Vec<bool>,
     /// Why the call, the chunk, a page or a tick was refused.
     refusal: Option<Error>,
+    /// What the last static function or constant the caller used answered.
+    static_answer: Option<u32>,
     /// The page size the caller's numbers client asks for when a call names
     /// none.
     default_page_size: Option<u32>,
@@ -2039,6 +2041,30 @@ fn then_list_span(world: &mut SdkCallWorld) {
 fn then_list_no_span(world: &mut SdkCallWorld) {
     let span = world.list.as_ref().expect("a Given opened the list").span();
     assert_eq!(span, None);
+}
+
+#[when(expr = "the caller clamps {int} between {int} and {int} through the SDK")]
+fn when_clamp(world: &mut SdkCallWorld, value: u32, low: u32, high: u32) {
+    world.static_answer = Some(api_bones_test_service_l2::NumbersClient::clamp(
+        value, low, high,
+    ));
+}
+
+#[when("the caller reads the largest page size through the SDK")]
+fn when_read_largest_page_size(world: &mut SdkCallWorld) {
+    // The constant is read through the SDK's clamp, with the widest bounds, so
+    // the answer is the constant itself.
+    let largest = api_bones_test_service_l2::NumbersClient::clamp(
+        api_bones_test_service_l2::NumbersClient::MAX_PAGE_SIZE,
+        0,
+        u32::MAX,
+    );
+    world.static_answer = Some(largest);
+}
+
+#[then(expr = "the static answer is {int}")]
+fn then_static_answer(world: &mut SdkCallWorld, expected: u32) {
+    assert_eq!(world.static_answer, Some(expected));
 }
 
 #[tokio::main]

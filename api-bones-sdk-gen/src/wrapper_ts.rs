@@ -16,8 +16,8 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, anyhow, ensure};
 use api_bones_sdk_model::{
-    Client, Export, HandleKind, L2Methods, Model, Param, Return, SpecL2Methods, Wire, Wrapper,
-    export_name, l2_methods, typescript_name,
+    Client, Export, HandleKind, L2Methods, Model, Param, Return, Shape, SpecL2Methods, Wire,
+    Wrapper, export_name, l2_methods, typescript_name,
 };
 use prost_reflect::{DescriptorPool, FieldDescriptor, Kind, MessageDescriptor};
 
@@ -317,8 +317,11 @@ impl Contract {
     }
 
     fn message(&self, full_name: &str) -> anyhow::Result<MessageDescriptor> {
+        // A set built from the contract protos alone leaves out a well-known
+        // type no proto imports, such as the `Empty` of a zero-argument export.
         self.pool
             .get_message_by_name(full_name)
+            .or_else(|| DescriptorPool::global().get_message_by_name(full_name))
             .ok_or_else(|| anyhow!("message `{full_name}` is missing from the descriptor set"))
     }
 }
@@ -785,7 +788,9 @@ struct Method {
     signature: String,
 }
 
-/// The TypeScript method for `export`, indented as a class member.
+/// The TypeScript method for `export`, indented as a class member. `receiver`
+/// is what the wasm export is read off: `this.#wasm` for a method, the glue
+/// class for a static export.
 ///
 /// # Errors
 ///
@@ -794,6 +799,7 @@ fn method_ts(
     contract: &Contract,
     imports: &mut Imports,
     export: &Export,
+    receiver: &str,
     wasm_name: &str,
 ) -> anyhow::Result<Method> {
     let name = typescript_name(&export.method);
@@ -814,7 +820,7 @@ fn method_ts(
     }
     let params = params.join(", ");
     let at = format!("`{}`", export.method);
-    let call = format!("this.#wasm.{wasm_name}");
+    let call = format!("{receiver}.{wasm_name}");
     let ctx = "const ctx = callCtx(opts?.signal);\n    ";
     let tail = "request, ctx.traceparent, ctx.tracestate, ctx.signal";
     let guard = "    } catch (rejection) {\n      throw mapError(rejection);\n    }\n  }\n";
@@ -886,6 +892,59 @@ fn method_ts(
     })
 }
 
+/// The top-level functions of one static export: the member `method_ts` wrote,
+/// dedented and declared as a function, and its line in the surface.
+///
+/// The wasm module is not loaded when `client.ts` is evaluated, so a constant
+/// is a function that takes nothing, and every static export reads the module
+/// through `loaded()`, which refuses a caller that has not awaited `init()`.
+fn free_function(method: &Method) -> (String, String) {
+    let body: String = method
+        .text
+        .lines()
+        .map(|line| format!("{}\n", line.strip_prefix("  ").unwrap_or(line)))
+        .collect();
+    let text = format!("\n/** {STATIC_DOC} */\nexport function {body}");
+    let signature = format!(
+        "\n/** {STATIC_DOC} */\nexport declare function {};\n",
+        method.signature.trim().trim_end_matches(';')
+    );
+    (text, signature)
+}
+
+/// The sentence every static export documents.
+const STATIC_DOC: &str =
+    "Callable once `init()` has resolved; throws `SdkNotInitializedError` before.";
+
+/// The identifiers `client.ts` and the entry of the package already use, which
+/// a static export cannot take.
+const TAKEN: [&str; 24] = [
+    "init",
+    "sdkBuildInfo",
+    "loaded",
+    "SdkNotInitializedError",
+    "glue",
+    "sink",
+    "mapError",
+    "create",
+    "fromBinary",
+    "toBinary",
+    "callCtx",
+    "decodeBatchChunk",
+    "decodePage",
+    "hostOf",
+    "iterableOf",
+    "JsSpanSink",
+    "listCallOf",
+    "mapCallError",
+    "pageOrigin",
+    "RUNTIME_BOUNDARY",
+    "WRAPPER_BOUNDARY",
+    "CallOptions",
+    "ListOptions",
+    "SdkSession",
+];
+
 /// What `client.ts` is made of, and the other generated files refer to.
 struct Rendered {
     /// `client.ts`.
@@ -899,6 +958,8 @@ struct Rendered {
     surface: String,
     /// The entry function's name.
     entry: String,
+    /// The names of the top-level functions of the static exports.
+    functions: Vec<String>,
 }
 
 /// `Svc` of the service `svc`, as a type-name prefix.
@@ -990,9 +1051,61 @@ fn client_ts(
     let mut declared = Vec::new();
     let mut fields = String::new();
     let mut construct = String::new();
+    let mut free = String::new();
+    let mut surface_free = String::new();
+    let mut functions: Vec<String> = Vec::new();
+    let mut taken: BTreeSet<String> = TAKEN.iter().map(|name| (*name).to_owned()).collect();
+    taken.insert(entry.clone());
+    taken.extend(
+        model
+            .clients
+            .iter()
+            .filter(|client| !client.module)
+            .map(|client| client.ty.clone()),
+    );
     for client in &model.clients {
         let ty = &client.ty;
         let class = wasm_class(package, client)?;
+        let mut members = String::new();
+        let mut surface_members = String::new();
+        for export in &client.exports {
+            let wasm_name = export_name(&package.service, ty, &export.method)?;
+            if !export.sync && !listed.contains(wasm_name.as_str()) {
+                return Err(anyhow!("`{wasm_name}` is not in l2-methods"));
+            }
+            let is_static = export.shape != Shape::Method;
+            let receiver = if is_static {
+                format!("loaded().{class}")
+            } else {
+                "this.#wasm".to_owned()
+            };
+            let method = method_ts(contract, &mut imports, export, &receiver, &wasm_name)?;
+            if let Some((name, text)) = &method.options {
+                declarations.push_str(text);
+                declarations.push('\n');
+                declared.push(name.clone());
+            }
+            if is_static {
+                let name = typescript_name(&export.method);
+                ensure!(
+                    taken.insert(name.clone()),
+                    "the static export `{}` is the TypeScript function `{name}`, which the package \
+                     already exports or `client.ts` already uses",
+                    export.method
+                );
+                let (text, signature) = free_function(&method);
+                free.push_str(&text);
+                surface_free.push_str(&signature);
+                functions.push(name);
+            } else {
+                members.push('\n');
+                members.push_str(&method.text);
+                surface_members.push_str(&method.signature);
+            }
+        }
+        if client.module {
+            continue;
+        }
         let _ = write!(
             classes,
             "\nexport class {ty} {{\n  readonly #wasm: glue.{class};\n\n  /** Built by `{entry}`; not for callers. */\n  constructor(wasm: glue.{class}) {{\n    this.#wasm = wasm;\n  }}\n"
@@ -1001,21 +1114,8 @@ fn client_ts(
             surface_classes,
             "\nexport declare class {ty} {{\n  private constructor();\n"
         );
-        for export in &client.exports {
-            let wasm_name = export_name(&package.service, ty, &export.method)?;
-            if !export.sync && !listed.contains(wasm_name.as_str()) {
-                return Err(anyhow!("`{wasm_name}` is not in l2-methods"));
-            }
-            let method = method_ts(contract, &mut imports, export, &wasm_name)?;
-            classes.push('\n');
-            classes.push_str(&method.text);
-            surface_classes.push_str(&method.signature);
-            if let Some((name, text)) = method.options {
-                declarations.push_str(&text);
-                declarations.push('\n');
-                declared.push(name);
-            }
-        }
+        classes.push_str(&members);
+        surface_classes.push_str(&surface_members);
         classes.push_str("}\n");
         surface_classes.push_str("}\n");
         let _ = writeln!(fields, "  readonly {}: {ty};", lower_first(ty));
@@ -1057,9 +1157,14 @@ fn client_ts(
     client.push_str(
         "import { create, fromBinary, toBinary } from \"@bufbuild/protobuf\";\nimport {\n  callCtx,\n  decodeBatchChunk,\n  decodePage,\n  hostOf,\n  iterableOf,\n  JsSpanSink,\n  listCallOf,\n  mapCallError,\n  pageOrigin,\n  RUNTIME_BOUNDARY,\n  type BatchItem,\n  type ListCall,\n  type SdkSession,\n} from \"@brefwiz/api-bones-sdk-runtime\";\n",
     );
+    let init_names = if functions.is_empty() {
+        "init, WRAPPER_BOUNDARY"
+    } else {
+        "init, loaded, WRAPPER_BOUNDARY"
+    };
     let _ = writeln!(
         client,
-        "import type * as glue from \"./{glue}.js\";\nimport {{ init, WRAPPER_BOUNDARY }} from \"./init.js\";\nimport type {{ CallOptions, ListOptions }} from \"./types.js\";"
+        "import type * as glue from \"./{glue}.js\";\nimport {{ {init_names} }} from \"./init.js\";\nimport type {{ CallOptions, ListOptions }} from \"./types.js\";"
     );
     client.push_str(&imports.lines("./", false));
     client.push_str(
@@ -1070,12 +1175,13 @@ fn client_ts(
     client.push('\n');
     client.push_str(&sdk_decl);
     client.push_str(&classes);
+    client.push_str(&free);
     client.push_str(&entry_fn);
     declared.push(options_ty.clone());
     declared.push(sdk.clone());
     imports.unambiguous()?;
     let surface = format!(
-        "{declarations}{options_decl}\n{sdk_decl}{surface_classes}\nexport declare function {entry}(session: SdkSession, opts?: {options_ty}): Promise<{sdk}>;\n"
+        "{declarations}{options_decl}\n{sdk_decl}{surface_classes}{surface_free}\nexport declare function {entry}(session: SdkSession, opts?: {options_ty}): Promise<{sdk}>;\n"
     );
     Ok(Rendered {
         client,
@@ -1083,6 +1189,7 @@ fn client_ts(
         declared,
         surface,
         entry,
+        functions,
     })
 }
 
@@ -1106,12 +1213,18 @@ fn surface_dts(rendered: &Rendered) -> String {
 
 fn index_ts(model: &Model, rendered: &Rendered) -> String {
     let mut out = String::from(HEADER);
-    let clients: Vec<&str> = model.clients.iter().map(|c| c.ty.as_str()).collect();
+    let mut names: Vec<&str> = model
+        .clients
+        .iter()
+        .filter(|client| !client.module)
+        .map(|client| client.ty.as_str())
+        .collect();
+    names.extend(rendered.functions.iter().map(String::as_str));
+    names.push(&rendered.entry);
     let _ = writeln!(
         out,
-        "export {{ {}, {} }} from \"./client.js\";",
-        clients.join(", "),
-        rendered.entry
+        "export {{ {} }} from \"./client.js\";",
+        names.join(", ")
     );
     let _ = writeln!(
         out,
@@ -1123,7 +1236,7 @@ fn index_ts(model: &Model, rendered: &Rendered) -> String {
     );
     out.push_str(&rendered.imports.reexports());
     out.push_str(
-        "export * from \"./errors.js\";\nexport { init, sdkBuildInfo } from \"./init.js\";\n",
+        "export * from \"./errors.js\";\nexport { init, SdkNotInitializedError, sdkBuildInfo } from \"./init.js\";\n",
     );
     out
 }
@@ -1212,17 +1325,37 @@ async function recordProvenance(directory: string, bytes: Uint8Array<ArrayBuffer
   await fs.appendFile(`${directory}/sdk-provenance.jsonl`, `${line}\n`);
 }
 
+let ready: Glue | undefined;
+
+/** Thrown by a function that needs the wasm module before `init()` has resolved. */
+export class SdkNotInitializedError extends Error {
+  constructor() {
+    super("the wasm module is not loaded: await init() before calling this function");
+    this.name = "SdkNotInitializedError";
+  }
+}
+
+/** The loaded wasm module, for the functions that run without a client. */
+export function loaded(): Glue {
+  if (ready === undefined) {
+    throw new SdkNotInitializedError();
+  }
+  return ready;
+}
+
 /** Loads the wasm module once; concurrent callers share the one load. */
 export const init = lazyOnce(async (): Promise<Glue> => {
   const input = await wasmInput(new URL("./@GLUE@_bg.wasm", import.meta.url));
   const directory = evidenceDirectory();
   if (directory === undefined) {
     await initGlue({ module_or_path: input });
+    ready = glue;
     return glue;
   }
   const bytes = input instanceof URL ? new Uint8Array(await (await globalThis.fetch(input)).arrayBuffer()) : new Uint8Array(input);
   await recordProvenance(directory, bytes);
   await initGlue({ module_or_path: bytes });
+  ready = glue;
   return glue;
 });
 
@@ -1500,6 +1633,8 @@ message WidgetsOptions { string tenant = 1; optional int64 retries = 2; }
 message OtherOptions { string tenant = 1; }
 message MismatchOptions { int64 tenant = 1; }
 message BaseOptions { string base_url = 1; }
+message BoundsArgs { uint32 low = 1; uint32 high = 2; }
+message ShoutArgs { string kind = 1; }
 "#;
 
     const WIDGETS: &str = r#"
@@ -1531,6 +1666,7 @@ impl Widgets {
     fn spec_of(model: &Model) -> SpecL2Methods {
         let mut spec = SpecL2Methods::default();
         spec.surfaces.insert("s".to_owned());
+        spec.surfaces.insert("t".to_owned());
         let on_s = spec.endpoints.entry("s".to_owned()).or_default();
         for export in model.clients.iter().flat_map(|c| &c.exports) {
             on_s.insert(
@@ -1661,6 +1797,122 @@ impl Widgets {
         assert!(client.contains("return fromBinary(Int64ValueSchema, bytes).value;"));
     }
 
+    const STATICS: &str = r#"
+#[client(surface = "s", proto = generated::t::v1)]
+impl Widgets {
+    #[export(sync)]
+    pub const LIMIT: u32 = 5;
+    #[export(sync)]
+    pub fn bounds(low: u32, high: u32) -> u32 { body() }
+}
+
+#[client(surface = "s", proto = generated::t::v1)]
+mod text {
+    #[export(sync)]
+    pub fn shout(kind: String) -> String { body() }
+}
+"#;
+
+    fn statics(file: &str) -> String {
+        generated(STATICS, PROTO)
+            .expect("generated")
+            .remove(file)
+            .expect(file)
+    }
+
+    #[test]
+    fn a_static_export_is_a_top_level_function_over_the_loaded_module() {
+        let client = statics("src/generated/client.ts");
+        assert!(client.contains(
+            "/** Callable once `init()` has resolved; throws `SdkNotInitializedError` before. */\nexport function bounds(low: number, high: number): number {"
+        ));
+        assert!(client.contains(
+            "const bytes = loaded().svc__Widgets.svc__Widgets__bounds(request);\n    return fromBinary(UInt32ValueSchema, bytes).value;"
+        ));
+        assert!(client.contains("export function shout(kind: string): string {"));
+        assert!(client.contains("loaded().svc__text.svc__text__shout(request)"));
+        assert!(client.contains("import { init, loaded, WRAPPER_BOUNDARY } from \"./init.js\";"));
+        assert!(
+            !client.contains("  bounds("),
+            "a static is not a class member"
+        );
+        assert!(client.contains("throw mapError(rejection);"));
+    }
+
+    #[test]
+    fn a_constant_is_a_function_that_takes_nothing() {
+        let client = statics("src/generated/client.ts");
+        assert!(client.contains("export function limit(): number {"));
+        assert!(client.contains("toBinary(EmptySchema, create(EmptySchema))"));
+        assert!(client.contains("loaded().svc__Widgets.svc__Widgets__LIMIT(request)"));
+        assert!(!client.contains("limit: number"));
+    }
+
+    #[test]
+    fn a_client_module_has_no_class_and_no_entry_field() {
+        let client = statics("src/generated/client.ts");
+        assert!(!client.contains("class text"));
+        assert!(!client.contains("svc__text__new"));
+        assert!(!client.contains("readonly text:"));
+        assert!(client.contains("export interface SvcSdk {\n  readonly widgets: Widgets;\n}"));
+        let surface = statics("api-surface.d.ts");
+        assert!(!surface.contains("class text"));
+        assert!(surface.contains(
+            "\n/** Callable once `init()` has resolved; throws `SdkNotInitializedError` before. */\nexport declare function shout(kind: string): string;\n"
+        ));
+        assert!(surface.contains("export declare function limit(): number;"));
+    }
+
+    #[test]
+    fn the_index_exports_the_static_functions_and_the_not_initialised_error() {
+        let index = statics("src/generated/index.ts");
+        assert!(
+            index
+                .contains("export { Widgets, limit, bounds, shout, svcSdk } from \"./client.js\";")
+        );
+        assert!(index.contains("SdkNotInitializedError"));
+    }
+
+    #[test]
+    fn a_package_without_a_static_export_does_not_import_the_guard() {
+        assert!(client().contains("import { init, WRAPPER_BOUNDARY } from \"./init.js\";"));
+    }
+
+    #[test]
+    fn a_static_function_cannot_take_a_name_the_package_already_exports() {
+        for (name, rust) in [
+            ("init", "init"),
+            ("sdkBuildInfo", "sdk_build_info"),
+            ("svcSdk", concat!("svc", "_sdk")),
+            ("mapError", "map_error"),
+        ] {
+            let source = format!(
+                "#[client(surface = \"s\", proto = generated::t::v1)] impl Widgets {{ #[export(sync)] pub fn {rust}() -> u32 {{ body() }} }}"
+            );
+            let message = refused(&source, PROTO);
+            assert!(
+                message.contains(&format!("is the TypeScript function `{name}`")),
+                "{name}: {message}"
+            );
+            assert!(message.contains("already exports"), "{message}");
+        }
+    }
+
+    #[test]
+    fn two_static_exports_cannot_share_a_function_name() {
+        let source = r#"
+#[client(surface = "s", proto = generated::t::v1)]
+impl Widgets { #[export(sync)] pub fn size() -> u32 { body() } }
+#[client(surface = "t", proto = generated::t::v1)]
+mod other { #[export(sync)] pub fn size() -> u32 { body() } }
+"#;
+        let message = refused(source, PROTO);
+        assert!(
+            message.contains("the static export `size` is the TypeScript function `size`"),
+            "{message}"
+        );
+    }
+
     #[test]
     fn the_entry_opens_every_client_from_one_session_and_clients_have_no_create() {
         let client = client();
@@ -1703,7 +1955,11 @@ impl Widgets {
         assert!(index.contains("CredentialSource"));
         assert!(index.contains("Number as t_v1_Number"));
         assert!(index.contains("from \"@bufbuild/protobuf/wkt\";"));
-        assert!(index.contains("export { init, sdkBuildInfo } from \"./init.js\";"));
+        assert!(
+            index.contains(
+                "export { init, SdkNotInitializedError, sdkBuildInfo } from \"./init.js\";"
+            )
+        );
     }
 
     const REACHING_PROTO: &str = r#"syntax = "proto3";
@@ -1843,7 +2099,7 @@ impl Items {
             .find("const directory = evidenceDirectory();")
             .expect("the gate reads the evidence directory");
         let plain = init[gate..]
-            .find("if (directory === undefined) {\n    await initGlue({ module_or_path: input });\n    return glue;\n  }")
+            .find("if (directory === undefined) {\n    await initGlue({ module_or_path: input });\n    ready = glue;\n    return glue;\n  }")
             .expect("no evidence: the module streams as it is");
         let hashed = init[gate..]
             .find("await recordProvenance(directory, bytes);")
@@ -2131,6 +2387,20 @@ impl C {
             imports.message(&contract.message("a.v1.Item").expect("a")),
             "Item"
         );
+    }
+
+    #[test]
+    fn a_well_known_type_no_proto_imports_still_resolves() {
+        let contract =
+            testkit::compile("syntax = \"proto3\"; package t.v1; message A { uint32 a = 1; }");
+        assert_eq!(
+            contract
+                .message("google.protobuf.Empty")
+                .expect("well-known")
+                .full_name(),
+            "google.protobuf.Empty"
+        );
+        assert!(contract.message("t.v1.Missing").is_err());
     }
 
     #[test]

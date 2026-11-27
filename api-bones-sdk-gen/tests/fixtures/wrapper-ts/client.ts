@@ -17,13 +17,15 @@ import {
   type SdkSession,
 } from "@brefwiz/api-bones-sdk-runtime";
 import type * as glue from "./api_bones_test_service_l2.js";
-import { init, WRAPPER_BOUNDARY } from "./init.js";
+import { init, loaded, WRAPPER_BOUNDARY } from "./init.js";
 import type { CallOptions, ListOptions } from "./types.js";
 import { WatchArgsSchema, type WatchArgs } from "./proto/contract/sdk/v1/events_pb.js";
-import { ListNumbersArgsSchema, NumberSchema as contract_sdk_v1_NumberSchema, NumbersOptionsSchema, type ListNumbersArgs, type Number as contract_sdk_v1_Number, type NumbersOptions } from "./proto/contract/sdk/v1/numbers_pb.js";
+import { ClampArgsSchema, ListNumbersArgsSchema, NumberSchema as contract_sdk_v1_NumberSchema, NumbersOptionsSchema, type ClampArgs, type ListNumbersArgs, type Number as contract_sdk_v1_Number, type NumbersOptions } from "./proto/contract/sdk/v1/numbers_pb.js";
 import { BatchGetWidgetsArgsSchema, GetWidgetArgsSchema, ListWidgetPartsArgsSchema, WidgetPartSchema, type BatchGetWidgetsArgs, type GetWidgetArgs, type ListWidgetPartsArgs, type WidgetPart } from "./proto/contract/sdk/v1/widgets_pb.js";
 import { TickSchema, type Tick } from "./proto/contract/v1/events_pb.js";
 import { WidgetSchema, type Widget } from "./proto/contract/v1/widgets_pb.js";
+import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
+import { UInt32ValueSchema, type UInt32Value } from "@bufbuild/protobuf/wkt";
 
 const sink = new JsSpanSink();
 
@@ -122,6 +124,28 @@ export class EventsClient {
       (bytes) => fromBinary(TickSchema, bytes),
       mapError,
     );
+  }
+}
+
+/** Callable once `init()` has resolved; throws `SdkNotInitializedError` before. */
+export function maxPageSize(): number {
+  const request = toBinary(EmptySchema, create(EmptySchema));
+  try {
+    const bytes = loaded().api_bones__NumbersClient.api_bones__NumbersClient__MAX_PAGE_SIZE(request);
+    return fromBinary(UInt32ValueSchema, bytes).value;
+  } catch (rejection) {
+    throw mapError(rejection);
+  }
+}
+
+/** Callable once `init()` has resolved; throws `SdkNotInitializedError` before. */
+export function clamp(value: number, low: number, high: number): number {
+  const request = toBinary(ClampArgsSchema, create(ClampArgsSchema, { value, low, high }));
+  try {
+    const bytes = loaded().api_bones__NumbersClient.api_bones__NumbersClient__clamp(request);
+    return fromBinary(UInt32ValueSchema, bytes).value;
+  } catch (rejection) {
+    throw mapError(rejection);
   }
 }
 

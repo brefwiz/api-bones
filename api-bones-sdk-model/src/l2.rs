@@ -8,7 +8,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::Model;
+use crate::model::{Model, Shape};
 use crate::names::{NameError, export_name, typescript_name};
 use crate::ty::{HandleKind, Return};
 
@@ -220,8 +220,9 @@ impl From<NameError> for L2Error {
 
 /// Builds the document for one Layer 2 crate.
 ///
-/// Sync exports (the constructor, build info and any `#[export(sync)]`) have no
-/// endpoint and are left out of `methods`.
+/// Sync methods (the constructor, build info and any `#[export(sync)]` taking
+/// `&self`) are left out of `methods`. A static function or constant export is
+/// listed with kind `sync` and no endpoints.
 ///
 /// # Errors
 ///
@@ -245,18 +246,21 @@ pub fn l2_methods(
                     surface: export.surface.clone(),
                 });
             }
-            if export.sync {
+            if export.sync && export.shape == Shape::Method {
                 continue;
             }
-            let endpoints: Vec<String> = spec
-                .endpoints
-                .get(&export.surface)
-                .into_iter()
-                .flatten()
-                .filter(|(_, rust)| rust.contains(&export.method))
-                .map(|(endpoint, _)| endpoint.clone())
-                .collect();
-            if endpoints.is_empty() {
+            let endpoints: Vec<String> = if export.sync {
+                Vec::new()
+            } else {
+                spec.endpoints
+                    .get(&export.surface)
+                    .into_iter()
+                    .flatten()
+                    .filter(|(_, rust)| rust.contains(&export.method))
+                    .map(|(endpoint, _)| endpoint.clone())
+                    .collect()
+            };
+            if endpoints.is_empty() && !export.sync {
                 return Err(L2Error::NoEndpoint {
                     method: export.method.clone(),
                 });
@@ -267,7 +271,11 @@ pub fn l2_methods(
                 rust: export.method.clone(),
                 typescript: typescript_name(&export.method),
                 surface: export.surface.clone(),
-                kind: L2Kind::of(&export.ret),
+                kind: if export.sync {
+                    L2Kind::Sync
+                } else {
+                    L2Kind::of(&export.ret)
+                },
                 endpoints,
             });
         }
@@ -351,6 +359,38 @@ mod tests {
             #[export] async fn watch_all(&self) -> Stream<generated::p::v1::R> { body() }
         }
     "#;
+
+    #[test]
+    fn a_static_function_and_a_constant_are_sync_methods_with_no_endpoint() {
+        let source = r#"
+            #[client(surface = "s", proto = generated::p::v1)]
+            impl Tools {
+                #[export(sync)] pub const LIMIT: u32 = 3;
+                #[export(sync)] pub fn clamp(value: u32) -> u32 { body() }
+                #[export(sync)] fn label(&self) -> String { body() }
+            }
+        "#;
+        let document = build(source, &spec(&[])).expect("statics need no endpoint");
+        let listed: Vec<_> = document
+            .methods
+            .iter()
+            .map(|m| {
+                (
+                    m.export.as_str(),
+                    m.typescript.as_str(),
+                    m.kind,
+                    m.endpoints.len(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("api_bones_test__Tools__LIMIT", "limit", L2Kind::Sync, 0),
+                ("api_bones_test__Tools__clamp", "clamp", L2Kind::Sync, 0),
+            ]
+        );
+    }
 
     #[test]
     fn methods_are_sorted_spelled_and_given_every_endpoint_listing_them() {

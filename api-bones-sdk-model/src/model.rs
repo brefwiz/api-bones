@@ -28,7 +28,10 @@ use std::collections::BTreeSet;
 
 use heck::ToUpperCamelCase;
 use quote::ToTokens;
-use syn::{Attribute, Fields, FnArg, ImplItem, ImplItemFn, Item, ItemEnum, ItemImpl, Pat, Type};
+use syn::{
+    Attribute, Fields, FnArg, Ident, ImplItem, Item, ItemEnum, ItemImpl, ItemMod, Pat, Signature,
+    Type,
+};
 
 use crate::attrs::{ClientArgs, ErrorArgs, ErrorVariantArgs, ExportArgs, find, tokens};
 use crate::names::json_name;
@@ -127,16 +130,31 @@ pub struct ErrorType {
     pub variants: Vec<ErrorVariant>,
 }
 
-/// One `#[export]` method.
+/// What an export is in the Rust source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    /// A method taking `&self`.
+    Method,
+    /// A function with no receiver: an associated function of a client impl or
+    /// a free function of a client module. Always `#[export(sync)]`.
+    Function,
+    /// An associated or free `const`, exported as a function that takes
+    /// nothing. Always `#[export(sync)]`.
+    Constant,
+}
+
+/// One `#[export]` method, function or constant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Export {
     /// The Rust function name.
     pub method: String,
+    /// Whether the export is a method, a receiver-less function or a constant.
+    pub shape: Shape,
     /// `#[export(sync)]`.
     pub sync: bool,
     /// The `sdk_surfaces` id: the method's own, else its client's.
     pub surface: String,
-    /// The parameters after `&self`.
+    /// The parameters after `&self`; every parameter of a function.
     pub params: Vec<Param>,
     /// The message the parameters arrive as; see the module docs.
     pub args: Wire,
@@ -144,11 +162,14 @@ pub struct Export {
     pub ret: Return,
 }
 
-/// An `impl` that carries `#[client]`.
+/// An `impl` or an inline `mod` that carries `#[client]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Client {
-    /// The type the impl is for.
+    /// The type the impl is for, or the name of the module.
     pub ty: String,
+    /// The client is a `mod`: it holds only receiver-less exports, has no
+    /// instance, no constructor and no options.
+    pub module: bool,
     /// The default surface of its exports.
     pub surface: String,
     /// The Rust module path of the impl's `<Method>Args` messages, from
@@ -167,7 +188,7 @@ pub struct Client {
 pub struct Model {
     /// The `#[error]` enums.
     pub errors: Vec<ErrorType>,
-    /// The `#[client]` impls.
+    /// The `#[client]` impls and modules.
     pub clients: Vec<Client>,
 }
 
@@ -211,6 +232,9 @@ impl Model {
                         model.clients.push(client);
                     }
                 }
+                Item::Mod(item) if find(&item.attrs, "client").is_some() => {
+                    model.clients.push(module_client(item, &env)?);
+                }
                 Item::Fn(item) if find(&item.attrs, "export").is_some() => {
                     return Err(outside(item.sig.ident.span()));
                 }
@@ -221,14 +245,17 @@ impl Model {
     }
 }
 
-/// The items of a file and of its inline modules, in source order.
+/// The items of a file and of its inline modules, in source order. A module
+/// that carries `#[client]` is one item: its functions are its exports.
 fn flatten<'a>(items: &'a [Item], out: &mut Vec<&'a Item>) {
     for item in items {
         out.push(item);
-        if let Item::Mod(syn::ItemMod {
+        if let Item::Mod(ItemMod {
+            attrs,
             content: Some((_, inner)),
             ..
         }) = item
+            && find(attrs, "client").is_none()
         {
             flatten(inner, out);
         }
@@ -309,17 +336,89 @@ fn error_field(field: &syn::Field) -> syn::Result<ErrorField> {
     Ok(ErrorField { name, kind })
 }
 
-fn exported(item: &ImplItem) -> Option<(&ImplItemFn, &Attribute)> {
+/// What `#[export]` sits on, in an impl or a module: the signature, the
+/// attribute, and for a constant its type.
+struct Member<'a> {
+    sig: Signature,
+    attr: &'a Attribute,
+    constant: Option<&'a Type>,
+}
+
+impl<'a> Member<'a> {
+    fn function(sig: &Signature, attr: &'a Attribute) -> Self {
+        Self {
+            sig: sig.clone(),
+            attr,
+            constant: None,
+        }
+    }
+
+    /// A constant has no parameter, so its signature is `fn NAME() -> T`.
+    fn constant(ident: &Ident, ty: &'a Type, attr: &'a Attribute) -> Self {
+        let function: syn::ItemFn = syn::parse_quote!(
+            fn f() {}
+        );
+        let mut sig = function.sig;
+        sig.ident = ident.clone();
+        sig.output = syn::ReturnType::Type(syn::token::RArrow::default(), Box::new(ty.clone()));
+        Self {
+            sig,
+            attr,
+            constant: Some(ty),
+        }
+    }
+}
+
+fn exported(item: &ImplItem) -> Option<Member<'_>> {
     match item {
-        ImplItem::Fn(function) => find(&function.attrs, "export").map(|attr| (function, attr)),
+        ImplItem::Fn(function) => {
+            find(&function.attrs, "export").map(|attr| Member::function(&function.sig, attr))
+        }
+        ImplItem::Const(constant) => find(&constant.attrs, "export")
+            .map(|attr| Member::constant(&constant.ident, &constant.ty, attr)),
         _ => None,
     }
+}
+
+fn module_exported(item: &Item) -> Option<Member<'_>> {
+    match item {
+        Item::Fn(function) => {
+            find(&function.attrs, "export").map(|attr| Member::function(&function.sig, attr))
+        }
+        Item::Const(constant) => find(&constant.attrs, "export")
+            .map(|attr| Member::constant(&constant.ident, &constant.ty, attr)),
+        _ => None,
+    }
+}
+
+/// A `#[client]` module: free functions and constants, no instance.
+fn module_client(item: &ItemMod, env: &Env) -> syn::Result<Client> {
+    let attr = find(&item.attrs, "client").expect("the caller found it");
+    let args = ClientArgs::parse(tokens(attr)?)?;
+    let Some((_, inner)) = &item.content else {
+        return Err(syn::Error::new_spanned(
+            &item.ident,
+            "`#[client]` goes on a module with its items inline",
+        ));
+    };
+    let mut exports = Vec::new();
+    for member in inner.iter().filter_map(module_exported) {
+        exports.push(export(&member, &args, env, true)?);
+    }
+    Ok(Client {
+        ty: item.ident.to_string(),
+        module: true,
+        surface: args.surface,
+        proto: args.proto,
+        exports,
+        options: None,
+    })
 }
 
 fn client(item: &ItemImpl, env: &Env) -> syn::Result<Option<Client>> {
     let Some(attr) = find(&item.attrs, "client") else {
         return match item.items.iter().find_map(exported) {
-            Some((function, _)) => Err(outside(function.sig.ident.span())),
+            Some(member) => Err(outside(member.sig.ident.span())),
             None => Ok(None),
         };
     };
@@ -337,11 +436,12 @@ fn client(item: &ItemImpl, env: &Env) -> syn::Result<Option<Client>> {
         )
     })?;
     let mut exports = Vec::new();
-    for (function, attr) in item.items.iter().filter_map(exported) {
-        exports.push(export(function, attr, &args, env)?);
+    for member in item.items.iter().filter_map(exported) {
+        exports.push(export(&member, &args, env, false)?);
     }
     Ok(Some(Client {
         ty,
+        module: false,
         surface: args.surface,
         proto: args.proto,
         exports,
@@ -409,13 +509,12 @@ fn plain_name(pat: &Pat) -> syn::Result<String> {
 /// An `args = ...` override names it; else, with parameters, it is
 /// `<proto>::<PascalMethod>Args`; an export with neither takes nothing.
 fn args_message(
-    function: &ImplItemFn,
+    ident: &Ident,
     method: &str,
     args: &ExportArgs,
     client: &ClientArgs,
     has_params: bool,
 ) -> syn::Result<Wire> {
-    let ident = &function.sig.ident;
     let message = |path: &str| {
         proto_ref(path).map(Wire::Message).map_err(|reason| {
             syn::Error::new_spanned(ident, format!("export `{method}`: {reason}"))
@@ -438,13 +537,19 @@ fn args_message(
 }
 
 fn export(
-    function: &ImplItemFn,
-    attr: &Attribute,
+    member: &Member<'_>,
     client: &ClientArgs,
     env: &Env,
+    in_module: bool,
 ) -> syn::Result<Export> {
-    let args = ExportArgs::parse(tokens(attr)?)?;
-    let sig = &function.sig;
+    let args = ExportArgs::parse(tokens(member.attr)?)?;
+    let sig = &member.sig;
+    if member.constant.is_some() && !args.sync {
+        return Err(syn::Error::new_spanned(
+            &sig.ident,
+            "a constant export is `#[export(sync)]`: it has no endpoint to call",
+        ));
+    }
     if args.sync == sig.asyncness.is_some() {
         return Err(syn::Error::new_spanned(
             sig,
@@ -461,20 +566,31 @@ fn export(
             "an export has no generics",
         ));
     }
-    match sig.receiver() {
-        Some(receiver) if receiver.reference.is_some() && receiver.mutability.is_none() => {}
+    let shape = match sig.receiver() {
+        _ if member.constant.is_some() => Shape::Constant,
+        Some(receiver) if receiver.reference.is_some() && receiver.mutability.is_none() => {
+            Shape::Method
+        }
         Some(receiver) => {
             return Err(syn::Error::new_spanned(
                 receiver,
                 "an export takes `&self`, not `self` or `&mut self`",
             ));
         }
+        None if args.sync => Shape::Function,
         None => {
             return Err(syn::Error::new_spanned(
                 &sig.ident,
-                "an export takes `&self`",
+                "an async export takes `&self`: a function with no receiver is `#[export(sync)]`, \
+                 and an async one belongs on a method of a client",
             ));
         }
+    };
+    if in_module && shape == Shape::Method {
+        return Err(syn::Error::new_spanned(
+            sig,
+            "a function of a `#[client]` module has no receiver",
+        ));
     }
     let mut params = Vec::new();
     for input in &sig.inputs {
@@ -488,12 +604,20 @@ fn export(
         });
     }
     let method = sig.ident.to_string();
+    let ret = classify_return(&sig.output, args.sync, env)?;
+    if shape == Shape::Constant && !matches!(ret, Return::Value(_)) {
+        return Err(syn::Error::new_spanned(
+            &sig.ident,
+            "a constant export is a message or a scalar",
+        ));
+    }
     Ok(Export {
-        args: args_message(function, &method, &args, client, !params.is_empty())?,
+        args: args_message(&sig.ident, &method, &args, client, !params.is_empty())?,
+        shape,
         sync: args.sync,
         surface: args.surface.unwrap_or_else(|| client.surface.clone()),
         params,
-        ret: classify_return(&sig.output, args.sync, env)?,
+        ret,
         method,
     })
 }
@@ -815,14 +939,123 @@ mod tests {
                 "{receiver}: {message}"
             );
         }
-        let message = export_refused("#[export(sync)] fn go() {}");
-        assert!(message.contains("takes `&self`"), "{message}");
+        let message = export_refused("#[export] async fn go() -> Result<(), Error> { body() }");
+        assert!(
+            message.contains("an async export takes `&self`"),
+            "{message}"
+        );
         let message = export_refused("#[export(sync)] fn go(&self, (a, b): (i32, i32)) {}");
         assert!(message.contains("a parameter is a plain name"), "{message}");
         let message = export_refused("#[export] async fn go(&self) -> Plain { body() }");
         assert!(message.contains("the return type"), "{message}");
         let message = export_refused("#[export(bad)] fn go(&self) {}");
         assert!(message.contains("unknown argument"), "{message}");
+    }
+
+    const STATICS: &str = r#"
+        #[client(surface = "tools", proto = generated::p::v1)]
+        impl Tools {
+            #[export(sync)]
+            pub fn version() -> String { body() }
+            #[export(sync)]
+            pub fn clamp(low: u32, high: u32) -> u32 { body() }
+            #[export(sync)]
+            pub const LIMIT: u32 = 5;
+            #[export(sync)]
+            pub fn label(&self) -> String { body() }
+        }
+
+        #[client(surface = "tools", proto = generated::p::v1)]
+        mod text {
+            #[export(sync)]
+            pub fn upper(value: String) -> String { body() }
+            #[export(sync)]
+            pub const NAME: String = String::new();
+            #[export(sync)]
+            pub fn none() -> Result<(), Error> { body() }
+        }
+    "#;
+
+    #[test]
+    fn a_function_a_constant_and_a_method_are_told_apart() {
+        let model = Model::from_source(STATICS).expect("ok");
+        let tools = &model.clients[0];
+        assert!(!tools.module);
+        let shapes: Vec<_> = tools
+            .exports
+            .iter()
+            .map(|e| (e.method.as_str(), e.shape))
+            .collect();
+        assert_eq!(
+            shapes,
+            [
+                ("version", Shape::Function),
+                ("clamp", Shape::Function),
+                ("LIMIT", Shape::Constant),
+                ("label", Shape::Method),
+            ]
+        );
+        assert_eq!(tools.exports[0].args, Wire::Empty);
+        assert_eq!(
+            tools.exports[1].args,
+            message("generated::p::v1::ClampArgs", "p.v1.ClampArgs")
+        );
+        assert_eq!(tools.exports[1].params.len(), 2);
+        assert_eq!(tools.exports[2].params, []);
+        assert_eq!(tools.exports[2].args, Wire::Empty);
+        assert!(matches!(
+            tools.exports[2].ret,
+            Return::Value(Wire::Wrapper(_))
+        ));
+    }
+
+    #[test]
+    fn a_client_module_holds_its_functions_and_is_not_walked_as_a_plain_module() {
+        let model = Model::from_source(STATICS).expect("ok");
+        let text = &model.clients[1];
+        assert!(text.module);
+        assert_eq!(text.ty, "text");
+        assert_eq!(text.options, None);
+        let names: Vec<_> = text.exports.iter().map(|e| e.method.as_str()).collect();
+        assert_eq!(names, ["upper", "NAME", "none"]);
+        assert_eq!(text.exports[0].surface, "tools");
+    }
+
+    #[test]
+    fn an_export_inside_a_module_without_client_is_still_outside() {
+        assert!(refused("mod m { #[export(sync)] fn f() {} }").contains("carries `#[client]`"));
+    }
+
+    #[test]
+    fn a_client_module_refuses_what_a_module_cannot_hold() {
+        let module = |body: &str| {
+            refused(&format!(
+                "#[client(surface = \"s\", proto = generated::p::v1)] mod m {{ {body} }}"
+            ))
+        };
+        assert!(
+            module("#[export] async fn f() -> Result<(), Error> { body() }")
+                .contains("belongs on a method")
+        );
+        assert!(module("#[export(sync)] fn f(&self) {}").contains("no receiver"));
+        assert!(
+            module("#[export] const C: u32 = 1;")
+                .contains("a constant export is `#[export(sync)]`")
+        );
+        assert!(
+            module("#[export(sync)] const C: Result<(), Error> = Ok(());")
+                .contains("a message or a scalar")
+        );
+        assert!(module("#[export(sync)] const C: () = ();").contains("a message or a scalar"));
+        assert!(refused("#[client(surface = \"s\")] mod m;").contains("items inline"));
+        assert!(refused("#[client] mod m {}").contains("needs `surface"));
+    }
+
+    #[test]
+    fn a_constant_outside_a_client_is_refused() {
+        assert!(
+            refused("impl C { #[export(sync)] const A: u32 = 1; }").contains("carries `#[client]`")
+        );
     }
 
     fn options_of(constructor: &str) -> syn::Result<Option<ProtoRef>> {

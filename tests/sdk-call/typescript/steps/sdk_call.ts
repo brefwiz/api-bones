@@ -25,7 +25,7 @@ import { BasicTracerProvider, SamplingDecision } from "@opentelemetry/sdk-trace-
 import type { ReadableSpan, Sampler, SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Credential, CredentialAsk, SdkSession } from "@brefwiz/api-bones-sdk-runtime";
 import type { Patch } from "@brefwiz/api-bones-test-service";
-import { apiBonesSdk } from "@brefwiz/api-bones-test-service-sdk";
+import { apiBonesSdk, clamp, init, maxPageSize } from "@brefwiz/api-bones-test-service-sdk";
 
 import { Provider } from "./provider_process.ts";
 import type { CallerChange } from "./provider_process.ts";
@@ -174,6 +174,10 @@ export class SdkCallWorld extends World {
   /** Milliseconds from the start of the watch to each tick it delivered. */
   tickAt: number[] = [];
   refusal: unknown;
+  /** What the last static function or constant the caller used answered. */
+  staticAnswer: number | undefined;
+  /** What a fresh process answered to a static call made before the SDK's init. */
+  fresh: { before: string } | undefined;
   /** The items the caller walked, and the first page it read alone. */
   items: number[] = [];
   first: NumbersPage | undefined;
@@ -1249,4 +1253,22 @@ Then("the revision cache still holds the numbers list of the other caller", asyn
   this.opened = sdk;
   const first = await sdk.numbersClient.list().firstPage();
   assert.equal(first.fromCache, true, `the refusal emptied the other caller's cache; ${await seenNote(this)}`);
+});
+
+// --- the static exports of the SDK ---
+
+When("the caller clamps {int} between {int} and {int} through the SDK", async function (this: SdkCallWorld, value: number, low: number, high: number) {
+  await init();
+  const answer = clamp(value, low, high);
+  this.staticAnswer = answer;
+});
+
+When("the caller reads the largest page size through the SDK", async function (this: SdkCallWorld) {
+  await init();
+  const largest = maxPageSize();
+  this.staticAnswer = largest;
+});
+
+Then("the static answer is {int}", function (this: SdkCallWorld, expected: number) {
+  assert.equal(this.staticAnswer, expected);
 });

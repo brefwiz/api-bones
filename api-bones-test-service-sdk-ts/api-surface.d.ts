@@ -4,10 +4,12 @@ import type { BatchItem, ListCall, SdkSession } from "@brefwiz/api-bones-sdk-run
 import type { MessageInitShape } from "@bufbuild/protobuf";
 import type { CallOptions, ListOptions } from "./src/generated/types.js";
 import type { WatchArgs, WatchArgsSchema } from "./src/generated/proto/contract/sdk/v1/events_pb.js";
-import type { ListNumbersArgs, ListNumbersArgsSchema, Number as contract_sdk_v1_Number, NumberSchema as contract_sdk_v1_NumberSchema, NumbersOptions, NumbersOptionsSchema } from "./src/generated/proto/contract/sdk/v1/numbers_pb.js";
+import type { ClampArgs, ClampArgsSchema, ListNumbersArgs, ListNumbersArgsSchema, Number as contract_sdk_v1_Number, NumberSchema as contract_sdk_v1_NumberSchema, NumbersOptions, NumbersOptionsSchema } from "./src/generated/proto/contract/sdk/v1/numbers_pb.js";
 import type { BatchGetWidgetsArgs, BatchGetWidgetsArgsSchema, GetWidgetArgs, GetWidgetArgsSchema, ListWidgetPartsArgs, ListWidgetPartsArgsSchema, WidgetPart, WidgetPartSchema } from "./src/generated/proto/contract/sdk/v1/widgets_pb.js";
 import type { Tick, TickSchema } from "./src/generated/proto/contract/v1/events_pb.js";
 import type { Widget, WidgetSchema } from "./src/generated/proto/contract/v1/widgets_pb.js";
+import type { Empty, EmptySchema } from "@bufbuild/protobuf/wkt";
+import type { UInt32Value, UInt32ValueSchema } from "@bufbuild/protobuf/wkt";
 
 /** What the entry takes besides the session: the server's address and the options of its clients. */
 export interface ApiBonesSdkOptions {
@@ -39,5 +41,11 @@ export declare class EventsClient {
   private constructor();
   watch(ticks: number, opts?: CallOptions): AsyncIterable<Tick>;
 }
+
+/** Callable once `init()` has resolved; throws `SdkNotInitializedError` before. */
+export declare function maxPageSize(): number;
+
+/** Callable once `init()` has resolved; throws `SdkNotInitializedError` before. */
+export declare function clamp(value: number, low: number, high: number): number;
 
 export declare function apiBonesSdk(session: SdkSession, opts?: ApiBonesSdkOptions): Promise<ApiBonesSdk>;

@@ -26,3 +26,10 @@ message ListNumbersArgs {
   // default.
   optional uint32 page_size = 1;
 }
+
+// The parameters of `NumbersClient::clamp`.
+message ClampArgs {
+  uint32 value = 1;
+  uint32 low = 2;
+  uint32 high = 3;
+}

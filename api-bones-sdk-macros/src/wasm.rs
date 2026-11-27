@@ -51,11 +51,11 @@
 use std::collections::BTreeSet;
 
 use api_bones_sdk_model::{
-    Client, Export, HandleKind, ProtoRef, Return, Wire, export_name, gate_features,
+    Client, Export, HandleKind, ProtoRef, Return, Shape, Wire, export_name, gate_features,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
-use syn::{FnArg, ImplItemFn, Pat, Type};
+use syn::{FnArg, Ident, Pat, Signature, Type};
 
 use crate::common::{head, private, upper_camel};
 
@@ -228,14 +228,68 @@ fn scoped(list: bool, reads: &TokenStream, body: &TokenStream) -> TokenStream {
     }
 }
 
+/// What the shell of an export reads of its Rust item: the name, the names of
+/// its parameters and the type it returns. A method, a function and a constant
+/// are all read through it.
+pub(crate) struct Member {
+    ident: Ident,
+    params: Vec<Ident>,
+    pub(crate) output: Option<Type>,
+}
+
+impl Member {
+    /// A method or function, from its signature.
+    pub(crate) fn of_fn(sig: &Signature) -> Self {
+        let params = sig
+            .inputs
+            .iter()
+            .filter_map(|input| match input {
+                FnArg::Typed(typed) => match &*typed.pat {
+                    Pat::Ident(ident) => Some(ident.ident.clone()),
+                    _ => None,
+                },
+                FnArg::Receiver(_) => None,
+            })
+            .collect();
+        let output = match &sig.output {
+            syn::ReturnType::Type(_, ty) => Some((**ty).clone()),
+            syn::ReturnType::Default => None,
+        };
+        Self {
+            ident: sig.ident.clone(),
+            params,
+            output,
+        }
+    }
+
+    /// A constant: no parameter, its type is what it returns.
+    pub(crate) fn of_const(ident: &Ident, ty: &Type) -> Self {
+        Self {
+            ident: ident.clone(),
+            params: Vec::new(),
+            output: Some(ty.clone()),
+        }
+    }
+}
+
+/// Where a client's receiver-less exports live: an associated item of the
+/// impl's type, or an item of the client module.
+pub(crate) enum Home<'a> {
+    /// The type of a `#[client]` impl.
+    Impl(&'a Type),
+    /// The name of a `#[client]` module, a sibling of the expansion.
+    Module(&'a Ident),
+}
+
 /// What the expansion of one export needs to know.
 struct Shell<'a> {
     service: &'a str,
     client: &'a Client,
+    home: &'a Home<'a>,
     class_ident: &'a syn::Ident,
     class: &'a str,
     export: &'a Export,
-    function: &'a ImplItemFn,
+    function: &'a Member,
 }
 
 /// The wasm items of one client: its class, its constructor, boundary version
@@ -249,8 +303,8 @@ struct Shell<'a> {
 pub(crate) fn expand(
     service: &str,
     client: &Client,
-    self_ty: &Type,
-    functions: &[&ImplItemFn],
+    home: &Home<'_>,
+    functions: &[Member],
 ) -> syn::Result<TokenStream> {
     let new_js = export_name(service, &client.ty, "new").map_err(|error| named(&error))?;
     let class = new_js.trim_end_matches("__new").to_owned();
@@ -263,6 +317,7 @@ pub(crate) fn expand(
         let shell = Shell {
             service,
             client,
+            home,
             class_ident: &class_ident,
             class: &class,
             export,
@@ -287,56 +342,70 @@ pub(crate) fn expand(
             guard(&TokenStream::new(), message)?,
         ),
     };
-    let rejected = rejection(&quote!(&__error));
-    let build_info = uint8(&quote! {
-        #private::encode_build_info(
-            ::core::env!("CARGO_PKG_NAME"),
-            ::core::env!("CARGO_PKG_VERSION"),
-        )
-    });
+    let class_items = match home {
+        Home::Impl(self_ty) => {
+            let rejected = rejection(&quote!(&__error));
+            let build_info = uint8(&quote! {
+                #private::encode_build_info(
+                    ::core::env!("CARGO_PKG_NAME"),
+                    ::core::env!("CARGO_PKG_VERSION"),
+                )
+            });
+            quote! {
+                #options_guard
+
+                #struct_attr
+                pub struct #class_ident {
+                    inner: ::std::sync::Arc<#self_ty>,
+                }
+
+                #impl_attr
+                impl #class_ident {
+                    #[#method(js_name = #new_js)]
+                    pub fn new_js(
+                        base_url: ::std::string::String,
+                        host: #private::wasm_bindgen::JsValue,
+                        options: #private::js_sys::Uint8Array,
+                        wrapper: u32,
+                        runtime: u32,
+                    ) -> ::core::result::Result<Self, #private::wasm_bindgen::JsValue> {
+                        (|| -> ::core::result::Result<#self_ty, ::api_bones_sdk::Error> {
+                            #private::check_boundary(wrapper, runtime)?;
+                            let __options = options.to_vec();
+                            #options
+                            <#self_ty>::from_host(base_url, host #options_arg)
+                                .map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)
+                        })()
+                        .map(|__client| Self { inner: ::std::sync::Arc::new(__client) })
+                        .map_err(|__error| #rejected)
+                    }
+
+                    #[#method(js_name = "__api_bones_sdk_boundary")]
+                    pub fn boundary_js() -> u32 {
+                        ::api_bones_sdk::BOUNDARY
+                    }
+
+                    #[#method(js_name = "__api_bones_sdk_build_info")]
+                    pub fn build_info_js() -> #private::js_sys::Uint8Array {
+                        #build_info
+                    }
+                }
+            }
+        }
+        // A module has no instance: its class only carries the static exports,
+        // and the `Default` derive is the one place the empty struct is built.
+        Home::Module(_) => quote! {
+            #[derive(::core::default::Default)]
+            #struct_attr
+            pub struct #class_ident {}
+        },
+    };
     Ok(quote! {
         #class_gate
         const _: () = {
         use #private::wasm_bindgen;
 
-        #options_guard
-
-        #struct_attr
-        pub struct #class_ident {
-            inner: ::std::sync::Arc<#self_ty>,
-        }
-
-        #impl_attr
-        impl #class_ident {
-            #[#method(js_name = #new_js)]
-            pub fn new_js(
-                base_url: ::std::string::String,
-                host: #private::wasm_bindgen::JsValue,
-                options: #private::js_sys::Uint8Array,
-                wrapper: u32,
-                runtime: u32,
-            ) -> ::core::result::Result<Self, #private::wasm_bindgen::JsValue> {
-                (|| -> ::core::result::Result<#self_ty, ::api_bones_sdk::Error> {
-                    #private::check_boundary(wrapper, runtime)?;
-                    let __options = options.to_vec();
-                    #options
-                    <#self_ty>::from_host(base_url, host #options_arg)
-                        .map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)
-                })()
-                .map(|__client| Self { inner: ::std::sync::Arc::new(__client) })
-                .map_err(|__error| #rejected)
-            }
-
-            #[#method(js_name = "__api_bones_sdk_boundary")]
-            pub fn boundary_js() -> u32 {
-                ::api_bones_sdk::BOUNDARY
-            }
-
-            #[#method(js_name = "__api_bones_sdk_build_info")]
-            pub fn build_info_js() -> #private::js_sys::Uint8Array {
-                #build_info
-            }
-        }
+        #class_items
 
         #(#methods)*
         };
@@ -351,18 +420,21 @@ impl Shell<'_> {
             .into_iter()
             .collect();
         let gate = gate(&features);
-        let method = &self.function.sig.ident;
+        let method = &self.function.ident;
         let impl_attr = impl_attr(self.class);
         let class_ident = self.class_ident;
         let decode = self.decode()?;
         let call_args = self.call_args();
         let parts = Parts {
             js,
-            shell: format_ident!("{}_js", method),
+            shell: match self.export.shape {
+                Shape::Constant => format_ident!("{}_const_js", method.to_string().to_lowercase()),
+                Shape::Method | Shape::Function => format_ident!("{}_js", method),
+            },
             reads: quote! {
                 #decode
             },
-            call: quote!(__client.#method(#(#call_args),*)),
+            call: self.call(&call_args),
         };
         let (shell, extra) = if self.export.sync {
             (self.sync_shell(&parts)?, TokenStream::new())
@@ -383,6 +455,22 @@ impl Shell<'_> {
 
             #guards
         })
+    }
+
+    /// The call of the Rust item: a method of the shared instance, an
+    /// associated function or constant of the client type, or an item of the
+    /// client module.
+    fn call(&self, args: &[TokenStream]) -> TokenStream {
+        let method = &self.function.ident;
+        let path = match self.home {
+            Home::Impl(self_ty) => quote!(<#self_ty>::#method),
+            Home::Module(module) => quote!(self::#module::#method),
+        };
+        match self.export.shape {
+            Shape::Method => quote!(__client.#method(#(#args),*)),
+            Shape::Function => quote!(#path(#(#args),*)),
+            Shape::Constant => path,
+        }
     }
 
     /// The messages the export's arguments and its result cross as.
@@ -420,18 +508,7 @@ impl Shell<'_> {
 
     /// The names of the method's typed parameters.
     fn parameters(&self) -> Vec<&syn::Ident> {
-        self.function
-            .sig
-            .inputs
-            .iter()
-            .filter_map(|input| match input {
-                FnArg::Typed(typed) => match &*typed.pat {
-                    Pat::Ident(ident) => Some(&ident.ident),
-                    _ => None,
-                },
-                FnArg::Receiver(_) => None,
-            })
-            .collect()
+        self.function.params.iter().collect()
     }
 
     /// The arguments of the call: `&field` for a reference parameter, the
@@ -452,10 +529,7 @@ impl Shell<'_> {
 
     /// The type a method returns, as written.
     fn declared(&self) -> Option<&Type> {
-        match &self.function.sig.output {
-            syn::ReturnType::Type(_, ty) => Some(ty),
-            syn::ReturnType::Default => None,
-        }
+        self.function.output.as_ref()
     }
 
     /// The shell of a synchronous export: the arguments in, the result out.
@@ -472,13 +546,17 @@ impl Shell<'_> {
         let outcome = self.sync_outcome(call)?;
         let delivered = uint8(&quote!(__bytes));
         let rejected = rejection(&quote!(&__error));
+        let (receiver, instance) = match self.export.shape {
+            Shape::Method => (quote!(&self,), quote!(let __client = &self.inner;)),
+            Shape::Function | Shape::Constant => (TokenStream::new(), TokenStream::new()),
+        };
         Ok(quote! {
             #[#wasm_bindgen(js_name = #js)]
             pub fn #shell(
-                &self,
+                #receiver
                 __args: #private::js_sys::Uint8Array,
             ) -> ::core::result::Result<#private::js_sys::Uint8Array, #js_value> {
-                let __client = &self.inner;
+                #instance
                 (|| -> ::core::result::Result<::std::vec::Vec<u8>, ::api_bones_sdk::Error> {
                     #reads
                     #outcome
@@ -682,6 +760,7 @@ impl Shell<'_> {
 mod tests {
     use api_bones_sdk_model::Model;
     use quote::ToTokens;
+    use syn::ImplItemFn;
 
     use super::*;
     use crate::common::flat;
@@ -736,19 +815,24 @@ mod tests {
                 _ => None,
             })
             .expect("an impl");
-        let functions: Vec<&ImplItemFn> = item
+        let functions: Vec<Member> = item
             .items
             .iter()
             .filter_map(|member| match member {
                 syn::ImplItem::Fn(function)
                     if api_bones_sdk_model::attrs::find(&function.attrs, "export").is_some() =>
                 {
-                    Some(function)
+                    Some(Member::of_fn(&function.sig))
                 }
                 _ => None,
             })
             .collect();
-        expand(service, &model.clients[0], &item.self_ty, &functions)
+        expand(
+            service,
+            &model.clients[0],
+            &Home::Impl(&item.self_ty),
+            &functions,
+        )
     }
 
     fn text() -> String {
@@ -965,6 +1049,7 @@ mod tests {
         };
         let client = Client {
             ty: "C".to_owned(),
+            module: false,
             surface: "s".to_owned(),
             proto: None,
             exports: Vec::new(),
@@ -973,7 +1058,7 @@ mod tests {
                 full_name: "a.B".to_owned(),
             }),
         };
-        expand("svc", &client, &item.self_ty, &[]).expect_err("refused");
+        expand("svc", &client, &Home::Impl(&item.self_ty), &[]).expect_err("refused");
     }
 
     #[test]
@@ -1304,16 +1389,21 @@ mod tests {
         let syn::Item::Impl(item) = &file.items[0] else {
             return;
         };
-        let functions: Vec<&ImplItemFn> = item
+        let functions: Vec<Member> = item
             .items
             .iter()
             .filter_map(|member| match member {
-                syn::ImplItem::Fn(function) => Some(function),
+                syn::ImplItem::Fn(function) => Some(Member::of_fn(&function.sig)),
                 _ => None,
             })
             .collect();
-        let error =
-            expand("svc", &model.clients[0], &item.self_ty, &functions).expect_err("refused");
+        let error = expand(
+            "svc",
+            &model.clients[0],
+            &Home::Impl(&item.self_ty),
+            &functions,
+        )
+        .expect_err("refused");
         assert!(error.to_string().contains("method"), "{error}");
     }
 
@@ -1325,7 +1415,9 @@ mod tests {
         let syn::Item::Impl(item) = &file.items[0] else {
             return;
         };
-        let text = flat(&expand("svc", &model.clients[0], &item.self_ty, &[]).expect("expanded"));
+        let text = flat(
+            &expand("svc", &model.clients[0], &Home::Impl(&item.self_ty), &[]).expect("expanded"),
+        );
         assert!(
             text.contains("any(feature=\"sdk-all\",feature=\"sdk-s\")"),
             "{text}"
@@ -1351,6 +1443,7 @@ mod tests {
             .expect("a fn");
         let export = Export {
             method: "f".to_owned(),
+            shape: Shape::Method,
             sync: false,
             surface: "s".to_owned(),
             params: Vec::new(),
@@ -1359,6 +1452,7 @@ mod tests {
         };
         let client = Client {
             ty: "C".to_owned(),
+            module: false,
             surface: "s".to_owned(),
             proto: None,
             exports: vec![export],
@@ -1366,9 +1460,14 @@ mod tests {
         };
         assert_eq!(model.clients.len(), 0);
         let refused = |client: &Client| {
-            expand("svc", client, &item.self_ty, &[function])
-                .expect_err("refused")
-                .to_string()
+            expand(
+                "svc",
+                client,
+                &Home::Impl(&item.self_ty),
+                &[Member::of_fn(&function.sig)],
+            )
+            .expect_err("refused")
+            .to_string()
         };
         let error = refused(&client);
         assert!(error.contains("async export returns"), "{error}");

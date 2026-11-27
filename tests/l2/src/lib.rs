@@ -358,6 +358,20 @@ impl NumbersClient {
             options,
         )
     }
+
+    /// The largest page size the test service's clients ask for. A constant
+    /// export: the TypeScript package reads it through a function that takes
+    /// nothing.
+    #[export(sync)]
+    pub const MAX_PAGE_SIZE: u32 = 1000;
+
+    /// `value` held within `low..=high`; `low` wins when the bounds cross. A
+    /// static export: it needs no client, so it runs without a server.
+    #[export(sync)]
+    #[must_use]
+    pub fn clamp(value: u32, low: u32, high: u32) -> u32 {
+        value.min(high).max(low)
+    }
 }
 
 /// The attempt of the `GetWidget` call: one widget by `id`.
@@ -549,6 +563,21 @@ impl EventsClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clamp_holds_a_value_within_its_bounds_and_the_lower_bound_wins_a_crossed_pair() {
+        assert_eq!(NumbersClient::clamp(5, 1, 10), 5);
+        assert_eq!(NumbersClient::clamp(0, 1, 10), 1);
+        assert_eq!(NumbersClient::clamp(50, 1, 10), 10);
+        assert_eq!(NumbersClient::clamp(5, 8, 3), 8);
+    }
+
+    #[test]
+    fn the_largest_page_size_is_a_page_the_clamp_leaves_alone() {
+        let size = NumbersClient::MAX_PAGE_SIZE;
+        assert_eq!(NumbersClient::clamp(size, 1, size), size);
+        assert_eq!(NumbersClient::clamp(size + 1, 1, size), size);
+    }
 
     #[test]
     fn every_client_opens_against_the_base_address() {
