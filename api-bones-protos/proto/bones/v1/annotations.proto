@@ -859,6 +859,14 @@ extend google.protobuf.ServiceOptions {
   // Provided capabilities whose holders approve a class of action, each with
   // a human label. See file header.
   repeated ApprovalCapability approval_capabilities = 5102376;
+
+  // Invitation reference namespaces this service serves. Naming one does not
+  // allocate it: each name must sit inside a namespace allocated to the
+  // declaring workload's org. The registry refuses tier-zero, reserved and bare
+  // `platform` names, and any name that is also a capability. Only this provider
+  // can read references in that namespace; anyone else gets NOT_FOUND. Absent
+  // means the service serves none.
+  repeated string invitation_reference_namespaces = 5102381;
 }
 
 extend google.protobuf.MethodOptions {

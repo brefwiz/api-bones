@@ -320,6 +320,7 @@ mod tests {
             "repeated CapabilityScopes capability_scopes = 5102356;",
             "repeated AttributeDimension attributes = 5102358;",
             "repeated ApprovalCapability approval_capabilities = 5102376;",
+            "repeated string invitation_reference_namespaces = 5102381;",
             "McpProjection mcp = 5102359;",
             "string attr = 5102360;",
         ] {

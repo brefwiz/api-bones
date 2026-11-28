@@ -42,8 +42,9 @@ use cucumber::{given, then, when};
 use futures_util::StreamExt;
 use futures_util::future::join_all;
 
+use super::tracing_fields::{Fields, TelemetryFields};
+
 // Capture tracing itself, independently of the optional runtime observer.
-type TelemetryFields = std::collections::BTreeMap<String, serde_json::Value>;
 #[derive(Default)]
 struct BatchTelemetry {
     open: std::collections::HashMap<u64, TelemetryFields>,
@@ -52,22 +53,6 @@ struct BatchTelemetry {
 }
 static TELEMETRY: std::sync::LazyLock<Mutex<BatchTelemetry>> =
     std::sync::LazyLock::new(|| Mutex::new(BatchTelemetry::default()));
-struct Fields(TelemetryFields);
-impl tracing::field::Visit for Fields {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.0
-            .insert(field.name().into(), format!("{value:?}").into());
-    }
-    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.0.insert(field.name().into(), value.into());
-    }
-    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.0.insert(field.name().into(), value.into());
-    }
-    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.0.insert(field.name().into(), value.into());
-    }
-}
 struct BatchTelemetryLayer;
 impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for BatchTelemetryLayer {
     fn on_new_span(

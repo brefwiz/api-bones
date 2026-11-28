@@ -1989,6 +1989,17 @@ export declare const attributes: GenExtension<ServiceOptions, AttributeDimension
  * @generated from extension: repeated bones.v1.ApprovalCapability approval_capabilities = 5102376;
  */
 export declare const approval_capabilities: GenExtension<ServiceOptions, ApprovalCapability[]>;
+/**
+ * Invitation reference namespaces this service serves. Naming one does not
+ * allocate it: each name must sit inside a namespace allocated to the
+ * declaring workload's org. The registry refuses tier-zero, reserved and bare
+ * `platform` names, and any name that is also a capability. Only this provider
+ * can read references in that namespace; anyone else gets NOT_FOUND. Absent
+ * means the service serves none.
+ *
+ * @generated from extension: repeated string invitation_reference_namespaces = 5102381;
+ */
+export declare const invitation_reference_namespaces: GenExtension<ServiceOptions, string[]>;
 
 /**
  * Declared error variants for this RPC. Variant names are

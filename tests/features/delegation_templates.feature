@@ -469,6 +469,21 @@ Feature: Delegation templates a provider ships
     And the service option "bones.v1.approval_capabilities" is declared with the number 5102376
 
   @state:happy
+  Scenario: The invitation reference namespaces a provider answers for read back in order
+    Given the provider answers for the invitation reference namespace "booking"
+    And the provider answers for the invitation reference namespace "waitlist"
+    When the provider contract is validated
+    Then the invitation reference namespaces read back exactly "booking, waitlist"
+    And the service option "bones.v1.invitation_reference_namespaces" is declared with the number 5102381
+    And the delegation templates are accepted
+
+  @state:happy
+  Scenario: A provider that declares no invitation reference namespace answers for none
+    When the provider contract is validated
+    Then the invitation reference namespaces read back exactly ""
+    And the delegation templates are accepted
+
+  @state:happy
   Scenario: A relay-only capability audience reads back from the compiled contract
     Given the provider declares the capability audience CAPABILITY_AUDIENCE_MEMBERS_RELAYED
     When the provider contract is validated

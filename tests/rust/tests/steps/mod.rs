@@ -30,6 +30,7 @@ mod stream_control;
 mod stream_keepalive;
 mod stream_rotation;
 mod support;
+mod tracing_fields;
 
 use crate::world::RetryWorld;
 use connectrpc::{ConnectError, ErrorCode};

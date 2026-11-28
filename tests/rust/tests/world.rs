@@ -376,6 +376,8 @@ pub struct DelegationTemplatesWorld {
     pub templates: Vec<String>,
     /// Each capability flagged as an approval capability, with its label text.
     pub approvals: Vec<(String, String)>,
+    /// Each invitation reference namespace the provider answers for.
+    pub invitation_namespaces: Vec<String>,
     pub second_rpc_scopes: Vec<String>,
     pub second_templates: Vec<String>,
     /// The contract leaves out the import that declares the templates option.
@@ -938,6 +940,8 @@ impl BatchWorld {
 pub struct FleetConnectBoundWorld {
     pub port: u16,
     pub plaintext: bool,
+    /// The peer is addressed by a URL carrying userinfo, a path and a query.
+    pub decorated: bool,
     pub peer: Option<tokio::task::JoinHandle<()>>,
     pub elapsed: Option<std::time::Duration>,
     pub failure: Option<ConnectError>,

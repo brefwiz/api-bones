@@ -62,6 +62,12 @@ impl DelegationTemplatesWorld {
                 quoted(label)
             )
         });
+        let namespaces = self.invitation_namespaces.iter().map(|namespace| {
+            format!(
+                "  option (bones.v1.invitation_reference_namespaces) = {};",
+                quoted(namespace)
+            )
+        });
         let dimensions = self
             .dimensions
             .iter()
@@ -72,6 +78,7 @@ impl DelegationTemplatesWorld {
             .chain(broker_scopes)
             .chain(groups)
             .chain(approvals)
+            .chain(namespaces)
             .chain(dimensions)
             .chain(template_options(&self.templates))
             .collect();
@@ -564,6 +571,11 @@ fn given_approval_capability(
     world.approvals.push((capability, label));
 }
 
+#[given(expr = "the provider answers for the invitation reference namespace {string}")]
+fn given_invitation_namespace(world: &mut DelegationTemplatesWorld, namespace: String) {
+    world.invitation_namespaces.push(namespace);
+}
+
 #[when("the provider contract is validated")]
 fn when_validated(world: &mut DelegationTemplatesWorld) {
     let mut compiler = compiler(world.source(), api_bones_protos::files());
@@ -612,6 +624,29 @@ fn then_approval_label(world: &mut DelegationTemplatesWorld, capability: String,
         .unwrap_or_else(|| panic!("{capability} is not flagged as an approval capability"));
     let read = field(entry, "label");
     assert_eq!(text(read.as_message().expect("a label"), "text"), label);
+}
+
+#[then(expr = "the invitation reference namespaces read back exactly {string}")]
+fn then_invitation_namespaces(world: &mut DelegationTemplatesWorld, expected: String) {
+    let pool = world
+        .pool
+        .as_ref()
+        .expect("the provider contract was not compiled");
+    let extension = pool
+        .get_extension_by_name("bones.v1.invitation_reference_namespaces")
+        .expect("the extension is declared");
+    let options = pool
+        .get_service_by_name(SERVICE)
+        .expect("the service is declared")
+        .options();
+    let value = options.get_extension(&extension);
+    let read: Vec<String> = value
+        .as_list()
+        .expect("a repeated option")
+        .iter()
+        .map(|namespace| namespace.as_str().expect("a string").to_owned())
+        .collect();
+    assert_eq!(read.join(", "), expected);
 }
 
 #[then(expr = "the provided capabilities read back exactly {string}")]

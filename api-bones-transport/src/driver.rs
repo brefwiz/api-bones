@@ -5,6 +5,7 @@
 //! timers and the request body pumps all run here, never on the caller's
 //! runtime, so a connection outlives the runtime of the call that opened it.
 
+use std::net::ToSocketAddrs as _;
 use std::num::NonZeroUsize;
 use std::sync::OnceLock;
 
@@ -27,7 +28,17 @@ pub(crate) fn handle() -> &'static Handle {
     DRIVER.get_or_init(start).handle()
 }
 
+/// Pays the system resolver's one-time setup (name-service modules, resolver
+/// configuration) when the driver starts, so the first dial's DNS phase, which
+/// sits inside the establishment bound, costs a lookup and not the setup.
+/// The answer is of no use and a failure changes nothing: the dial resolves
+/// for itself.
+fn warm_resolver() {
+    drop(("localhost", 0_u16).to_socket_addrs());
+}
+
 fn start() -> Runtime {
+    warm_resolver();
     let workers = std::thread::available_parallelism()
         .map_or(1, NonZeroUsize::get)
         .min(MAX_WORKERS);
