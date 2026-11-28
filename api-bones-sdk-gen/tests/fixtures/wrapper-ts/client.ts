@@ -20,7 +20,7 @@ import type * as glue from "./api_bones_test_service_l2.js";
 import { init, loaded, WRAPPER_BOUNDARY } from "./init.js";
 import type { CallOptions, ListOptions } from "./types.js";
 import { WatchArgsSchema, type WatchArgs } from "./proto/contract/sdk/v1/events_pb.js";
-import { ClampArgsSchema, ListNumbersArgsSchema, NumberSchema as contract_sdk_v1_NumberSchema, NumbersOptionsSchema, type ClampArgs, type ListNumbersArgs, type Number as contract_sdk_v1_Number, type NumbersOptions } from "./proto/contract/sdk/v1/numbers_pb.js";
+import { ClampArgsSchema, EightFieldsSchema, ListNumbersArgsSchema, NumberSchema as contract_sdk_v1_NumberSchema, NumbersOptionsSchema, type ClampArgs, type EightFields, type ListNumbersArgs, type Number as contract_sdk_v1_Number, type NumbersOptions } from "./proto/contract/sdk/v1/numbers_pb.js";
 import { BatchGetWidgetsArgsSchema, GetWidgetArgsSchema, ListWidgetPartsArgsSchema, WidgetPartSchema, type BatchGetWidgetsArgs, type GetWidgetArgs, type ListWidgetPartsArgs, type WidgetPart } from "./proto/contract/sdk/v1/widgets_pb.js";
 import { TickSchema, type Tick } from "./proto/contract/v1/events_pb.js";
 import { WidgetSchema, type Widget } from "./proto/contract/v1/widgets_pb.js";
@@ -144,6 +144,17 @@ export function clamp(value: number, low: number, high: number): number {
   try {
     const bytes = loaded().api_bones__NumbersClient.api_bones__NumbersClient__clamp(request);
     return fromBinary(UInt32ValueSchema, bytes).value;
+  } catch (rejection) {
+    throw mapError(rejection);
+  }
+}
+
+/** Callable once `init()` has resolved; throws `SdkNotInitializedError` before. */
+export function echoFields(name: string, quantity: number, active: boolean, ratio: number, offset: bigint, note: string, limit: number, serial: bigint): EightFields {
+  const request = toBinary(EightFieldsSchema, create(EightFieldsSchema, { name, quantity, active, ratio, offset, note, limit, serial }));
+  try {
+    const bytes = loaded().api_bones__NumbersClient.api_bones__NumbersClient__echo_fields(request);
+    return fromBinary(EightFieldsSchema, bytes);
   } catch (rejection) {
     throw mapError(rejection);
   }

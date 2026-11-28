@@ -63,6 +63,9 @@ pub type Tick = generated::contract::v1::Tick;
 /// One number of the `Numbers` list.
 pub type Number = generated::contract::sdk::v1::Number;
 
+/// The eight-field request of `NumbersClient::echo_fields`.
+pub type EightFields = generated::contract::sdk::v1::EightFields;
+
 /// One widget of the `Widgets` service.
 pub type Widget = generated::contract::v1::Widget;
 
@@ -368,6 +371,16 @@ impl NumbersClient {
     #[must_use]
     pub fn clamp(value: u32, low: u32, high: u32) -> u32 {
         value.min(high).max(low)
+    }
+
+    /// The request, answered as it came. The export takes its arguments
+    /// message whole, so the eight fields arrive as one value.
+    #[export(sync, args = generated::contract::sdk::v1::EightFields)]
+    #[must_use]
+    pub fn echo_fields(
+        request: generated::contract::sdk::v1::EightFields,
+    ) -> generated::contract::sdk::v1::EightFields {
+        request
     }
 }
 

@@ -16,7 +16,7 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, anyhow, ensure};
 use api_bones_sdk_model::{
-    Client, Export, HandleKind, L2Methods, Model, Param, Return, Shape, SpecL2Methods, Wire,
+    Client, Export, HandleKind, Input, L2Methods, Model, Param, Return, Shape, SpecL2Methods, Wire,
     Wrapper, export_name, l2_methods, typescript_name,
 };
 use prost_reflect::{DescriptorPool, FieldDescriptor, Kind, MessageDescriptor};
@@ -680,23 +680,31 @@ fn args_of(
     let args = args_name(export);
     let message = contract.message(args)?;
     let at = || format!("`{}` (args `{args}`)", export.method);
-    if export.params.is_empty() {
-        ensure!(
-            args == "google.protobuf.Empty",
-            "{} takes no parameter, so its args are `google.protobuf.Empty`",
-            at()
-        );
-    }
-    let wanted: BTreeSet<String> = export.params.iter().map(Param::json_name).collect();
-    let declared: BTreeSet<String> = message.fields().map(|f| f.json_name().to_owned()).collect();
-    ensure!(
-        wanted == declared,
-        "{}: the message declares fields {declared:?} but the parameters are {wanted:?}",
-        at()
-    );
+    let names: Vec<String> = match &export.input {
+        Input::Fields(params) => {
+            if params.is_empty() {
+                ensure!(
+                    args == "google.protobuf.Empty",
+                    "{} takes no parameter, so its args are `google.protobuf.Empty`",
+                    at()
+                );
+            }
+            let wanted: BTreeSet<String> = params.iter().map(Param::json_name).collect();
+            let declared: BTreeSet<String> =
+                message.fields().map(|f| f.json_name().to_owned()).collect();
+            ensure!(
+                wanted == declared,
+                "{}: the message declares fields {declared:?} but the parameters are {wanted:?}",
+                at()
+            );
+            params.iter().map(Param::json_name).collect()
+        }
+        // The parameter is the message itself: every declared field is an
+        // argument, whatever the Rust signature spells.
+        Input::Message(_) => message.fields().map(|f| f.json_name().to_owned()).collect(),
+    };
     let mut bound = Vec::new();
-    for param in &export.params {
-        let name = param.json_name();
+    for name in names {
         ensure!(
             !RESERVED.contains(&name.as_str()),
             "{}: parameter `{name}` takes a name the call context owns ({})",
@@ -2326,6 +2334,29 @@ impl Items {
         assert!(
             message.contains("`t.v1.GetWidgetArgs` is missing from the descriptor set"),
             "{message}"
+        );
+    }
+
+    #[test]
+    fn an_export_taking_its_message_whole_binds_every_field_of_the_message() {
+        let source = r#"
+#[client(surface = "s", proto = generated::t::v1)]
+impl Widgets {
+    #[export(sync)]
+    pub fn bounds(&self, request: generated::t::v1::BoundsArgs) -> String { body() }
+}
+"#;
+        let client = generated(source, PROTO)
+            .expect("generated")
+            .remove("src/generated/client.ts")
+            .expect("client.ts");
+        assert!(
+            client.contains("  bounds(low: number, high: number): string {"),
+            "{client}"
+        );
+        assert!(
+            client.contains("create(BoundsArgsSchema, { low, high })"),
+            "{client}"
         );
     }
 

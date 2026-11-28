@@ -857,6 +857,12 @@ Feature: Every Layer 2 call runs through one helper
     Then the static answer is 1
 
   @state:happy
+  Scenario: An export that takes its request whole is called through the wrapper and echoes every field
+    When the caller echoes eight fields through the SDK
+    Then the echoed fields are the eight the caller sent
+    And the wrapper lists "echo_fields" as a "sync" method of the surface "sdk-call"
+
+  @state:happy
   Scenario: A constant of the SDK is read through a function that takes nothing
     When the caller reads the largest page size through the SDK
     Then the static answer is 1000

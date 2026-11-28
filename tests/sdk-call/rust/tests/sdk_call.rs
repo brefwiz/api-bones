@@ -651,6 +651,8 @@ struct SdkCallWorld {
     refusal: Option<Error>,
     /// What the last static function or constant the caller used answered.
     static_answer: Option<u32>,
+    /// What the whole-message export answered to the eight fields it was sent.
+    echoed: Option<api_bones_test_service_l2::EightFields>,
     /// The page size the caller's numbers client asks for when a call names
     /// none.
     default_page_size: Option<u32>,
@@ -2084,6 +2086,36 @@ fn when_read_largest_page_size(world: &mut SdkCallWorld) {
         u32::MAX,
     );
     world.static_answer = Some(largest);
+}
+
+#[when("the caller echoes eight fields through the SDK")]
+fn when_echo_eight_fields(world: &mut SdkCallWorld) {
+    world.echoed = Some(api_bones_test_service_l2::NumbersClient::echo_fields(
+        api_bones_test_service_l2::EightFields {
+            name: "ada".to_owned(),
+            quantity: 7,
+            active: true,
+            ratio: 2.5,
+            offset: -42,
+            note: "kept".to_owned(),
+            limit: -3,
+            serial: 9_007_199_254_740_993,
+            ..Default::default()
+        },
+    ));
+}
+
+#[then("the echoed fields are the eight the caller sent")]
+fn then_echoed_eight_fields(world: &mut SdkCallWorld) {
+    let echoed = world.echoed.as_ref().expect("a When echoed the fields");
+    assert_eq!(echoed.name, "ada");
+    assert_eq!(echoed.quantity, 7);
+    assert!(echoed.active);
+    assert!((echoed.ratio - 2.5).abs() < f64::EPSILON);
+    assert_eq!(echoed.offset, -42);
+    assert_eq!(echoed.note, "kept");
+    assert_eq!(echoed.limit, -3);
+    assert_eq!(echoed.serial, 9_007_199_254_740_993);
 }
 
 #[then(expr = "the static answer is {int}")]

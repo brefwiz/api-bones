@@ -34,6 +34,15 @@
       "endpoints": []
     },
     {
+      "export": "api_bones__NumbersClient__echo_fields",
+      "type": "NumbersClient",
+      "rust": "echo_fields",
+      "typescript": "echoFields",
+      "surface": "sdk-call",
+      "kind": "sync",
+      "endpoints": []
+    },
+    {
       "export": "api_bones__NumbersClient__list",
       "type": "NumbersClient",
       "rust": "list",

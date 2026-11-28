@@ -54,7 +54,7 @@
 use std::collections::BTreeSet;
 
 use api_bones_sdk_model::{
-    Client, Export, HandleKind, ProtoRef, Return, Shape, Wire, export_name, gate_features,
+    Client, Export, HandleKind, Input, ProtoRef, Return, Shape, Wire, export_name, gate_features,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -496,6 +496,11 @@ impl Shell<'_> {
             Wire::Empty => Ok(quote!(#private::no_args(&__args.to_vec())?;)),
             Wire::Message(message) => {
                 let path = message_path(message)?;
+                if matches!(self.export.input, Input::Message(_)) {
+                    return Ok(quote! {
+                        let __req = #private::decode_strict::<#path>(&__args.to_vec())?;
+                    });
+                }
                 let names = self.parameters();
                 Ok(quote! {
                     let #path { #(#names,)* .. } =
@@ -515,11 +520,18 @@ impl Shell<'_> {
     }
 
     /// The arguments of the call: `&field` for a reference parameter, the
-    /// field otherwise.
+    /// field otherwise; a message taken whole is `__req` or `&__req`.
     fn call_args(&self) -> Vec<TokenStream> {
+        if let Input::Message(param) = &self.export.input {
+            return vec![if param.by_ref {
+                quote!(&__req)
+            } else {
+                quote!(__req)
+            }];
+        }
         self.parameters()
             .into_iter()
-            .zip(&self.export.params)
+            .zip(self.export.input.params())
             .map(|(name, param)| {
                 if param.by_ref {
                     quote!(&#name)
@@ -1151,6 +1163,31 @@ mod tests {
         assert!(text.contains("__client.parse(text)"), "{text}");
     }
 
+    const WHOLE: &str = r#"
+        #[client(surface = "s", proto = generated::contract::sdk::v1)]
+        impl C {
+            #[export]
+            pub async fn derive(&self, request: generated::contract::sdk::v1::DeriveArgs) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
+            #[export(sync, args = generated::contract::v1::Inspect)]
+            pub fn inspect(&self, request: &Inspect) -> String { body() }
+        }
+    "#;
+
+    #[test]
+    fn an_export_taking_its_message_whole_decodes_once_and_passes_it() {
+        let text = flat(&built_from(WHOLE, "api-bones").expect("expanded"));
+        assert!(text.contains("let__req=::api_bones_sdk::__private::decode_strict::<generated::contract::sdk::v1::DeriveArgs>(&__args.to_vec())?;"), "{text}");
+        assert!(text.contains("__client.derive(__req)"), "{text}");
+        assert!(!text.contains("DeriveArgs{request"), "{text}");
+    }
+
+    #[test]
+    fn a_whole_message_taken_by_reference_is_passed_by_reference() {
+        let text = flat(&built_from(WHOLE, "api-bones").expect("expanded"));
+        assert!(text.contains("let__req=::api_bones_sdk::__private::decode_strict::<generated::contract::v1::Inspect>(&__args.to_vec())?;"), "{text}");
+        assert!(text.contains("__client.inspect(&__req)"), "{text}");
+    }
+
     #[test]
     fn an_export_without_parameters_takes_the_empty_message() {
         let text = text();
@@ -1465,7 +1502,7 @@ mod tests {
             shape: Shape::Method,
             sync: false,
             surface: "s".to_owned(),
-            params: Vec::new(),
+            input: Input::Fields(Vec::new()),
             args: Wire::Empty,
             ret: Return::Value(Wire::Wrapper(api_bones_sdk_model::Wrapper::UInt32)),
         };

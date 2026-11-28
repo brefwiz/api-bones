@@ -14,7 +14,10 @@
 //!   otherwise [`Wire::Message`] of the `args = <message path>` override of
 //!   `#[export]`, else of `<proto>::<PascalMethod>Args`, where `proto` is the
 //!   module path of `#[client(proto = ...)]`. The message's fields are the
-//!   parameters, by name.
+//!   parameters, by name. An export with exactly one parameter whose type (a
+//!   `&` stripped) ends in the name of that message takes the message whole:
+//!   its [`Export::input`] is [`Input::Message`], and mixing the message with
+//!   other parameters is refused.
 //! - [`Export::ret`] is a [`Return`] whose success value or handle item is a
 //!   [`Wire`].
 //! - [`Client::options`] is the options message of the impl's `from_host`, the
@@ -56,6 +59,27 @@ impl Param {
     #[must_use]
     pub fn json_name(&self) -> String {
         json_name(&self.name)
+    }
+}
+
+/// How an export receives its arguments message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Input {
+    /// One parameter per field of the message, bound by name. No parameter at
+    /// all is an empty list.
+    Fields(Vec<Param>),
+    /// The one parameter is the message itself, passed whole.
+    Message(Param),
+}
+
+impl Input {
+    /// The parameters as the Rust signature declares them.
+    #[must_use]
+    pub fn params(&self) -> &[Param] {
+        match self {
+            Self::Fields(params) => params,
+            Self::Message(param) => std::slice::from_ref(param),
+        }
     }
 }
 
@@ -155,8 +179,9 @@ pub struct Export {
     pub sync: bool,
     /// The `sdk_surfaces` id: the method's own, else its client's.
     pub surface: String,
-    /// The parameters after `&self`; every parameter of a function.
-    pub params: Vec<Param>,
+    /// The parameters after `&self` (every parameter of a function), as fields
+    /// of the arguments message or as that message whole.
+    pub input: Input,
     /// The message the parameters arrive as; see the module docs.
     pub args: Wire,
     /// The classified return type.
@@ -537,6 +562,41 @@ fn args_message(
     }
 }
 
+/// Whether `ty`, a `&` stripped, ends in the name of the arguments message.
+fn names_message(ty: &Type, wire: &Wire) -> bool {
+    let Wire::Message(message) = wire else {
+        return false;
+    };
+    let ty = match ty {
+        Type::Reference(reference) => &*reference.elem,
+        other => other,
+    };
+    last_ident(ty).is_some_and(|name| message.path.rsplit("::").next() == Some(name.as_str()))
+}
+
+/// How the parameters receive the arguments message: the one parameter that is
+/// the message is taken whole; every other signature is fields by name.
+fn input_of(
+    ident: &Ident,
+    method: &str,
+    wire: &Wire,
+    mut params: Vec<Param>,
+    types: &[&Type],
+) -> syn::Result<Input> {
+    let whole = types.iter().filter(|ty| names_message(ty, wire)).count();
+    match (params.len(), whole) {
+        (1, 1) => Ok(Input::Message(params.remove(0))),
+        (_, 0) => Ok(Input::Fields(params)),
+        _ => Err(syn::Error::new_spanned(
+            ident,
+            format!(
+                "export `{method}` mixes its arguments message with other parameters: take the \
+                 message as the only parameter, or take its fields one by one"
+            ),
+        )),
+    }
+}
+
 fn export(
     member: &Member<'_>,
     client: &ClientArgs,
@@ -603,6 +663,7 @@ fn export(
         ));
     }
     let mut params = Vec::new();
+    let mut param_types = Vec::new();
     for input in &sig.inputs {
         let FnArg::Typed(typed) = input else {
             continue;
@@ -612,8 +673,11 @@ fn export(
             ty: typed.ty.to_token_stream().to_string(),
             by_ref: matches!(*typed.ty, Type::Reference(_)),
         });
+        param_types.push(typed.ty.as_ref());
     }
     let method = sig.ident.to_string();
+    let wire = args_message(&sig.ident, &method, &args, client, !params.is_empty())?;
+    let input = input_of(&sig.ident, &method, &wire, params, &param_types)?;
     let ret = classify_return(&sig.output, args.sync, env)?;
     if shape == Shape::Constant && !matches!(ret, Return::Value(_)) {
         return Err(syn::Error::new_spanned(
@@ -622,11 +686,11 @@ fn export(
         ));
     }
     Ok(Export {
-        args: args_message(&sig.ident, &method, &args, client, !params.is_empty())?,
+        args: wire,
         shape,
         sync: args.sync,
         surface: args.surface.unwrap_or_else(|| client.surface.clone()),
-        params,
+        input,
         ret,
         method,
     })
@@ -749,12 +813,20 @@ mod tests {
                 "contract.sdk.v1.ListNumbersArgs"
             )
         );
-        let names: Vec<_> = list.params.iter().map(|p| p.name.as_str()).collect();
+        let names: Vec<_> = list
+            .input
+            .params()
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect();
         assert_eq!(names, ["limit", "since"]);
-        assert_eq!(list.params[0].ty, "u32");
-        assert!(!list.params[0].by_ref);
-        assert_eq!(list.params[1].ty.replace(' ', ""), "Option<SystemTime>");
-        assert_eq!(list.params[1].json_name(), "since");
+        assert_eq!(list.input.params()[0].ty, "u32");
+        assert!(!list.input.params()[0].by_ref);
+        assert_eq!(
+            list.input.params()[1].ty.replace(' ', ""),
+            "Option<SystemTime>"
+        );
+        assert_eq!(list.input.params()[1].json_name(), "since");
         assert_eq!(
             list.ret,
             Return::Handle {
@@ -772,8 +844,8 @@ mod tests {
         let model = Model::from_source(SAMPLE).expect("ok");
         let label = &model.clients[0].exports[1];
         assert!(label.sync);
-        assert!(label.params[0].by_ref);
-        assert_eq!(label.params[0].ty.replace(' ', ""), "&str");
+        assert!(label.input.params()[0].by_ref);
+        assert_eq!(label.input.params()[0].ty.replace(' ', ""), "&str");
         assert_eq!(label.ret, Return::Value(Wire::Wrapper(Wrapper::String)));
         assert_eq!(
             label.args,
@@ -842,7 +914,7 @@ mod tests {
         .expect("b");
         let model = Model::from_files([&one, &two]).expect("ok");
         assert_eq!(model.errors.len(), 1);
-        assert_eq!(model.clients[0].exports[0].params[0].ty, "String");
+        assert_eq!(model.clients[0].exports[0].input.params()[0].ty, "String");
         assert_eq!(
             model.clients[0].exports[0].ret,
             Return::Result {
@@ -1003,6 +1075,40 @@ mod tests {
         .expect("an async stream export");
     }
 
+    #[test]
+    fn an_export_whose_one_parameter_is_its_args_message_takes_it_whole() {
+        let model = Model::from_source(
+            r#"#[client(surface = "s", proto = generated::p::v1)]
+            impl C {
+                #[export]
+                async fn owned(&self, request: generated::p::v1::OwnedArgs) -> Result<(), Error> { body() }
+                #[export(args = generated::p::v1::Derive)]
+                async fn by_ref(&self, request: &Derive) -> Result<(), Error> { body() }
+                #[export]
+                async fn fields(&self, id: String) -> Result<(), Error> { body() }
+            }"#,
+        )
+        .expect("ok");
+        let exports = &model.clients[0].exports;
+        let Input::Message(owned) = &exports[0].input else {
+            panic!("owned is whole: {:?}", exports[0].input);
+        };
+        assert_eq!((owned.name.as_str(), owned.by_ref), ("request", false));
+        let Input::Message(by_ref) = &exports[1].input else {
+            panic!("by_ref is whole: {:?}", exports[1].input);
+        };
+        assert!(by_ref.by_ref);
+        assert!(matches!(exports[2].input, Input::Fields(ref p) if p.len() == 1));
+    }
+
+    #[test]
+    fn the_args_message_mixed_with_other_parameters_is_refused() {
+        let message = export_refused(
+            "#[export(args = generated::p::v1::Req)] async fn go(&self, request: Req, extra: u32) -> Result<(), Error> { body() }",
+        );
+        assert!(message.contains("mixes its arguments message"), "{message}");
+    }
+
     const STATICS: &str = r#"
         #[client(surface = "tools", proto = generated::p::v1)]
         impl Tools {
@@ -1051,8 +1157,8 @@ mod tests {
             tools.exports[1].args,
             message("generated::p::v1::ClampArgs", "p.v1.ClampArgs")
         );
-        assert_eq!(tools.exports[1].params.len(), 2);
-        assert_eq!(tools.exports[2].params, []);
+        assert_eq!(tools.exports[1].input.params().len(), 2);
+        assert_eq!(tools.exports[2].input, Input::Fields(Vec::new()));
         assert_eq!(tools.exports[2].args, Wire::Empty);
         assert!(matches!(
             tools.exports[2].ret,

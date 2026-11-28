@@ -25,7 +25,7 @@ import { BasicTracerProvider, SamplingDecision } from "@opentelemetry/sdk-trace-
 import type { ReadableSpan, Sampler, SpanProcessor } from "@opentelemetry/sdk-trace-base";
 import type { Credential, CredentialAsk, SdkSession } from "@brefwiz/api-bones-sdk-runtime";
 import type { Patch } from "@brefwiz/api-bones-test-service";
-import { apiBonesSdk, clamp, init, maxPageSize } from "@brefwiz/api-bones-test-service-sdk";
+import { apiBonesSdk, clamp, echoFields, init, maxPageSize } from "@brefwiz/api-bones-test-service-sdk";
 
 import { Provider } from "./provider_process.ts";
 import type { CallerChange } from "./provider_process.ts";
@@ -178,6 +178,8 @@ export class SdkCallWorld extends World {
   refusal: unknown;
   /** What the last static function or constant the caller used answered. */
   staticAnswer: number | undefined;
+  /** What the whole-message export answered to the eight fields it was sent. */
+  echoed: ReturnType<typeof echoFields> | undefined;
   /** What a fresh process answered to a static call made before the SDK's init. */
   fresh: { before: string } | undefined;
   /** The items the caller walked, and the first page it read alone. */
@@ -1288,6 +1290,24 @@ When("the caller reads the largest page size through the SDK", async function (t
   await init();
   const largest = maxPageSize();
   this.staticAnswer = largest;
+});
+
+When("the caller echoes eight fields through the SDK", async function (this: SdkCallWorld) {
+  await init();
+  const echoed = echoFields("ada", 7, true, 2.5, -42n, "kept", -3, 9007199254740993n);
+  this.echoed = echoed;
+});
+
+Then("the echoed fields are the eight the caller sent", function (this: SdkCallWorld) {
+  assert.ok(this.echoed, "a When echoed the fields");
+  assert.equal(this.echoed.name, "ada");
+  assert.equal(this.echoed.quantity, 7);
+  assert.equal(this.echoed.active, true);
+  assert.equal(this.echoed.ratio, 2.5);
+  assert.equal(this.echoed.offset, -42n);
+  assert.equal(this.echoed.note, "kept");
+  assert.equal(this.echoed.limit, -3);
+  assert.equal(this.echoed.serial, 9007199254740993n);
 });
 
 Then("the static answer is {int}", function (this: SdkCallWorld, expected: number) {

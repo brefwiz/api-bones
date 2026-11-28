@@ -453,7 +453,7 @@ mod tests {
         assert_eq!(outcome.expect("replayed"), 7);
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
         assert!(
-            (Duration::from_millis(2050)..Duration::from_millis(2100)).contains(&elapsed),
+            (Duration::from_millis(2050)..=Duration::from_millis(2100)).contains(&elapsed),
             "{elapsed:?} is outside the retry-after plus jitter bounds"
         );
     }

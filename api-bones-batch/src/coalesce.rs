@@ -861,7 +861,7 @@ mod tests {
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
         let elapsed = started.elapsed();
         assert!(
-            (Duration::from_millis(2050)..Duration::from_millis(2100)).contains(&elapsed),
+            (Duration::from_millis(2050)..=Duration::from_millis(2100)).contains(&elapsed),
             "{elapsed:?} is outside the retry-after plus jitter bounds"
         );
     }

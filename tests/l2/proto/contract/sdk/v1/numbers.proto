@@ -27,6 +27,18 @@ message ListNumbersArgs {
   optional uint32 page_size = 1;
 }
 
+// The request `NumbersClient::echo_fields` takes whole and answers whole.
+message EightFields {
+  string name = 1;
+  uint32 quantity = 2;
+  bool active = 3;
+  double ratio = 4;
+  int64 offset = 5;
+  string note = 6;
+  int32 limit = 7;
+  uint64 serial = 8;
+}
+
 // The parameters of `NumbersClient::clamp`.
 message ClampArgs {
   uint32 value = 1;

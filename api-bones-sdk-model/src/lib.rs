@@ -24,7 +24,7 @@ pub mod ty;
 pub use attrs::{ClientArgs, ErrorArgs, ErrorVariantArgs, ExportArgs};
 pub use l2::{L2Error, L2Kind, L2Method, L2Methods, L2ReadError, SpecL2Methods, l2_methods};
 pub use model::{
-    ArgKind, Client, ErrorField, ErrorType, ErrorVariant, Export, Model, Param, Shape,
+    ArgKind, Client, ErrorField, ErrorType, ErrorVariant, Export, Input, Model, Param, Shape,
 };
 pub use names::{NameError, export_name, gate_features, json_name, typescript_name};
 pub use ty::{

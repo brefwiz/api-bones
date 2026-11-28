@@ -1,0 +1,5 @@
+error: export `f` mixes its arguments message with other parameters: take the message as the only parameter, or take its fields one by one
+  --> tests/compile_fail/mixed_args.rs:11:18
+   |
+11 |     pub async fn f(&self, _request: Req, _extra: u32) -> Result<(), Error> {
+   |                  ^
