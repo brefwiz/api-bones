@@ -103,6 +103,17 @@
       "idempotency": "NO_SIDE_EFFECTS",
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
+      "rpc": "/contract.v1.WidgetsService/BatchDescribeWidgets",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "NO_SIDE_EFFECTS",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
       "rpc": "/contract.v1.WidgetsService/BatchGetWidgets",
       "sensitivity": "UNSPECIFIED"
     },
@@ -115,6 +126,24 @@
       "maxEncodedUrlBytes": 4096,
       "procedure": "unary",
       "rpc": "/contract.v1.WidgetsService/BatchListWidgetParts",
+      "sensitivity": "UNSPECIFIED"
+    },
+    {
+      "batch": {
+        "keyField": "contract.v1.DescribeWidgetRequest",
+        "keysField": "items",
+        "kind": "items",
+        "method": "BatchDescribeWidgets",
+        "resultsField": "results"
+      },
+      "browserCache": {
+        "maxAgeSeconds": 0,
+        "scope": "NO_STORE"
+      },
+      "idempotency": "NO_SIDE_EFFECTS",
+      "maxEncodedUrlBytes": 4096,
+      "procedure": "unary",
+      "rpc": "/contract.v1.WidgetsService/DescribeWidget",
       "sensitivity": "UNSPECIFIED"
     },
     {

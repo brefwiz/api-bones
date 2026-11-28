@@ -525,13 +525,16 @@
 // reads and writes alike: N independent singles, each with its own outcome. A
 // batch method keeps the idempotency level, authorization and error set of the
 // single it names, and each item's outcome is its own: one item's refusal
-// never fails the others. The provider documents its maximum items per call on
-// the RPC. A set of a parent and its children that commits or fails together
+// never fails the others. A provider may accept more than 200 items per call;
+// the SDK sends at most 200 items and 768 KiB per request, with no option to
+// change either. A set of a parent and its children that commits or fails together
 // is `nested_write_of`, not `batch_of`.
 //
 // A side-effecting batch runs its items in request order, each as the
 // single's own transaction. A repeated id runs once and is answered at each of
-// its positions. Pre-execution refusals, authentication and more than 200
+// its positions. A batch whose request repeats the single's request
+// message instead of ids runs every item, repeats included, and answers each at its
+// own position. Pre-execution refusals, authentication and more than 200
 // items, refuse the call. Once execution starts the call never fails whole: a
 // failure that is not the item's own outcome answers that item `aborted`, and
 // every item not run `aborted` too. An item's own refusals are the codes its

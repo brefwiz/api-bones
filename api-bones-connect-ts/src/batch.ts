@@ -6,14 +6,14 @@ import { assertSupportedPolicySchema, indexGeneratedPolicy, type GeneratedBatchP
 import { hasPagingShape, listCall, type ListCall } from "./page.js";
 import { platformBinding, prepareHeaders, dispatchPrepared, captureSession, inheritPlatformBinding } from "./platform-client.js";
 import { BatchScheduler } from "./batch-scheduler.js";
-import { batchError, batchHash, captureBatchHeaders, checkBatchIdentity, itemErrorToConnect, planBatch, sameBatchKey, BATCH_MAX_ITEMS, BATCH_MAX_REQUEST_BYTES, type CapturedBatchHeaders, type CapturedBatchKey, type ItemError, type ItemResult, type BatchResults } from "./batch-primitives.js";
+import { batchError, batchHash, captureBatchHeaders, checkBatchIdentity, itemErrorToConnect, planBatch, planItems, sameBatchKey, BATCH_MAX_ITEMS, BATCH_MAX_REQUEST_BYTES, type CapturedBatchHeaders, type CapturedBatchKey, type ItemError, type ItemResult, type BatchResults } from "./batch-primitives.js";
 export { BATCH_MAX_ITEMS, BATCH_MAX_REQUEST_BYTES, allOk, authorizeBatchResults, serveBatchRequest, itemErrorToConnect, type ItemResult, type BatchResults } from "./batch-primitives.js";
 export { MAX_WIRE_IN_FLIGHT, MAX_QUEUED_CHUNKS } from "./batch-scheduler.js";
 export interface BatchCallOptions { signal?: AbortSignal; headers?: HeadersInit; timeoutMs?: number; }
 export interface BatchGroup<T> { readonly parentId: string; readonly call?: ListCall<T>; readonly error?: ConnectError; }
 type OutcomeItem<T> = T extends { outcome: infer O } ? O extends { case: "item"; value: infer V } ? V : never : never;
 type BatchedMethod<F> = F extends (request: infer R, ...args: never[]) => Promise<infer O>
-  ? O extends { results: readonly (infer E)[] } ? (ids: readonly string[], template?: Partial<R>, options?: BatchCallOptions) => Promise<BatchResults<OutcomeItem<E>>>
+  ? O extends { results: readonly (infer E)[] } ? (R extends { items: readonly (infer I)[] } ? I extends string ? (ids: readonly string[], template?: Partial<R>, options?: BatchCallOptions) => Promise<BatchResults<OutcomeItem<E>>> : (items: readonly Partial<I>[], template?: Partial<R>, options?: BatchCallOptions) => Promise<BatchResults<OutcomeItem<E>>> : (ids: readonly string[], template?: Partial<R>, options?: BatchCallOptions) => Promise<BatchResults<OutcomeItem<E>>>)
     : O extends { groups: readonly (infer G)[] } ? G extends { items: readonly (infer I)[] } ? (ids: readonly string[], template?: Partial<R>, options?: BatchCallOptions) => Promise<readonly BatchGroup<I>[]> : F : F
   : F;
 export type BatchedClient<S extends DescService> = { [K in keyof Client<S>]: BatchedMethod<Client<S>[K]> };
@@ -53,8 +53,19 @@ export function batchedClient<S extends DescService>(client: Client<S>, policy: 
   for (const entry of policies.values()) {
     if (!entry.batch || !entry.rpc.startsWith(`/${service.typeName}/`)) continue;
     const single = method(service, entry.rpc), batch = method(service, entry.batch.method);
-    const keyField = field(single.input, entry.batch.keyField);
     const keysField = field(batch.input, entry.batch.keysField);
+    if (entry.batch.kind === "items") {
+      if (keysField.fieldKind !== "list" || keysField.listKind !== "message" || keysField.message.typeName !== single.input.typeName) throw new Error("batch items must repeat the single request message");
+      const itemsResults = field(batch.output, entry.batch.resultsField);
+      if (itemsResults.fieldKind !== "list" || itemsResults.listKind !== "message") throw new Error("batch results must be repeated messages");
+      const itemsError = field(itemsResults.message, "error"), itemsItem = field(itemsResults.message, "item");
+      if (itemsError.fieldKind !== "message" || itemsError.message.typeName !== "bones.v1.ItemError") throw new Error("batch result error must be bones.v1.ItemError");
+      if (itemsItem.fieldKind !== "message" || itemsItem.message.typeName !== single.output.typeName || !itemsItem.oneof || itemsItem.oneof !== itemsError.oneof) throw new Error("batch item must match single response in an outcome oneof");
+      if (policies.get(`/${service.typeName}/${batch.name}`)?.idempotency !== "NO_SIDE_EFFECTS") throw new Error(`batch method ${batch.name} must declare NO_SIDE_EFFECTS`);
+      relations.push({ single, batch, policy: entry, relation: entry.batch, key: "", keys: keysField.localName, results: itemsResults.localName, resultKey: "" });
+      continue;
+    }
+    const keyField = field(single.input, entry.batch.keyField);
     if (keyField.fieldKind !== "scalar" || keyField.scalar !== ScalarType.STRING || keysField.fieldKind !== "list" || keysField.listKind !== "scalar" || keysField.scalar !== ScalarType.STRING) throw new Error("batch keys must be string fields");
     const key = keyField.localName;
     const keys = keysField.localName;
@@ -95,7 +106,7 @@ export function batchedClient<S extends DescService>(client: Client<S>, policy: 
     const requestHash = await batchHash(encoded(descriptor.input, cleared));
     return { effective, identity, headers, input: snapshot, key: { method: `${service.typeName}/${relation.single.name}`, requestHash, headersHash: headers.headersHash, identity } };
   }
-  async function send(relation: Relation, prepared: Prepared, ids: readonly string[], template: RecordValue, options: BatchCallOptions, calls: number, requested: number, chunkIndex: number, chunks: number, single = false): Promise<unknown> {
+  async function send(relation: Relation, prepared: Prepared, ids: readonly unknown[], template: RecordValue, options: BatchCallOptions, calls: number, requested: number, chunkIndex: number, chunks: number, single = false): Promise<unknown> {
     const descriptor = single ? relation.single : relation.batch;
     const input = { ...template, [single ? relation.key : relation.keys]: single ? ids[0] : [...ids] };
     const enqueued = performance.now();
@@ -110,11 +121,11 @@ export function batchedClient<S extends DescService>(client: Client<S>, policy: 
         const response = await dispatchPrepared(transport, descriptor, input, new Headers(prepared.headers.headers), () => checkBatchIdentity(identityKey, prepared.identity), options.signal, options.timeoutMs, prepared.effective);
         if (!single) {
           const results = record(response)[relation.results];
-          if (!Array.isArray(results) || results.length !== ids.length || results.some((result, index) => record(result)[relation.resultKey] !== ids[index])) {
+          if (!Array.isArray(results) || results.length !== ids.length || (relation.resultKey !== "" && results.some((result, index) => record(result)[relation.resultKey] !== ids[index]))) {
             outcome = "mismatch";
             throw batchError(Code.Internal, "BATCH_RESPONSE_MISMATCH", "batch response does not match requested ids");
           }
-          errors = results.filter(result => relation.relation.kind === "get" ? record(record(result).outcome ?? {}).case === "error" : record(result).error !== undefined).length;
+          errors = results.filter(result => relation.relation.kind !== "list" ? record(record(result).outcome ?? {}).case === "error" : record(result).error !== undefined).length;
         }
         return response;
       } catch (reason) {
@@ -136,6 +147,29 @@ export function batchedClient<S extends DescService>(client: Client<S>, policy: 
     if (outcome?.case === "item") return { ok: true, value: outcome.value };
     if (outcome?.case === "error") return { ok: false, error: itemErrorToConnect(outcome.value as ItemError) };
     return { ok: false, error: batchError(Code.Internal, "BATCH_RESPONSE_MISMATCH", "batch result has no outcome") };
+  }
+  async function explicitItems(relation: Relation, entries: readonly RecordValue[], template: RecordValue = {}, options: BatchCallOptions = {}): Promise<unknown[]> {
+    if (!entries.length) return [];
+    // The prepared request is a message; its list members must be messages too.
+    const items = entries.map(entry => create(relation.single.input, entry as never) as unknown as RecordValue);
+    const output: ItemResult<unknown>[] = Array.from({ length: items.length });
+    let prepared: Prepared;
+    try { prepared = await prepare(relation, { ...template, [relation.keys]: [...items] }, options, false); }
+    catch (reason) { if (options.signal?.aborted) throw canceled(); const error = ConnectError.from(reason); return items.map(() => ({ ok: false, error })); }
+    const input = prepared.input;
+    const size = (list: readonly RecordValue[]) => encoded(relation.batch.input, { ...input, [relation.keys]: [...list] }).byteLength;
+    const base = size([]);
+    const plan = planItems(base, items.map(entry => size([entry]) - base));
+    for (const [index, error] of plan.rejected) output[index] = { ok: false, error };
+    for (const [index, chunk] of plan.chunks.entries()) {
+      if (options.signal?.aborted) throw canceled();
+      const sent = chunk.map(position => items[position]);
+      try {
+        const response = await send(relation, prepared, sent, input, options, 1, items.length, index, plan.chunks.length);
+        (record(response)[relation.results] as unknown[]).forEach((value, i) => { output[chunk[i]] = item(value); });
+      } catch (reason) { if (options.signal?.aborted) throw canceled(); const error = ConnectError.from(reason); chunk.forEach(position => { output[position] = { ok: false, error }; }); }
+    }
+    return output;
   }
   async function explicit(relation: Relation, ids: readonly string[], template: RecordValue = {}, options: BatchCallOptions = {}): Promise<unknown[]> {
     if (!ids.length) return [];
@@ -217,6 +251,10 @@ export function batchedClient<S extends DescService>(client: Client<S>, policy: 
     }));
   }
   for (const relation of relations) {
+    if (relation.relation.kind === "items") {
+      wrapped[relation.batch.localName] = (items: readonly RecordValue[], template?: RecordValue, options?: BatchCallOptions) => explicitItems(relation, items, template, options);
+      continue;
+    }
     wrapped[relation.batch.localName] = (ids: readonly string[], template?: RecordValue, options?: BatchCallOptions) => explicit(relation, ids, template, options);
     if (relation.relation.kind !== "get") continue;
     wrapped[relation.single.localName] = (request: RecordValue, options: BatchCallOptions = {}) => new Promise((resolve, reject) => {

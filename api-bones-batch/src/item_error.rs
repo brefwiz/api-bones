@@ -61,10 +61,10 @@ fn coded(error: ConnectError, code: &str) -> ConnectError {
     with_error_info(error, &ErrorInfo::from_code(code))
 }
 
-pub(crate) fn item_too_large(id_bytes: usize) -> ConnectError {
+pub(crate) fn item_too_large(item_bytes: usize) -> ConnectError {
     coded(
         ConnectError::invalid_argument(format!(
-            "an id of {id_bytes} bytes does not fit one batch request"
+            "an item of {item_bytes} bytes does not fit one batch request"
         )),
         BATCH_ITEM_TOO_LARGE,
     )

@@ -41,7 +41,8 @@ export interface GeneratedPagingPolicy {
   readonly requestPageField: string;
 }
 export interface GeneratedBatchPolicy {
-  readonly kind: "get" | "list";
+  /** `items` batches repeat the single's request message instead of an id. */
+  readonly kind: "get" | "list" | "items";
   readonly method: string;
   readonly keyField: string;
   readonly keysField: string;
@@ -150,7 +151,7 @@ export function parseMethodPolicy(value: unknown): GeneratedMethodPolicy | null 
   }
   if (value.batch !== undefined) {
     const batch = value.batch;
-    if (!isRecord(batch) || (batch.kind !== "get" && batch.kind !== "list") ||
+    if (!isRecord(batch) || (batch.kind !== "get" && batch.kind !== "list" && batch.kind !== "items") ||
       ![batch.method, batch.keyField, batch.keysField, batch.resultsField].every((field) => typeof field === "string" && field.length > 0)) return null;
     Object.assign(method, { batch: { ...batch } });
   }

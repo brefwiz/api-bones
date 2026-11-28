@@ -295,6 +295,8 @@ Feature: Proto vocabulary shipped to contract authors
       | multiple siblings             | has multiple batch siblings   |
       | no repeated string key        | needs one repeated string key |
       | multiple repeated string keys | needs one repeated string key |
+      | items and string key          | needs one repeated string key |
+      | list items                    | needs one repeated string key |
       | non-plural key                | key must be plural            |
       | missing matching single key   | lacks matching single key     |
       | get without results           | lacks canonical batch outcomes |
@@ -310,6 +312,7 @@ Feature: Proto vocabulary shipped to contract authors
       | shape | kind | outcomes |
       | get   | get  | results  |
       | list  | list | groups   |
+      | items | items | results |
 
   Scenario: A declared list stream exposes stream paging policy
     Given a contract with the batch policy shape "stream"

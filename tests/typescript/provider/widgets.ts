@@ -101,8 +101,9 @@ export async function startWidgetsProvider(s: BatchState) {
   await database(s);
   const handler = connectNodeAdapter({ readMaxBytes: 2 * 1048576, routes(router) {
     for (const method of s.service!.methods) router.rpc(method as DescMethodUnary, async (request, context) => {
-      const input = request as unknown as { id?: string; ids?: string[]; widgetId?: string; widgetIds?: string[]; kind?: string; items?: string[]; owner?: string; page?: { cursor: string; pageSize: number } };
-      const ids = input.ids ?? input.widgetIds ?? [input.id ?? input.widgetId!];
+      const input = request as unknown as { id?: string; ids?: string[]; widgetId?: string; widgetIds?: string[]; kind?: string; note?: string; items?: string[]; owner?: string; page?: { cursor: string; pageSize: number } };
+      const described = method.name === "BatchDescribeWidgets" ? (input as unknown as { items: { id: string; note: string }[] }).items : [];
+      const ids = method.name === "BatchDescribeWidgets" ? described.map(item => item.id) : input.ids ?? input.widgetIds ?? [input.id ?? input.widgetId!];
       const authorization = context.requestHeader.get("authorization") ?? "";
       const { org, subject, permissions } = identityFromCredential(s, authorization);
       if (!permissions.includes("widgets:read")) throw new ConnectError("widget read authority required", Code.PermissionDenied);
@@ -130,12 +131,24 @@ export async function startWidgetsProvider(s: BatchState) {
           return create(method.output, { items: saved.parts, page: { revision: saved.revision } } as never);
         }
         const rows = await scopedLookup(s, org, ids);
+        const outcomes: ItemResult<WidgetRow>[] = ids.map(id => {
+          const row = rows.get(id);
+          const error = itemRefusal(id, !!row);
+          return error ? { ok: false, error: refusal(error) } : { ok: true, value: row! };
+        });
+        if (method.name === "DescribeWidget" || method.name === "BatchDescribeWidgets") {
+          const authorized = await authorizeBatchResults(outcomes, row => authorizeWidget(row, subject));
+          const echoed = (index: number) => ({ widget: { id: ids[index], name: ids[index], kind: "" }, note: method.name === "DescribeWidget" ? input.note ?? "" : described[index].note });
+          if (method.name === "DescribeWidget") {
+            const outcome = authorized[0];
+            if (!outcome.ok) throw outcome.error;
+            return create(method.output, echoed(0) as never);
+          }
+          const results = authorized.map((outcome, index) => ({ outcome: outcome.ok ? { case: "item", value: echoed(index) } : { case: "error", value: { code: Object.keys(codes).find(code => codes[code] === outcome.error.code) ?? "unknown", message: outcome.error.rawMessage, info: errorInfoOf(outcome.error), violations: itemRefusal(ids[index], rows.has(ids[index]))?.violations ?? [] } } }));
+          if (s.malformed === "count") results.pop();
+          return create(method.output, { results } as never);
+        }
         if (method.name.endsWith("GetWidgets") || method.name === "GetWidget") {
-          const outcomes: ItemResult<WidgetRow>[] = ids.map(id => {
-            const row = rows.get(id);
-            const error = itemRefusal(id, !!row);
-            return error ? { ok: false, error: refusal(error) } : { ok: true, value: row! };
-          });
           if (method.name === "GetWidget") {
             const outcome = outcomes[0];
             if (!outcome.ok) throw outcome.error;

@@ -68,3 +68,4 @@ Feature: Platform batch client construction
       | missing outcome       | batch item must match single response        |
       | scalar group items    | batch groups must contain repeated items     |
       | wrong group item type | batch group items must match single List response |
+      | scalar message items | batch items must repeat the single request message |

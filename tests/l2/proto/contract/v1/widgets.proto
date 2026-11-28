@@ -46,6 +46,34 @@ message BatchGetWidgetsResponse {
   repeated WidgetResult results = 1;
 }
 
+// One widget to describe, with a caller note the answer echoes. Its batch
+// repeats this whole message rather than an id.
+message DescribeWidgetRequest {
+  string id = 1;
+  string note = 2;
+}
+
+message DescribeWidgetResponse {
+  Widget widget = 1;
+  string note = 2;
+}
+
+message BatchDescribeWidgetsRequest {
+  repeated DescribeWidgetRequest items = 1;
+}
+
+// Positional: result i answers item i of the request.
+message DescribeWidgetResult {
+  oneof outcome {
+    DescribeWidgetResponse item = 1;
+    bones.v1.ItemError error = 2;
+  }
+}
+
+message BatchDescribeWidgetsResponse {
+  repeated DescribeWidgetResult results = 1;
+}
+
 message ListWidgetPartsRequest {
   string widget_id = 1;
   bones.v1.PageRequest page = 2;
@@ -112,6 +140,16 @@ service WidgetsService {
   rpc BatchGetWidgets(BatchGetWidgetsRequest) returns (BatchGetWidgetsResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
     option (bones.v1.batch_of) = "GetWidget";
+  }
+
+  rpc DescribeWidget(DescribeWidgetRequest) returns (DescribeWidgetResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // At most 200 items per call. Items may repeat: each is answered on its own.
+  rpc BatchDescribeWidgets(BatchDescribeWidgetsRequest) returns (BatchDescribeWidgetsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (bones.v1.batch_of) = "DescribeWidget";
   }
 
   rpc ListWidgetParts(ListWidgetPartsRequest) returns (ListWidgetPartsResponse) {

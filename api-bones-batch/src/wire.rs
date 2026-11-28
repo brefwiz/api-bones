@@ -21,21 +21,24 @@ use crate::span::{self, BatchRecord, Observer, Outcome};
 /// A boxed future: sendable natively, not `Send` on `wasm32`.
 pub type Boxed<T> = BoxFuture<'static, T>;
 
-/// What a batch RPC answered: each requested id with its own outcome, in the
-/// order the server returned them.
-pub type WireResults<R> = Vec<(String, Result<R, ConnectError>)>;
+/// What a batch RPC answered: each requested element with its own outcome, in
+/// the order the server returned them. `K` is the element: an id, or the
+/// single's request message of a message-item batch, echoed positionally.
+pub type WireResults<K, R> = Vec<(K, Result<R, ConnectError>)>;
 
-/// Sends one batch RPC: the template, the ids to put in it, the call options.
+/// Sends one batch RPC: the template, the elements to put in it, the call
+/// options.
 #[cfg(not(target_arch = "wasm32"))]
-pub type BatchFn<Tmpl, R> = Arc<
-    dyn Fn(Tmpl, Vec<String>, CallOptions) -> Boxed<Result<WireResults<R>, ConnectError>>
+pub type BatchFn<Tmpl, K, R> = Arc<
+    dyn Fn(Tmpl, Vec<K>, CallOptions) -> Boxed<Result<WireResults<K, R>, ConnectError>>
         + Send
         + Sync,
 >;
-/// Sends one batch RPC: the template, the ids to put in it, the call options.
+/// Sends one batch RPC: the template, the elements to put in it, the call
+/// options.
 #[cfg(target_arch = "wasm32")]
-pub type BatchFn<Tmpl, R> =
-    Arc<dyn Fn(Tmpl, Vec<String>, CallOptions) -> Boxed<Result<WireResults<R>, ConnectError>>>;
+pub type BatchFn<Tmpl, K, R> =
+    Arc<dyn Fn(Tmpl, Vec<K>, CallOptions) -> Boxed<Result<WireResults<K, R>, ConnectError>>>;
 
 /// Everything one client instance shares across its methods.
 pub struct Wire {
@@ -59,10 +62,10 @@ pub(crate) struct ChunkCall<'a> {
 }
 
 /// How an explicit batch is sent.
-pub(crate) struct Explicit<'a, Tmpl, R> {
+pub(crate) struct Explicit<'a, Tmpl, K, R> {
     pub rpc: &'static str,
     pub single: &'static str,
-    pub batch: &'a BatchFn<Tmpl, R>,
+    pub batch: &'a BatchFn<Tmpl, K, R>,
     pub template_bytes: usize,
 }
 
@@ -121,12 +124,12 @@ impl Wire {
     ///
     /// The result holds one outcome per id, in `ids` order; an `Err` fails
     /// every position of the chunk.
-    pub(crate) async fn send_chunk<Tmpl: Clone, R>(
+    pub(crate) async fn send_chunk<Tmpl: Clone, K: Clone + PartialEq, R>(
         &self,
         call: &ChunkCall<'_>,
-        batch: &BatchFn<Tmpl, R>,
+        batch: &BatchFn<Tmpl, K, R>,
         template: Tmpl,
-        ids: Vec<String>,
+        ids: Vec<K>,
         headers: &CallHeaders,
     ) -> Result<Vec<Result<R, ConnectError>>, ConnectError> {
         let _slot = self.admission.acquire(call.queue).await?;
@@ -188,7 +191,7 @@ impl Wire {
         Ok(outcomes)
     }
 
-    /// An explicit batch: one outcome per input id, in input order.
+    /// An explicit batch of ids: one outcome per input id, in input order.
     ///
     /// Ids are deduplicated, split into chunks and sent one chunk after the
     /// other. The identity is checked before every chunk: once it changed,
@@ -196,7 +199,7 @@ impl Wire {
     /// delivered stay.
     pub(crate) async fn run_explicit<Tmpl: Clone, R: Clone>(
         &self,
-        explicit: &Explicit<'_, Tmpl, R>,
+        explicit: &Explicit<'_, Tmpl, String, R>,
         template: Tmpl,
         ids: &[String],
         headers: &CallHeaders,
@@ -205,27 +208,62 @@ impl Wire {
             return (Vec::new(), None);
         }
         let (distinct, positions) = chunk::dedup(ids);
+        let sizes: Vec<usize> = distinct.iter().map(|id| element_bytes(id)).collect();
+        self.run_elements(explicit, template, distinct, &sizes, &positions, headers)
+            .await
+    }
+
+    /// An explicit batch of message items: one outcome per input item, in
+    /// input order. Items are never deduplicated: every position is sent and
+    /// answered on its own. `sizes[i]` is the encoded size of item `i` as one
+    /// element of the request.
+    pub(crate) async fn run_items<Tmpl: Clone, K: Clone + PartialEq, R: Clone>(
+        &self,
+        explicit: &Explicit<'_, Tmpl, K, R>,
+        template: Tmpl,
+        items: Vec<K>,
+        sizes: &[usize],
+        headers: &CallHeaders,
+    ) -> (Vec<Result<R, ConnectError>>, Option<CredentialGuard>) {
+        if items.is_empty() {
+            return (Vec::new(), None);
+        }
+        let positions: Vec<usize> = (0..items.len()).collect();
+        self.run_elements(explicit, template, items, sizes, &positions, headers)
+            .await
+    }
+
+    /// Chunk `elements`, send the chunks in order and fan each element's
+    /// outcome back out to the input `positions` that share it.
+    async fn run_elements<Tmpl: Clone, K: Clone + PartialEq, R: Clone>(
+        &self,
+        explicit: &Explicit<'_, Tmpl, K, R>,
+        template: Tmpl,
+        elements: Vec<K>,
+        sizes: &[usize],
+        positions: &[usize],
+        headers: &CallHeaders,
+    ) -> (Vec<Result<R, ConnectError>>, Option<CredentialGuard>) {
+        let requested = positions.len();
+        let failed = |error: &ConnectError| -> Vec<Result<R, ConnectError>> {
+            (0..requested).map(|_| Err(error.clone())).collect()
+        };
         let Ok(credential) = self.read().await else {
-            return (
-                ids.iter()
-                    .map(|_| Err(item_error::identity_changed()))
-                    .collect(),
-                None,
-            );
+            return (failed(&item_error::identity_changed()), None);
         };
         let guard = match CredentialGuard::capture(&credential) {
             Ok(guard) => guard,
-            Err(error) => return (ids.iter().map(|_| Err(error.clone())).collect(), None),
+            Err(error) => return (failed(&error), None),
         };
         if let Err(error) = headers.validate(&credential.headers) {
-            return (ids.iter().map(|_| Err(error.clone())).collect(), None);
+            return (failed(&error), None);
         }
         let queue = QueueKey::of(&credential);
-        let plan = chunk::plan(explicit.template_bytes, &distinct);
+        let plan = chunk::plan(explicit.template_bytes, sizes.iter().copied());
         let mut slots: Vec<Option<Result<R, ConnectError>>> =
-            distinct.iter().map(|_| None).collect();
+            elements.iter().map(|_| None).collect();
         for &index in &plan.too_large {
-            slots[index] = Some(Err(item_error::item_too_large(distinct[index].len())));
+            slots[index] = Some(Err(item_error::item_too_large(sizes[index])));
         }
         let opened = Instant::now();
         let chunks = plan.chunks.len();
@@ -234,15 +272,15 @@ impl Wire {
             let outcome = if let Some(error) = &stopped {
                 Err(error.clone())
             } else {
-                let sent: Vec<String> = members.iter().map(|&i| distinct[i].clone()).collect();
-                let bytes = explicit.template_bytes
-                    + sent.iter().map(|id| element_bytes(id)).sum::<usize>();
+                let sent: Vec<K> = members.iter().map(|&i| elements[i].clone()).collect();
+                let bytes =
+                    explicit.template_bytes + members.iter().map(|&i| sizes[i]).sum::<usize>();
                 let call = ChunkCall {
                     guard: &guard,
                     queue: &queue,
                     rpc: explicit.rpc,
                     single: explicit.single,
-                    requested: ids.len(),
+                    requested,
                     calls: 1,
                     chunk_index,
                     chunks,
@@ -377,7 +415,7 @@ mod tests {
         );
         let attempts = Arc::new(AtomicUsize::new(0));
         let observed = attempts.clone();
-        let batch: BatchFn<(), u32> = Arc::new(move |(), _, _| {
+        let batch: BatchFn<(), String, u32> = Arc::new(move |(), _, _| {
             observed.fetch_add(1, Ordering::SeqCst);
             current.lock().expect("credential").identity.subject = "different".into();
             Box::pin(async { Err(ConnectError::unavailable("retry after identity change")) })
@@ -409,10 +447,10 @@ mod tests {
 
     /// A batch that fails its first call with `failure`, then answers every id
     /// with 7; the counter reports how many calls it received.
-    fn fails_once(failure: ConnectError) -> (Arc<AtomicUsize>, BatchFn<(), u32>) {
+    fn fails_once(failure: ConnectError) -> (Arc<AtomicUsize>, BatchFn<(), String, u32>) {
         let attempts = Arc::new(AtomicUsize::new(0));
         let observed = attempts.clone();
-        let batch: BatchFn<(), u32> = Arc::new(move |(), ids, _| {
+        let batch: BatchFn<(), String, u32> = Arc::new(move |(), ids, _| {
             let attempt = observed.fetch_add(1, Ordering::SeqCst);
             let failure = failure.clone();
             Box::pin(async move {
@@ -429,7 +467,7 @@ mod tests {
     /// Sends one id through `batch` under `headers`; returns its outcome and
     /// how far the paused clock moved.
     async fn send_one(
-        batch: &BatchFn<(), u32>,
+        batch: &BatchFn<(), String, u32>,
         headers: &CallHeaders,
     ) -> (Result<u32, ConnectError>, Duration) {
         let wire = Wire::new(Arc::new(Anonymous), None);
@@ -469,7 +507,7 @@ mod tests {
         ] {
             let attempts = Arc::new(AtomicUsize::new(0));
             let observed = attempts.clone();
-            let batch: BatchFn<(), u32> = Arc::new(move |(), _, _| {
+            let batch: BatchFn<(), String, u32> = Arc::new(move |(), _, _| {
                 observed.fetch_add(1, Ordering::SeqCst);
                 let failure = failure.clone();
                 Box::pin(async move { Err(failure) })

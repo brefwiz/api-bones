@@ -48,7 +48,7 @@ export type Result = BatchResults<Widget>[number];
 type Session = { subject: string; org: string; serial: string };
 type CredentialFault = "missing bearer" | "missing relay" | "malformed bearer" | "malformed relay";
 type Seen = { rpc: string; ids: string[]; trace: string; authorization: string; cursor: string; pageSize?: number; bytes: number; timeout: string | null; cache: string | null; revision: string | null; lane: string };
-export type BatchClient = { getWidget(request: { id: string; kind?: string }, options?: CallOptions): Promise<Widget>; batchGetWidgets(ids: readonly string[], template?: object, options?: CallOptions): Promise<BatchResults<Widget>>; batchListWidgetParts(ids: readonly string[], template?: object, options?: CallOptions): Promise<readonly { parentId: string; call?: ListCall<string>; error?: ConnectError }[]> };
+export type BatchClient = { getWidget(request: { id: string; kind?: string }, options?: CallOptions): Promise<Widget>; batchGetWidgets(ids: readonly string[], template?: object, options?: CallOptions): Promise<BatchResults<Widget>>; batchDescribeWidgets(items: readonly { id: string; note: string }[], template?: object, options?: CallOptions): Promise<BatchResults<Widget & { note: string }>>; batchListWidgetParts(ids: readonly string[], template?: object, options?: CallOptions): Promise<readonly { parentId: string; call?: ListCall<string>; error?: ConnectError }[]> };
 export interface BatchState extends WidgetDatabase {
   fixtures: { org: string; id: string; parts: string[]; owner?: string }[]; generated: string[];
   session: Session; permissions: string[]; expires: number; keyPair: { privateKey: KeyObject; publicKey: KeyObject }; requests: Seen[];
@@ -185,6 +185,18 @@ When("the caller batch-gets {string} with a per-call {string} credential overrid
 });
 When("the caller batch-gets the generated widgets", async function (this: BatchWorld) { const s = await prepareBatch(this); const client = batchedClient(createPlatformClient(s.service!, s.transport!), s.policy!) as unknown as BatchClient; this.batchResults = [...await client.batchGetWidgets(s.generated)]; });
 When("the caller batch-gets {string} and one id of {int} bytes", async function (this: BatchWorld, ids: string, bytes: number) { const s = await prepareBatch(this); const client = batchedClient(createPlatformClient(s.service!, s.transport!), s.policy!) as unknown as BatchClient; this.batchResults = [...await client.batchGetWidgets([...split(ids), "x".repeat(bytes)])]; });
+When("the caller batch-gets the generated widgets and the first one again", async function (this: BatchWorld) { const s = await prepareBatch(this); const client = batchedClient(createPlatformClient(s.service!, s.transport!), s.policy!) as unknown as BatchClient; this.batchResults = [...await client.batchGetWidgets([...s.generated, s.generated[0]])]; });
+/** Batch-describe `items`; an answer must echo the note of its own item. */
+async function describe(world: BatchWorld, items: readonly { id: string; note: string }[]) {
+  const s = await prepareBatch(world); const client = batchedClient(createPlatformClient(s.service!, s.transport!), s.policy!) as unknown as BatchClient;
+  const answered = [...await client.batchDescribeWidgets(items)];
+  answered.forEach((value, i) => { if (value.ok) assert.equal(value.value.note, items[i].note, "the answer echoes the note of its item"); });
+  world.batchResults = answered;
+}
+When("the caller batch-describes {string}", async function (this: BatchWorld, ids: string) { await describe(this, split(ids).map(id => ({ id, note: `note of ${id}` }))); });
+When("the caller batch-describes the generated widgets", async function (this: BatchWorld) { await describe(this, state(this).generated.map(id => ({ id, note: "" }))); });
+When("the caller batch-describes the generated widgets with notes of {int} bytes", async function (this: BatchWorld, bytes: number) { await describe(this, state(this).generated.map(id => ({ id, note: "n".repeat(bytes) }))); });
+When("the caller batch-describes {string} where {string} has a note of {int} bytes", async function (this: BatchWorld, ids: string, large: string, bytes: number) { await describe(this, split(ids).map(id => ({ id, note: id === large ? "n".repeat(bytes) : "" }))); });
 When(/^the callers get (?:"([^"]*)"|the generated widgets) at the same time$/, async function (this: BatchWorld, ids?: string | null) {
   const s = await prepareBatch(this); const client = batchedClient(createPlatformClient(s.service!, s.transport!), s.policy!) as unknown as BatchClient;
   const requested = ids == null ? s.generated : split(ids);
@@ -342,6 +354,7 @@ Then("the results are the widgets {string}", function (this: BatchWorld, ids: st
 Then("the results are the generated widgets", function (this: BatchWorld) { assert.deepEqual(this.batchResults.map((_, i) => widget(this.batchResults, i + 1).id), state(this).generated); });
 Then("there are no results", function (this: BatchWorld) { assert.deepEqual(this.batchResults, []); });
 Then("position {int} is the widget {string}", function (this: BatchWorld, position: number, id: string) { assert.equal(widget(this.batchResults, position).id, id); });
+Then("position {int} answers the widget of position {int}", function (this: BatchWorld, position: number, earlier: number) { assert.equal(widget(this.batchResults, position).id, widget(this.batchResults, earlier).id); });
 Then("position {int} fails with {string}", function (this: BatchWorld, position: number, code: string) { assert.equal(failure(this.batchResults, position).code, codes[code]); });
 Then("position {int} carries the ErrorInfo {string}", function (this: BatchWorld, position: number, code: string) { assert.equal(errorInfoOf(failure(this.batchResults, position))?.code, code); });
 Then("positions {int} to {int} are the generated widgets", function (this: BatchWorld, from: number, to: number) { for (let i = from; i <= to; i++) assert.equal(widget(this.batchResults, i).id, state(this).generated[i - 1]); });
@@ -369,9 +382,14 @@ Then(/^the server received (\d+) "([^"]+)" requests?$/, function (this: BatchWor
 Then("the server received no request", function (this: BatchWorld) { assert.deepEqual(seen(this), []); });
 Then("the batch requests carried the id counts {string}", function (this: BatchWorld, counts: string) { assert.deepEqual(seen(this, "BatchGetWidgets").map(request => request.ids.length), split(counts).map(Number)); });
 Then("the batch requests carried the id counts {string} in any order", function (this: BatchWorld, counts: string) { assert.deepEqual(seen(this, "BatchGetWidgets").map(request => request.ids.length).sort((a,b) => a-b), split(counts).map(Number).sort((a,b) => a-b)); });
+const describeIds = (world: BatchWorld) => seen(world, "BatchDescribeWidgets").flatMap(request => request.ids);
+Then("the describe requests carried the item counts {string}", function (this: BatchWorld, counts: string) { assert.deepEqual(seen(this, "BatchDescribeWidgets").map(request => request.ids.length), split(counts).map(Number)); });
+Then("the describe requests carried the ids {string} in order", function (this: BatchWorld, ids: string) { assert.deepEqual(describeIds(this), split(ids)); });
+Then("the describe requests carried the generated widgets in order", function (this: BatchWorld) { assert.deepEqual(describeIds(this), state(this).generated); });
+Then("the first describe request carried fewer than {int} items", function (this: BatchWorld, limit: number) { const count = seen(this, "BatchDescribeWidgets")[0].ids.length; assert.ok(count > 0 && count < limit); });
 Then("the requests carried the ids {string}", function (this: BatchWorld, ids: string) { assert.deepEqual(seen(this).flatMap(request => request.ids).sort(), split(ids).sort()); });
 Then("the first batch request carried fewer than {int} ids", function (this: BatchWorld, limit: number) { const count = seen(this, "BatchGetWidgets")[0].ids.length; assert.ok(count > 0 && count < limit); });
-Then("no request was larger than 1 MiB", function (this: BatchWorld) { assert.ok(seen(this).length); for (const request of seen(this)) assert.ok(request.bytes <= 1048576); });
+Then("no request was larger than 768 KiB", function (this: BatchWorld) { assert.ok(seen(this).length); for (const request of seen(this)) assert.ok(request.bytes <= 786432); });
 Then("the server never had more than {int} batch requests in flight", function (this: BatchWorld, limit: number) { assert.ok(state(this).peak > 1); assert.ok(state(this).peak <= limit); });
 Then("the requests carried the x-trace values {string}", function (this: BatchWorld, traces: string) { assert.deepEqual(seen(this, "GetWidget").map(request => request.trace).sort(), split(traces).sort()); });
 Then("the server received one batch request for each call that was served", function (this: BatchWorld) { assert.equal(seen(this, "BatchGetWidgets").length, this.batchResults.filter(result => result.ok).length); });

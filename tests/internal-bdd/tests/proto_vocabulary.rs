@@ -356,6 +356,8 @@ fn given_batch_policy_shape(world: &mut VocabularyWorld, shape: String) {
         "no repeated string key" => "string ids = 1;",
         "multiple repeated string keys" => "repeated string ids = 1; repeated string names = 2;",
         "non-plural key" => "repeated string id = 1;",
+        "items" | "list items" => "repeated ListRequest items = 1;",
+        "items and string key" => "repeated ListRequest items = 1; repeated string ids = 2;",
         _ => "repeated string ids = 1;",
     };
     let single_key = if shape == "missing matching single key" {
@@ -363,7 +365,10 @@ fn given_batch_policy_shape(world: &mut VocabularyWorld, shape: String) {
     } else {
         "string id = 1;"
     };
-    let list = matches!(shape.as_str(), "list without groups" | "stream" | "list");
+    let list = matches!(
+        shape.as_str(),
+        "list without groups" | "stream" | "list" | "list items"
+    );
     let outcomes = match shape.as_str() {
         "get without results" => "repeated Thing items = 1;",
         "list without groups" => "repeated Thing results = 1;",
@@ -647,8 +652,13 @@ fn then_batch_policy(world: &mut VocabularyWorld, kind: String, outcomes: String
         .expect("batch sibling");
     assert_eq!(policy.kind, kind);
     assert_eq!(policy.method, "DoMany");
-    assert_eq!(policy.key_field, "id");
-    assert_eq!(policy.keys_field, "ids");
+    if kind == "items" {
+        assert_eq!(policy.key_field, "contract.v1.ListRequest");
+        assert_eq!(policy.keys_field, "items");
+    } else {
+        assert_eq!(policy.key_field, "id");
+        assert_eq!(policy.keys_field, "ids");
+    }
     assert_eq!(policy.results_field, outcomes);
 }
 

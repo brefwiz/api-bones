@@ -5,7 +5,7 @@ import { encodeErrorCode, encodeErrorInfo, type ErrorArg, type ErrorInfo } from 
 import { ValidationFailureSchema, type ErrorInfo as ErrorInfoMessage } from "./generated/bones/v1/errors_pb.js";
 
 export const BATCH_MAX_ITEMS = 200;
-export const BATCH_MAX_REQUEST_BYTES = 1_048_576;
+export const BATCH_MAX_REQUEST_BYTES = 786_432;
 export interface ItemError {
   readonly code: string;
   readonly message: string;
@@ -95,6 +95,32 @@ export function planBatch(ids: readonly string[], encode: (ids: readonly string[
   }
   if (chunk.length) chunks.push(chunk);
   return { chunks, positions, rejected };
+}
+export interface ItemsPlan {
+  readonly chunks: readonly (readonly number[])[];
+  readonly rejected: ReadonlyMap<number, ConnectError>;
+}
+/**
+ * Split message items by position. Items never deduplicate: every position is
+ * sent and answered on its own. `templateBytes` is the encoded request with no
+ * items; each of `itemBytes` is one item's encoded size as an element.
+ */
+export function planItems(templateBytes: number, itemBytes: readonly number[]): ItemsPlan {
+  const chunks: number[][] = [];
+  const rejected = new Map<number, ConnectError>();
+  let chunk: number[] = [];
+  let bytes = templateBytes;
+  itemBytes.forEach((cost, index) => {
+    if (templateBytes + cost > BATCH_MAX_REQUEST_BYTES) {
+      rejected.set(index, batchError(Code.InvalidArgument, "BATCH_ITEM_TOO_LARGE", "batch item exceeds request size limit"));
+      return;
+    }
+    if (chunk.length && (chunk.length === BATCH_MAX_ITEMS || bytes + cost > BATCH_MAX_REQUEST_BYTES)) { chunks.push(chunk); chunk = []; bytes = templateBytes; }
+    chunk.push(index);
+    bytes += cost;
+  });
+  if (chunk.length) chunks.push(chunk);
+  return { chunks, rejected };
 }
 /** Validate before exposing any item: malformed chunk never partially succeeds. */
 export function validateBatchResponse<T extends { readonly id: string }>(ids: readonly string[], results: readonly T[]): ConnectError | undefined {

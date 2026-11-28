@@ -5,8 +5,10 @@ Feature: Batched reads
   A BatchGet answers every requested id on its own, in request order: one
   id's expected refusal never fails the others. Unexpected server faults fail
   the whole call and pass through service error redaction. The SDK sends an
-  explicit batch of any length as chunks of at most 200 ids and 1 MiB, and merges the single Gets of
-  one tick into one batch request. Calls under different identities, headers,
+  explicit batch of any length as chunks of at most 200 ids and 768 KiB, and merges the single Gets of
+  one tick into one batch request. A batch whose request repeats the single's request message
+  is split the same way, but never deduplicates or coalesces: every item is sent and answered at
+  its own position. Calls under different identities, headers,
   deadlines or non-id fields never merge. A BatchList answers one group per
   parent, and a group continues through the single List cursor.
 
@@ -85,23 +87,65 @@ Feature: Batched reads
     Then the results are the generated widgets
     And the batch requests carried the id counts "200,200,50"
 
-  Scenario: The SDK closes a chunk at 1 MiB encoded size before 200 ids
+  Scenario: The SDK closes a chunk at 768 KiB encoded size before 200 ids
     Given the organization "acme" has 120 widgets with ids of 10000 bytes
     And the caller is "ada" of organization "acme"
     When the caller batch-gets the generated widgets
     Then the results are the generated widgets
     And the server received 2 "BatchGetWidgets" requests
     And the first batch request carried fewer than 200 ids
-    And no request was larger than 1 MiB
+    And no request was larger than 768 KiB
 
-  Scenario: An id whose request alone exceeds 1 MiB fails locally with BATCH_ITEM_TOO_LARGE
+  Scenario: An id whose request alone exceeds 768 KiB fails locally with BATCH_ITEM_TOO_LARGE
     Given the organization "acme" has widgets "w1"
     And the caller is "ada" of organization "acme"
-    When the caller batch-gets "w1" and one id of 1048600 bytes
+    When the caller batch-gets "w1" and one id of 786500 bytes
     Then position 1 is the widget "w1"
     And position 2 fails with "invalid_argument"
     And position 2 carries the ErrorInfo "BATCH_ITEM_TOO_LARGE"
     And the requests carried the ids "w1"
+
+  Scenario: An explicit batch of 201 ids is two requests and a repeated id is answered at its own position
+    Given the organization "acme" has 201 widgets
+    And the caller is "ada" of organization "acme"
+    When the caller batch-gets the generated widgets and the first one again
+    Then positions 1 to 201 are the generated widgets
+    And position 202 answers the widget of position 1
+    And the batch requests carried the id counts "200,1"
+
+  Scenario: The SDK splits 450 message items into requests of 200, 200 and 50 and keeps input order
+    Given the organization "acme" has 450 widgets
+    And the caller is "ada" of organization "acme"
+    When the caller batch-describes the generated widgets
+    Then the results are the generated widgets
+    And the describe requests carried the item counts "200,200,50"
+    And the describe requests carried the generated widgets in order
+
+  Scenario: The SDK closes a message-item request at 768 KiB encoded size before 200 items
+    Given the organization "acme" has 20 widgets
+    And the caller is "ada" of organization "acme"
+    When the caller batch-describes the generated widgets with notes of 100000 bytes
+    Then the results are the generated widgets
+    And the describe requests carried the item counts "7,7,6"
+    And the first describe request carried fewer than 200 items
+    And no request was larger than 768 KiB
+
+  Scenario: A repeated message item is sent and answered at every position
+    Given the organization "acme" has widgets "w1,w2"
+    And the caller is "ada" of organization "acme"
+    When the caller batch-describes "w1,w2,w1,w1"
+    Then the results are the widgets "w1,w2,w1,w1"
+    And the describe requests carried the ids "w1,w2,w1,w1" in order
+
+  Scenario: A message item over the request limit fails at its own position and is not sent
+    Given the organization "acme" has widgets "w1,w2,w3"
+    And the caller is "ada" of organization "acme"
+    When the caller batch-describes "w1,w2,w3" where "w2" has a note of 786500 bytes
+    Then position 1 is the widget "w1"
+    And position 2 fails with "invalid_argument"
+    And position 2 carries the ErrorInfo "BATCH_ITEM_TOO_LARGE"
+    And position 3 is the widget "w3"
+    And the describe requests carried the ids "w1,w3" in order
 
   Scenario: The SDK keeps at most 4 wire batch requests in flight per client instance across coalesced windows and explicit chunks
     Given the organization "acme" has widgets "w1,w2"

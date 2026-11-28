@@ -23,13 +23,14 @@ pub struct PagingPolicy {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchPolicy {
-    /// Get or grouped list.
+    /// Get, grouped list, or items: a batch whose request repeats the
+    /// single's request message.
     pub kind: &'static str,
     /// Batch RPC name.
     pub method: String,
-    /// Single request key.
+    /// Single request key; for kind items, the single's request message.
     pub key_field: String,
-    /// Batch request keys.
+    /// Batch request keys; for kind items, the repeated request items.
     pub keys_field: String,
     /// Batch response results or groups.
     pub results_field: String,
@@ -113,31 +114,50 @@ pub fn batch_policy(
         .fields()
         .filter(|field| field.is_list() && field.kind() == Kind::String)
         .collect();
-    let [keys] = keys.as_slice() else {
-        return Err(format!(
-            "{} needs one repeated string key",
-            batch.full_name()
-        ));
-    };
-    let singular = keys
-        .name()
-        .strip_suffix('s')
-        .ok_or_else(|| format!("{} key must be plural", batch.full_name()))?;
-    let key = single
+    let items: Vec<_> = batch
         .input()
-        .get_field_by_name(singular)
-        .filter(|field| field.kind() == Kind::String && !field.is_list())
-        .ok_or_else(|| format!("{} lacks matching single key", batch.full_name()))?;
+        .fields()
+        .filter(|field| field.is_list() && message_type(field, single.input().full_name()))
+        .collect();
     let list = paging_policy(pool, single).is_some();
+    let (keys, key_field, kind) = match (keys.as_slice(), items.as_slice()) {
+        ([keys], []) => {
+            let singular = keys
+                .name()
+                .strip_suffix('s')
+                .ok_or_else(|| format!("{} key must be plural", batch.full_name()))?;
+            let key = single
+                .input()
+                .get_field_by_name(singular)
+                .filter(|field| field.kind() == Kind::String && !field.is_list())
+                .ok_or_else(|| format!("{} lacks matching single key", batch.full_name()))?;
+            (
+                keys.clone(),
+                key.json_name().to_owned(),
+                if list { "list" } else { "get" },
+            )
+        }
+        ([], [items]) if !list => (
+            items.clone(),
+            single.input().full_name().to_owned(),
+            "items",
+        ),
+        _ => {
+            return Err(format!(
+                "{} needs one repeated string key",
+                batch.full_name()
+            ));
+        }
+    };
     let results = batch
         .output()
         .get_field_by_name(if list { "groups" } else { "results" })
         .filter(FieldDescriptor::is_list)
         .ok_or_else(|| format!("{} lacks canonical batch outcomes", batch.full_name()))?;
     Ok(Some(BatchPolicy {
-        kind: if list { "list" } else { "get" },
+        kind,
         method: batch.name().into(),
-        key_field: key.json_name().into(),
+        key_field,
         keys_field: keys.json_name().into(),
         results_field: results.json_name().into(),
     }))

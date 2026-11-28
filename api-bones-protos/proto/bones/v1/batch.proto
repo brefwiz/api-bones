@@ -17,8 +17,10 @@
 //
 //   BATCH_TOO_LARGE          the request holds more items than the server accepts
 //                            (`invalid_argument`).
-//   BATCH_ITEM_TOO_LARGE     one id alone encodes beyond the request size limit.
-//                            Raised by the SDK before any send.
+//   BATCH_ITEM_TOO_LARGE     one id or message item alone encodes beyond the
+//                            request size limit of 768 KiB (`invalid_argument`).
+//                            Raised by the SDK before any send, at the item's own
+//                            position; the other items still run.
 //   BATCH_RESPONSE_MISMATCH  the response does not answer the request's ids in
 //                            order (`internal`). Raised by the SDK.
 //   BATCH_IDENTITY_CHANGED   the caller identity changed between enqueue and

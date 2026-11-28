@@ -7,6 +7,8 @@
 //! - an explicit batch call with any number of ids: deduplicated, split into
 //!   chunks of at most [`MAX_ITEMS`] ids and [`MAX_REQUEST_BYTES`] bytes, one
 //!   outcome per input id in input order;
+//! - an explicit batch of message items, split the same way, never
+//!   deduplicated, one outcome per input item in input order;
 //! - a single Get whose same-tick siblings are merged into one batch request;
 //! - a grouped batch list whose groups continue through the page iterator.
 //!
@@ -21,6 +23,7 @@ mod coalesce;
 mod descriptor;
 mod grouped;
 mod item_error;
+mod items;
 mod key;
 mod macros;
 mod paged;
@@ -42,6 +45,7 @@ pub use item_error::{
     BATCH_IDENTITY_CHANGED, BATCH_ITEM_TOO_LARGE, BATCH_RESPONSE_MISMATCH, BATCH_TOO_LARGE,
     ItemErrorParts, is_never_retried, item_error_to_connect,
 };
+pub use items::{ItemsSpec, run_items};
 pub use key::{
     Anonymous, CREDENTIAL_HEADERS, CallHeaders, CoalesceKey, Credential, CredentialAsk,
     CredentialFuture, CredentialGuard, CredentialSource, HeaderPair, Identity, QueueKey,
@@ -89,7 +93,7 @@ macro_rules! batch_client {
 /// What `batch_method!` expands against. Not a stable surface.
 #[doc(hidden)]
 pub mod __private {
-    pub use crate::macros::{tag_len, template_bytes};
+    pub use crate::macros::{item_element_bytes, tag_len, template_bytes};
     pub use crate::paged::item_len;
     pub use api_bones::connect::{ErrorInfo, Idempotency, ValidationFailureDetail};
     pub use api_bones_page::{

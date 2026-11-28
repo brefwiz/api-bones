@@ -24,13 +24,16 @@ use api_bones_batch::{
 };
 use api_bones_connect::{ErrorInfo, error_info, with_error_info};
 use api_bones_contract_rust::{
-    BatchGetWidgetsRequest, BatchGetWidgetsResponse, BatchListWidgetPartsRequest,
-    BatchListWidgetPartsResponse, GetWidgetRequest, GetWidgetResponse, ItemError,
-    ListWidgetPartsIdempotentRequest, ListWidgetPartsIdempotentResponse, ListWidgetPartsRequest,
-    ListWidgetPartsResponse, ListWidgetPartsUnspecifiedRequest, ListWidgetPartsUnspecifiedResponse,
-    PageResponse, UpdateWidgetPartsRequest, UpdateWidgetPartsResponse, ValidationFailure, Widget,
-    WidgetGets, WidgetPartLists, WidgetPartsGroup, WidgetResult, WidgetsService,
-    WidgetsServiceClient, WidgetsServiceExt, WireErrorInfo, widget_result,
+    BatchDescribeWidgetsRequest, BatchDescribeWidgetsResponse, BatchGetWidgetsRequest,
+    BatchGetWidgetsResponse, BatchListWidgetPartsRequest, BatchListWidgetPartsResponse,
+    DescribeWidgetRequest, DescribeWidgetResponse, DescribeWidgetResult, GetWidgetRequest,
+    GetWidgetResponse, ItemError, ListWidgetPartsIdempotentRequest,
+    ListWidgetPartsIdempotentResponse, ListWidgetPartsRequest, ListWidgetPartsResponse,
+    ListWidgetPartsUnspecifiedRequest, ListWidgetPartsUnspecifiedResponse, PageResponse,
+    UpdateWidgetPartsRequest, UpdateWidgetPartsResponse, ValidationFailure, Widget,
+    WidgetDescriptions, WidgetGets, WidgetPartLists, WidgetPartsGroup, WidgetResult,
+    WidgetsService, WidgetsServiceClient, WidgetsServiceExt, WireErrorInfo, describe_widget_result,
+    widget_result,
 };
 use api_bones_transport::HttpTransport;
 use connectrpc::client::{CallOptions, ClientConfig};
@@ -123,7 +126,8 @@ pub(super) fn reset_telemetry() {
 }
 
 const EMITTER: &str = "widgets";
-const MIB: usize = 1_048_576;
+/// The most encoded bytes the SDK puts in one batch request.
+const REQUEST_LIMIT: usize = 786_432;
 
 type WidgetsBatched = Batched<WidgetsServiceClient<HttpTransport>>;
 type Outcome = Result<GetWidgetResponse, ConnectError>;
@@ -601,6 +605,91 @@ impl WidgetsService for WidgetService {
             results.pop();
         }
         Response::ok(BatchGetWidgetsResponse {
+            results,
+            ..Default::default()
+        })
+    }
+
+    async fn describe_widget<'a>(
+        &'a self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, DescribeWidgetRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<DescribeWidgetResponse> + Send + use<'a>> {
+        let asked = request.to_owned_message();
+        let org = self.record(
+            &ctx,
+            "DescribeWidget",
+            vec![asked.id.clone()],
+            "",
+            None,
+            request.bytes().len(),
+        );
+        let _flight = self.occupy().await;
+        let (name, owner) = lookup(&self.db, &org, &asked.id)
+            .await
+            .map_err(|refusal| refusal.single())?;
+        authorize_widget(claim(&ctx).principal(), owner.as_deref())?;
+        Response::ok(DescribeWidgetResponse {
+            widget: buffa::MessageField::some(widget(&asked.id, name, "")),
+            note: asked.note,
+            ..Default::default()
+        })
+    }
+
+    async fn batch_describe_widgets<'a>(
+        &'a self,
+        ctx: RequestContext,
+        request: ServiceRequest<'_, BatchDescribeWidgetsRequest>,
+    ) -> ServiceResult<impl connectrpc::Encodable<BatchDescribeWidgetsResponse> + Send + use<'a>>
+    {
+        let asked = request.to_owned_message();
+        let ids: Vec<String> = asked.items.iter().map(|item| item.id.clone()).collect();
+        let org = self.record(
+            &ctx,
+            "BatchDescribeWidgets",
+            ids.clone(),
+            "",
+            None,
+            request.bytes().len(),
+        );
+        let _flight = self.occupy().await;
+        self.script_batch(&ids)?;
+        let principal = claim(&ctx).principal();
+        let authorized = BatchResults::serve(
+            &asked.items,
+            |item| {
+                let org = &org;
+                async move {
+                    lookup(&self.db, org, &item.id)
+                        .await
+                        .map(|(name, owner)| (widget(&item.id, name, ""), owner))
+                        .map_err(|refusal| refusal.single())
+                }
+            },
+            |(_, owner)| authorize_widget(principal, owner.as_deref()),
+        )
+        .await?;
+        let results = asked
+            .items
+            .iter()
+            .zip(authorized.into_vec())
+            .map(|(item, outcome)| DescribeWidgetResult {
+                outcome: Some(match outcome {
+                    Ok((described, _)) => {
+                        describe_widget_result::Outcome::Item(Box::new(DescribeWidgetResponse {
+                            widget: buffa::MessageField::some(described),
+                            note: item.note.clone(),
+                            ..Default::default()
+                        }))
+                    }
+                    Err(error) => {
+                        describe_widget_result::Outcome::Error(Box::new(item_error(&error)))
+                    }
+                }),
+                ..Default::default()
+            })
+            .collect();
+        Response::ok(BatchDescribeWidgetsResponse {
             results,
             ..Default::default()
         })
@@ -1200,6 +1289,17 @@ async fn when_batch_get(world: &mut BatchWorld, ids: String) {
         .into_vec();
 }
 
+fn with_last(mut ids: Vec<String>, last: String) -> Vec<String> {
+    ids.push(last);
+    ids
+}
+
+fn with_first_again(mut ids: Vec<String>) -> Vec<String> {
+    let first = ids[0].clone();
+    ids.push(first);
+    ids
+}
+
 #[when("the caller batch-gets the generated widgets")]
 async fn when_batch_get_generated(world: &mut BatchWorld) {
     let batched = client(world).await;
@@ -1214,16 +1314,130 @@ async fn when_batch_get_generated(world: &mut BatchWorld) {
 
 #[when(expr = "the caller batch-gets {string} and one id of {int} bytes")]
 async fn when_batch_get_large(world: &mut BatchWorld, ids: String, bytes: usize) {
-    let mut all = list_of(&ids);
-    all.push("l".repeat(bytes));
+    let ids = with_last(list_of(&ids), "l".repeat(bytes));
     let batched = client(world).await;
     world.results = batched
         .batch_get_widgets(BatchGetWidgetsRequest {
-            ids: all,
+            ids,
             ..Default::default()
         })
         .await
         .into_vec();
+}
+
+#[when("the caller batch-gets the generated widgets and the first one again")]
+async fn when_batch_get_generated_repeated(world: &mut BatchWorld) {
+    let ids = with_first_again(world.generated.clone());
+    let batched = client(world).await;
+    world.results = batched
+        .batch_get_widgets(BatchGetWidgetsRequest {
+            ids,
+            ..Default::default()
+        })
+        .await
+        .into_vec();
+}
+
+/// Keeps, per position, the widget the answer describes; an answer must echo
+/// the note of its own item.
+fn widgets_described(
+    answers: Vec<Result<DescribeWidgetResponse, ConnectError>>,
+    items: &[DescribeWidgetRequest],
+) -> Vec<Result<GetWidgetResponse, ConnectError>> {
+    answers
+        .into_iter()
+        .zip(items)
+        .map(|(outcome, item)| {
+            outcome.map(|described| {
+                assert_eq!(
+                    described.note, item.note,
+                    "the answer echoes the note of its item"
+                );
+                GetWidgetResponse {
+                    widget: described.widget,
+                    ..Default::default()
+                }
+            })
+        })
+        .collect()
+}
+
+fn described(id: &str, note: String) -> DescribeWidgetRequest {
+    DescribeWidgetRequest {
+        id: id.to_owned(),
+        note,
+        ..Default::default()
+    }
+}
+
+#[when(expr = "the caller batch-describes {string}")]
+async fn when_batch_describe(world: &mut BatchWorld, ids: String) {
+    let items: Vec<DescribeWidgetRequest> = list_of(&ids)
+        .iter()
+        .map(|id| described(id, format!("note of {id}")))
+        .collect();
+    let batched = client(world).await;
+    let answers = batched
+        .batch_describe_widgets(BatchDescribeWidgetsRequest::default(), items.clone())
+        .await
+        .into_vec();
+    world.results = widgets_described(answers, &items);
+}
+
+#[when("the caller batch-describes the generated widgets")]
+async fn when_batch_describe_generated(world: &mut BatchWorld) {
+    let items: Vec<DescribeWidgetRequest> = world
+        .generated
+        .iter()
+        .map(|id| described(id, String::new()))
+        .collect();
+    let batched = client(world).await;
+    let answers = batched
+        .batch_describe_widgets(BatchDescribeWidgetsRequest::default(), items.clone())
+        .await
+        .into_vec();
+    world.results = widgets_described(answers, &items);
+}
+
+#[when(expr = "the caller batch-describes the generated widgets with notes of {int} bytes")]
+async fn when_batch_describe_large(world: &mut BatchWorld, bytes: usize) {
+    let items: Vec<DescribeWidgetRequest> = world
+        .generated
+        .iter()
+        .map(|id| described(id, "n".repeat(bytes)))
+        .collect();
+    let batched = client(world).await;
+    let answers = batched
+        .batch_describe_widgets(BatchDescribeWidgetsRequest::default(), items.clone())
+        .await
+        .into_vec();
+    world.results = widgets_described(answers, &items);
+}
+
+#[when(expr = "the caller batch-describes {string} where {string} has a note of {int} bytes")]
+async fn when_batch_describe_one_large(
+    world: &mut BatchWorld,
+    ids: String,
+    large: String,
+    bytes: usize,
+) {
+    let items: Vec<DescribeWidgetRequest> = list_of(&ids)
+        .iter()
+        .map(|id| {
+            let note = if *id == large {
+                "n".repeat(bytes)
+            } else {
+                String::new()
+            };
+            described(id, note)
+        })
+        .collect();
+    let batched = client(world).await;
+    let answers = batched
+        .batch_describe_widgets(BatchDescribeWidgetsRequest::default(), items.clone())
+        .await
+        .into_vec();
+    world.results = widgets_described(answers, &items);
 }
 
 #[when(expr = "the caller gets {string} with the unbatched client")]
@@ -2112,11 +2326,10 @@ fn widget_of(response: &GetWidgetResponse) -> &Widget {
 }
 
 fn widget_at(world: &BatchWorld, position: usize) -> &Widget {
-    widget_of(
-        outcome(world, position)
-            .as_ref()
-            .unwrap_or_else(|error| panic!("position {position} failed: {error:?}")),
-    )
+    let answered = outcome(world, position)
+        .as_ref()
+        .unwrap_or_else(|error| panic!("position {position} failed: {error:?}"));
+    widget_of(answered)
 }
 
 fn failure_at(world: &BatchWorld, position: usize) -> &ConnectError {
@@ -2161,6 +2374,20 @@ fn then_no_results(world: &mut BatchWorld) {
 #[then(expr = "position {int} is the widget {string}")]
 fn then_position_widget(world: &mut BatchWorld, position: usize, id: String) {
     assert_eq!(widget_at(world, position).id, id);
+}
+
+#[then(expr = "position {int} answers the widget of position {int}")]
+fn then_position_repeats(world: &mut BatchWorld, position: usize, earlier: usize) {
+    assert_eq!(
+        world.results[position - 1]
+            .as_ref()
+            .expect("the repeated position was served"),
+        world.results[earlier - 1]
+            .as_ref()
+            .expect("the earlier position was served"),
+        "position {position} answers exactly what position {earlier} answers"
+    );
+    assert_eq!(widget_at(world, position).id, widget_at(world, earlier).id);
 }
 
 #[then(expr = "position {int} fails with {string}")]
@@ -2487,32 +2714,69 @@ fn then_received_none(world: &mut BatchWorld) {
     );
 }
 
-#[then(expr = "the batch requests carried the id counts {string}")]
-fn then_counts(world: &mut BatchWorld, counts: String) {
-    let carried: Vec<usize> = seen_rpc(world, "BatchGetWidgets")
+/// The item counts of the requests of `rpc`, in the order they arrived.
+fn carried_counts(world: &BatchWorld, rpc: &str) -> Vec<usize> {
+    seen_rpc(world, rpc)
         .iter()
         .map(|request| request.ids.len())
-        .collect();
-    let expected: Vec<usize> = list_of(&counts)
+        .collect()
+}
+
+fn expected_counts(counts: &str) -> Vec<usize> {
+    list_of(counts)
         .iter()
         .map(|count| count.parse().expect("a count"))
-        .collect();
-    assert_eq!(carried, expected);
+        .collect()
+}
+
+#[then(expr = "the batch requests carried the id counts {string}")]
+fn then_counts(world: &mut BatchWorld, counts: String) {
+    assert_eq!(
+        carried_counts(world, "BatchGetWidgets"),
+        expected_counts(&counts)
+    );
 }
 
 #[then(expr = "the batch requests carried the id counts {string} in any order")]
 fn then_counts_any_order(world: &mut BatchWorld, counts: String) {
-    let mut carried: Vec<usize> = seen_rpc(world, "BatchGetWidgets")
-        .iter()
-        .map(|request| request.ids.len())
-        .collect();
-    let mut expected: Vec<usize> = list_of(&counts)
-        .iter()
-        .map(|count| count.parse().expect("a count"))
-        .collect();
+    let mut carried = carried_counts(world, "BatchGetWidgets");
+    let mut expected = expected_counts(&counts);
     carried.sort_unstable();
     expected.sort_unstable();
     assert_eq!(carried, expected);
+}
+
+#[then(expr = "the describe requests carried the item counts {string}")]
+fn then_describe_counts(world: &mut BatchWorld, counts: String) {
+    assert_eq!(
+        carried_counts(world, "BatchDescribeWidgets"),
+        expected_counts(&counts)
+    );
+}
+
+#[then(expr = "the describe requests carried the ids {string} in order")]
+fn then_describe_ids(world: &mut BatchWorld, ids: String) {
+    let carried: Vec<String> = seen_rpc(world, "BatchDescribeWidgets")
+        .into_iter()
+        .flat_map(|request| request.ids)
+        .collect();
+    assert_eq!(carried, list_of(&ids));
+}
+
+#[then("the describe requests carried the generated widgets in order")]
+fn then_describe_generated(world: &mut BatchWorld) {
+    let carried: Vec<String> = seen_rpc(world, "BatchDescribeWidgets")
+        .into_iter()
+        .flat_map(|request| request.ids)
+        .collect();
+    assert_eq!(carried, world.generated);
+}
+
+#[then(expr = "the first describe request carried fewer than {int} items")]
+fn then_first_describe_fewer(world: &mut BatchWorld, limit: usize) {
+    let first = seen_rpc(world, "BatchDescribeWidgets");
+    let carried = first.first().expect("a batch request was sent").ids.len();
+    assert!((1..limit).contains(&carried), "carried {carried} items");
 }
 
 #[then(expr = "the requests carried the ids {string}")]
@@ -2534,10 +2798,14 @@ fn then_first_fewer(world: &mut BatchWorld, limit: usize) {
     assert!((1..limit).contains(&carried), "carried {carried} ids");
 }
 
-#[then("no request was larger than 1 MiB")]
+#[then("no request was larger than 768 KiB")]
 fn then_size(world: &mut BatchWorld) {
     for request in seen(world) {
-        assert!(request.encoded_len <= MIB, "{} bytes", request.encoded_len);
+        assert!(
+            request.encoded_len <= REQUEST_LIMIT,
+            "{} bytes",
+            request.encoded_len
+        );
     }
 }
 

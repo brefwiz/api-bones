@@ -112,6 +112,7 @@ async function constructWithPolicyDrift(this: ConstructionWorld, drift: string) 
       service = { ...service, methods: service.methods.map(method => method === batch ? { ...batch, output } : method) } as typeof service;
       break;
     }
+    case "scalar message items": entry.batch.kind = "items"; break;
     case "mutating batch": policy.methods.find((method: { rpc: string }) => method.rpc.endsWith("/BatchGetWidgets")).idempotency = "IDEMPOTENT"; break;
     default: assert.fail(`unknown drift ${drift}`);
   }

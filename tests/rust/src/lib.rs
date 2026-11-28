@@ -34,6 +34,10 @@ pub use generated::bones::v1 as field_wire;
 pub use generated::bones::v1::PageResponse;
 pub use generated::bones::v1::{ErrorInfo as WireErrorInfo, ItemError, ValidationFailure};
 pub use generated::contract::v1::{
+    BatchDescribeWidgetsRequest, BatchDescribeWidgetsResponse, DescribeWidgetRequest,
+    DescribeWidgetResponse, DescribeWidgetResult, describe_widget_result,
+};
+pub use generated::contract::v1::{
     BatchGetWidgetsRequest, BatchGetWidgetsResponse, BatchListWidgetPartsRequest,
     BatchListWidgetPartsResponse, GetWidgetRequest, GetWidgetResponse, ListIdempotentRequest,
     ListIdempotentResponse, ListNoSideEffectsRequest, ListNoSideEffectsResponse, ListRequest,
@@ -113,6 +117,26 @@ api_bones_batch::batch_method! {
         ids_field: 1,
         results: results,
         outcome: widget_result::Outcome,
+    },
+}
+
+api_bones_batch::batch_method! {
+    ext: WidgetDescriptions,
+    client: WidgetsServiceClient<api_bones_transport::HttpTransport>,
+    items: {
+        single_method: "contract.v1.WidgetsService/DescribeWidget",
+        request: DescribeWidgetRequest,
+        item: DescribeWidgetResponse,
+    },
+    batch: {
+        method: "contract.v1.WidgetsService/BatchDescribeWidgets",
+        name: batch_describe_widgets,
+        with_options: batch_describe_widgets_with_options,
+        template: BatchDescribeWidgetsRequest,
+        items: items,
+        items_field: 1,
+        results: results,
+        outcome: describe_widget_result::Outcome,
     },
 }
 

@@ -304,12 +304,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]
+  # The batch kind of a generated client (ids or message items) is derived by
+  # api-bones-automation (method_shape), so that crate ships this surface's
+  # Rust target too.
   connect-batch:
     contract: tests/features/connect_batch.feature
     targets:
       rust:
         delivery: package
-        packages: [api-bones-batch, api-bones-protos]
+        packages: [api-bones-batch, api-bones-protos, api-bones-automation]
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-connect"]

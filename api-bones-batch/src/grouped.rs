@@ -133,7 +133,7 @@ pub struct GroupedSpec<Tmpl, Req, Resp: PagedResponse> {
     /// The single List RPC's declared contract.
     pub idempotency: Idempotency,
     /// Sends one batch request.
-    pub batch: BatchFn<Tmpl, FirstPage<Resp::Item>>,
+    pub batch: BatchFn<Tmpl, String, FirstPage<Resp::Item>>,
     /// Fetches one page of the single List RPC.
     pub single_call: SingleList<Req, Resp>,
     /// Encoded size of the template, reserve for the ids field included.
@@ -315,27 +315,33 @@ mod tests {
             rpc: "p.S/BatchList",
             single: "p.S/List",
             idempotency: Idempotency::NoSideEffects,
-            batch: Arc::new(
-                move |_template: Tmpl, ids: Vec<String>, _options: CallOptions| -> Boxed<Result<WireResults<FirstPage<String>>, ConnectError>> {
-                    Box::pin(async move {
-                        let answers: WireResults<FirstPage<String>> = ids
-                            .into_iter()
-                            .map(|id| {
-                                let outcome = if id == "gone" {
-                                    Err(ConnectError::not_found("no such parent"))
-                                } else {
-                                    Ok(FirstPage {
-                                        items: vec![format!("{id}-1"), format!("{id}-2")],
-                                        next_cursor: next_cursor.to_owned(),
-                                    })
-                                };
-                                (id, outcome)
-                            })
-                            .collect();
-                        Ok::<_, ConnectError>(answers)
-                    })
-                },
-            ),
+            batch:
+                Arc::new(
+                    move |_template: Tmpl,
+                          ids: Vec<String>,
+                          _options: CallOptions|
+                          -> Boxed<
+                        Result<WireResults<String, FirstPage<String>>, ConnectError>,
+                    > {
+                        Box::pin(async move {
+                            let answers: WireResults<String, FirstPage<String>> = ids
+                                .into_iter()
+                                .map(|id| {
+                                    let outcome = if id == "gone" {
+                                        Err(ConnectError::not_found("no such parent"))
+                                    } else {
+                                        Ok(FirstPage {
+                                            items: vec![format!("{id}-1"), format!("{id}-2")],
+                                            next_cursor: next_cursor.to_owned(),
+                                        })
+                                    };
+                                    (id, outcome)
+                                })
+                                .collect();
+                            Ok::<_, ConnectError>(answers)
+                        })
+                    },
+                ),
             single_call: Arc::new(
                 |request: Req, _options: CallOptions| -> Boxed<Result<Resp, ConnectError>> {
                     Box::pin(async move {

@@ -2,7 +2,7 @@
 import { Code, ConnectError } from "@connectrpc/connect";
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { authorizeBatchResults, itemErrorToConnect, serveBatchRequest } from "./batch-primitives.js";
+import { BATCH_MAX_ITEMS, BATCH_MAX_REQUEST_BYTES, authorizeBatchResults, itemErrorToConnect, planItems, serveBatchRequest } from "./batch-primitives.js";
 import { errorInfoOf } from "./error-info.js";
 import { ErrorInfoSchema } from "./generated/bones/v1/errors_pb.js";
 
@@ -58,5 +58,48 @@ describe("provider batch boundaries", () => {
         ["seat", { kind: "string", value: "12A" }],
       ]),
     });
+  });
+});
+
+describe("message item planning", () => {
+  it("allows 768 KiB per request", () => {
+    expect(BATCH_MAX_REQUEST_BYTES).toBe(786_432);
+  });
+
+  it("plans no chunk for no items", () => {
+    expect(planItems(0, [])).toEqual({ chunks: [], rejected: new Map() });
+  });
+
+  it("splits 450 items into chunks of 200, 200 and 50 by position", () => {
+    const plan = planItems(0, Array.from({ length: 450 }, () => 10));
+    expect(plan.chunks.map(chunk => chunk.length)).toEqual([BATCH_MAX_ITEMS, BATCH_MAX_ITEMS, 50]);
+    expect(plan.chunks.flat()).toEqual(Array.from({ length: 450 }, (_, index) => index));
+    expect(plan.rejected.size).toBe(0);
+  });
+
+  it("closes a chunk at the byte limit before the count limit", () => {
+    const half = BATCH_MAX_REQUEST_BYTES / 2;
+    expect(planItems(0, [half, half, 1, 1]).chunks).toEqual([[0, 1], [2, 3]]);
+  });
+
+  it("counts the template bytes of every chunk", () => {
+    expect(planItems(100, [BATCH_MAX_REQUEST_BYTES - 100, 1]).chunks).toEqual([[0], [1]]);
+  });
+
+  it("keeps a repeated item at every position", () => {
+    expect(planItems(0, [5, 5, 5]).chunks).toEqual([[0, 1, 2]]);
+  });
+
+  it("rejects an item that alone exceeds the limit at its own position and keeps the others", () => {
+    const plan = planItems(0, [5, BATCH_MAX_REQUEST_BYTES + 1, 5]);
+    expect(plan.chunks).toEqual([[0, 2]]);
+    expect([...plan.rejected.keys()]).toEqual([1]);
+    const error = plan.rejected.get(1)!;
+    expect(error.code).toBe(Code.InvalidArgument);
+    expect(errorInfoOf(error)?.code).toBe("BATCH_ITEM_TOO_LARGE");
+  });
+
+  it("accepts an item that exactly fills the limit", () => {
+    expect(planItems(0, [BATCH_MAX_REQUEST_BYTES]).chunks).toEqual([[0]]);
   });
 });

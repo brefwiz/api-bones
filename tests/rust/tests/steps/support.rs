@@ -76,6 +76,8 @@ macro_rules! unserved_widget_methods {
         }
     };
     (@others $why:literal) => {
+        unserved_widget_methods!(@method describe_widget, DescribeWidgetRequest, DescribeWidgetResponse, $why);
+        unserved_widget_methods!(@method batch_describe_widgets, BatchDescribeWidgetsRequest, BatchDescribeWidgetsResponse, $why);
         unserved_widget_methods!(@method list_widget_parts_idempotent, ListWidgetPartsIdempotentRequest, ListWidgetPartsIdempotentResponse, $why);
         unserved_widget_methods!(@method list_widget_parts_unspecified, ListWidgetPartsUnspecifiedRequest, ListWidgetPartsUnspecifiedResponse, $why);
         unserved_widget_methods!(@method update_widget_parts, UpdateWidgetPartsRequest, UpdateWidgetPartsResponse, $why);

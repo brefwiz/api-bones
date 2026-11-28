@@ -42,7 +42,7 @@ pub struct GetPlan<Get, Tmpl, T> {
     /// Calls the single RPC.
     pub single: SingleFn<Get, T>,
     /// Calls the batch RPC.
-    pub batch: BatchFn<Tmpl, T>,
+    pub batch: BatchFn<Tmpl, String, T>,
     /// The id a Get asks for.
     pub id_of: fn(&Get) -> String,
     /// Set the id of a Get.
