@@ -1,4 +1,4 @@
-error: an export takes `&self`, not `self` or `&mut self`
+error: an export takes `&self`, not `self` or `&mut self`: `#[client]` is `Clone` over an `Arc`, so keep mutable state in shared storage behind `&self`, for example `Arc<Mutex<_>>` or `RwLock`
   --> tests/compile_fail/mut_self.rs:10:20
    |
 10 |     pub async fn f(&mut self) -> Result<(), Error> {

@@ -584,7 +584,7 @@ fn export(
         Some(receiver) => {
             return Err(syn::Error::new_spanned(
                 receiver,
-                "an export takes `&self`, not `self` or `&mut self`",
+                "an export takes `&self`, not `self` or `&mut self`: `#[client]` is `Clone` over an `Arc`, so keep mutable state in shared storage behind `&self`, for example `Arc<Mutex<_>>` or `RwLock`",
             ));
         }
         None if args.sync => Shape::Function,
@@ -945,7 +945,9 @@ mod tests {
         for receiver in ["self", "&mut self", "mut self"] {
             let message = export_refused(&format!("#[export(sync)] fn go({receiver}) {{}}"));
             assert!(
-                message.contains("not `self` or `&mut self`"),
+                message.contains("not `self` or `&mut self`")
+                    && message.contains("`Arc<Mutex<_>>` or `RwLock`")
+                    && message.contains("`Clone` over an `Arc`"),
                 "{receiver}: {message}"
             );
         }
