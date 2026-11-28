@@ -2293,6 +2293,72 @@ export declare function lazyOnce<T>(start: () => Promise<T>): () => Promise<T>;
  * location is handed back for the initialiser to load.
  */
 export declare function wasmInput(url: URL): Promise<URL | Uint8Array>;
+// ===== ./node-exchange.d.ts =====
+/** The slot the exchange is installed in; the core reads it on every call. */
+export declare const EXCHANGE_SLOT: unique symbol;
+/** PEM text the core supplies for one TLS connection. `cert` and `key` are null together. */
+export interface TlsMaterial {
+    /** The only trust of the connection; null means Node's default roots. */
+    readonly ca: string | null;
+    /** The chain presented to the peer, leaf first. */
+    readonly cert: string | null;
+    /** The private key of `cert` (PKCS8). */
+    readonly key: string | null;
+}
+/** Where a request goes: a TCP endpoint (TLS when `tls` is set, else h2c) or a unix socket. */
+export type ExchangeConnect = {
+    readonly tcp: {
+        readonly host: string;
+        readonly port: number;
+        /** The SNI name; not sent when `host` is an IP literal. */
+        readonly servername: string;
+        readonly tls: TlsMaterial | null;
+    };
+} | {
+    readonly unix: string;
+};
+/** One request the core hands to the exchange. */
+export interface ExchangeRequest {
+    readonly connect: ExchangeConnect;
+    /** Names the wasm module that built the request; generations are only compared within one owner. */
+    readonly owner: string;
+    /** 0 is a connection with no identity; every other value is the identity generation the request was minted under. */
+    readonly generation: number;
+    readonly method: string;
+    /** Path and query. */
+    readonly path: string;
+    /** Lower-case names, no pseudo-headers. */
+    readonly headers: ReadonlyArray<readonly [string, string]>;
+    readonly body: Uint8Array;
+    readonly signal: AbortSignal;
+    /**
+     * Present for an in-fleet call: takes the verified peer chain (DER, leaf first)
+     * and answers the reason the peer is refused, or undefined to admit it.
+     */
+    readonly peerAdmissible: ((chain: Uint8Array[]) => string | undefined) | null;
+}
+/** What the exchange answers: the head, and the body bytes as the server sent them. */
+export interface ExchangeResponse {
+    readonly status: number;
+    /** Lower-case names, no pseudo-headers. */
+    readonly headers: Array<[string, string]>;
+    readonly body: ReadableStream<Uint8Array>;
+}
+/** The function installed in {@link EXCHANGE_SLOT}. */
+export type Exchange = (request: ExchangeRequest) => Promise<ExchangeResponse>;
+/** An exchange with its own session pool. */
+export interface NodeExchange {
+    readonly exchange: Exchange;
+    /** Destroys every pooled session. */
+    close(): void;
+}
+/** A fresh exchange with its own session pool. */
+export declare function createNodeExchange(): NodeExchange;
+/** Installs one exchange in {@link EXCHANGE_SLOT} unless one is already there. */
+export declare function installNodeExchange(): void;
+// ===== ./node.d.ts =====
+export * from "./index.js";
+export type { Exchange, ExchangeConnect, ExchangeRequest, ExchangeResponse, NodeExchange, TlsMaterial } from "./node-exchange.js";
 // ===== ./session.d.ts =====
 import type { JsSpanSink } from "./spans.js";
 /** The boundary version this runtime speaks; a core built for another version refuses to construct a client. */

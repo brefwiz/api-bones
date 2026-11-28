@@ -2,7 +2,9 @@
 //! [`HttpTransport::fetch`]: the host's `fetch` as a Connect client transport.
 //!
 //! The transport calls `globalThis.fetch`, so it runs in a Window, a Worker
-//! and Node 18 or later, and the host supplies nothing. It sits under
+//! and Node 18 or later, and the host supplies nothing. Under Node (with the
+//! `node-exchange` feature) the request goes through the runtime's host
+//! exchange instead; see the `node` module. It sits under
 //! connectrpc's client core, which is built without its `client` features: the
 //! host owns the connection.
 //!
@@ -157,18 +159,36 @@ async fn exchange(head: Parts, payload: Bytes) -> Result<Response<FetchBody>, Co
         payload,
         lane,
     };
-    let origin = origin_of(&outgoing.uri);
-    match lane {
-        Lane::Public => {
-            for name in IDENTIFYING {
-                outgoing.headers.remove(name);
-            }
+    if lane == Lane::Public {
+        for name in IDENTIFYING {
+            outgoing.headers.remove(name);
         }
-        Lane::Session => {
-            let echoed = csrf_token(&origin).and_then(|token| HeaderValue::from_str(&token).ok());
-            if let Some(token) = echoed {
-                outgoing.headers.insert(CSRF_HEADER, token);
-            }
+    }
+    // Under Node the host exchange carries the request, and there is no
+    // browser session to echo a CSRF token for.
+    #[cfg(feature = "node-exchange")]
+    {
+        if crate::node::is_node() {
+            return crate::node::send(
+                &outgoing.method,
+                &outgoing.uri,
+                &outgoing.headers,
+                &outgoing.payload,
+            )
+            .await;
+        }
+        // Deno, Bun, a Node process that fakes a browser global and any other
+        // non-browser host have no exchange on this lane; an in-fleet URL
+        // needs the workload identity only the Node exchange provides.
+        if refuses_fleet() {
+            refuse_in_fleet(&outgoing.uri)?;
+        }
+    }
+    let origin = origin_of(&outgoing.uri);
+    if lane == Lane::Session {
+        let echoed = csrf_token(&origin).and_then(|token| HeaderValue::from_str(&token).ok());
+        if let Some(token) = echoed {
+            outgoing.headers.insert(CSRF_HEADER, token);
         }
     }
 
@@ -214,13 +234,13 @@ async fn fetch_head(outgoing: &Outgoing) -> Result<web_sys::Response, ConnectErr
 
 /// Aborts the fetch it was made for unless disarmed, so a dropped call
 /// frees its connection.
-struct AbortOnDrop {
-    controller: AbortController,
+pub(crate) struct AbortOnDrop {
+    pub(crate) controller: AbortController,
     armed: bool,
 }
 
 impl AbortOnDrop {
-    fn new() -> Result<Self, ConnectError> {
+    pub(crate) fn new() -> Result<Self, ConnectError> {
         let controller = AbortController::new().map_err(|error| js_error(&error))?;
         Ok(Self {
             controller,
@@ -228,7 +248,7 @@ impl AbortOnDrop {
         })
     }
 
-    fn disarm(mut self) {
+    pub(crate) fn disarm(mut self) {
         self.armed = false;
     }
 }
@@ -276,7 +296,7 @@ fn global_fetch() -> Result<Function, ConnectError> {
 
 /// A failure the host raised: an abort is `canceled`, anything else (a fetch
 /// `TypeError` included) is `unavailable`.
-fn js_error(error: &JsValue) -> ConnectError {
+pub(crate) fn js_error(error: &JsValue) -> ConnectError {
     let text = |key: &str| {
         Reflect::get(error, &JsValue::from_str(key))
             .ok()
@@ -367,7 +387,7 @@ fn into_response(response: &web_sys::Response) -> Result<Response<FetchBody>, Co
 }
 
 /// A `[name, value]` entry of a `Headers` iteration, when both are valid.
-fn header_of(entry: &JsValue) -> Option<(HeaderName, HeaderValue)> {
+pub(crate) fn header_of(entry: &JsValue) -> Option<(HeaderName, HeaderValue)> {
     let text = |index: f64| Reflect::get_f64(entry, index).ok()?.as_string();
     let name = HeaderName::from_bytes(text(0.0)?.as_bytes()).ok()?;
     let value = HeaderValue::from_str(&text(1.0)?).ok()?;
@@ -424,14 +444,23 @@ pub struct FetchBody {
 }
 
 impl FetchBody {
-    fn new(stream: Option<ReadableStream>) -> Self {
+    pub(crate) fn new(stream: Option<ReadableStream>) -> Self {
         let reader = stream.map(|stream| stream.get_reader().unchecked_into());
         Self {
             reading: SendWrapper::new(Reading {
                 reader,
                 pending: None,
+                #[cfg(feature = "node-exchange")]
+                held: None,
             }),
         }
+    }
+
+    /// Keeps `held` alive until the body is dropped.
+    #[cfg(feature = "node-exchange")]
+    pub(crate) fn holding(mut self, held: std::rc::Rc<dyn std::any::Any>) -> Self {
+        self.reading.held = Some(held);
+        self
     }
 }
 
@@ -458,6 +487,9 @@ struct Reading {
     reader: Option<ReadableStreamDefaultReader>,
     /// The read in flight, kept across polls.
     pending: Option<Pin<Box<JsFuture>>>,
+    /// What the response needs for as long as it is read.
+    #[cfg(feature = "node-exchange")]
+    held: Option<std::rc::Rc<dyn std::any::Any>>,
 }
 
 impl Reading {
@@ -507,4 +539,23 @@ impl Drop for Reading {
             cancel_in_background(reader.cancel());
         }
     }
+}
+
+/// Whether this host must not carry an in-fleet call on the `fetch` lane.
+#[cfg(feature = "node-exchange")]
+fn refuses_fleet() -> bool {
+    let global: JsValue = js_sys::global().into();
+    crate::identity::fetch_lane_refuses_fleet(crate::node::has_node_version(), |name| {
+        Reflect::get(&global, &JsValue::from_str(name)).is_ok_and(|v| !v.is_undefined())
+    })
+}
+
+/// Refuses an in-fleet URL on a host that cannot carry the workload identity,
+/// before any request is sent.
+#[cfg(feature = "node-exchange")]
+fn refuse_in_fleet(uri: &Uri) -> Result<(), ConnectError> {
+    crate::identity::refuse_without_identity(
+        uri.scheme_str().unwrap_or("https"),
+        uri.host().unwrap_or_default(),
+    )
 }

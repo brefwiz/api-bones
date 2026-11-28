@@ -73,12 +73,27 @@ const BACKOFF_BASE: Duration = Duration::from_millis(50);
 /// The fetch callback must check any captured identity before every send.
 ///
 /// # Errors
-/// Returns the final fetch failure, any non-retryable failure immediately, or
-/// `DeadlineExceeded` when the next wait would pass `deadline`.
+/// Returns the final fetch failure, any non-retryable failure immediately,
+/// `DeadlineExceeded` when the next wait would pass `deadline`, or
+/// `FailedPrecondition` when a retry is due and the host has no secure random
+/// source to jitter its wait: the retry is refused, never run without jitter.
 pub async fn fetch_with_retry<Resp, F, Fut>(
+    fetch: F,
+    retries: u8,
+    deadline: Option<api_bones_rt::Instant>,
+) -> Result<Resp, ConnectError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<Resp, ConnectError>>,
+{
+    retry_drawing(fetch, retries, deadline, random_sample).await
+}
+
+async fn retry_drawing<Resp, F, Fut>(
     mut fetch: F,
     retries: u8,
     deadline: Option<api_bones_rt::Instant>,
+    draw: impl Fn() -> Result<f64, api_bones_rt::NoRandomSource>,
 ) -> Result<Resp, ConnectError>
 where
     F: FnMut() -> Fut,
@@ -101,8 +116,10 @@ where
             return Err(handed_back(error, server_wait));
         }
         let server_wait = server_wait.unwrap_or_default();
-        let wait = server_wait
-            .saturating_add(policy.next_delay_jittered(u32::from(attempt), random_sample()));
+        let jitter =
+            draw().map_err(|refusal| ConnectError::failed_precondition(refusal.to_string()))?;
+        let wait =
+            server_wait.saturating_add(policy.next_delay_jittered(u32::from(attempt), jitter));
         if deadline
             .is_some_and(|at| wait >= at.saturating_duration_since(api_bones_rt::Instant::now()))
         {
@@ -157,10 +174,16 @@ fn throttle_wait(error: &ConnectError) -> Option<Duration> {
 }
 
 /// A uniform draw in `[0, 1)` from the platform's secure random source.
-fn random_sample() -> f64 {
+fn random_sample() -> Result<f64, api_bones_rt::NoRandomSource> {
+    random_sample_from(api_bones_rt::fill_random)
+}
+
+fn random_sample_from(
+    fill: impl FnOnce(&mut [u8]) -> Result<(), api_bones_rt::NoRandomSource>,
+) -> Result<f64, api_bones_rt::NoRandomSource> {
     let mut bytes = [0_u8; 4];
-    api_bones_rt::fill_random(&mut bytes);
-    f64::from(u32::from_le_bytes(bytes)) / 4_294_967_296.0
+    fill(&mut bytes)?;
+    Ok(f64::from(u32::from_le_bytes(bytes)) / 4_294_967_296.0)
 }
 
 /// Failures raised while writing the request onto the connection.
@@ -619,8 +642,46 @@ mod tests {
     }
 
     #[test]
+    fn random_sample_from_passes_a_missing_source_up() {
+        assert_eq!(
+            random_sample_from(|_| Err(api_bones_rt::NoRandomSource)),
+            Err(api_bones_rt::NoRandomSource)
+        );
+        assert_eq!(
+            random_sample_from(|bytes| {
+                bytes.fill(0);
+                Ok(())
+            }),
+            Ok(0.0)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_retry_due_on_a_host_without_randomness_is_refused() {
+        let calls = AtomicUsize::new(0);
+        let result: Result<u32, ConnectError> = retry_drawing(
+            || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async { Err(ConnectError::new(ErrorCode::Unavailable, "down")) }
+            },
+            2,
+            None,
+            || Err(api_bones_rt::NoRandomSource),
+        )
+        .await;
+        let error = result.expect_err("the retry is refused");
+        assert_eq!(error.code, ErrorCode::FailedPrecondition);
+        assert_eq!(
+            error.message.as_deref(),
+            Some("this host has no secure random source (crypto.getRandomValues)")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "no retry ran");
+        assert!(!is_unprompted_retryable(error.code));
+    }
+
+    #[test]
     fn the_jitter_sample_is_a_fresh_draw_in_the_unit_range() {
-        let draws: Vec<f64> = (0..64).map(|_| random_sample()).collect();
+        let draws: Vec<f64> = (0..64).map(|_| random_sample().unwrap()).collect();
         assert!(draws.iter().all(|draw| (0.0..1.0).contains(draw)));
         assert!(
             draws

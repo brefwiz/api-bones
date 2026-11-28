@@ -35,10 +35,12 @@ mod span;
 /// change a stale wrapper could misread.
 pub const BOUNDARY: u32 = 1;
 
+pub use api_bones_rt::NoRandomSource;
 pub use ctx::CallCtx;
 pub use error::{
-    Arg, CALL_BUDGET_ELAPSED, CANCELED, EMITTER, Error, HANDLE_BUSY, IDENTITY_CHANGED, PageDetail,
-    PageKind, SDK_BOUNDARY_MISMATCH, platform_of_connect,
+    Arg, CALL_BUDGET_ELAPSED, CANCELED, EMITTER, Error, HANDLE_BUSY, IDENTITY_CHANGED,
+    INSECURE_IN_FLEET, PEER_IDENTITY_REFUSED, PageDetail, PageKind, SDK_BOUNDARY_MISMATCH,
+    UNUSABLE_PEER_IDENTITY, WORKLOAD_IDENTITY_UNAVAILABLE, platform_of_connect,
 };
 pub use handle::{Batch, Handle, ListCall, Stream};
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]

@@ -156,17 +156,33 @@ impl fmt::Display for Elapsed {
 
 impl std::error::Error for Elapsed {}
 
+/// The platform has no secure random source.
+///
+/// Natively the operating system always has one; on `wasm32` the host lacks
+/// `crypto.getRandomValues`. A caller that needs unpredictable bytes has no
+/// safe fallback, so it refuses the work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoRandomSource;
+
+impl fmt::Display for NoRandomSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("this host has no secure random source (crypto.getRandomValues)")
+    }
+}
+
+impl std::error::Error for NoRandomSource {}
+
 /// Fills `buf` with bytes from the platform's secure random source.
 ///
 /// The source is the operating system natively and `crypto.getRandomValues`
 /// on `wasm32`.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics when the platform has no random source, which leaves a caller that
-/// needs unpredictable bytes with no safe fallback.
-pub fn fill_random(buf: &mut [u8]) {
-    getrandom::fill(buf).expect("the platform has a secure random source");
+/// [`NoRandomSource`] when the platform has no random source. `buf` is then
+/// unspecified and nothing falls back to a source that is not secure.
+pub fn fill_random(buf: &mut [u8]) -> Result<(), NoRandomSource> {
+    getrandom::fill(buf).map_err(|_| NoRandomSource)
 }
 
 #[cfg(test)]
@@ -185,15 +201,25 @@ mod tests {
     fn fill_random_overwrites_the_whole_buffer() {
         let mut first = [0u8; 32];
         let mut second = [0u8; 32];
-        fill_random(&mut first);
-        fill_random(&mut second);
+        fill_random(&mut first).unwrap();
+        fill_random(&mut second).unwrap();
         assert_ne!(first, [0u8; 32]);
         assert_ne!(first, second);
     }
 
     #[test]
     fn fill_random_accepts_an_empty_buffer() {
-        fill_random(&mut []);
+        assert_eq!(fill_random(&mut []), Ok(()));
+    }
+
+    #[test]
+    fn no_random_source_names_the_missing_host_api() {
+        assert_eq!(
+            NoRandomSource.to_string(),
+            "this host has no secure random source (crypto.getRandomValues)"
+        );
+        let as_error: &dyn std::error::Error = &NoRandomSource;
+        assert!(as_error.source().is_none());
     }
 
     #[test]

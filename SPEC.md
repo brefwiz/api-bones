@@ -483,6 +483,15 @@ sdk_surfaces:
       typescript:
         delivery: package
         packages: ["@brefwiz/api-bones-test-service-sdk"]
+  # The host exchange for workload identity exists only in wasm under Node, so
+  # this surface is TS alone. No `l2_methods:`: the sdk-call surface owns the
+  # wrapper's methods.
+  sdk-node-transport:
+    contract: tests/sdk-call/features/sdk_node_transport.feature
+    targets:
+      typescript:
+        delivery: package
+        packages: ["@brefwiz/api-bones-test-service-sdk"]
 internal_behavior_owners:
   # The TypeScript test service is the loopback server a browser page under
   # test calls: it answers a preflight for loopback origins only, and its

@@ -30,10 +30,13 @@ batch = ["dep:api-bones-batch"]
 stream = ["dep:api-bones-stream", "dep:futures-util"]
 retry = ["dep:api-bones"]
 gzip = ["connectrpc/gzip"]
+# The Node host exchange and the workload identity policy of the transport; the
+# floor is the transport without them.
+node-identity = ["api-bones-transport/node-exchange"]
 methods-10 = []
 methods-50 = []
 second-service = []
-all = ["page", "batch", "stream", "retry", "gzip", "second-service"]
+all = ["page", "batch", "stream", "retry", "gzip", "node-identity", "second-service"]
 
 [dependencies]
 api-bones-rt = { path = "../../api-bones-rt", version = "0.1.0", registry = "brefwiz" }
@@ -54,6 +57,8 @@ wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = "0.4.78"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# A native build trusts a root store; the wasm32 build has none.
+api-bones = { path = "../..", version = "^25.0.0", registry = "brefwiz", default-features = false, features = ["tls-webpki-roots"] }
 brotli = { version = "8", default-features = false, features = ["std"] }
 flate2 = "1"
 

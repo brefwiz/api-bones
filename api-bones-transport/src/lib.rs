@@ -88,6 +88,10 @@ mod deadline;
 mod driver;
 #[cfg(target_arch = "wasm32")]
 mod fetch;
+#[cfg(any(not(target_arch = "wasm32"), feature = "node-exchange"))]
+pub mod identity;
+#[cfg(all(target_arch = "wasm32", feature = "node-exchange"))]
+mod node;
 #[cfg(not(target_arch = "wasm32"))]
 mod peer;
 #[cfg(not(target_arch = "wasm32"))]

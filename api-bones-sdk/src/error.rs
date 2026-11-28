@@ -32,6 +32,15 @@ pub const CANCELED: &str = "CANCELED";
 /// A wrapper or runtime stamped for another boundary version tried to open a
 /// client of this core.
 pub const SDK_BOUNDARY_MISMATCH: &str = "SDK_BOUNDARY_MISMATCH";
+/// An in-fleet call whose SPIFFE Workload API did not answer.
+pub const WORKLOAD_IDENTITY_UNAVAILABLE: &str =
+    api_bones_transport::identity::WORKLOAD_IDENTITY_UNAVAILABLE;
+/// The caller's SVID names no `/svc/<workload>`, so no peer follows from it.
+pub const UNUSABLE_PEER_IDENTITY: &str = api_bones_transport::identity::UNUSABLE_PEER_IDENTITY;
+/// The server did not present the identity of the peer the call is for.
+pub const PEER_IDENTITY_REFUSED: &str = api_bones_transport::identity::PEER_IDENTITY_REFUSED;
+/// An in-fleet call over a scheme other than `https`.
+pub const INSECURE_IN_FLEET: &str = api_bones_transport::identity::INSECURE_IN_FLEET;
 
 /// Every Connect code, the code that maps to `INTERNAL_SERVER_ERROR` first so
 /// that mapping a platform code back lands on it.
@@ -345,6 +354,12 @@ impl Error {
     }
 }
 
+/// The refusal of a call the host cannot make unpredictable: raised locally, so
+/// it names no emitter, and not retryable.
+pub(crate) fn no_random_source() -> ConnectError {
+    ConnectError::failed_precondition(api_bones_rt::NoRandomSource.to_string())
+}
+
 /// The wait a throttle named, read by the shared `retry_after` reader; any
 /// other refusal names none.
 fn named_wait(error: &ConnectError) -> Option<Duration> {
@@ -440,6 +455,19 @@ mod tests {
             http::HeaderValue::from_str(retry_after).unwrap(),
         );
         ConnectError::resource_exhausted("limit reached").with_headers(headers)
+    }
+
+    #[test]
+    fn a_host_without_randomness_is_refused_as_a_local_failed_precondition() {
+        let error = Error::from(no_random_source());
+        assert_eq!(error.platform, "PRECONDITION_FAILED");
+        assert_eq!(error.connect_code, ConnectCode::FailedPrecondition);
+        assert_eq!(error.emitter, "");
+        assert_eq!(
+            error.message,
+            "this host has no secure random source (crypto.getRandomValues)"
+        );
+        assert_eq!(error.retry_after(), None);
     }
 
     #[test]

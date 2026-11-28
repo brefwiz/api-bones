@@ -67,7 +67,7 @@ ci-no-std: ## Verify no_std compilation (core-only, alloc, alloc+serde regressio
 ci-wasm: ## Build the runtime seam, the browser transport and the crates on them for wasm32-unknown-unknown (CI)
 	cargo build --locked --target wasm32-unknown-unknown -p api-bones-rt -p api-bones-transport -p api-bones-stream -p api-bones-page -p api-bones-batch -p api-bones-sdk --features wasm
 
-ci-wasm-test: ## Run the api-bones-rt and fetch-transport wasm-bindgen-test suites in Node (CI)
+ci-wasm-test: ## Run the api-bones-rt, fetch-transport and Node-exchange wasm-bindgen-test suites in Node (CI)
 	# The runner is wasm-bindgen-test-runner from the CI image, which executes
 	# the module under Node when no browser is requested. The fetch suite calls
 	# a native Connect server (tests/wasm-server) that is built, started and
@@ -91,6 +91,7 @@ ci-wasm-test: ## Run the api-bones-rt and fetch-transport wasm-bindgen-test suit
 	export API_BONES_TEST_SERVER; \
 	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-rt --test wasm; \
 	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-transport --test fetch_wasm; \
+	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-transport --features node-exchange --test node_wasm; \
 	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-sdk --features wasm --test call_wasm
 
 ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the coverage archive)

@@ -117,12 +117,14 @@ impl Plan<'_> {
         } else {
             Tracer::default()
         };
-        let span = tracer.start(
-            &self.route.name(),
-            SpanKind::Client,
-            self.parent,
-            self.route.attributes(),
-        );
+        let span = tracer
+            .start(
+                &self.route.name(),
+                SpanKind::Client,
+                self.parent,
+                self.route.attributes(),
+            )
+            .map_err(|_| crate::error::no_random_source())?;
         let local = WalkGuard::default();
         let walk = self.walk.unwrap_or(&local);
         // Set when a shared renewal already told the host of this refusal.

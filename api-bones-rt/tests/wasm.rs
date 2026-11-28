@@ -162,8 +162,8 @@ fn system_now_is_after_the_unix_epoch() {
 fn fill_random_fills_the_buffer_with_fresh_bytes() {
     let mut first = [0u8; 32];
     let mut second = [0u8; 32];
-    fill_random(&mut first);
-    fill_random(&mut second);
+    fill_random(&mut first).unwrap();
+    fill_random(&mut second).unwrap();
     assert_ne!(first, [0u8; 32]);
     assert_ne!(first, second);
 }

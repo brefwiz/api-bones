@@ -77,6 +77,7 @@ spec=(
   "stream|api-bones-wasm|stream|true"
   "retry|api-bones-wasm|retry|true"
   "gzip|api-bones-wasm|gzip|true"
+  "node-identity|api-bones-wasm|node-identity|true"
   "methods-10|api-bones-wasm|methods-10|true"
   "methods-50|api-bones-wasm|methods-50|true"
   "second-service|api-bones-wasm|second-service|true"

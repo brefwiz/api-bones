@@ -18,7 +18,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::UNIX_EPOCH;
 
-use api_bones_rt::{MaybeSend, MaybeSync, fill_random, system_now};
+use api_bones_rt::{MaybeSend, MaybeSync, NoRandomSource, fill_random, system_now};
 use serde_json::Value;
 
 use crate::ctx::CallCtx;
@@ -59,12 +59,14 @@ fn hex<const N: usize>(text: &str) -> Option<[u8; N]> {
 }
 
 /// Eight or sixteen random bytes that are not all zero.
-fn random_id<const N: usize>(fill: &mut impl FnMut(&mut [u8])) -> [u8; N] {
+fn random_id<const N: usize>(
+    fill: &mut impl FnMut(&mut [u8]) -> Result<(), NoRandomSource>,
+) -> Result<[u8; N], NoRandomSource> {
     let mut id = [0_u8; N];
     while id == [0_u8; N] {
-        fill(&mut id);
+        fill(&mut id)?;
     }
-    id
+    Ok(id)
 }
 
 impl Traceparent {
@@ -94,17 +96,26 @@ impl Traceparent {
 
     /// A new span: in the trace of `parent` with its flags, or the root of a
     /// new sampled trace. Ids come from the platform's secure random source.
-    #[must_use]
-    pub fn mint(parent: Option<&Self>) -> Self {
+    ///
+    /// # Errors
+    /// [`NoRandomSource`] when the platform has no secure random source; no id
+    /// is made from anything else.
+    pub fn mint(parent: Option<&Self>) -> Result<Self, NoRandomSource> {
         Self::mint_with(parent, fill_random)
     }
 
-    fn mint_with(parent: Option<&Self>, mut fill: impl FnMut(&mut [u8])) -> Self {
-        Self {
-            trace_id: parent.map_or_else(|| random_id(&mut fill), |p| p.trace_id),
-            span_id: random_id(&mut fill),
+    fn mint_with(
+        parent: Option<&Self>,
+        mut fill: impl FnMut(&mut [u8]) -> Result<(), NoRandomSource>,
+    ) -> Result<Self, NoRandomSource> {
+        Ok(Self {
+            trace_id: match parent {
+                Some(parent) => parent.trace_id,
+                None => random_id(&mut fill)?,
+            },
+            span_id: random_id(&mut fill)?,
             flags: parent.map_or(SAMPLED, |p| p.flags),
-        }
+        })
     }
 
     /// The trace id as 32 lower-case hex digits.
@@ -314,14 +325,29 @@ impl Tracer {
     /// sink answers as not recording, and every span opened under a quiet
     /// span, is quiet: it opens no span at the sink. A span the sink started is
     /// ended at the sink even when it is not recording.
-    #[must_use]
+    ///
+    /// # Errors
+    /// [`NoRandomSource`] when the core must mint the span's ids and the
+    /// platform has no secure random source. A span the sink started is ended
+    /// at the sink as failed.
     pub fn start(
         &self,
         name: &str,
         kind: SpanKind,
         parent: &CallCtx,
         attributes: Attributes,
-    ) -> ActiveSpan {
+    ) -> Result<ActiveSpan, NoRandomSource> {
+        self.start_minting(name, kind, parent, attributes, fill_random)
+    }
+
+    fn start_minting(
+        &self,
+        name: &str,
+        kind: SpanKind,
+        parent: &CallCtx,
+        attributes: Attributes,
+        fill: impl FnMut(&mut [u8]) -> Result<(), NoRandomSource>,
+    ) -> Result<ActiveSpan, NoRandomSource> {
         let parent_id = parent.traceparent.as_deref().and_then(Traceparent::parse);
         let tracestate = parent_id.and(parent.tracestate.clone());
         let started = self.sink.as_ref().and_then(|sink| {
@@ -338,20 +364,37 @@ impl Tracer {
             };
             Some((Arc::clone(sink), sink.start(&begin)))
         });
-        let traceparent = started
+        let named = started
             .as_ref()
-            .and_then(|(_, answer)| Traceparent::parse(&answer.traceparent))
-            .unwrap_or_else(|| Traceparent::mint(parent_id.as_ref()));
+            .and_then(|(_, answer)| Traceparent::parse(&answer.traceparent));
+        let traceparent = match named {
+            Some(traceparent) => traceparent,
+            None => match Traceparent::mint_with(parent_id.as_ref(), fill) {
+                Ok(traceparent) => traceparent,
+                Err(refused) => {
+                    if let Some((sink, answer)) = started {
+                        sink.end(&SpanEnd {
+                            traceparent: answer.traceparent,
+                            end_time_ms: now_ms(),
+                            status: SpanStatus::Error,
+                            error: Some(Error::from(crate::error::no_random_source()).span_error()),
+                            attributes: Attributes::new(),
+                        });
+                    }
+                    return Err(refused);
+                }
+            },
+        };
         let recording = started.as_ref().is_some_and(|(_, answer)| answer.recording);
         let hush = (self.sink.is_some() && !recording).then(|| Hush::new(&self.quiet, traceparent));
-        ActiveSpan {
+        Ok(ActiveSpan {
             traceparent,
             tracestate,
             recorded: started.map(|(sink, answer)| (sink, answer.traceparent)),
             recording,
             _hush: hush,
             ended: false,
-        }
+        })
     }
 }
 
@@ -541,7 +584,9 @@ mod tests {
     }
 
     fn start_in(tracer: &Tracer, name: &str, parent: &CallCtx) -> ActiveSpan {
-        tracer.start(name, SpanKind::Client, parent, Attributes::new())
+        tracer
+            .start(name, SpanKind::Client, parent, Attributes::new())
+            .unwrap()
     }
 
     fn start_names(sink: &Recorder) -> Vec<String> {
@@ -596,8 +641,8 @@ mod tests {
 
     #[test]
     fn a_minted_root_is_a_fresh_sampled_trace() {
-        let first = Traceparent::mint(None);
-        let second = Traceparent::mint(None);
+        let first = Traceparent::mint(None).unwrap();
+        let second = Traceparent::mint(None).unwrap();
         assert_eq!(Traceparent::parse(&first.to_string()), Some(first));
         assert!(first.to_string().ends_with("-01"));
         assert_ne!(first.trace_id(), second.trace_id());
@@ -608,7 +653,7 @@ mod tests {
     fn a_minted_child_keeps_the_trace_and_flags_of_its_parent() {
         let parent =
             Traceparent::parse("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00").unwrap();
-        let child = Traceparent::mint(Some(&parent));
+        let child = Traceparent::mint(Some(&parent)).unwrap();
         assert_eq!(child.trace_id(), parent.trace_id());
         assert_ne!(child.span_id, parent.span_id);
         assert_eq!(child.flags, 0);
@@ -622,7 +667,9 @@ mod tests {
             if calls > 1 {
                 bytes.fill(7);
             }
-        });
+            Ok(())
+        })
+        .unwrap();
         assert_eq!(
             calls, 3,
             "the zero trace id was drawn again, then the span id once"
@@ -632,13 +679,70 @@ mod tests {
     }
 
     #[test]
-    fn without_a_sink_the_core_mints_ids_and_reports_nothing() {
-        let span = Tracer::default().start(
-            "pkg.Svc/Get",
-            SpanKind::Client,
-            &call_ctx(None, Some("k=v")),
-            Attributes::new(),
+    fn a_host_without_randomness_mints_no_id() {
+        let none = |_: &mut [u8]| Err(NoRandomSource);
+        assert_eq!(Traceparent::mint_with(None, none), Err(NoRandomSource));
+        let parent = Traceparent::parse(PARENT).unwrap();
+        assert_eq!(
+            Traceparent::mint_with(Some(&parent), none),
+            Err(NoRandomSource),
+            "a child needs a fresh span id"
         );
+        let mut draws = 0;
+        let after_trace_id = Traceparent::mint_with(None, |bytes| {
+            draws += 1;
+            if draws > 1 {
+                return Err(NoRandomSource);
+            }
+            bytes.fill(7);
+            Ok(())
+        });
+        assert_eq!(after_trace_id, Err(NoRandomSource));
+    }
+
+    #[test]
+    fn a_span_that_needs_ids_the_host_cannot_draw_is_refused() {
+        let refused = Tracer::default().start_minting(
+            "x",
+            SpanKind::Client,
+            &CallCtx::default(),
+            Attributes::new(),
+            |_: &mut [u8]| Err(NoRandomSource),
+        );
+        assert_eq!(refused.unwrap_err(), NoRandomSource);
+    }
+
+    #[test]
+    fn a_span_the_sink_started_is_ended_failed_when_its_ids_cannot_be_drawn() {
+        let sink = recorder(SpanStarted::recording("not a traceparent"));
+        let refused = Tracer::new(sink.clone()).start_minting(
+            "x",
+            SpanKind::Client,
+            &CallCtx::default(),
+            Attributes::new(),
+            |_: &mut [u8]| Err(NoRandomSource),
+        );
+        assert_eq!(refused.unwrap_err(), NoRandomSource);
+        let ends = sink.ends.lock().unwrap();
+        assert_eq!(ends.len(), 1, "the sink's span is not left open");
+        assert_eq!(ends[0].traceparent, "not a traceparent");
+        assert_eq!(ends[0].status, SpanStatus::Error);
+        assert_eq!(
+            ends[0].error.as_deref(),
+            Some("failed_precondition PRECONDITION_FAILED")
+        );
+    }
+
+    #[test]
+    fn without_a_sink_the_core_mints_ids_and_reports_nothing() {
+        let span = Tracer::default()
+            .start(
+                "pkg.Svc/Get",
+                SpanKind::Client,
+                &call_ctx(None, Some("k=v")),
+                Attributes::new(),
+            )
+            .unwrap();
         assert!(Traceparent::parse(&span.traceparent()).is_some());
         assert_eq!(
             span.tracestate(),
@@ -655,12 +759,14 @@ mod tests {
 
     #[test]
     fn without_a_sink_a_child_continues_the_callers_trace() {
-        let span = Tracer::default().start(
-            "x",
-            SpanKind::Client,
-            &call_ctx(Some(PARENT), Some("k=v")),
-            Attributes::new(),
-        );
+        let span = Tracer::default()
+            .start(
+                "x",
+                SpanKind::Client,
+                &call_ctx(Some(PARENT), Some("k=v")),
+                Attributes::new(),
+            )
+            .unwrap();
         let sent = Traceparent::parse(&span.traceparent()).unwrap();
         assert_eq!(sent.trace_id(), "4bf92f3577b34da6a3ce929d0e0e4736");
         assert_ne!(span.traceparent(), PARENT);
@@ -675,12 +781,14 @@ mod tests {
         assert_eq!(format!("{tracer:?}"), "Tracer { sink: true, .. }");
         let mut attributes = Attributes::new();
         attributes.insert("rpc.service".to_owned(), json!("pkg.Svc"));
-        let span = tracer.start(
-            "pkg.Svc/Get",
-            SpanKind::Client,
-            &call_ctx(Some(PARENT), Some("k=v")),
-            attributes,
-        );
+        let span = tracer
+            .start(
+                "pkg.Svc/Get",
+                SpanKind::Client,
+                &call_ctx(Some(PARENT), Some("k=v")),
+                attributes,
+            )
+            .unwrap();
         assert_eq!(span.traceparent(), HOST);
         assert_eq!(span.recorded_traceparent().as_deref(), Some(HOST));
         assert!(
@@ -711,12 +819,14 @@ mod tests {
     fn an_unreadable_parent_makes_a_root_span() {
         let sink = recorder(SpanStarted::default());
         let tracer = Tracer::new(sink.clone());
-        let span = tracer.start(
-            "x",
-            SpanKind::Client,
-            &call_ctx(Some("garbage"), Some("k=v")),
-            Attributes::new(),
-        );
+        let span = tracer
+            .start(
+                "x",
+                SpanKind::Client,
+                &call_ctx(Some("garbage"), Some("k=v")),
+                Attributes::new(),
+            )
+            .unwrap();
         let starts = sink.starts.lock().unwrap();
         assert_eq!(starts[0].parent, None);
         assert_eq!(starts[0].tracestate, None);
@@ -858,12 +968,14 @@ mod tests {
     #[test]
     fn a_host_traceparent_the_core_cannot_read_is_ended_as_given_and_replaced_for_sending() {
         let sink = recorder(SpanStarted::recording("opaque-host-id"));
-        let span = Tracer::new(sink.clone()).start(
-            "x",
-            SpanKind::Client,
-            &call_ctx(Some(PARENT), None),
-            Attributes::new(),
-        );
+        let span = Tracer::new(sink.clone())
+            .start(
+                "x",
+                SpanKind::Client,
+                &call_ctx(Some(PARENT), None),
+                Attributes::new(),
+            )
+            .unwrap();
         let sent = Traceparent::parse(&span.traceparent()).unwrap();
         assert_eq!(sent.trace_id(), "4bf92f3577b34da6a3ce929d0e0e4736");
         assert_eq!(
@@ -877,12 +989,14 @@ mod tests {
     #[test]
     fn a_span_dropped_before_it_ends_ends_with_status_unset() {
         let sink = recorder(SpanStarted::recording(HOST));
-        let span = Tracer::new(sink.clone()).start(
-            "walk",
-            SpanKind::Internal,
-            &CallCtx::default(),
-            Attributes::new(),
-        );
+        let span = Tracer::new(sink.clone())
+            .start(
+                "walk",
+                SpanKind::Internal,
+                &CallCtx::default(),
+                Attributes::new(),
+            )
+            .unwrap();
         assert!(format!("{span:?}").contains("ended: false"));
         drop(span);
         let ends = sink.ends.lock().unwrap();
@@ -894,12 +1008,14 @@ mod tests {
     #[test]
     fn a_span_ends_once() {
         let sink = recorder(SpanStarted::recording(HOST));
-        let span = Tracer::new(sink.clone()).start(
-            "x",
-            SpanKind::Client,
-            &CallCtx::default(),
-            Attributes::new(),
-        );
+        let span = Tracer::new(sink.clone())
+            .start(
+                "x",
+                SpanKind::Client,
+                &CallCtx::default(),
+                Attributes::new(),
+            )
+            .unwrap();
         let mut attributes = Attributes::new();
         attributes.insert("pages".to_owned(), json!(2));
         span.end_with(SpanStatus::Ok, None, attributes);

@@ -76,7 +76,7 @@ type Chunk = readonly unknown[];
 /** The outcome of a promise that did not throw into the step. */
 type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
 
-function settle<T>(promise: Promise<T>): Promise<Settled<T>> {
+export function settle<T>(promise: Promise<T>): Promise<Settled<T>> {
   return promise.then(
     (value) => ({ ok: true as const, value }),
     (error: unknown) => ({ ok: false as const, error }),

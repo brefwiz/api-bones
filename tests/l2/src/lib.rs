@@ -165,12 +165,14 @@ macro_rules! page_request {
 /// A stream that fails with `error` on its first `next()`: what a stream that
 /// could not open hands its caller, so the failure arrives through the handle.
 fn refused<T: MaybeSend + 'static>(error: Error) -> Stream<T> {
-    let span = Tracer::default().start(
+    let Ok(span) = Tracer::default().start(
         &format!("{EVENTS}/Watch"),
         SpanKind::Internal,
         &CallCtx::default(),
         Attributes::new(),
-    );
+    ) else {
+        return Handle::refused(error);
+    };
     Handle::new(Box::pin(stream::once(std::future::ready(Err(error)))), span)
 }
 

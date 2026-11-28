@@ -3,10 +3,14 @@
 //! against the real test server (`tests/wasm-server`, started by
 //! `make ci-wasm-test`, which exports its base URL in `API_BONES_TEST_SERVER`).
 //!
-//! The calls go through the helper and the fetch transport over
-//! `globalThis.fetch` of the Node process: what the helper hands a send (the
+//! The calls go through the helper and `HttpTransport::fetch()`, which in Node
+//! sends every request through the host exchange slot
+//! (`globalThis[Symbol.for("brefwiz.api-bones.node-exchange")]`). The suite
+//! installs a host there that carries each request to the server over
+//! plaintext HTTP/2 with `node:http2`: what the helper hands a send (the
 //! deadline the transport states, the credential, the abort) is observed
-//! where it lands, on the server.
+//! where it lands, on the server. The runtime's own exchange is exercised by
+//! its suite and by the sdk-call contract.
 //!
 //! Native targets, and builds without the crate's own `wasm` feature, compile
 //! this file to nothing.
@@ -40,7 +44,92 @@ type Text = <StringValue as HasMessageView>::View<'static>;
 mod test_server;
 use test_server::server;
 
+/// The host the suite runs in: an exchange in the slot, unless one is already
+/// there, that opens one plaintext HTTP/2 session per request to the test
+/// server and closes it with the stream. Aborting the signal or cancelling the
+/// body resets the stream with `CANCEL`, so the server sees the request
+/// abandoned.
+const HOST: &str = r#"
+const slot = Symbol.for("brefwiz.api-bones.node-exchange");
+if (globalThis[slot] !== undefined) return;
+const http2 = process.getBuiltinModule("node:http2");
+const abortError = () => new DOMException("the call was aborted", "AbortError");
+globalThis[slot] = (request) => new Promise((resolve, reject) => {
+  const { signal } = request;
+  if (signal.aborted) return reject(abortError());
+  const tcp = request.connect.tcp;
+  if (tcp === undefined || tcp.tls !== null) {
+    return reject(new Error("this test host carries plaintext HTTP/2 only"));
+  }
+  const session = http2.connect(`http://${tcp.host}:${tcp.port}`);
+  const headers = { ":method": request.method, ":path": request.path };
+  for (const [name, value] of request.headers) {
+    const earlier = headers[name];
+    headers[name] = earlier === undefined ? value : [].concat(earlier, value);
+  }
+  const stream = session.request(headers);
+  let open = true;
+  let body;
+  const fail = (reason) => {
+    reject(reason);
+    if (open && body !== undefined) body.error(reason);
+    open = false;
+  };
+  const cancel = () => {
+    if (!stream.closed) stream.close(http2.constants.NGHTTP2_CANCEL);
+  };
+  const onAbort = () => {
+    cancel();
+    fail(abortError());
+  };
+  signal.addEventListener("abort", onAbort, { once: true });
+  session.on("error", fail);
+  stream.on("error", fail);
+  stream.on("data", (chunk) => {
+    if (open) body.enqueue(new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+  });
+  stream.on("end", () => {
+    if ((stream.rstCode ?? 0) !== 0) return fail(new Error(`the stream was reset (code ${stream.rstCode})`));
+    if (open) {
+      open = false;
+      body.close();
+    }
+  });
+  stream.on("close", () => {
+    signal.removeEventListener("abort", onAbort);
+    if (open) fail(new Error(`the stream closed before it ended (code ${stream.rstCode ?? "none"})`));
+    session.close();
+  });
+  stream.on("response", (head) => {
+    const out = [];
+    for (const [name, value] of Object.entries(head)) {
+      if (name.startsWith(":") || value === undefined) continue;
+      for (const each of [].concat(value)) out.push([name, String(each)]);
+    }
+    resolve({
+      status: Number(head[":status"]),
+      headers: out,
+      body: new ReadableStream({
+        start(controller) {
+          body = controller;
+        },
+        cancel() {
+          open = false;
+          cancel();
+        },
+      }),
+    });
+  });
+  stream.end(request.body);
+});
+"#;
+
+/// The client configuration for the test server, with [`HOST`] installed so
+/// the call has an exchange to go through.
 fn config() -> ClientConfig {
+    Function::new_no_args(HOST)
+        .call0(&JsValue::NULL)
+        .expect("the host exchange installs");
     ClientConfig::new(server().parse::<Uri>().expect("the base URL is a URI"))
 }
 

@@ -299,7 +299,11 @@ impl SpanSink for Recorder {
         }
         lock(&self.0.starts).push(span.clone());
         let parent = span.parent.as_deref().and_then(Traceparent::parse);
-        SpanStarted::recording(Traceparent::mint(parent.as_ref()).to_string())
+        SpanStarted::recording(
+            Traceparent::mint(parent.as_ref())
+                .expect("the test host has a secure random source")
+                .to_string(),
+        )
     }
 
     fn end(&self, end: &SpanEnd) {

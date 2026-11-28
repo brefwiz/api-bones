@@ -47,6 +47,7 @@ import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { encodeErrorInfo } from "@brefwiz/api-bones-connect";
 import { contractRegistry } from "./contract.js";
 import { refuse } from "./control-guard.js";
+import { Listener, type Handle } from "./listener.js";
 import { preflight } from "./cors.js";
 import { expiring, failing, throttled } from "./throttle.js";
 import type { Patch, Seen } from "./types.js";
@@ -126,9 +127,9 @@ class SdkCallServer {
   expireAtPage: { page: number; count: number } | undefined;
   /** Whether the numbers server answers with bytes no decoder reads. */
   garble = false;
-  #server: Server | undefined;
-  #alias: Server | undefined;
-  #handle: ((request: IncomingMessage, response: ServerResponse) => void) | undefined;
+  #server: Listener | undefined;
+  #alias: Listener | undefined;
+  #handle: Handle | undefined;
 
   get url(): string {
     const address = this.#server?.address() as AddressInfo | null | undefined;
@@ -319,7 +320,9 @@ class SdkCallServer {
         );
       },
     });
-    this.#handle = (request, response) => {
+    this.#handle = (request, answered) => {
+      // The HTTP/2 compatibility response answers the calls this handler makes, so one type serves both.
+      const response = answered as ServerResponse;
       const answer = preflight(request.method, request.headers.origin, request.headers["access-control-request-headers"]);
       if (answer !== undefined) {
         note("preflight", { origin: request.headers.origin, status: answer.status });
@@ -334,7 +337,7 @@ class SdkCallServer {
       }
       handler(request, response);
     };
-    this.#server = createServer(this.#handle);
+    this.#server = new Listener(this.#handle);
     await new Promise<void>((resolve) => this.#server!.listen(0, "127.0.0.1", resolve));
   }
 
@@ -342,7 +345,7 @@ class SdkCallServer {
   async startAlias(): Promise<string> {
     if (this.#server === undefined || this.#handle === undefined) throw new Error("the lane's server is not started");
     if (this.#alias !== undefined) throw new Error("the lane's server already has another address");
-    const alias = createServer(this.#handle);
+    const alias = new Listener(this.#handle);
     this.#alias = alias;
     await new Promise<void>((resolve) => alias.listen(0, "127.0.0.1", resolve));
     return `http://127.0.0.1:${(alias.address() as AddressInfo).port}`;

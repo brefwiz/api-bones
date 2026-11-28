@@ -279,7 +279,7 @@ impl Call {
         F: FnMut(Attempt) -> Fut + MaybeSend + 'static,
         Fut: Future<Output = Result<S, ConnectError>> + MaybeSend + 'static,
     {
-        let walk = self.walk_span();
+        let walk = self.walk_span()?;
         let record = walk.recorded_traceparent().is_some();
         // The open captures the identity; every item is checked against it.
         let guard = Arc::new(WalkGuard::default());
@@ -324,7 +324,10 @@ impl Call {
             + MaybeSend
             + 'static,
     {
-        let walk = self.walk_span();
+        let walk = match self.walk_span() {
+            Ok(walk) => walk,
+            Err(refusal) => return Handle::refused(refusal),
+        };
         let ctx = walk.ctx();
         let record = walk.recorded_traceparent().is_some();
         let Self {
@@ -391,7 +394,10 @@ impl Call {
         Resp::Item: MaybeSend + MaybeSync + 'static,
     {
         let key = self.cache_key(&request);
-        let walk = self.walk_span();
+        let walk = match self.walk_span() {
+            Ok(walk) => walk,
+            Err(refusal) => return Handle::refused(refusal),
+        };
         let record = walk.recorded_traceparent().is_some();
         let ctx = walk.ctx();
         let first_only = self.ctx.first_only;
@@ -519,13 +525,19 @@ impl Call {
     }
 
     /// The `internal` span of everything the call does.
-    fn walk_span(&self) -> ActiveSpan {
-        self.env.tracer.start(
-            &self.route.name(),
-            SpanKind::Internal,
-            &self.ctx,
-            self.route.attributes(),
-        )
+    ///
+    /// # Errors
+    /// The host has no secure random source to mint the span's ids from.
+    fn walk_span(&self) -> Result<ActiveSpan, Error> {
+        self.env
+            .tracer
+            .start(
+                &self.route.name(),
+                SpanKind::Internal,
+                &self.ctx,
+                self.route.attributes(),
+            )
+            .map_err(|_| Error::from(crate::error::no_random_source()))
     }
 
     /// A handle over `items`, cancelable by the call's abort.

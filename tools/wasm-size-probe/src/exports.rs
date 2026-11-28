@@ -74,6 +74,20 @@ pub async fn gzip_call(base: String) -> Result<String, JsError> {
     Ok(reply.into_owned().value)
 }
 
+/// The same RPC with the Node host exchange and workload identity policy
+/// linked in, so the variant's size over the floor is their cost. The call
+/// takes the exchange path under Node and `fetch` elsewhere.
+///
+/// # Errors
+/// The RPC's failure.
+#[cfg(feature = "node-identity")]
+#[wasm_bindgen]
+pub async fn node_identity_call(base: String) -> Result<String, JsError> {
+    let client = Probe1Client::new(HttpTransport::fetch(), config(&base)?);
+    let reply = client.echo(request(&base)).await.map_err(fail)?;
+    Ok(reply.into_owned().value)
+}
+
 /// One unary RPC on a second service, next to the first.
 ///
 /// # Errors

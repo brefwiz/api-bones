@@ -19,7 +19,8 @@ function code(file: string): string {
  * beside the pattern, and the decision itself stays in the core.
  */
 const forbidden: Array<[string, RegExp, readonly string[]]> = [
-  ["a network call", /\bfetch\s*\(|XMLHttpRequest|axios|WebSocket|EventSource/, []],
+  // The Node exchange is the socket the core's calls leave through: a byte pipe, no decision.
+  ["a network call", /\bfetch\s*\(|XMLHttpRequest|axios|WebSocket|EventSource/, ["node-exchange.ts"]],
   ["a timer, so no backoff", /setTimeout|setInterval|\bsleep\b|requestAnimationFrame/, []],
   // The wait a refusal named is a datum of the error, never acted on here.
   ["retry", /retr(y|ies)|backoff|jitter|attempt\s*[<>+]/i, ["errors.ts", "call-error.ts"]],

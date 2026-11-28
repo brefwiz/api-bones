@@ -20,10 +20,18 @@ workspace = true
 [lib]
 path = "src/lib.rs"
 
+# `node-exchange` carries the Node host exchange and the workload identity
+# policy it runs into wasm32 builds. The SDK core turns it on; the size probe
+# toggles it to measure what it costs; it is off only for that size-probe
+# floor. Any wasm package built without api-bones-sdk must turn it on.
+# Native builds always have the policy.
+[features]
+node-exchange = []
+
 # Depends on api-bones only for `Reach`, a plain enum with no dependencies
 # (default features off), and not on api-bones-connect.
 [dependencies]
-api-bones = { version = "^25.0.0", path = "..", registry = "brefwiz", default-features = false }
+api-bones = { version = "^25.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
 # The client core only. connectrpc's `client` and `client-tls` features start
 # tokio tasks and read `std::time::Instant`, neither of which a browser has, so
 # they are enabled for native targets alone (see below).
@@ -34,8 +42,12 @@ http-body = "1"
 http-body-util = "0.1"
 bytes = "1"
 tracing = "0.1"
+# Reads the URI SAN of a presented leaf; pure Rust, so it builds on wasm32.
+x509-parser = { version = "0.16", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# A native build trusts a root store; a browser build has none.
+api-bones = { version = "^25.0.0", path = "..", registry = "brefwiz", default-features = false, features = ["tls-webpki-roots"] }
 connectrpc = { version = "0.9.1", default-features = false, features = ["client", "client-tls"] }
 # The request path is built on h2's client directly: hyper's client cannot say
 # which requests it never wrote, and that is what the replay depends on.

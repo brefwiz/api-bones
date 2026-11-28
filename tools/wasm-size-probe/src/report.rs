@@ -25,7 +25,7 @@ pub const LOGIN_PAGE_CEILING: u64 = 149_261;
 
 /// The variants every report holds. The others (an `s` optimisation level of
 /// `floor` and `all`) are extra points, not requirements.
-pub const REQUIRED_VARIANTS: [&str; 11] = [
+pub const REQUIRED_VARIANTS: [&str; 12] = [
     "floor",
     "floor-no-opt",
     "page",
@@ -33,6 +33,7 @@ pub const REQUIRED_VARIANTS: [&str; 11] = [
     "stream",
     "retry",
     "gzip",
+    "node-identity",
     "methods-10",
     "methods-50",
     "second-service",
@@ -43,7 +44,7 @@ pub const REQUIRED_VARIANTS: [&str; 11] = [
 const UNOPTIMISED: &str = "floor-no-opt";
 
 /// The capabilities whose delta over the floor the report derives.
-const CAPABILITIES: [&str; 5] = ["page", "batch", "stream", "retry", "gzip"];
+const CAPABILITIES: [&str; 6] = ["page", "batch", "stream", "retry", "gzip", "node-identity"];
 
 /// The reference page of the option estimates: services and methods per service.
 const PAGE_SERVICES: i64 = 3;

@@ -40,7 +40,8 @@ pub type Batch<T> = Handle<Vec<Result<T, Error>>>;
 /// A source that has not run out, and the span of its walk.
 struct Live<T> {
     stream: BoxStream<'static, Result<T, Error>>,
-    span: ActiveSpan,
+    /// `None` for a handle that refused before any span could open.
+    span: Option<ActiveSpan>,
 }
 
 impl<T> Live<T> {
@@ -48,9 +49,10 @@ impl<T> Live<T> {
     fn finish(self, status: SpanStatus, error: Option<&Error>) {
         let Self { stream, span } = self;
         drop(stream);
-        match error {
-            Some(error) => span.fail(error),
-            None => span.end(status),
+        match (span, error) {
+            (Some(span), Some(error)) => span.fail(error),
+            (Some(span), None) => span.end(status),
+            (None, _) => {}
         }
     }
 }
@@ -111,7 +113,29 @@ impl<T: MaybeSend + 'static> Handle<T> {
         Self {
             span: span.recorded_traceparent(),
             inner: Mutex::new(Inner {
-                phase: Phase::Idle(Live { stream, span }),
+                phase: Phase::Idle(Live {
+                    stream,
+                    span: Some(span),
+                }),
+                abort: None,
+                canceled: false,
+            }),
+            prefetch: None,
+        }
+    }
+
+    /// A handle with no span whose first `next()` fails with `error`: a call
+    /// refused before its walk could open. Every `next()` after it gives
+    /// `None`.
+    #[must_use]
+    pub fn refused(error: Error) -> Self {
+        Self {
+            span: None,
+            inner: Mutex::new(Inner {
+                phase: Phase::Idle(Live {
+                    stream: Box::pin(futures_util::stream::once(std::future::ready(Err(error)))),
+                    span: None,
+                }),
                 abort: None,
                 canceled: false,
             }),
@@ -334,12 +358,14 @@ mod tests {
     }
 
     fn walk(sink: &Arc<Sink>) -> ActiveSpan {
-        Tracer::new(Arc::<Sink>::clone(sink)).start(
-            "walk",
-            SpanKind::Internal,
-            &CallCtx::default(),
-            Attributes::new(),
-        )
+        Tracer::new(Arc::<Sink>::clone(sink))
+            .start(
+                "walk",
+                SpanKind::Internal,
+                &CallCtx::default(),
+                Attributes::new(),
+            )
+            .unwrap()
     }
 
     fn handle_of(results: Vec<Result<u32, Error>>, sink: &Arc<Sink>) -> Handle<u32> {
@@ -378,6 +404,16 @@ mod tests {
             ends[0].error.as_deref(),
             Some("internal INTERNAL_SERVER_ERROR")
         );
+    }
+
+    #[tokio::test]
+    async fn a_refused_handle_fails_its_first_next_and_has_no_span() {
+        let handle: Handle<u32> = Handle::refused(Error::internal("no ids"));
+        assert_eq!(handle.span(), None);
+        assert_eq!(handle.next().await, Err(Error::internal("no ids")));
+        assert_eq!(handle.next().await, Ok(None));
+        handle.cancel();
+        assert_eq!(handle.next().await, Ok(None));
     }
 
     #[tokio::test]
@@ -435,12 +471,14 @@ mod tests {
         assert!(format!("{handle:?}").contains(WALK));
         let silent: Handle<u32> = Handle::new(
             Box::pin(stream::empty()),
-            Tracer::default().start(
-                "walk",
-                SpanKind::Internal,
-                &CallCtx::default(),
-                Attributes::new(),
-            ),
+            Tracer::default()
+                .start(
+                    "walk",
+                    SpanKind::Internal,
+                    &CallCtx::default(),
+                    Attributes::new(),
+                )
+                .unwrap(),
         );
         assert_eq!(silent.span(), None);
     }
