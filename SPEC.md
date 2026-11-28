@@ -25,6 +25,9 @@ generated_paths:
   - api-bones-sdk-runtime-ts/src/generated/bones/v1/pagination_pb.ts
   - api-bones-sdk-runtime-ts/src/generated/bones/sdk/v1/boundary_pb.ts
   - api-bones-connect-ts/src/error-catalogs/*.generated.ts  # embedded from api-bones-i18n/catalogs/errors by `npm run embed-catalogs`, committed so the module resolves before a build
+  - tests/testdata/ffi/python/*.py  # uniffi output, compared byte for byte by ci-ffi-golden
+  - tests/testdata/ffi/kotlin/uniffi/*/*.kt  # uniffi output, compared byte for byte by ci-ffi-golden
+  - tests/testdata/ffi/swift/*  # uniffi output, compared byte for byte by ci-ffi-golden
 # The union of every sdk_surfaces target below, which the schema requires it
 # to equal.
 sdk_languages: [rust, typescript]
@@ -572,9 +575,27 @@ internal_behavior_owners:
   - paths:
       - api-bones-sdk-gen/src/wrapper_package.rs
       - api-bones-sdk-gen/src/wrapper_ts.rs
+      - api-bones-sdk-gen/src/wrapper_files.rs
       - api-bones-sdk-gen/src/build_ts.rs
+      - api-bones-sdk-gen/src/option_guard.rs
+      - api-bones-sdk-gen/src/main.rs
       - api-bones-sdk-model/src/l2.rs
     feature: tests/internal-bdd/tests/features/sdk_wrapper_package.feature
+  # The layer the generated native bindings are built from: the host, handle
+  # and error types and the message formatter, plus the per-call context
+  # (ctx.rs) that carries each call's deadline and identity. Library layer; no
+  # SDK call reaches it; language bindings are generated from it. The
+  # formatted-error message of the boundary proto and the transport's
+  # connection failure are shipped by declared surfaces (field-labels and
+  # connect-fleet-connect-bound), which prove them.
+  - paths:
+      - api-bones-sdk-ffi/src/ctx.rs
+      - api-bones-sdk-ffi/src/error.rs
+      - api-bones-sdk-ffi/src/format.rs
+      - api-bones-sdk-ffi/src/handle.rs
+      - api-bones-sdk-ffi/src/host.rs
+      - api-bones-sdk-ffi/src/transport.rs
+    feature: tests/internal-bdd/tests/features/sdk_ffi_layer.feature
 library_crates:
   - api-bones
   - api-bones-automation
@@ -589,6 +610,7 @@ library_crates:
   - api-bones-reqwest
   - api-bones-rt
   - api-bones-sdk
+  - api-bones-sdk-ffi
   - api-bones-sdk-gen
   - api-bones-sdk-macros
   - api-bones-sdk-model

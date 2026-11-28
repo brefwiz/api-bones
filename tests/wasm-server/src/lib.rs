@@ -23,8 +23,8 @@ use connectrpc::codec::{CodecFormat, header::TIMEOUT_MS};
 use connectrpc::dispatcher::{RequestStream, StreamingResult, UnaryResult};
 use connectrpc::payload::Payload;
 use connectrpc::{
-    ConnectError, ConnectRpcService, Dispatcher, Encodable, MethodDescriptor, RequestContext,
-    Response, Router, Server, ServiceRequest, ServiceResult, ServiceStream,
+    ConnectError, ConnectRpcService, DeadlinePolicy, Dispatcher, Encodable, MethodDescriptor,
+    RequestContext, Response, Router, Server, ServiceRequest, ServiceResult, ServiceStream,
 };
 use futures_util::stream;
 use http::{HeaderMap, HeaderName, HeaderValue};
@@ -41,6 +41,9 @@ use generated::bones::test::v1::{Fetch, FetchExt};
 
 /// Gap between two messages of the `Watch` stream.
 const TICK: Duration = Duration::from_millis(20);
+
+/// The shortest time the server allows a call, whatever deadline it states.
+const DEADLINE_FLOOR: Duration = Duration::from_secs(60);
 
 /// What the server remembers between calls.
 struct State {
@@ -393,7 +396,11 @@ pub async fn serve(addr_file: &Path) -> Result<(), Box<dyn std::error::Error + S
     std::fs::rename(&staging, addr_file)?;
 
     let router = FetchExt::register(Arc::new(FetchService::new(redirector_url)), Router::new());
-    bound
-        .serve_with_service(ConnectRpcService::new(PublicLane(router)))
-        .await
+    // The server never gives up on a call before its client does: a client's
+    // stated deadline is raised to a floor far above any the suite states, so
+    // the client's own timer is always the one that ends a late call and
+    // aborts its fetch.
+    let service = ConnectRpcService::new(PublicLane(router))
+        .with_deadline_policy(DeadlinePolicy::new().with_min(DEADLINE_FLOOR));
+    bound.serve_with_service(service).await
 }

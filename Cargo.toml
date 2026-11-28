@@ -8,6 +8,7 @@ members = [
     "api-bones-sdk-gen",
     "api-bones-sdk",
     "api-bones-sdk-macros",
+    "api-bones-sdk-ffi",
     "api-bones-sdk-model",
     "api-bones-test",
     "api-bones-protos",
@@ -352,3 +353,4 @@ api-bones-transport = { path = "api-bones-transport" }
 api-bones-page = { path = "api-bones-page" }
 api-bones-batch = { path = "api-bones-batch" }
 api-bones-rt = { path = "api-bones-rt" }
+api-bones-sdk-ffi = { path = "api-bones-sdk-ffi" }

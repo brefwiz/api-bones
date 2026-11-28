@@ -113,3 +113,9 @@ Feature: Field labels
     Then the message "bones.v1.StreamControl" declares the oneof "signal" holding exactly "drain, checkpoint"
     And the message "bones.v1.Drain" declares exactly the fields "cut_in_ms"
     And the message "bones.v1.Checkpoint" declares exactly the fields "domain, live_from, delivered_through, epoch"
+
+  Scenario: The shipped formatted error is exactly a text with an optional hint or a refused rule
+    Given the shipped native boundary
+    When the vocabulary is read back through descriptor reflection
+    Then the message "bones.sdk.v1.FormatResult" declares the oneof "outcome" holding exactly "formatted, refused_rule"
+    And the message "bones.sdk.v1.FormatResult.Formatted" declares exactly the fields "text, hint"

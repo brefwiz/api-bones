@@ -26,7 +26,7 @@ pub use l2::{L2Error, L2Kind, L2Method, L2Methods, L2ReadError, SpecL2Methods, l
 pub use model::{
     ArgKind, Client, ErrorField, ErrorType, ErrorVariant, Export, Input, Model, Param, Shape,
 };
-pub use names::{NameError, export_name, gate_features, json_name, typescript_name};
+pub use names::{NameError, export_name, gate_features, json_name, python_name, typescript_name};
 pub use ty::{
     ALLOWED, EMPTY, Env, ErrorRef, HandleKind, ProtoRef, Return, Wire, Wrapper, classify_return,
     classify_wire, handle_kind, path_text, proto_ref,

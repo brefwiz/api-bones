@@ -62,7 +62,7 @@ use syn::{FnArg, Ident, Pat, Signature, Type};
 
 use crate::common::{head, private, upper_camel};
 
-fn named(error: &(impl ToString + ?Sized)) -> syn::Error {
+pub(crate) fn named(error: &(impl ToString + ?Sized)) -> syn::Error {
     syn::Error::new(Span::call_site(), error.to_string())
 }
 
@@ -128,14 +128,14 @@ fn rejection(error: &TokenStream) -> TokenStream {
 }
 
 /// The Rust path of a message the model recorded.
-fn message_path(message: &ProtoRef) -> syn::Result<syn::Path> {
+pub(crate) fn message_path(message: &ProtoRef) -> syn::Result<syn::Path> {
     syn::parse_str(&message.path).map_err(|error| named(&error))
 }
 
 /// The bytes of the value behind `value`, an expression of type `&T`, as the
 /// message `wire` names: a message as itself, a scalar in its
 /// `google.protobuf` wrapper, and no value as the empty message.
-fn encode(wire: &Wire, value: &TokenStream) -> TokenStream {
+pub(crate) fn encode(wire: &Wire, value: &TokenStream) -> TokenStream {
     let private = private();
     match wire {
         Wire::Empty => quote!({
@@ -150,7 +150,7 @@ fn encode(wire: &Wire, value: &TokenStream) -> TokenStream {
 /// A constant that does not compile unless the generated type at `message`'s
 /// path is the proto message the model recorded, so the Rust side and the
 /// descriptor the generator reads cannot name different messages.
-fn guard(gate: &TokenStream, message: &ProtoRef) -> syn::Result<TokenStream> {
+pub(crate) fn guard(gate: &TokenStream, message: &ProtoRef) -> syn::Result<TokenStream> {
     let private = private();
     let path = message_path(message)?;
     let name = &message.full_name;
@@ -164,7 +164,7 @@ fn guard(gate: &TokenStream, message: &ProtoRef) -> syn::Result<TokenStream> {
 }
 
 /// The guards of every message `wires` name.
-fn guards<'a>(
+pub(crate) fn guards<'a>(
     gate: &TokenStream,
     wires: impl IntoIterator<Item = &'a Wire>,
 ) -> syn::Result<TokenStream> {
@@ -235,8 +235,8 @@ fn scoped(list: bool, reads: &TokenStream, body: &TokenStream) -> TokenStream {
 /// its parameters and the type it returns. A method, a function and a constant
 /// are all read through it.
 pub(crate) struct Member {
-    ident: Ident,
-    params: Vec<Ident>,
+    pub(crate) ident: Ident,
+    pub(crate) params: Vec<Ident>,
     pub(crate) output: Option<Type>,
 }
 
@@ -282,6 +282,63 @@ pub(crate) enum Home<'a> {
     Impl(&'a Type),
     /// The name of a `#[client]` module, a sibling of the expansion.
     Module(&'a Ident),
+}
+
+/// The call of the Rust item an export wraps: a method of the shared instance,
+/// an associated function or constant of the client type, or an item of the
+/// client module.
+pub(crate) fn call_of(
+    home: &Home<'_>,
+    function: &Member,
+    export: &Export,
+    args: &[TokenStream],
+) -> TokenStream {
+    let method = &function.ident;
+    let path = match home {
+        Home::Impl(self_ty) => quote!(<#self_ty>::#method),
+        Home::Module(module) => quote!(self::#module::#method),
+    };
+    match export.shape {
+        Shape::Method => quote!(__client.#method(#(#args),*)),
+        Shape::Function => quote!(#path(#(#args),*)),
+        Shape::Constant => path,
+    }
+}
+
+/// The messages an export's arguments and its result cross as.
+pub(crate) fn messages_of(export: &Export) -> Vec<&Wire> {
+    let result = match &export.ret {
+        Return::Unit => None,
+        Return::Value(wire) => Some(wire),
+        Return::Result { ok, .. } => Some(ok),
+        Return::Handle { item, .. } => Some(item),
+    };
+    std::iter::once(&export.args).chain(result).collect()
+}
+
+/// The statements that run a sync export's `call` and encode what it returns.
+pub(crate) fn sync_outcome_of(export: &Export, call: &TokenStream) -> syn::Result<TokenStream> {
+    match &export.ret {
+        Return::Unit => Ok(quote! {
+            #call;
+            ::core::result::Result::Ok(::std::vec::Vec::new())
+        }),
+        Return::Result { ok, .. } => {
+            let encoded = encode(ok, &quote!(&__out));
+            Ok(quote! {
+                let __out = #call.map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;
+                ::core::result::Result::Ok(#encoded)
+            })
+        }
+        Return::Value(wire) => {
+            let encoded = encode(wire, &quote!(&__out));
+            Ok(quote! {
+                let __out = #call;
+                ::core::result::Result::Ok(#encoded)
+            })
+        }
+        Return::Handle { .. } => Err(named("a sync export never returns a handle")),
+    }
 }
 
 /// What the expansion of one export needs to know.
@@ -464,27 +521,12 @@ impl Shell<'_> {
     /// associated function or constant of the client type, or an item of the
     /// client module.
     fn call(&self, args: &[TokenStream]) -> TokenStream {
-        let method = &self.function.ident;
-        let path = match self.home {
-            Home::Impl(self_ty) => quote!(<#self_ty>::#method),
-            Home::Module(module) => quote!(self::#module::#method),
-        };
-        match self.export.shape {
-            Shape::Method => quote!(__client.#method(#(#args),*)),
-            Shape::Function => quote!(#path(#(#args),*)),
-            Shape::Constant => path,
-        }
+        call_of(self.home, self.function, self.export, args)
     }
 
     /// The messages the export's arguments and its result cross as.
     fn messages(&self) -> Vec<&Wire> {
-        let result = match &self.export.ret {
-            Return::Unit => None,
-            Return::Value(wire) => Some(wire),
-            Return::Result { ok, .. } => Some(ok),
-            Return::Handle { item, .. } => Some(item),
-        };
-        std::iter::once(&self.export.args).chain(result).collect()
+        messages_of(self.export)
     }
 
     /// The statement that reads the arguments message: each parameter is bound
@@ -645,27 +687,7 @@ impl Shell<'_> {
     }
 
     fn sync_outcome(&self, call: &TokenStream) -> syn::Result<TokenStream> {
-        match &self.export.ret {
-            Return::Unit => Ok(quote! {
-                #call;
-                ::core::result::Result::Ok(::std::vec::Vec::new())
-            }),
-            Return::Result { ok, .. } => {
-                let encoded = encode(ok, &quote!(&__out));
-                Ok(quote! {
-                    let __out = #call.map_err(::core::convert::Into::<::api_bones_sdk::Error>::into)?;
-                    ::core::result::Result::Ok(#encoded)
-                })
-            }
-            Return::Value(wire) => {
-                let encoded = encode(wire, &quote!(&__out));
-                Ok(quote! {
-                    let __out = #call;
-                    ::core::result::Result::Ok(#encoded)
-                })
-            }
-            Return::Handle { .. } => Err(named("a sync export never returns a handle")),
-        }
+        sync_outcome_of(self.export, call)
     }
 
     /// The Rust item type a handle export yields, and what it crosses as.
@@ -784,31 +806,20 @@ mod tests {
     use syn::ImplItemFn;
 
     use super::*;
-    use crate::common::flat;
+    use crate::common::{expand_first_impl, flat};
 
-    const SOURCE: &str = r#"
-        #[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
-        impl NumbersClient {
+    const SOURCE: &str = crate::common::numbers_client!(
+        "(&self, limit: u32, since: Option<SystemTime>)",
+        r#"#[export(surface = "connect-batch")]"#,
+        r#"
             #[export]
-            pub fn list(&self, limit: u32, since: Option<SystemTime>) -> ListCall<generated::contract::sdk::v1::Number> { body() }
-            #[export]
-            pub async fn watch(&self) -> Stream<generated::contract::sdk::v1::Number> { body() }
-            #[export]
-            pub fn get_all(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> { body() }
-            #[export(surface = "connect-batch")]
-            pub async fn get(&self, id: String) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
-            #[export]
-            pub async fn clear(&self) -> Result<(), Error> { body() }
-            #[export(sync)]
-            pub fn label(&self, kind: &str) -> String { body() }
-            #[export(sync)]
-            pub fn reset(&self) { body() }
-            #[export(sync)]
-            pub fn check(&self) -> Result<(), Error> { body() }
+            pub async fn clear(&self) -> Result<(), Error> { body() }"#,
+        r#"
             #[export(sync, args = generated::contract::v1::ParseRequest)]
             pub fn parse(&self, text: String) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
         }
-    "#;
+    "#
+    );
 
     fn built(service: &str) -> syn::Result<TokenStream> {
         built_from(SOURCE, service)
@@ -825,35 +836,9 @@ mod tests {
         service: &str,
         change: impl FnOnce(&mut Client),
     ) -> syn::Result<TokenStream> {
-        let file: syn::File = syn::parse_str(source).expect("a file");
-        let mut model = Model::from_files([&file]).expect("a model");
-        change(&mut model.clients[0]);
-        let item = file
-            .items
-            .iter()
-            .find_map(|item| match item {
-                syn::Item::Impl(item) => Some(item),
-                _ => None,
-            })
-            .expect("an impl");
-        let functions: Vec<Member> = item
-            .items
-            .iter()
-            .filter_map(|member| match member {
-                syn::ImplItem::Fn(function)
-                    if api_bones_sdk_model::attrs::find(&function.attrs, "export").is_some() =>
-                {
-                    Some(Member::of_fn(&function.sig))
-                }
-                _ => None,
-            })
-            .collect();
-        expand(
-            service,
-            &model.clients[0],
-            &Home::Impl(&item.self_ty),
-            &functions,
-        )
+        expand_first_impl(source, change, |client, home, functions| {
+            expand(service, client, home, functions)
+        })
     }
 
     fn text() -> String {
@@ -1163,19 +1148,11 @@ mod tests {
         assert!(text.contains("__client.parse(text)"), "{text}");
     }
 
-    const WHOLE: &str = r#"
-        #[client(surface = "s", proto = generated::contract::sdk::v1)]
-        impl C {
-            #[export]
-            pub async fn derive(&self, request: generated::contract::sdk::v1::DeriveArgs) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
-            #[export(sync, args = generated::contract::v1::Inspect)]
-            pub fn inspect(&self, request: &Inspect) -> String { body() }
-        }
-    "#;
-
     #[test]
     fn an_export_taking_its_message_whole_decodes_once_and_passes_it() {
-        let text = flat(&built_from(WHOLE, "api-bones").expect("expanded"));
+        let text = flat(
+            &built_from(&crate::common::whole_message_client(""), "api-bones").expect("expanded"),
+        );
         assert!(text.contains("let__req=::api_bones_sdk::__private::decode_strict::<generated::contract::sdk::v1::DeriveArgs>(&__args.to_vec())?;"), "{text}");
         assert!(text.contains("__client.derive(__req)"), "{text}");
         assert!(!text.contains("DeriveArgs{request"), "{text}");
@@ -1183,7 +1160,9 @@ mod tests {
 
     #[test]
     fn a_whole_message_taken_by_reference_is_passed_by_reference() {
-        let text = flat(&built_from(WHOLE, "api-bones").expect("expanded"));
+        let text = flat(
+            &built_from(&crate::common::whole_message_client(""), "api-bones").expect("expanded"),
+        );
         assert!(text.contains("let__req=::api_bones_sdk::__private::decode_strict::<generated::contract::v1::Inspect>(&__args.to_vec())?;"), "{text}");
         assert!(text.contains("__client.inspect(&__req)"), "{text}");
     }

@@ -8,7 +8,7 @@ use syn::{ImplItem, Item, parse_quote};
 
 use crate::common::{finish, head, without};
 use crate::wasm::{Home, Member};
-use crate::{service, wasm};
+use crate::{service, uniffi, wasm};
 
 /// The impl or module, kept as written but for the `#[export]` attributes, the
 /// compile-time check that every error is an `Into<api_bones_sdk::Error>`, and
@@ -77,8 +77,18 @@ fn generate(service: &str, args: TokenStream, item: &Item) -> syn::Result<TokenS
     let members = members(item);
     let checks = checks(&client, &members);
     let exports = match item {
-        Item::Impl(item) => wasm::expand(service, &client, &Home::Impl(&item.self_ty), &members)?,
-        Item::Mod(item) => wasm::expand(service, &client, &Home::Module(&item.ident), &members)?,
+        Item::Impl(item) => {
+            let home = Home::Impl(&item.self_ty);
+            let mut out = wasm::expand(service, &client, &home, &members)?;
+            out.extend(uniffi::expand(service, &client, &home, &members)?);
+            out
+        }
+        Item::Mod(item) => {
+            let home = Home::Module(&item.ident);
+            let mut out = wasm::expand(service, &client, &home, &members)?;
+            out.extend(uniffi::expand(service, &client, &home, &members)?);
+            out
+        }
         _ => return Err(syn::Error::new_spanned(item, "`#[client]` goes on an impl")),
     };
     Ok(quote!(#checks #exports))

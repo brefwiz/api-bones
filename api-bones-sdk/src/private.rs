@@ -18,7 +18,10 @@ use crate::error::Error;
 pub use buffa::MessageName;
 pub use serde_json;
 
-pub use crate::boundary::{encode_batch_chunk, encode_build_info, encode_call_error, encode_page};
+pub use crate::boundary::{
+    credential_read, decode_call_error, encode_batch_chunk, encode_build_info, encode_call_error,
+    encode_format_refused, encode_format_text, encode_page, span_end, span_start, span_started,
+};
 
 /// Decodes the message a host sent, refusing any field the message does not
 /// declare.

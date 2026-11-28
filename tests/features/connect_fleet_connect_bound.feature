@@ -6,19 +6,24 @@ Feature: Fleet connection bound
   establishing the connection after a fixed bound, well inside a one second
   call budget, instead of waiting out a transport default measured in
   seconds. The failure says it happened while connecting, so a caller can tell
-  it from one that happened after the request was on the wire.
+  it from one that happened after the request was on the wire. The failure
+  message does not name the peer's address, so a message that reaches a
+  caller's log or a host application never carries a fleet-internal address;
+  the address goes to a debug log of the transport.
 
   Scenario: A peer that accepts the connection and never answers is given up on within the budget
     Given a fleet peer that accepts connections and never answers
     When the workload calls it over a fleet client
     Then the call fails within one second
     And the failure is reported as a failure to connect
+    And the failure message names no peer address
 
   Scenario: A peer that refuses the connection fails fast
     Given a fleet peer that refuses connections
     When the workload calls it over a fleet client
     Then the call fails within one second
     And the failure is reported as a failure to connect
+    And the failure message names no peer address
 
   Scenario: A failure that is not about connecting is not reported as one
     Given a fleet peer that answers every call with a failure

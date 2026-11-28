@@ -24,19 +24,31 @@ use connectrpc::client::ClientConfig;
 use connectrpc::{ConnectError, ErrorCode};
 use futures_util::stream;
 
-/// The transport of the target: cleartext HTTP/2 to the loopback test server
-/// natively, the host's `fetch` in the browser.
-#[cfg(not(target_arch = "wasm32"))]
-fn transport() -> HttpTransport {
+/// The transport of the target: the host's `fetch` in the browser.
+#[cfg(target_arch = "wasm32")]
+fn transport(_config: &ClientConfig) -> HttpTransport {
+    HttpTransport::fetch()
+}
+
+/// The transport of the target: cleartext HTTP/2 to the loopback test server.
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "uniffi")))]
+fn transport(_config: &ClientConfig) -> HttpTransport {
     HttpTransport::h2c()
 }
 
-/// The transport of the target: cleartext HTTP/2 to the loopback test server
-/// natively, the host's `fetch` in the browser.
-#[cfg(target_arch = "wasm32")]
-fn transport() -> HttpTransport {
-    HttpTransport::fetch()
+/// The transport of the target: the binding's own choice for the base URI,
+/// TLS over the bundled roots to `https`, cleartext to the loopback. The URI
+/// was checked when the client was opened; a refusal here falls back to TLS,
+/// so a URI the binding refused never travels in the clear.
+#[cfg(all(not(target_arch = "wasm32"), feature = "uniffi"))]
+fn transport(config: &ClientConfig) -> HttpTransport {
+    api_bones_sdk_ffi::transport(&config.base_uri().to_string())
+        .unwrap_or_else(|_| HttpTransport::tls(api_bones::connect::client_tls_config()))
 }
+
+// The uniffi scaffolding of this crate's exports, generated once.
+#[cfg(all(feature = "uniffi", not(target_arch = "wasm32")))]
+uniffi::setup_scaffolding!("api_bones_test_service_l2");
 
 /// Layer 1: generated at build time from the contract protos.
 #[expect(
@@ -132,6 +144,24 @@ macro_rules! from_host {
                 host: api_bones_sdk::__private::wasm_bindgen::JsValue,
             ) -> Result<Self, Error> {
                 Self::new(&base_url, CallEnv::from_host(host))
+            }
+        }
+    };
+}
+
+/// The native constructor of a client: the host says how to authenticate and
+/// where to report spans.
+macro_rules! from_ffi_host {
+    ($name:ident) => {
+        #[cfg(all(feature = "uniffi", not(target_arch = "wasm32")))]
+        impl $name {
+            /// # Errors
+            /// `invalid_argument` when `base_url` is not a URI.
+            pub fn from_ffi_host(
+                base_url: String,
+                host: std::sync::Arc<dyn api_bones_sdk_ffi::FfiHost>,
+            ) -> Result<Self, Error> {
+                Self::new(&base_url, api_bones_sdk_ffi::call_env(host))
             }
         }
     };
@@ -257,7 +287,7 @@ pub fn widget_parts_send(
               -> BoxFuture<'static, Result<ListResponse<WidgetPartsPage>, ConnectError>> {
             let config = config.clone();
             Box::pin(async move {
-                let rpc = WidgetsRpc::new(attempt.transport(transport()), config);
+                let rpc = WidgetsRpc::new(attempt.transport(transport(&config)), config);
                 let response = rpc
                     .list_widget_parts_with_options(request.0, attempt.options()?)
                     .await?;
@@ -280,7 +310,7 @@ pub fn list_send(config: ClientConfig) -> PageSend<NumbersPageRequest, NumbersPa
               -> BoxFuture<'static, Result<ListResponse<NumbersPage>, ConnectError>> {
             let config = config.clone();
             Box::pin(async move {
-                let rpc = NumbersRpc::new(attempt.transport(transport()), config);
+                let rpc = NumbersRpc::new(attempt.transport(transport(&config)), config);
                 let response = rpc
                     .list_no_side_effects_with_options(request.0, attempt.options()?)
                     .await?;
@@ -343,6 +373,25 @@ impl NumbersClient {
         })
     }
 
+    /// The native constructor: the host says how to authenticate and where to
+    /// report spans, and the options message may set the page size a list asks
+    /// for by default.
+    ///
+    /// # Errors
+    /// `invalid_argument` when `base_url` is not a URI.
+    #[cfg(all(feature = "uniffi", not(target_arch = "wasm32")))]
+    pub fn from_ffi_host(
+        base_url: String,
+        host: std::sync::Arc<dyn api_bones_sdk_ffi::FfiHost>,
+        options: generated::contract::sdk::v1::NumbersOptions,
+    ) -> Result<Self, Error> {
+        let client = Self::new(&base_url, api_bones_sdk_ffi::call_env(host))?;
+        Ok(Self {
+            default_page_size: options.default_page_size,
+            ..client
+        })
+    }
+
     /// The numbers, one page per `next()`.
     #[export(args = generated::contract::sdk::v1::ListNumbersArgs)]
     pub fn list(&self, page_size: Option<u32>) -> ListCall<generated::contract::sdk::v1::Number> {
@@ -394,7 +443,7 @@ pub async fn get_widget_send(
         id,
         ..Default::default()
     };
-    let rpc = WidgetsRpc::new(attempt.transport(transport()), config);
+    let rpc = WidgetsRpc::new(attempt.transport(transport(&config)), config);
     let response = rpc
         .get_widget_with_options(request, attempt.options()?)
         .await?;
@@ -416,7 +465,7 @@ pub async fn batch_get_widgets_send(
         ids,
         ..Default::default()
     };
-    let rpc = WidgetsRpc::new(attempt.transport(transport()), config);
+    let rpc = WidgetsRpc::new(attempt.transport(transport(&config)), config);
     let response = rpc
         .batch_get_widgets_with_options(request, attempt.options()?)
         .await?
@@ -450,6 +499,7 @@ impl WidgetsClient {
 }
 
 from_host!(WidgetsClient);
+from_ffi_host!(WidgetsClient);
 
 #[client(surface = "sdk-call", proto = generated::contract::sdk::v1)]
 impl WidgetsClient {
@@ -510,7 +560,7 @@ pub async fn watch_open(
     ticks: u32,
     attempt: Attempt,
 ) -> Result<impl stream::Stream<Item = Result<Tick, ConnectError>>, ConnectError> {
-    let rpc = EventsRpc::new(attempt.transport(transport()), config);
+    let rpc = EventsRpc::new(attempt.transport(transport(&config)), config);
     let upstream = rpc
         .watch_with_options(
             WatchRequest {
@@ -547,6 +597,7 @@ impl EventsClient {
 }
 
 from_host!(EventsClient);
+from_ffi_host!(EventsClient);
 
 #[client(surface = "sdk-call", proto = generated::contract::sdk::v1)]
 impl EventsClient {

@@ -54,6 +54,12 @@ struct WrapperWorld {
     /// Endpoints a surface serves: (endpoint, Rust method), by surface.
     served: BTreeMap<String, Vec<(String, String)>>,
     outcomes: BTreeMap<String, Output>,
+    /// The proto of the options message of the client of a crate, by crate.
+    options: BTreeMap<String, String>,
+    /// The directory a TypeScript generation is told to bind, when one is.
+    bindings: Option<String>,
+    /// The language and package of each surface of a native-language SPEC.
+    native_packages: Vec<(String, String)>,
 }
 
 impl std::fmt::Debug for WrapperWorld {
@@ -195,8 +201,23 @@ impl WrapperWorld {
         self.root().join(format!("{name}-sdk"))
     }
 
+    /// A `from_host` taking the options message the crate declares.
+    fn write_options_constructor(&mut self, name: &str) {
+        if !self.options.contains_key(name) {
+            return;
+        }
+        let path = self.root().join("crates").join(name).join("src/lib.rs");
+        let source = fs::read_to_string(&path).expect("a source");
+        let source = source.replace(
+            "{\n    #[export(sync)]",
+            "{\n    pub fn from_host(base_url: String, host: JsValue, options: generated::acme::v1::ClientOptions) -> Result<Self, Error> { body() }\n    #[export(sync)]",
+        );
+        fs::write(path, source).expect("a source");
+    }
+
     fn generate(&mut self, name: &str) {
         self.write_exports(name);
+        self.write_options_constructor(name);
         self.write_spec();
         let root = self.root();
         let descriptor = root.join("contract.fds");
@@ -204,7 +225,10 @@ impl WrapperWorld {
         fs::create_dir_all(protos.join("acme/v1")).expect("a proto directory");
         fs::write(
             protos.join("acme/v1/acme.proto"),
-            "syntax = \"proto3\";\npackage acme.v1;\nimport \"google/protobuf/empty.proto\";\nimport \"google/protobuf/wrappers.proto\";\nmessage Empty {}\n",
+            format!(
+                "syntax = \"proto3\";\npackage acme.v1;\nimport \"google/protobuf/empty.proto\";\nimport \"google/protobuf/wrappers.proto\";\nmessage Empty {{}}\n{}",
+                self.options.get(name).map_or("", String::as_str)
+            ),
         )
         .expect("a proto");
         let mut compiler = protox::Compiler::new([&protos]).expect("include paths");
@@ -213,7 +237,8 @@ impl WrapperWorld {
             .open_file("acme/v1/acme.proto")
             .expect("a valid proto");
         fs::write(&descriptor, compiler.encode_file_descriptor_set()).expect("a descriptor set");
-        let output = Command::new(env!("CARGO"))
+        let mut command = Command::new(env!("CARGO"));
+        command
             .args(["run", "--locked", "-q", "-p", "api-bones-sdk-gen", "--"])
             .args(["wrapper", "typescript", "--crate"])
             .arg(root.join("crates").join(name))
@@ -227,9 +252,11 @@ impl WrapperWorld {
             .arg(&descriptor)
             .arg("--out")
             .arg(self.out(name))
-            .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
-            .output()
-            .expect("the generator runs");
+            .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."));
+        if let Some(bindings) = &self.bindings {
+            command.args(["--bindings", bindings]);
+        }
+        let output = command.output().expect("the generator runs");
         self.outcomes.insert(name.to_owned(), output);
     }
 }
@@ -290,6 +317,35 @@ fn given_published(world: &mut WrapperWorld, name: String, license: String) {
         "{\"name\":\"@brefwiz/api-bones-sdk-runtime\",\"publishConfig\":{\"registry\":\"https://registry.acme.test/npm/\"}}",
     )
     .expect("a runtime manifest");
+}
+
+#[given(expr = "the client options of the crate {string} declare the field {string}")]
+fn given_options_field(world: &mut WrapperWorld, name: String, field: String) {
+    world.options.insert(
+        name,
+        format!("message ClientOptions {{\n  string {field} = 1;\n}}\n"),
+    );
+}
+
+#[given(expr = "the client options of the crate {string} nest a message with the field {string}")]
+fn given_options_nested(world: &mut WrapperWorld, name: String, field: String) {
+    world.options.insert(
+        name,
+        format!(
+            "message Extras {{\n  string {field} = 1;\n}}\nmessage ClientOptions {{\n  Extras extras = 1;\n}}\n"
+        ),
+    );
+}
+
+#[given(expr = "the generator is given the bindings directory {string}")]
+fn given_bindings(world: &mut WrapperWorld, directory: String) {
+    world.bindings = Some(directory);
+}
+
+#[given(expr = "a SPEC listing the Kotlin package {string}")]
+#[given(expr = "the SPEC also lists the Kotlin package {string}")]
+fn given_native_package(world: &mut WrapperWorld, package: String) {
+    world.native_packages.push(("kotlin".to_owned(), package));
 }
 
 #[given(expr = "the SPEC lists only the package {string}")]
@@ -395,6 +451,35 @@ fn when_every(world: &mut WrapperWorld) {
 #[when(expr = "the wrapper is generated for the crate {string}")]
 fn when_one(world: &mut WrapperWorld, name: String) {
     world.generate(&name);
+}
+
+#[when(expr = "the package of the language {string} is printed")]
+fn when_package_printed(world: &mut WrapperWorld, language: String) {
+    let mut spec = String::from("---\nservice: acme\nsdk_surfaces:\n");
+    for (index, (lang, package)) in world.native_packages.iter().enumerate() {
+        spec.push_str(&format!(
+            "  s-{index}:\n    targets:\n      {lang}:\n        packages: [\"{package}\"]\n"
+        ));
+    }
+    spec.push_str("---\n");
+    let path = world.root().join("SPEC.md");
+    fs::write(&path, spec).expect("a SPEC");
+    let output = Command::new(env!("CARGO"))
+        .args(["run", "--locked", "-q", "-p", "api-bones-sdk-gen", "--"])
+        .args(["wrapper", "package", "--spec"])
+        .arg(&path)
+        .args(["--language", &language])
+        .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+        .output()
+        .expect("the generator runs");
+    world.outcomes.insert("package".to_owned(), output);
+}
+
+#[then(expr = "the package printed is {string}")]
+fn then_package_printed(world: &mut WrapperWorld, package: String) {
+    let output = world.outcomes.get("package").expect("a package was asked");
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), package);
 }
 
 #[then("every generation succeeded")]

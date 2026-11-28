@@ -167,3 +167,16 @@ message BuildInfo {
   // version is refused with SDK_BOUNDARY_MISMATCH.
   uint32 boundary = 3;
 }
+
+// An error's message in a host's locale: the text, or the rule that refused to
+// produce one.
+message FormatResult {
+  message Formatted {
+    string text = 1;
+    optional string hint = 2;
+  }
+  oneof outcome {
+    Formatted formatted = 1;
+    string refused_rule = 2;
+  }
+}

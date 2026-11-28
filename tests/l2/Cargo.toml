@@ -35,6 +35,10 @@ sdk-m-watch = []
 sdk-sdk-call = []
 wasm = ["api-bones-sdk/wasm"]
 # api-bones-sdk-gen features: end
+# The Kotlin and Swift binding: native only, and TLS to an `https` server.
+# Written by hand: the block above is rewritten by `api-bones-sdk-gen features`
+# from the exports, which cannot derive a crate-specific dependency list.
+uniffi = ["dep:api-bones-sdk-ffi", "dep:uniffi", "api-bones/tls-webpki-roots"]
 
 [dependencies]
 api-bones = { version = "^25.0.0", path = "../..", registry = "brefwiz", default-features = false, features = ["connect-core"] }
@@ -54,6 +58,8 @@ serde.workspace = true
 # connectrpc's own client starts tokio tasks and opens sockets a browser has
 # not; the wasm32 build calls through the browser transport instead.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+api-bones-sdk-ffi = { version = "0.1.0", path = "../../api-bones-sdk-ffi", registry = "brefwiz", optional = true }
+uniffi = { version = "0.31", features = ["tokio"], optional = true }
 connectrpc = { version = "0.9.1", default-features = false, features = ["client"] }
 
 [build-dependencies]

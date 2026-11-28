@@ -21,6 +21,7 @@ use std::process::Command;
 use anyhow::{Context, ensure};
 use sha2::{Digest, Sha256};
 
+use crate::wrapper_files;
 use crate::wrapper_package;
 use crate::wrapper_ts::{self, Contract, SOURCE_DIR};
 
@@ -243,7 +244,7 @@ pub fn build(
     })?;
     package.wasm_sha256 = sha256_hex(&tools.read(&bound)?);
     let model = crate::features::read_model(krate)?;
-    wrapper_ts::write(out, &wrapper_ts::generate(&model, &package, contract)?)?;
+    wrapper_files::write(out, &wrapper_ts::generate(&model, &package, contract)?)?;
     ensure!(
         out.join("package-lock.json").is_file(),
         "{} has no package-lock.json; run `npm install --package-lock-only` there and commit it",

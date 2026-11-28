@@ -941,6 +941,8 @@ pub struct FleetConnectBoundWorld {
     pub peer: Option<tokio::task::JoinHandle<()>>,
     pub elapsed: Option<std::time::Duration>,
     pub failure: Option<ConnectError>,
+    /// Whether the shipped classifier reads the failure as one to connect.
+    pub connecting: Option<bool>,
 }
 
 impl std::fmt::Debug for FleetConnectBoundWorld {

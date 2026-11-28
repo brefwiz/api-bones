@@ -43,6 +43,8 @@ use http::{HeaderMap, HeaderValue};
 mod stream;
 #[path = "../../../rust/tests/steps/support.rs"]
 mod support;
+#[path = "steps/ticks.rs"]
+mod ticks;
 
 use support::{batch_response, serve_loopback, unserved_widget_methods};
 
@@ -681,7 +683,7 @@ async fn serve(world: &mut SdkCallWorld) {
     let shared = &world.shared;
     let router = WidgetsServiceExt::register(Arc::new(Service(shared.clone())), Router::new());
     let router = NumbersServiceExt::register(Arc::new(NumbersServer(shared.clone())), router);
-    let router = EventsServiceExt::register(Arc::new(stream::EventsServer(shared.clone())), router);
+    let router = EventsServiceExt::register(Arc::new(ticks::EventsServer(shared.clone())), router);
     let (server, address) = serve_loopback(router).await;
     world.address = Some(address);
     world.server = Some(server);

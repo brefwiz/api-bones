@@ -166,6 +166,13 @@ Given("the shipped stream control", function (this: FieldLabelsWorld) {
     `message Record { string id = 1; }\n`;
 });
 
+Given("the shipped native boundary", function (this: FieldLabelsWorld) {
+  this.source =
+    `syntax = "proto3";\npackage contract.v1;\n` +
+    `import "bones/sdk/v1/boundary.proto";\n` +
+    `message Record { string id = 1; }\n`;
+});
+
 Given("the shipped pagination", function (this: FieldLabelsWorld) {
   this.source =
     `syntax = "proto3";\npackage contract.v1;\n` +

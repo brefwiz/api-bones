@@ -3,8 +3,9 @@
 //!
 //! A Layer 2 method takes no context parameter. The caller's trace fields and
 //! the prefetch it chose for a list are installed around the call's future with
-//! [`CallCtx::scope`], and the call helper reads them once, synchronously, when
-//! the call starts.
+//! [`CallCtx::scope`] (or [`CallCtx::with`] for a call that starts without
+//! awaiting), and the call helper reads them once, synchronously, when the
+//! call starts.
 
 use std::cell::RefCell;
 use std::future::{Future, poll_fn};
@@ -54,12 +55,19 @@ impl CallCtx {
     /// scoped futures interleaved on one thread each see their own.
     pub async fn scope<F: Future>(ctx: Self, future: F) -> F::Output {
         let mut future = pin!(future);
-        poll_fn(move |task| {
-            let previous = CURRENT.with(|current| current.borrow_mut().replace(ctx.clone()));
-            let _restore = Restore(previous);
-            future.as_mut().poll(task)
-        })
-        .await
+        poll_fn(move |task| Self::with(ctx.clone(), || future.as_mut().poll(task))).await
+    }
+
+    /// `run`, with `ctx` as [`CallCtx::current`] for as long as it runs.
+    ///
+    /// For a call that starts synchronously, such as a list: the call reads
+    /// the context when it starts, so the context only has to be installed
+    /// around that start.
+    #[must_use]
+    pub fn with<R>(ctx: Self, run: impl FnOnce() -> R) -> R {
+        let previous = CURRENT.with(|current| current.borrow_mut().replace(ctx));
+        let _restore = Restore(previous);
+        run()
     }
 }
 
@@ -82,6 +90,25 @@ mod tests {
         assert_eq!(CallCtx::current(), CallCtx::default());
         assert_eq!(CallCtx::current().traceparent, None);
         assert_eq!(CallCtx::current().tracestate, None);
+    }
+
+    #[test]
+    fn a_synchronous_run_sees_its_context_and_gives_the_previous_one_back() {
+        let seen = CallCtx::with(ctx("outer"), || {
+            let inner = CallCtx::with(ctx("inner"), CallCtx::current);
+            (inner, CallCtx::current())
+        });
+        assert_eq!(seen, (ctx("inner"), ctx("outer")));
+        assert_eq!(CallCtx::current(), CallCtx::default());
+    }
+
+    #[test]
+    fn a_panicking_run_gives_the_previous_context_back() {
+        let panicked = std::panic::catch_unwind(|| {
+            let _ran = CallCtx::with(ctx("a"), || -> u8 { panic!("the run failed") });
+        });
+        assert!(panicked.is_err());
+        assert_eq!(CallCtx::current(), CallCtx::default());
     }
 
     #[tokio::test]

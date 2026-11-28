@@ -3,58 +3,28 @@
 //! `EventsService` on the lane's loopback server, and the steps that watch it
 //! through the test service's Layer 2.
 
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use api_bones_contract_rust::{EventsService, Tick as WireTick, WatchRequest, WatchResponse};
 use api_bones_sdk::Handle;
 use api_bones_sdk::call::CALL_BUDGET;
 use api_bones_test_service_l2::Tick;
-use connectrpc::{
-    ConnectError, Encodable, RequestContext, Response, ServiceRequest, ServiceResult, ServiceStream,
-};
+use connectrpc::{ConnectError, RequestContext};
 use cucumber::{given, then, when};
-use futures_util::stream;
 
+use super::ticks::Watching;
 use super::{SdkCallWorld, Shared, base_url, call_env, serve};
 
-/// The `EventsService` of the lane's server.
-#[derive(Clone)]
-pub(super) struct EventsServer(pub(super) Arc<Shared>);
+impl Watching for Shared {
+    fn admit(&self, ctx: &RequestContext) -> Result<(), ConnectError> {
+        Shared::admit(self, ctx)
+    }
 
-impl EventsService for EventsServer {
-    async fn watch(
-        &self,
-        ctx: RequestContext,
-        request: ServiceRequest<'_, WatchRequest>,
-    ) -> ServiceResult<ServiceStream<impl Encodable<WatchResponse> + Send + use<>>> {
-        let count = request.to_owned_message().count.unwrap_or_default();
-        self.0.admit(&ctx)?;
-        let every = Duration::from_millis(self.0.tick_ms.load(Ordering::SeqCst));
-        // The response head is returned now; each tick follows `every` later.
-        let refuse_after_first = self.0.refuse_after_tick.load(Ordering::SeqCst);
-        Response::stream_ok(stream::unfold(0_u32, move |next| async move {
-            if next >= count {
-                return None;
-            }
-            tokio::time::sleep(every).await;
-            if refuse_after_first && next == 1 {
-                // The refusal ends the stream: nothing follows it.
-                let refused: Result<WatchResponse, ConnectError> =
-                    Err(ConnectError::unauthenticated("the caller is not signed in"));
-                return Some((refused, count));
-            }
-            let tick: Result<WatchResponse, ConnectError> = Ok(WatchResponse {
-                tick: WireTick {
-                    sequence: next,
-                    ..Default::default()
-                }
-                .into(),
-                ..Default::default()
-            });
-            Some((tick, next + 1))
-        }))
+    fn pacing(&self) -> (Duration, bool) {
+        (
+            Duration::from_millis(self.tick_ms.load(Ordering::SeqCst)),
+            self.refuse_after_tick.load(Ordering::SeqCst),
+        )
     }
 }
 

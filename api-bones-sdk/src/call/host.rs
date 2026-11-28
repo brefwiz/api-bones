@@ -12,15 +12,17 @@
 /// The host's credential answer is not usable: it is not a function, not
 /// bytes, or ends before it names an answer. The call fails closed with
 /// nothing sent as an unknown caller.
-#[cfg(any(test, all(feature = "wasm", target_arch = "wasm32")))]
-fn unreadable(why: &str) -> connectrpc::ConnectError {
+#[doc(hidden)]
+#[must_use]
+pub fn unreadable(why: &str) -> connectrpc::ConnectError {
     connectrpc::ConnectError::failed_precondition(format!("the host's credential {why}"))
 }
 
 /// The host's `credential()` threw or rejected: the source could not answer.
 /// The call fails closed with nothing sent.
-#[cfg(any(test, all(feature = "wasm", target_arch = "wasm32")))]
-fn unanswered() -> connectrpc::ConnectError {
+#[doc(hidden)]
+#[must_use]
+pub fn unanswered() -> connectrpc::ConnectError {
     connectrpc::ConnectError::unavailable("the host's credential source could not answer")
 }
 
@@ -28,7 +30,7 @@ fn unanswered() -> connectrpc::ConnectError {
 mod browser {
     use std::sync::Arc;
 
-    use api_bones_batch::{Anonymous, CredentialAsk, CredentialFuture, CredentialSource};
+    use api_bones_batch::{CredentialAsk, CredentialFuture, CredentialSource};
     use api_bones_page::RevisionCache;
     use js_sys::{Function, Promise, Reflect, Uint8Array};
     use wasm_bindgen::{JsCast as _, JsValue};
@@ -38,7 +40,7 @@ mod browser {
     use super::{unanswered, unreadable};
     use crate::boundary::credential_read;
     use crate::call::CallEnv;
-    use crate::span::{JsSink, Tracer};
+    use crate::span::JsSink;
 
     /// The member `name` of `host` when it is a function.
     fn function(host: &JsValue, name: &str) -> Option<Function> {
@@ -145,27 +147,57 @@ mod browser {
         pub fn from_host(host: JsValue) -> Self {
             let anonymous = Reflect::get(&host, &JsValue::from_str("anonymous"))
                 .is_ok_and(|value| value.as_bool() == Some(true));
-            let env = if anonymous {
-                Self::new(Anonymous)
-            } else {
-                Self::new(HostCredential::new(host.clone()))
-            };
+            let credentials = (!anonymous).then(|| HostCredential::new(host.clone()));
             let told = host.clone();
-            env.with_tracer(Tracer::new(Arc::new(JsSink::new(host))))
-                .with_revision_cache(REVISIONS.with(RevisionCache::clone))
-                .on_unauthenticated(Arc::new(move || {
+            Self::hosted(
+                credentials,
+                Arc::new(JsSink::new(host)),
+                REVISIONS.with(RevisionCache::clone),
+                Arc::new(move || {
                     if let Some(notify) = function(&told, "unauthenticated") {
                         let _ = notify.call0(&told);
                     }
-                }))
+                }),
+            )
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::sync::Arc;
+
+    use api_bones_batch::Anonymous;
+    use api_bones_page::RevisionCache;
     use connectrpc::ErrorCode;
+
+    use super::*;
+    use crate::call::CallEnv;
+    use crate::span::{SpanEnd, SpanSink, SpanStart, SpanStarted};
+
+    struct Quiet;
+
+    impl SpanSink for Quiet {
+        fn start(&self, _: &SpanStart) -> SpanStarted {
+            SpanStarted::default()
+        }
+
+        fn end(&self, _: &SpanEnd) {}
+    }
+
+    #[test]
+    fn a_hosted_env_wires_its_cache_and_its_refusal_notice_with_or_without_a_credential() {
+        for credentials in [Some(Anonymous), None] {
+            let env = CallEnv::hosted(
+                credentials,
+                Arc::new(Quiet),
+                RevisionCache::default(),
+                Arc::new(|| {}),
+            );
+            assert!(env.cache.is_some());
+            assert!(env.unauthenticated.is_some());
+        }
+    }
 
     #[test]
     fn a_throwing_credential_source_is_unavailable() {

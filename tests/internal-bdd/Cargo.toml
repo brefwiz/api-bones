@@ -13,9 +13,14 @@ license = "MIT"
 
 [dependencies]
 api-bones = { path = "../..", features = ["connect"] }
-connectrpc = "0.9.1"
+connectrpc = { version = "0.9.1", features = ["client"] }
+bytes = "1"
 http = "1.4.2"
 api-bones-protos = { path = "../../api-bones-protos" }
+api-bones-sdk = { path = "../../api-bones-sdk" }
+api-bones-sdk-ffi = { path = "../../api-bones-sdk-ffi" }
+api-bones-transport = { path = "../../api-bones-transport" }
+api-bones-i18n = { path = "../../api-bones-i18n" }
 api-bones-automation = { path = "../../api-bones-automation" }
 prost-reflect = "0.16"
 protox = "0.9"
@@ -25,6 +30,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 [dev-dependencies]
 cucumber = "0.23"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [[test]]
 name = "connect_client_headers"
@@ -68,4 +74,8 @@ harness = false
 
 [[test]]
 name = "sdk_wasm_integrity"
+harness = false
+
+[[test]]
+name = "sdk_ffi_layer"
 harness = false

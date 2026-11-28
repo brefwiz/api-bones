@@ -35,59 +35,11 @@ use crate::wrapper_ts::{Package, runtime_dependency};
 pub(crate) fn package_of(spec: &Path, krate: &Path, out: &Path) -> anyhow::Result<Package> {
     let name = tracked_package_name(out)?;
     refuse_foreign(out)?;
-    let text =
-        std::fs::read_to_string(spec).with_context(|| format!("cannot read {}", spec.display()))?;
-    let front = text
-        .strip_prefix("---\n")
-        .and_then(|rest| rest.split("\n---").next())
-        .ok_or_else(|| anyhow!("{} has no front matter", spec.display()))?;
-    let document: serde_yaml::Value = serde_yaml::from_str(front)?;
-    let service = document["service"]
-        .as_str()
-        .ok_or_else(|| anyhow!("the SPEC names no service"))?
-        .to_owned();
-    let surfaces = document["sdk_surfaces"]
-        .as_mapping()
-        .ok_or_else(|| anyhow!("the SPEC lists no sdk_surfaces"))?;
-    let mut spec_l2 = SpecL2Methods::default();
-    let mut listed = BTreeMap::new();
-    for (id, entry) in surfaces {
-        let id = id.as_str().unwrap_or_default().to_owned();
-        spec_l2.surfaces.insert(id.clone());
-        let lists_package = entry["targets"]["typescript"]["packages"]
-            .as_sequence()
-            .into_iter()
-            .flatten()
-            .any(|package| package.as_str() == Some(name.as_str()));
-        if !lists_package {
-            continue;
-        }
-        let mut endpoints = Vec::new();
-        let by_endpoint = spec_l2.endpoints.entry(id.clone()).or_default();
-        if let Some(mapping) = entry["l2_methods"].as_mapping() {
-            for (endpoint, languages) in mapping {
-                let endpoint = endpoint.as_str().unwrap_or_default().to_owned();
-                let rust = by_endpoint.entry(endpoint.clone()).or_default();
-                for method in languages["rust"]
-                    .as_sequence()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|m| m.as_str())
-                {
-                    if !rust.iter().any(|known| known == method) {
-                        rust.push(method.to_owned());
-                    }
-                }
-                endpoints.push(endpoint);
-            }
-        }
-        listed.insert(id, endpoints);
-    }
-    if listed.is_empty() {
-        return Err(anyhow!(
-            "no sdk_surfaces entry lists `{name}` as a typescript target package"
-        ));
-    }
+    let SurfaceWalk {
+        service,
+        spec: spec_l2,
+        listed,
+    } = walk_surfaces(spec, "typescript", &name)?;
     let manifest_path = krate.join("Cargo.toml");
     let output = Command::new("cargo")
         .args([
@@ -137,6 +89,164 @@ pub(crate) fn package_of(spec: &Path, krate: &Path, out: &Path) -> anyhow::Resul
     };
     verify(&crate::features::read_model(krate)?, &package)?;
     Ok(package)
+}
+
+/// What a SPEC's surfaces say about one package of one target language.
+pub(crate) struct SurfaceWalk {
+    pub(crate) service: String,
+    pub(crate) spec: SpecL2Methods,
+    pub(crate) listed: BTreeMap<String, Vec<String>>,
+}
+
+/// Walks the SPEC front matter: every surface is recorded, and the surfaces
+/// whose `targets.<target>.packages` list `name` contribute their `l2_methods`
+/// endpoints.
+///
+/// # Errors
+///
+/// An unreadable SPEC, one without front matter, a service or `sdk_surfaces`;
+/// no surface that lists `name` for `target`.
+pub(crate) fn walk_surfaces(spec: &Path, target: &str, name: &str) -> anyhow::Result<SurfaceWalk> {
+    let text =
+        std::fs::read_to_string(spec).with_context(|| format!("cannot read {}", spec.display()))?;
+    walk_surfaces_in(&text, target, name).with_context(|| format!("in the SPEC {}", spec.display()))
+}
+
+/// [`walk_surfaces`] over the text of a SPEC already read.
+///
+/// # Errors
+///
+/// As [`walk_surfaces`], without the read.
+pub(crate) fn walk_surfaces_in(
+    text: &str,
+    target: &str,
+    name: &str,
+) -> anyhow::Result<SurfaceWalk> {
+    let front = text
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split("\n---").next())
+        .ok_or_else(|| anyhow!("the SPEC has no front matter"))?;
+    let document: serde_yaml::Value = serde_yaml::from_str(front)?;
+    let service = document["service"]
+        .as_str()
+        .ok_or_else(|| anyhow!("the SPEC names no service"))?
+        .to_owned();
+    let surfaces = document["sdk_surfaces"]
+        .as_mapping()
+        .ok_or_else(|| anyhow!("the SPEC lists no sdk_surfaces"))?;
+    let mut spec_l2 = SpecL2Methods::default();
+    let mut listed = BTreeMap::new();
+    for (id, entry) in surfaces {
+        let id = id.as_str().unwrap_or_default().to_owned();
+        spec_l2.surfaces.insert(id.clone());
+        let lists_package = entry["targets"][target]["packages"]
+            .as_sequence()
+            .into_iter()
+            .flatten()
+            .any(|package| package.as_str() == Some(name));
+        if !lists_package {
+            continue;
+        }
+        let mut endpoints = Vec::new();
+        let by_endpoint = spec_l2.endpoints.entry(id.clone()).or_default();
+        if let Some(mapping) = entry["l2_methods"].as_mapping() {
+            for (endpoint, languages) in mapping {
+                let endpoint = endpoint.as_str().unwrap_or_default().to_owned();
+                let rust = by_endpoint.entry(endpoint.clone()).or_default();
+                for method in languages["rust"]
+                    .as_sequence()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|m| m.as_str())
+                {
+                    if !rust.iter().any(|known| known == method) {
+                        rust.push(method.to_owned());
+                    }
+                }
+                endpoints.push(endpoint);
+            }
+        }
+        listed.insert(id, endpoints);
+    }
+    if listed.is_empty() {
+        return Err(anyhow!(
+            "no sdk_surfaces entry lists `{name}` as a {target} target package"
+        ));
+    }
+    Ok(SurfaceWalk {
+        service,
+        spec: spec_l2,
+        listed,
+    })
+}
+
+/// A language whose package is bound through the uniffi output: the mobile
+/// wrappers and Python (which is not mobile; the helper is shared).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum FfiLanguage {
+    Kotlin,
+    Swift,
+    Pigeon,
+    Python,
+}
+
+impl FfiLanguage {
+    /// The key of the language under a surface's `targets`.
+    pub(crate) const fn key(self) -> &'static str {
+        match self {
+            Self::Kotlin => "kotlin",
+            Self::Swift => "swift",
+            Self::Pigeon => "pigeon",
+            Self::Python => "python",
+        }
+    }
+}
+
+/// The one package the SPEC declares for `lang` across its surfaces'
+/// `targets.<lang>.packages`.
+///
+/// # Errors
+///
+/// A SPEC without front matter or `sdk_surfaces`; no package declared for the
+/// language; more than one distinct package declared.
+pub(crate) fn ffi_package(spec: &Path, lang: FfiLanguage) -> anyhow::Result<String> {
+    let text =
+        std::fs::read_to_string(spec).with_context(|| format!("cannot read {}", spec.display()))?;
+    ffi_package_in(&text, lang)
+}
+
+pub(crate) fn ffi_package_in(text: &str, lang: FfiLanguage) -> anyhow::Result<String> {
+    let front = text
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split("\n---").next())
+        .ok_or_else(|| anyhow!("the SPEC has no front matter"))?;
+    let document: serde_yaml::Value = serde_yaml::from_str(front)?;
+    let surfaces = document["sdk_surfaces"]
+        .as_mapping()
+        .ok_or_else(|| anyhow!("the SPEC lists no sdk_surfaces"))?;
+    let mut names = std::collections::BTreeSet::new();
+    for (_, entry) in surfaces {
+        for package in entry["targets"][lang.key()]["packages"]
+            .as_sequence()
+            .into_iter()
+            .flatten()
+            .filter_map(|package| package.as_str())
+        {
+            names.insert(package.to_owned());
+        }
+    }
+    let mut names = names.into_iter();
+    match (names.next(), names.next()) {
+        (Some(name), None) => Ok(name),
+        (None, _) => Err(anyhow!(
+            "no sdk_surfaces entry lists a {} target package",
+            lang.key()
+        )),
+        (Some(_), Some(_)) => Err(anyhow!(
+            "the SPEC declares more than one {} package; a wrapper is one package",
+            lang.key()
+        )),
+    }
 }
 
 /// The `name` of the `package.json` that `out` tracks in git.
@@ -628,10 +738,8 @@ mod tests {
             .err()
             .expect("unlisted");
         assert!(
-            error
-                .to_string()
-                .contains("no sdk_surfaces entry lists `@x/other`"),
-            "{error}"
+            format!("{error:#}").contains("no sdk_surfaces entry lists `@x/other`"),
+            "{error:#}"
         );
         std::fs::remove_dir_all(&dir).expect("cleaned");
     }
@@ -792,5 +900,44 @@ mod tests {
             let error = crate_metadata(&json, Path::new("/w/Cargo.toml")).expect_err(message);
             assert!(error.to_string().contains(message), "{error}");
         }
+    }
+
+    fn ffi_spec(lang: &str, packages: &[&str]) -> String {
+        let list = packages
+            .iter()
+            .map(|p| format!("\"{p}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "---\nservice: svc\nsdk_surfaces:\n  s:\n    targets:\n      {lang}:\n        packages: [{list}]\n---\n"
+        )
+    }
+
+    #[test]
+    fn the_one_declared_package_of_each_ffi_language_is_found() {
+        for lang in [
+            FfiLanguage::Kotlin,
+            FfiLanguage::Swift,
+            FfiLanguage::Pigeon,
+            FfiLanguage::Python,
+        ] {
+            let name = ffi_package_in(&ffi_spec(lang.key(), &["pkg"]), lang).expect("a package");
+            assert_eq!(name, "pkg");
+        }
+    }
+
+    #[test]
+    fn zero_or_two_ffi_packages_and_a_missing_front_matter_are_refused() {
+        let none = ffi_package_in(&ffi_spec("kotlin", &["a"]), FfiLanguage::Python)
+            .expect_err("none declared");
+        assert!(none.to_string().contains("no sdk_surfaces entry"), "{none}");
+        let two = ffi_package_in(&ffi_spec("python", &["a", "b"]), FfiLanguage::Python)
+            .expect_err("two declared");
+        assert!(two.to_string().contains("more than one"), "{two}");
+        let bare = ffi_package_in("no front matter", FfiLanguage::Swift).expect_err("bare");
+        assert!(bare.to_string().contains("no front matter"), "{bare}");
+        let missing = ffi_package(Path::new("/nonexistent/SPEC.md"), FfiLanguage::Swift)
+            .expect_err("unreadable");
+        assert!(missing.to_string().contains("cannot read"), "{missing}");
     }
 }

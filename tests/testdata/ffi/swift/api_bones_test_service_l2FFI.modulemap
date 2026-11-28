@@ -1,0 +1,7 @@
+module api_bones_test_service_l2FFI {
+    header "api_bones_test_service_l2FFI.h"
+    export *
+    use "Darwin"
+    use "_Builtin_stdbool"
+    use "_Builtin_stdint"
+}

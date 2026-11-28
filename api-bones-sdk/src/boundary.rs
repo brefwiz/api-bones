@@ -98,6 +98,45 @@ pub fn encode_call_error(error: &Error) -> Vec<u8> {
     call_error(error).encode_to_vec()
 }
 
+/// The error a `bones.sdk.v1.CallError` carries: the identity and arguments a
+/// message is rendered from. The page detail and the wait it names are not
+/// read back.
+///
+/// # Errors
+/// `invalid_argument` when `bytes` is not the encoding of a `CallError`.
+pub fn decode_call_error(bytes: &[u8]) -> Result<Error, Error> {
+    use bones::error_arg::Value;
+    let wire = pb::CallError::decode_from_slice(bytes)
+        .map_err(|error| Error::invalid_argument(format!("the error does not decode: {error}")))?;
+    let args = wire
+        .args
+        .iter()
+        .filter_map(|(name, arg)| {
+            let value = match arg.value.as_ref()? {
+                Value::String(text) => Arg::String(text.clone()),
+                Value::Int64(n) => Arg::Int64(*n),
+                Value::Double(x) => Arg::Double(*x),
+                Value::Timestamp(at) => Arg::Timestamp {
+                    seconds: at.seconds,
+                    nanos: at.nanos,
+                },
+            };
+            Some((name.clone(), value))
+        })
+        .collect();
+    let mut error = Error::emitted(
+        &wire.emitter,
+        &wire.code,
+        &wire.platform,
+        wire.message,
+        args,
+    );
+    if let Ok(code) = wire.connect_code.parse() {
+        error.connect_code = code;
+    }
+    Ok(error)
+}
+
 fn total(total: Total) -> bones::Total {
     use bones::total::Kind;
     bones::Total {
@@ -164,12 +203,38 @@ pub fn encode_build_info(name: &str, version: &str) -> Vec<u8> {
     .encode_to_vec()
 }
 
-#[cfg(any(test, all(feature = "wasm", target_arch = "wasm32")))]
 pub use host::{credential_read, span_end, span_start, span_started};
 
+/// The `bones.sdk.v1.FormatResult` bytes of an error's message in a locale:
+/// `text` with an optional `hint`.
+#[must_use]
+pub fn encode_format_text(text: &str, hint: Option<&str>) -> Vec<u8> {
+    use pb::format_result::{Formatted, Outcome};
+    pb::FormatResult {
+        outcome: Some(Outcome::Formatted(Box::new(Formatted {
+            text: text.to_owned(),
+            hint: hint.map(str::to_owned),
+            ..Formatted::default()
+        }))),
+        ..pb::FormatResult::default()
+    }
+    .encode_to_vec()
+}
+
+/// The `bones.sdk.v1.FormatResult` bytes of a message that was refused by
+/// `rule`.
+#[must_use]
+pub fn encode_format_refused(rule: &str) -> Vec<u8> {
+    use pb::format_result::Outcome;
+    pb::FormatResult {
+        outcome: Some(Outcome::RefusedRule(rule.to_owned())),
+        ..pb::FormatResult::default()
+    }
+    .encode_to_vec()
+}
+
 /// What the core says to the host and what the host answers: spans and the
-/// credential. Built only where a host exists.
-#[cfg(any(test, all(feature = "wasm", target_arch = "wasm32")))]
+/// credential.
 mod host {
     use std::time::{Duration, UNIX_EPOCH};
 
@@ -341,16 +406,61 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_call_error_crosses_with_every_member_of_the_error() {
-        let mut error = Error::local(ConnectCode::NotFound, "WIDGET_MISSING", "NOT_FOUND", "gone")
-            .on_page(PageKind::CursorExpired, 2, 40);
+    /// `error` carrying one argument of each kind a call error names.
+    fn with_every_kind_of_argument(mut error: Error) -> Error {
         error.args.insert("name".to_owned(), Arg::from("a"));
         error.args.insert("n".to_owned(), Arg::from(7_i64));
         error.args.insert("x".to_owned(), Arg::from(1.5));
         error.args.insert(
             "at".to_owned(),
             Arg::from(UNIX_EPOCH + Duration::new(10, 5)),
+        );
+        error
+    }
+
+    #[test]
+    fn a_call_error_decodes_to_the_identity_and_arguments_it_was_encoded_from() {
+        let error = with_every_kind_of_argument(Error::emitted(
+            "pay",
+            "GRANT_MISSING",
+            "FORBIDDEN",
+            "no grant",
+            std::collections::BTreeMap::new(),
+        ));
+        let back = decode_call_error(&encode_call_error(&error)).expect("decodes");
+        assert_eq!(back, error);
+    }
+
+    #[test]
+    fn a_call_error_with_an_unknown_connect_code_keeps_the_platform_mapping_and_an_empty_argument_is_dropped()
+     {
+        let wire = pb::CallError {
+            platform: "RESOURCE_NOT_FOUND".to_owned(),
+            connect_code: "bogus".to_owned(),
+            args: [("empty".to_owned(), bones::ErrorArg::default())]
+                .into_iter()
+                .collect(),
+            ..pb::CallError::default()
+        };
+        let back = decode_call_error(&wire.encode_to_vec()).expect("decodes");
+        assert_eq!(back.connect_code, ConnectCode::NotFound);
+        assert!(back.args.is_empty());
+    }
+
+    #[test]
+    fn bytes_that_are_no_call_error_are_refused() {
+        let error = decode_call_error(&[0x0a]).expect_err("truncated");
+        assert!(error.message.contains("does not decode"), "{error}");
+    }
+
+    #[test]
+    fn a_call_error_crosses_with_every_member_of_the_error() {
+        let error = with_every_kind_of_argument(
+            Error::local(ConnectCode::NotFound, "WIDGET_MISSING", "NOT_FOUND", "gone").on_page(
+                PageKind::CursorExpired,
+                2,
+                40,
+            ),
         );
         let wire: pb::CallError = decode(&encode_call_error(&error));
         assert_eq!(wire.code, "WIDGET_MISSING");
@@ -476,6 +586,30 @@ mod tests {
         assert_eq!(wire.name, "core");
         assert_eq!(wire.version, "1.2.3");
         assert_eq!(wire.boundary, BOUNDARY);
+    }
+
+    #[test]
+    fn a_formatted_message_carries_its_text_and_hint() {
+        let wire: pb::FormatResult = decode(&encode_format_text("bonjour", Some("essayez")));
+        let Some(pb::format_result::Outcome::Formatted(formatted)) = wire.outcome else {
+            panic!("the outcome is a formatted message");
+        };
+        assert_eq!(formatted.text, "bonjour");
+        assert_eq!(formatted.hint.as_deref(), Some("essayez"));
+        let wire: pb::FormatResult = decode(&encode_format_text("hello", None));
+        let Some(pb::format_result::Outcome::Formatted(formatted)) = wire.outcome else {
+            panic!("the outcome is a formatted message");
+        };
+        assert_eq!(formatted.hint, None);
+    }
+
+    #[test]
+    fn a_refused_format_names_its_rule() {
+        let wire: pb::FormatResult = decode(&encode_format_refused("locale"));
+        assert!(matches!(
+            wire.outcome,
+            Some(pb::format_result::Outcome::RefusedRule(rule)) if rule == "locale"
+        ));
     }
 
     #[test]

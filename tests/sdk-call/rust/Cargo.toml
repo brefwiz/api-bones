@@ -21,12 +21,17 @@ api-bones-sdk = { path = "../../../api-bones-sdk" }
 # The generated contract types the loopback server serves.
 api-bones-contract-rust = { path = "../../rust" }
 # The test service's Layer 2: the surface the lane goes through.
-api-bones-test-service-l2 = { path = "../../l2" }
+api-bones-test-service-l2 = { path = "../../l2", features = ["uniffi", "sdk-all"] }
+# The native host boundary the uniffi exports of the test service are driven through.
+api-bones-sdk-ffi = { path = "../../../api-bones-sdk-ffi" }
 bytes = "1"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "net", "io-util", "time", "sync"] }
 connectrpc = { version = "0.9.1", features = ["client", "server"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 http = "1.4.2"
+# A self-signed TLS server for the untrusted-certificate case; test-only.
+rcgen = "0.13"
+tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc_rs"] }
 cucumber = "0.23"
 # The platform BDD runner.
 brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }
@@ -34,3 +39,7 @@ brefwiz-cucumber-steps = { version = "0.4.26", registry = "brefwiz" }
 [[test]]
 name = "sdk_call"
 harness = false
+
+# Plain tokio tests: the uniffi exports driven through a Rust `FfiHost`.
+[[test]]
+name = "ffi_call"

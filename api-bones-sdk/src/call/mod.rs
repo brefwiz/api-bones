@@ -50,8 +50,8 @@
 
 mod abort;
 mod attempt;
-#[cfg(any(test, all(feature = "wasm", target_arch = "wasm32")))]
-mod host;
+#[doc(hidden)]
+pub mod host;
 mod identity;
 mod refusal;
 mod reopen;
@@ -134,6 +134,27 @@ impl CallEnv {
             unauthenticated: None,
             flights: RefreshFlights::default(),
         }
+    }
+
+    /// The env a host describes: `credentials` is read before every send, or
+    /// the caller presents none when it is `None`; `sink` receives the spans;
+    /// every call shares `cache`, in the caller's own slot; `notify` is told of
+    /// every unauthenticated refusal the host's own credential could not cure.
+    #[doc(hidden)]
+    #[must_use]
+    pub fn hosted<C: CredentialSource>(
+        credentials: Option<C>,
+        sink: Arc<dyn crate::span::SpanSink>,
+        cache: RevisionCache,
+        notify: Notify,
+    ) -> Self {
+        let env = match credentials {
+            Some(credentials) => Self::new(credentials),
+            None => Self::new(Anonymous),
+        };
+        env.with_tracer(Tracer::new(sink))
+            .with_revision_cache(cache)
+            .on_unauthenticated(notify)
     }
 
     /// An env whose calls present no credential.

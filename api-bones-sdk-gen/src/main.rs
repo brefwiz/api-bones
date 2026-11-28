@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 mod build_ts;
 mod features;
+mod option_guard;
 mod size;
+mod wrapper_files;
 mod wrapper_package;
 mod wrapper_ts;
 
@@ -115,6 +117,11 @@ struct WrapperArgs {
     /// fails the command
     #[arg(long)]
     descriptor: PathBuf,
+    /// The directory of the uniffi bindgen output a Kotlin, Swift, Pigeon or
+    /// Python wrapper copies verbatim as its Layer 1; the TypeScript commands
+    /// ignore it
+    #[arg(long)]
+    bindings: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -135,6 +142,15 @@ enum Wrapper {
         /// Cargo target directory of the wasm build
         #[arg(long, default_value = "target")]
         target_dir: PathBuf,
+    },
+    /// Print the one package the SPEC declares for a uniffi-bound language
+    Package {
+        /// The SPEC whose front matter lists `sdk_surfaces`
+        #[arg(long, default_value = "SPEC.md")]
+        spec: PathBuf,
+        /// The language whose package is wanted
+        #[arg(long)]
+        language: wrapper_package::FfiLanguage,
     },
     /// Print the `api-bones.sdk-size/v1` document of a built SDK package
     Size {
@@ -197,22 +213,30 @@ fn main() -> anyhow::Result<()> {
 fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
     match command {
         Wrapper::Typescript { args, wasm_sha256 } => {
+            refuse_bindings(&args)?;
             let mut package = wrapper_package::package_of(&args.spec, &args.krate, &args.out)?;
             package.wasm_sha256 = wasm_sha256;
             let model = features::read_model(&args.krate)?;
             let contract = wrapper_ts::Contract::read(&args.descriptor)?;
-            wrapper_ts::write(
+            wrapper_files::write(
                 &args.out,
                 &wrapper_ts::generate(&model, &package, &contract)?,
             )
         }
-        Wrapper::BuildTs { args, target_dir } => build_ts::run_build(
-            &args.spec,
-            &args.krate,
-            &args.out,
-            &target_dir,
-            &args.descriptor,
-        ),
+        Wrapper::BuildTs { args, target_dir } => {
+            refuse_bindings(&args)?;
+            build_ts::run_build(
+                &args.spec,
+                &args.krate,
+                &args.out,
+                &target_dir,
+                &args.descriptor,
+            )
+        }
+        Wrapper::Package { spec, language } => {
+            println!("{}", wrapper_package::ffi_package(&spec, language)?);
+            Ok(())
+        }
         Wrapper::Size {
             wasm,
             glue,
@@ -226,6 +250,16 @@ fn cmd_wrapper(command: Wrapper) -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// The TypeScript wrapper binds no uniffi output, so a `--bindings` there is a
+/// mistake.
+fn refuse_bindings(args: &WrapperArgs) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        args.bindings.is_none(),
+        "--bindings is the uniffi output of the Kotlin, Swift, Pigeon and Python wrappers; the TypeScript wrapper binds wasm"
+    );
+    Ok(())
 }
 
 fn cmd_schema(server_bin: &str, out: &Path) -> anyhow::Result<()> {

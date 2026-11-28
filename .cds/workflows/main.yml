@@ -138,6 +138,19 @@ jobs:
         with:
           checkout: "false"
           make-target: ci-wasm-test
+      # The uniffi bindings of the test service against their goldens; it
+      # shares this worker because it builds the same workspace crates.
+      - id: ffi-golden
+        uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/make-target@main
+        with:
+          checkout: "false"
+          make-target: ci-ffi-golden
+      # The generated bindings, whole, whether or not the golden compare passed.
+      - id: upload-ffi-golden
+        if: ${{ always() }}
+        uses: actions/uploadArtifact
+        with:
+          path: "target/ffi-golden.tar.gz"
       - id: rust-cache-save
         if: ${{ always() }}
         uses: BREFWIZ/brefwiz/brefwiz/ci-workflows/rust-cache-save@main

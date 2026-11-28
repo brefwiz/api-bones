@@ -190,6 +190,14 @@ fn given_stream_control(world: &mut FieldLabelsWorld) {
         .to_owned();
 }
 
+#[given("the shipped native boundary")]
+fn given_native_boundary(world: &mut FieldLabelsWorld) {
+    world.source = "syntax = \"proto3\";\npackage contract.v1;\n\
+         import \"bones/sdk/v1/boundary.proto\";\n\
+         message Record { string id = 1; }\n"
+        .to_owned();
+}
+
 #[given("the shipped pagination")]
 fn given_pagination(world: &mut FieldLabelsWorld) {
     world.source = "syntax = \"proto3\";\npackage contract.v1;\n\

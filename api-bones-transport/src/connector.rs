@@ -111,15 +111,17 @@ impl Connector {
                     return Ok(stream);
                 }
                 Ok(Err(e)) => {
+                    tracing::debug!(target: "api_bones_transport", %address, error = %e, "tcp_connect_failed");
                     last = Some(ConnectError::unavailable_from_transport(
-                        format!("TCP connect to {address} failed"),
+                        "TCP connect failed",
                         e,
                     ));
                 }
                 Err(elapsed) => {
+                    tracing::debug!(target: "api_bones_transport", %address, timeout = ?self.tcp, "tcp_connect_timed_out");
                     last = Some(
                         ConnectError::unavailable(format!(
-                            "TCP connect to {address} did not complete within {:?}",
+                            "TCP connect did not complete within {:?}",
                             self.tcp
                         ))
                         .with_source(elapsed),

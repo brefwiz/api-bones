@@ -22,6 +22,13 @@ Feature: A Layer 2 crate generates the wrapper of the package its manifest names
   OSI-approved publishes with `public` access, any other license publishes
   `restricted`, and the files are the directories the exports reach.
 
+  A client's options carry no transport trust and never name the server: the
+  TypeScript wrapper refuses an options message with a field that is trust or
+  an address, however deeply the message nests it. The `wrapper package`
+  subcommand prints the one package the SPEC lists for a native language and
+  refuses none or more than one. `--bindings` belongs to the native wrappers;
+  the TypeScript wrapper refuses it.
+
   @state:happy
   Scenario: Two crates published as two packages generate one wrapper each
     Given a service with the crate "alpha" published as "@acme/alpha"
@@ -159,3 +166,56 @@ Feature: A Layer 2 crate generates the wrapper of the package its manifest names
       | license                |
       | Elastic-2.0            |
       | LicenseRef-Proprietary |
+
+  @state:error
+  Scenario Outline: A client whose options carry trust or an address is refused
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the client options of the crate "alpha" declare the field "<field>"
+    When the wrapper is generated for the crate "alpha"
+    Then the generation is refused with "<reason>"
+
+    Examples:
+      | field      | reason                    |
+      | tls_mode   | names transport trust     |
+      | server_url | names the server's address |
+
+  @state:error
+  Scenario: A client whose options nest a certificate authority is refused
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the client options of the crate "alpha" nest a message with the field "ca_pem"
+    When the wrapper is generated for the crate "alpha"
+    Then the generation is refused with "names transport trust"
+    And the refusal names "ca_pem"
+
+  @state:happy
+  Scenario: A client whose options carry only call tuning generates
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the client options of the crate "alpha" declare the field "page_size"
+    When the wrapper is generated for the crate "alpha"
+    Then every generation succeeded
+
+  @state:happy
+  Scenario: The package subcommand prints the one package a language lists
+    Given a SPEC listing the Kotlin package "@acme/alpha-kotlin"
+    When the package of the language "kotlin" is printed
+    Then the package printed is "@acme/alpha-kotlin"
+
+  @state:error
+  Scenario: The package subcommand refuses a language no surface lists
+    Given a SPEC listing the Kotlin package "@acme/alpha-kotlin"
+    When the package of the language "swift" is printed
+    Then the generation is refused with "no sdk_surfaces entry lists a swift target package"
+
+  @state:error
+  Scenario: The package subcommand refuses a language listing two packages
+    Given a SPEC listing the Kotlin package "@acme/alpha-kotlin"
+    And the SPEC also lists the Kotlin package "@acme/beta-kotlin"
+    When the package of the language "kotlin" is printed
+    Then the generation is refused with "more than one kotlin package"
+
+  @state:error
+  Scenario: The TypeScript wrapper refuses a bindings directory
+    Given a service with the crate "alpha" published as "@acme/alpha"
+    And the generator is given the bindings directory "uniffi-out"
+    When the wrapper is generated for the crate "alpha"
+    Then the generation is refused with "--bindings is the uniffi output of the Kotlin, Swift, Pigeon and Python wrappers"

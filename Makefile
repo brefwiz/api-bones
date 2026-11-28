@@ -1,6 +1,6 @@
 # Makefile for api-bones
 
-.PHONY: help fmt ci-format ci-lint ci-no-std ci-wasm ci-wasm-test ci-test ci-e2e-rust ci-coverage \
+.PHONY: help fmt ci-format ci-lint ci-no-std ci-wasm ci-wasm-test ci-ffi-golden ci-test ci-e2e-rust ci-coverage \
 	ci-sdk-publish-rust-dry-run ci-sdk-publish-typescript-dry-run ci-audit ci-deny build clean \
 	proto-lint proto-breaking ci-release-readiness spec-check \
 	ci-build-check library-darwin-tree-check sdk-e2e-check sdk-e2e-prebuild sc-001-check ci-doc \
@@ -28,6 +28,9 @@ COVERAGE_EXCLUDE := api-bones-contract-rust api-bones-sdk-call-contract-rust api
 COVERAGE_ALL_FEATURES := true
 COVERAGE_FAIL_UNDER_LINES := 96
 COVERAGE_FAIL_UNDER_FUNCTIONS := 96
+# The binding generator's entry point is one call into uniffi's own main and
+# is built only with the bindgen-cli feature.
+COVERAGE_IGNORE_REGEX := api-bones-sdk-ffi/src/bin/
 
 include build/brefwiz-coverage-common.mk
 include build/brefwiz-coverage-split.mk
@@ -93,6 +96,107 @@ ci-wasm-test: ## Run the api-bones-rt and fetch-transport wasm-bindgen-test suit
 	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-transport --test fetch_wasm; \
 	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown -p api-bones-sdk --features wasm --test call_wasm
 
+# The uniffi binding of the test service, generated from the built library and
+# compared with the tracked goldens, one directory per language. A golden that
+# is missing or differs fails the target; the generated output stays in
+# target/ffi-golden/<language> and the drift diff is printed, capped.
+# The binding declares no record and no enum but the error enum `FfiError`,
+# the record `FfiCallCtx` and the scaffolding uniffi emits around them; the
+# record's members are an allowlist, any other member fails. No declaration,
+# parameter and constructor included, names a root, certificate, pin, verifier,
+# TLS or insecure switch.
+FFI_LIB_EXT := $(if $(filter Darwin,$(shell uname -s)),dylib,so)
+FFI_LANGUAGES := kotlin swift python
+FFI_GOLDEN_ROOT := tests/testdata/ffi
+FFI_OUT_ROOT := target/ffi-golden
+# Words an identifier of the binding must never contain (camelCase and
+# snake_case identifiers are split into words first).
+FFI_FORBIDDEN_WORDS := root|roots|cert|certs|certificate|certificates|pin|pins|pinned|verif|verifier|verify|verification|tls|insecure
+# The lines that declare something, per language: functions, parameters and
+# constructors included.
+FFI_DECL_kotlin := (^|[[:space:]])(fun|constructor|class|interface|object|val|var)([[:space:]]|\()
+FFI_DECL_swift := (^|[[:space:]])(func|init|struct|enum|class|protocol|case|var|let)([[:space:]]|\()
+FFI_DECL_python := ^[[:space:]]*(def|class)[[:space:]]
+# The declarations of a record or an enum, per language, with the one name
+# that is allowed.
+FFI_TYPES_kotlin := ^[[:space:]]*(public |internal )?(data|enum) class +[A-Za-z0-9_]+
+FFI_TYPES_swift := ^[[:space:]]*public (struct|enum) +[A-Za-z0-9_]+
+# A python record is `@dataclass` over `class X:`; the scan joins the decorator
+# to its class line before matching. An error or data enum is `class X(Exception)`
+# or `class X:  # type: ignore`, a flat enum `class X(enum.Enum)`.
+FFI_TYPES_python := ^@dataclass(\([^)]*\))? +class +[A-Za-z0-9_]+|^class +[A-Za-z0-9_]+(\((_UniffiRecord|Exception|enum\.Enum|enum\.IntEnum)\)|:  \# type: ignore)|^    class +[A-Za-z0-9_]+\([A-Za-z0-9_]+\)
+FFI_ALLOWED_TYPES := FfiError
+# The one record the binding carries: what a host says about one call. Its
+# members are an allowlist, so it cannot grow one: a member that is not named
+# here fails, whatever it is called. Spelled per language.
+FFI_ALLOWED_RECORDS := FfiCallCtx
+FFI_RECORD_MEMBERS_kotlin := traceparent|tracestate|prefetch|firstOnly
+FFI_RECORD_MEMBERS_swift := traceparent|tracestate|prefetch|firstOnly
+FFI_RECORD_MEMBERS_python := traceparent|tracestate|prefetch|first_only
+# A member declaration inside the record body, and the prefix that precedes its name.
+FFI_RECORD_MEMBER_kotlin := (^|[[:space:]])(var|val) +`?[A-Za-z0-9_]+
+FFI_RECORD_MEMBER_swift := (^|[[:space:]])(var|let) +[A-Za-z0-9_]+
+FFI_RECORD_MEMBER_python := self\.[A-Za-z0-9_]+ =
+FFI_RECORD_PREFIX_kotlin := .*(var|val) +`?
+FFI_RECORD_PREFIX_swift := .*(var|let) +
+FFI_RECORD_PREFIX_python := ^self\.| =$$
+FFI_RECORD_kotlin := ((public|internal) )?data class $(FFI_ALLOWED_RECORDS)
+FFI_RECORD_swift := public struct +$(FFI_ALLOWED_RECORDS)
+FFI_RECORD_python := @dataclass class +$(FFI_ALLOWED_RECORDS)
+# The only declarations accepted besides a record or an enum, matched against
+# the whole declaration: the error enum itself, the runtime converters
+# (`FfiConverter...`), the handle scaffolding (`FfiHandle`, `NoHandle`) and, in
+# python, the variants nested under the error's own base `_UniffiTempFfiError`.
+# A record, an enum or a variant of any other base never matches.
+FFI_SCAFFOLD_kotlin := ((public|internal) )?enum class $(FFI_ALLOWED_TYPES)
+FFI_SCAFFOLD_swift := public (struct|enum) +($(FFI_ALLOWED_TYPES)|FfiConverter[A-Za-z0-9_]*|FfiHandle|NoHandle)
+FFI_SCAFFOLD_python := class +($(FFI_ALLOWED_TYPES)|FfiHandle|NoHandle)\([A-Za-z0-9_.]*\)|class +[A-Za-z0-9_]+\(_UniffiTemp$(FFI_ALLOWED_TYPES)\)|class +$(FFI_ALLOWED_TYPES):  \# type: ignore|class +InternalError\(Exception\)
+
+ci-ffi-golden: ## Generate the uniffi bindings, compare them with the tracked goldens, and assert the core links no uniffi (CI)
+	@if cargo tree --locked -p api-bones-sdk -e normal | grep -qi uniffi; then \
+		echo "ci-ffi-golden: api-bones-sdk depends on uniffi; the scaffolding belongs to api-bones-sdk-ffi"; \
+		exit 1; \
+	fi
+	cargo build --locked --keep-going -p api-bones-test-service-l2 --features uniffi,sdk-all
+	rm -rf $(FFI_OUT_ROOT) $(FFI_OUT_ROOT).tar.gz
+	@set -e; \
+	lib="$${CARGO_TARGET_DIR:-target}/debug/libapi_bones_test_service_l2.$(FFI_LIB_EXT)"; \
+	test -f "$$lib" || { echo "ci-ffi-golden: $$lib was not built"; exit 1; }; \
+	for lang in $(FFI_LANGUAGES); do \
+		cargo run --locked -q -p api-bones-sdk-ffi --features bindgen-cli --bin uniffi-bindgen -- \
+			generate --library "$$lib" --language "$$lang" --out-dir "$(FFI_OUT_ROOT)/$$lang"; \
+		test -n "$$(find "$(FFI_OUT_ROOT)/$$lang" -type f -size +0 2>/dev/null)" || { echo "ci-ffi-golden: no $$lang output"; exit 1; }; \
+	done; \
+	tar -czf "$(FFI_OUT_ROOT).tar.gz" -C "$(FFI_OUT_ROOT)" . ; \
+	status=0; \
+	for lang in $(FFI_LANGUAGES); do \
+		case "$$lang" in kotlin) decl='$(FFI_DECL_kotlin)'; types='$(FFI_TYPES_kotlin)'; scaffold='$(FFI_SCAFFOLD_kotlin)|$(FFI_RECORD_kotlin)'; rstart='^data class $(FFI_ALLOWED_RECORDS) '; rend='^\)'; mpat='$(FFI_RECORD_MEMBER_kotlin)'; mpre='$(FFI_RECORD_PREFIX_kotlin)'; mallow='$(FFI_RECORD_MEMBERS_kotlin)';; swift) decl='$(FFI_DECL_swift)'; types='$(FFI_TYPES_swift)'; scaffold='$(FFI_SCAFFOLD_swift)|$(FFI_RECORD_swift)'; rstart='^public struct $(FFI_ALLOWED_RECORDS)[: ]'; rend='^\}'; mpat='$(FFI_RECORD_MEMBER_swift)'; mpre='$(FFI_RECORD_PREFIX_swift)'; mallow='$(FFI_RECORD_MEMBERS_swift)';; python) decl='$(FFI_DECL_python)'; types='$(FFI_TYPES_python)'; scaffold='$(FFI_SCAFFOLD_python)|$(FFI_RECORD_python)'; rstart='^class $(FFI_ALLOWED_RECORDS)[(:]'; rend='^[A-Za-z_@]'; mpat='$(FFI_RECORD_MEMBER_python)'; mpre='$(FFI_RECORD_PREFIX_python)'; mallow='$(FFI_RECORD_MEMBERS_python)';; esac; \
+		members=$$(grep -rh -A400 -E "$$rstart" $(FFI_OUT_ROOT)/$$lang | awk -v s="$$rstart" -v e="$$rend" 'BEGIN{inb=0;doc=0} inb==0 && $$0 ~ s {inb=1;next} inb==1 && $$0 ~ e {inb=0;next} inb==1 { if ($$0 ~ /\"\"\"/) {n=gsub(/\"\"\"/,"&"); if (n%2==1) doc=!doc; next} if (doc || $$0 ~ /^[[:space:]]*(\*|\/\*|\/\/|#)/) next; print }' | grep -oE "$$mpat" | sed -E "s/($$mpre)//g" | sort -u || true); \
+		if [ -z "$$members" ]; then echo "ci-ffi-golden: $$lang $(FFI_ALLOWED_RECORDS) has no member the scan can read"; status=1; fi; \
+		extra_members=$$(printf '%s\n' "$$members" | grep -vxE "$$mallow" | grep -v '^$$' || true); \
+		if [ -n "$$extra_members" ]; then echo "ci-ffi-golden: $$lang $(FFI_ALLOWED_RECORDS) carries a member outside $$mallow:"; echo "$$extra_members" | head -20; status=1; fi; \
+		hits=$$(grep -rhE "$$decl" $(FFI_OUT_ROOT)/$$lang | while IFS= read -r line; do \
+			words=$$(printf '%s' "$$line" | sed -E 's/([A-Z]+)([A-Z][a-z])/\1 \2/g; s/([a-z0-9])([A-Z])/\1 \2/g' | tr 'A-Z_' 'a-z '); \
+			if printf '%s' "$$words" | grep -qwE "($(FFI_FORBIDDEN_WORDS))"; then printf '%s\n' "$$line"; fi; \
+		done); \
+		if [ -n "$$hits" ]; then echo "ci-ffi-golden: $$lang declares a transport-trust name:"; echo "$$hits" | head -20; status=1; fi; \
+		extra=$$(find $(FFI_OUT_ROOT)/$$lang -type f -exec sed -E -e '/^@dataclass/{' -e N -e 's/\n/ /' -e '}' {} + | grep -hoE "$$types" | sed -E 's/^[[:space:]]*//' | grep -vxE "$$scaffold" || true); \
+		if [ -n "$$extra" ]; then echo "ci-ffi-golden: $$lang declares a record or enum besides $(FFI_ALLOWED_TYPES) and $(FFI_ALLOWED_RECORDS):"; echo "$$extra" | head -20; status=1; fi; \
+		if [ ! -d "$(FFI_GOLDEN_ROOT)/$$lang" ]; then \
+			echo "ci-ffi-golden: no golden at $(FFI_GOLDEN_ROOT)/$$lang; the generated output follows and is in $(FFI_OUT_ROOT)/$$lang"; \
+			find "$(FFI_OUT_ROOT)/$$lang" -type f | sort | while IFS= read -r f; do \
+				n=$$(wc -l < "$$f"); \
+				echo "ci-ffi-golden: BEGIN $$f ($$n lines; first 120 shown, the whole file is in the ffi-golden artifact)"; \
+				head -120 "$$f"; \
+				echo "ci-ffi-golden: END $$f ($$n lines)"; \
+			done; status=1; \
+		elif ! diff -ru $(FFI_GOLDEN_ROOT)/$$lang $(FFI_OUT_ROOT)/$$lang > $(FFI_OUT_ROOT)/$$lang.diff 2>&1; then \
+			echo "ci-ffi-golden: $$lang differs from $(FFI_GOLDEN_ROOT)/$$lang; generated output is in $(FFI_OUT_ROOT)/$$lang"; \
+			head -200 $(FFI_OUT_ROOT)/$$lang.diff; status=1; \
+		fi; \
+	done; \
+	exit $$status
+
 ci-test: ci-e2e-rust ## Run tests with nextest (local one-shot; CI runs the coverage archive)
 	# Both cucumber lanes are excluded: their test targets are harness = false,
 	# and nextest enumerates targets with `--list`, which such a binary does
@@ -144,6 +248,7 @@ ci-e2e-rust: ci-sdk-autogenerate ## Run what nextest cannot carry: the Gherkin c
 	cargo test --locked --no-fail-fast -p api-bones-library-roots --test connect_root_store
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_pagination --locked
 	cargo test --locked --no-fail-fast -p api-bones-sdk-call-contract-rust --test sdk_call
+	cargo test --locked --no-fail-fast -p api-bones-sdk-call-contract-rust --test ffi_call
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_identity_guard --locked
 	cargo test --no-fail-fast -p api-bones-contract-rust --test connect_batch_fleet_transport --locked
@@ -160,6 +265,7 @@ ci-e2e-rust: ci-sdk-autogenerate ## Run what nextest cannot carry: the Gherkin c
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_wrapper_package
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test automation_manifest
 	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_wasm_integrity
+	cargo test --locked --no-fail-fast -p api-bones-internal-bdd --test sdk_ffi_layer
 
 ci-coverage: ci-e2e-rust ## Enforce the line and function floor (one-shot local run with the same gate knobs CI reads)
 	cargo llvm-cov nextest --locked --no-fail-fast --workspace $(foreach c,$(COVERAGE_EXCLUDE),--exclude $(c)) --all-features --profile $(COVERAGE_NEXTEST_PROFILE) $(_COVERAGE_IGNORE) $(_COVERAGE_LINE_GATE) $(_COVERAGE_FUNCTION_GATE)

@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use heck::ToLowerCamelCase;
+use heck::{ToLowerCamelCase, ToSnakeCase};
 
 /// A part of an export name that cannot be spelled.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +73,24 @@ pub fn typescript_name(method: &str) -> String {
     method.to_lower_camel_case()
 }
 
+/// The Python method for a Rust method name: snake case, with a trailing
+/// underscore when the name is a Python keyword.
+#[must_use]
+pub fn python_name(method: &str) -> String {
+    const KEYWORDS: [&str; 35] = [
+        "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class",
+        "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global",
+        "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return",
+        "try", "while", "with", "yield",
+    ];
+    let name = method.to_snake_case();
+    if KEYWORDS.contains(&name.as_str()) {
+        format!("{name}_")
+    } else {
+        name
+    }
+}
+
 /// The camel case a parameter name has as a protobuf field's JSON name and as
 /// a TypeScript parameter: lower camel case.
 #[must_use]
@@ -119,5 +137,13 @@ mod tests {
         assert_eq!(typescript_name("batch_get_widgets"), "batchGetWidgets");
         assert_eq!(typescript_name("list"), "list");
         assert_eq!(json_name("page_size"), "pageSize");
+    }
+
+    #[test]
+    fn rust_names_become_python_names_and_keywords_get_an_underscore() {
+        assert_eq!(python_name("batch_get_widgets"), "batch_get_widgets");
+        assert_eq!(python_name("batchGetWidgets"), "batch_get_widgets");
+        assert_eq!(python_name("import"), "import_");
+        assert_eq!(python_name("from"), "from_");
     }
 }

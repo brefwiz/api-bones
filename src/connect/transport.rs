@@ -86,7 +86,14 @@ fn trusted_roots(roots: Result<RootCertStore, RootStoreError>) -> RootCertStore 
 
 fn config_from(roots: Result<RootCertStore, RootStoreError>) -> Arc<RustlsClientConfig> {
     let roots = trusted_roots(roots);
-    let mut config = RustlsClientConfig::builder()
+    // The provider is named here, so building the config never depends on a
+    // process-wide default a host binary may not have installed. The aws-lc-rs
+    // provider supports every protocol version rustls enables by default, so
+    // the version selection cannot fail.
+    let provider = Arc::new(connectrpc::rustls::crypto::aws_lc_rs::default_provider());
+    let mut config = RustlsClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("the aws-lc-rs provider supports rustls' default protocol versions")
         .with_root_certificates(roots)
         .with_no_client_auth();
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];

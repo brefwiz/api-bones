@@ -17,6 +17,9 @@
 //!   of the impl are static exports of the class. `#[client]` also goes on an
 //!   inline `mod`, whose `#[export(sync)]` functions and consts are the
 //!   exports of a class named `<svc>__<mod>` that has no instance.
+//!   With the consumer's feature `uniffi` on a native target, each export also
+//!   becomes a free function of the uniffi binding and the client an object
+//!   named `<Type>Ffi`; the consumer calls `uniffi::setup_scaffolding!` once.
 //! - [`export`]: marks a method, function or const of a `#[client]` impl or
 //!   module, and is refused anywhere else.
 //!
@@ -27,6 +30,7 @@ mod client;
 mod common;
 mod error_type;
 mod service;
+mod uniffi;
 mod wasm;
 
 use proc_macro::TokenStream;

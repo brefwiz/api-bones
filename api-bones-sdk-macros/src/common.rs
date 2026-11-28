@@ -88,6 +88,98 @@ pub(crate) fn flat(tokens: &TokenStream) -> String {
     tokens.to_string().replace(' ', "")
 }
 
+/// The sync exports every expansion's fixture carries, as source text.
+#[cfg(test)]
+macro_rules! sync_exports {
+    () => {
+        r#"
+            #[export(sync)]
+            pub fn label(&self, kind: &str) -> String { body() }
+            #[export(sync)]
+            pub fn reset(&self) { body() }
+            #[export(sync)]
+            pub fn check(&self) -> Result<(), Error> { body() }"#
+    };
+}
+#[cfg(test)]
+pub(crate) use sync_exports;
+
+/// The `NumbersClient` fixture the expansion tests share, as source text. The
+/// caller sets what differs: the parameters of `list` (with their parentheses),
+/// the attribute of `get`, the exports between `get` and the sync ones, and the
+/// last export with the closing of the impl.
+#[cfg(test)]
+macro_rules! numbers_client {
+    ($list:literal, $get:literal, $middle:literal, $last:literal) => {
+        concat!(
+            r#"
+        #[client(surface = "connect-pagination", proto = generated::contract::sdk::v1)]
+        impl NumbersClient {
+            #[export]
+            pub fn list"#,
+            $list,
+            r#" -> ListCall<generated::contract::sdk::v1::Number> { body() }
+            #[export]
+            pub async fn watch(&self) -> Stream<generated::contract::sdk::v1::Number> { body() }
+            #[export]
+            pub fn get_all(&self, ids: Vec<String>) -> Batch<generated::contract::sdk::v1::Number> { body() }
+            "#,
+            $get,
+            r#"
+            pub async fn get(&self, id: String) -> Result<generated::contract::sdk::v1::Number, Error> { body() }
+"#,
+            $middle,
+            $crate::common::sync_exports!(),
+            $last
+        )
+    };
+}
+#[cfg(test)]
+pub(crate) use numbers_client;
+
+/// Expands the first impl of `source` with `expand`, after `change` edits the
+/// model's first client, for shapes the model itself never produces. `expand`
+/// receives the client, the impl's home and the exported members.
+#[cfg(test)]
+pub(crate) fn expand_first_impl(
+    source: &str,
+    change: impl FnOnce(&mut api_bones_sdk_model::Client),
+    expand: impl FnOnce(
+        &api_bones_sdk_model::Client,
+        &crate::wasm::Home<'_>,
+        &[crate::wasm::Member],
+    ) -> syn::Result<TokenStream>,
+) -> syn::Result<TokenStream> {
+    use crate::wasm::{Home, Member};
+
+    let file: syn::File = syn::parse_str(source).expect("a file");
+    let mut model = api_bones_sdk_model::Model::from_files([&file]).expect("a model");
+    change(&mut model.clients[0]);
+    let item = file
+        .items
+        .iter()
+        .find_map(|item| match item {
+            syn::Item::Impl(item) => Some(item),
+            _ => None,
+        })
+        .expect("an impl");
+    let exported = |attrs: &[Attribute]| find(attrs, "export").is_some();
+    let functions: Vec<Member> = item
+        .items
+        .iter()
+        .filter_map(|member| match member {
+            syn::ImplItem::Fn(function) if exported(&function.attrs) => {
+                Some(Member::of_fn(&function.sig))
+            }
+            syn::ImplItem::Const(constant) if exported(&constant.attrs) => {
+                Some(Member::of_const(&constant.ident, &constant.ty))
+            }
+            _ => None,
+        })
+        .collect();
+    expand(&model.clients[0], &Home::Impl(&item.self_ty), &functions)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,4 +263,23 @@ mod tests {
         assert_eq!(upper_camel("_x__y_"), "XY");
         assert_eq!(upper_camel(""), "");
     }
+}
+
+/// Client source shared by the unit tests of the per-language emitters: an
+/// async export taking its message whole and a sync export taking it by
+/// reference, followed by `extra` members.
+#[cfg(test)]
+pub(crate) fn whole_message_client(extra: &str) -> String {
+    format!(
+        r#"
+        #[client(surface = "s", proto = generated::contract::sdk::v1)]
+        impl C {{
+            #[export]
+            pub async fn derive(&self, request: generated::contract::sdk::v1::DeriveArgs) -> Result<generated::contract::sdk::v1::Number, Error> {{ body() }}
+            #[export(sync, args = generated::contract::v1::Inspect)]
+            pub fn inspect(&self, request: &Inspect) -> String {{ body() }}
+            {extra}
+        }}
+    "#
+    )
 }

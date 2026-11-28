@@ -79,6 +79,7 @@ async fn when_call(world: &mut FleetConnectBoundWorld) {
     let Err(failure) = result else {
         panic!("the call must fail");
     };
+    world.connecting = Some(failed_to_connect(&failure));
     world.failure = Some(failure);
 }
 
@@ -93,18 +94,28 @@ fn then_within_budget(world: &mut FleetConnectBoundWorld) {
 
 #[then("the failure is reported as a failure to connect")]
 fn then_connect_failure(world: &mut FleetConnectBoundWorld) {
-    let failure = world.failure.as_ref().expect("no failure");
     assert!(
-        failed_to_connect(failure),
-        "not a connect failure: {failure:?}"
+        world.connecting.expect("no call made"),
+        "not a connect failure: {:?}",
+        world.failure
+    );
+}
+
+#[then("the failure message names no peer address")]
+fn then_no_address(world: &mut FleetConnectBoundWorld) {
+    let failure = world.failure.as_ref().expect("no failure");
+    let message = failure.message.as_deref().unwrap_or_default();
+    assert!(
+        !message.contains("127.0.0.1") && !message.contains(&world.port.to_string()),
+        "the failure message names the peer: {message:?}"
     );
 }
 
 #[then("the failure is not reported as a failure to connect")]
 fn then_not_connect_failure(world: &mut FleetConnectBoundWorld) {
-    let failure = world.failure.as_ref().expect("no failure");
     assert!(
-        !failed_to_connect(failure),
-        "wrongly a connect failure: {failure:?}"
+        !world.connecting.expect("no call made"),
+        "wrongly a connect failure: {:?}",
+        world.failure
     );
 }
